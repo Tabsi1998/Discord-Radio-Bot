@@ -13,7 +13,6 @@ das Dashboard ist zusaetzlich.
    - `publicBaseUrl` (z.B. `https://radio.example`)
    - `sessionSecret`
    - `dbPath` (bei Docker: `/app/data/data.sqlite`)
-   - `maxSlots` (1-3, wie viele Streams pro Server moeglich sind; Standard 1)
 4) Discord Developer Portal (einmalig):
    - https://discord.com/developers/applications -> "New Application"
    - Name setzen -> Create
@@ -36,6 +35,9 @@ das Dashboard ist zusaetzlich.
    - Node.js >= 22.12.0
 6) Start:
    `npm start`
+7) Login:
+   - Webseite oeffnen -> "Mit Discord anmelden"
+   - Im Dashboard pro Server "Bot hinzufuegen" klicken
 
 ## Docker (einfacher Install)
 1) `copy config.example.json config.json` und Werte eintragen.
@@ -45,24 +47,27 @@ das Dashboard ist zusaetzlich.
    `docker compose logs -f`
 4) Falls die DB nicht erstellt werden kann:
    - Stelle sicher, dass ein Ordner `data/` existiert und schreibbar ist.
+5) Docs (eingeloggt):
+   - `/docs`
 
 ## Web-Funktionen
 - Landing Page mit oeffentlichen Stats.
 - Login via Discord OAuth2.
-- Dashboard: bis zu 3 Slots pro Server, Kanal/Stream setzen, Start/Stop, Auto-Play.
+- Dashboard: pro Server Kanal/Stream setzen, Start/Stop, Auto-Play.
 - Bot laeuft auf allen Servern gleichzeitig, ohne Mehrfach-Install.
 - Now-Playing Infos werden im Voice-Chat (falls verfuegbar) oder in einem gesetzten Textkanal gepostet.
- - Bot-Status zeigt den aktuellen Titel.
+- Bot-Status zeigt den aktuellen Titel.
+- Datenschutz: Im Dashboard siehst du nur deine eigenen Server.
 
 ## Slash Commands (bleiben aktiv)
 - `/help`
-- `/setchannel slot:<1-3> kanal:<Sprachkanal>`
-- `/setstream slot:<1-3> url:<Stream-URL>`
-- `/play slot:<1-3>`
-- `/stop slot:<1-3>`
+- `/setchannel kanal:<Sprachkanal>`
+- `/setstream url:<Stream-URL>`
+- `/play`
+- `/stop`
 - `/status`
-- `/setmetachannel slot:<1-3> kanal:<Textkanal>`
-- `/setmeta slot:<1-3> titel:<...> quelle:<...> url:<...> qualitaet:<...>`
+- `/setmetachannel kanal:<Textkanal>`
+- `/setmeta titel:<...> quelle:<...> url:<...> qualitaet:<...>`
 
 ## Hinweise
 - Der Bot braucht die Rechte: Verbinden + Sprechen im Ziel-Sprachkanal.
@@ -70,7 +75,7 @@ das Dashboard ist zusaetzlich.
 - Direkte Audio-Streams (MP3/AAC/OGG) sind am stabilsten.
 - YouTube-Livestreams werden ueber `yt-dlp` versucht (im Docker-Image enthalten).
 - Ohne Docker: `yt-dlp` muss im PATH sein (oder `YTDLP_PATH` setzen).
-- Pro Server ist nur **eine** Voice-Connection gleichzeitig moeglich (Discord Limit). Wenn du Slot 2/3 startest, wird Slot 1 gestoppt.
+- Pro Server ist nur **eine** Voice-Connection gleichzeitig moeglich (Discord Limit). Fuer mehrere Streams brauchst du mehrere Bot-Instanzen mit eigenem Token.
 - Fuer YouTube-Streams mit Sperren kann eine Cookies-Datei helfen (`YTDLP_COOKIES=/app/data/cookies.txt`).
 - Metadaten-Posts: Wenn du kein Ergebnis siehst, setze einen Textkanal mit `/setmetachannel`.
 - Wenn du "restricted uri" siehst: die Redirect URL stimmt nicht exakt mit `publicBaseUrl` ueberein.

@@ -45,7 +45,6 @@ const config = {
   sessionSecret: process.env.SESSION_SECRET || fileConfig.sessionSecret,
   port: Number(process.env.PORT || fileConfig.port || 3000),
   dbPath: process.env.DB_PATH || fileConfig.dbPath || path.join(__dirname, "data", "data.sqlite"),
-  maxSlots: Number(process.env.MAX_SLOTS || fileConfig.maxSlots || 3),
 };
 
 if (!config.token || !config.clientId || !config.clientSecret) {
@@ -78,7 +77,6 @@ if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true });
 }
 const logFile = path.join(logDir, "app.log");
-const MAX_SLOTS = Math.max(1, Math.min(3, config.maxSlots || 3));
 const EPHEMERAL = 64;
 const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
 const YTDLP_COOKIES = process.env.YTDLP_COOKIES || path.join(__dirname, "data", "cookies.txt");
@@ -98,9 +96,8 @@ function log(scope, message, extra) {
   }
 }
 db.exec(`
-  CREATE TABLE IF NOT EXISTS guild_streams (
-    guild_id TEXT,
-    slot INTEGER,
+  CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id TEXT PRIMARY KEY,
     voice_channel_id TEXT,
     stream_url TEXT,
     auto_play INTEGER DEFAULT 0,
@@ -110,8 +107,7 @@ db.exec(`
     last_source TEXT,
     last_quality TEXT,
     last_url TEXT,
-    updated_at INTEGER,
-    PRIMARY KEY (guild_id, slot)
+    updated_at INTEGER
   );
 `);
 
@@ -125,28 +121,34 @@ const columnsToAdd = [
 ];
 for (const [name, type] of columnsToAdd) {
   try {
-    db.prepare(`ALTER TABLE guild_streams ADD COLUMN ${name} ${type}`).run();
+    db.prepare(`ALTER TABLE guild_settings ADD COLUMN ${name} ${type}`).run();
   } catch {
     // Column already exists.
   }
 }
 
-const hasLegacyTable = db.prepare(`
-  SELECT name FROM sqlite_master WHERE type='table' AND name='guild_settings'
+const hasStreamsTable = db.prepare(`
+  SELECT name FROM sqlite_master WHERE type='table' AND name='guild_streams'
 `).get();
-if (hasLegacyTable) {
+if (hasStreamsTable) {
   const legacy = db.prepare(`
-    SELECT guild_id, voice_channel_id, stream_url, auto_play FROM guild_settings
+    SELECT guild_id, voice_channel_id, stream_url, auto_play, meta_channel_id, meta_thread_id,
+           last_title, last_source, last_quality, last_url
+    FROM guild_streams WHERE slot = 1
   `).all();
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO guild_streams (guild_id, slot, voice_channel_id, stream_url, auto_play, updated_at)
-    VALUES (@guild_id, 1, @voice_channel_id, @stream_url, @auto_play, @updated_at)
+    INSERT OR REPLACE INTO guild_settings
+      (guild_id, voice_channel_id, stream_url, auto_play, meta_channel_id, meta_thread_id,
+       last_title, last_source, last_quality, last_url, updated_at)
+    VALUES
+      (@guild_id, @voice_channel_id, @stream_url, @auto_play, @meta_channel_id, @meta_thread_id,
+       @last_title, @last_source, @last_quality, @last_url, @updated_at)
   `);
   for (const row of legacy) {
     insert.run({ ...row, updated_at: Date.now() });
   }
   if (legacy.length) {
-    log("db", "Legacy settings migriert", { count: legacy.length });
+    log("db", "guild_streams -> guild_settings migriert", { count: legacy.length });
   }
 }
 
@@ -164,23 +166,19 @@ process.on("uncaughtException", (err) => {
 
 const guildStates = new Map();
 
-function stateKey(guildId, slot) {
-  return `${guildId}:${slot}`;
-}
-
-function saveStreamSettings(guildId, slot, voiceChannelId, streamUrl, autoPlay) {
+function saveGuildSettings(guildId, voiceChannelId, streamUrl, autoPlay) {
   const stmt = db.prepare(`
-    INSERT INTO guild_streams (
-      guild_id, slot, voice_channel_id, stream_url, auto_play,
+    INSERT INTO guild_settings (
+      guild_id, voice_channel_id, stream_url, auto_play,
       meta_channel_id, meta_thread_id, last_title, last_source, last_quality, last_url,
       updated_at
     )
     VALUES (
-      @guildId, @slot, @voiceChannelId, @streamUrl, @autoPlay,
+      @guildId, @voiceChannelId, @streamUrl, @autoPlay,
       @metaChannelId, @metaThreadId, @lastTitle, @lastSource, @lastQuality, @lastUrl,
       @updatedAt
     )
-    ON CONFLICT(guild_id, slot) DO UPDATE SET
+    ON CONFLICT(guild_id) DO UPDATE SET
       voice_channel_id = excluded.voice_channel_id,
       stream_url = excluded.stream_url,
       auto_play = excluded.auto_play,
@@ -192,10 +190,9 @@ function saveStreamSettings(guildId, slot, voiceChannelId, streamUrl, autoPlay) 
       last_url = excluded.last_url,
       updated_at = excluded.updated_at;
   `);
-  const current = getStreamSettings(guildId, slot) || {};
+  const current = getGuildSettings(guildId) || {};
   stmt.run({
     guildId,
-    slot,
     voiceChannelId,
     streamUrl,
     autoPlay,
@@ -209,41 +206,32 @@ function saveStreamSettings(guildId, slot, voiceChannelId, streamUrl, autoPlay) 
   });
 }
 
-function getStreamSettings(guildId, slot) {
+function getGuildSettings(guildId) {
   return db.prepare(`
-    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play,
+    SELECT guild_id, voice_channel_id, stream_url, auto_play,
            meta_channel_id, meta_thread_id, last_title, last_source, last_quality, last_url
-    FROM guild_streams WHERE guild_id = ? AND slot = ?
-  `).get(guildId, slot);
-}
-
-function getGuildStreams(guildId) {
-  return db.prepare(`
-    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play,
-           meta_channel_id, meta_thread_id, last_title, last_source, last_quality, last_url
-    FROM guild_streams WHERE guild_id = ?
-  `).all(guildId);
+    FROM guild_settings WHERE guild_id = ?
+  `).get(guildId);
 }
 
 function listAutoPlaySettings() {
   return db.prepare(`
-    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play,
+    SELECT guild_id, voice_channel_id, stream_url, auto_play,
            meta_channel_id, meta_thread_id, last_title, last_source, last_quality, last_url
-    FROM guild_streams
+    FROM guild_settings
     WHERE auto_play = 1 AND voice_channel_id IS NOT NULL AND stream_url IS NOT NULL
   `).all();
 }
 
-function ensureStreamRow(guildId, slot) {
-  const existing = getStreamSettings(guildId, slot);
+function ensureGuildRow(guildId) {
+  const existing = getGuildSettings(guildId);
   if (!existing) {
-    saveStreamSettings(guildId, slot, null, null, 0);
+    saveGuildSettings(guildId, null, null, 0);
   }
 }
 
-function getGuildState(guildId, slot) {
-  const key = stateKey(guildId, slot);
-  if (!guildStates.has(key)) {
+function getGuildState(guildId) {
+  if (!guildStates.has(guildId)) {
     const player = createAudioPlayer();
     const state = {
       player,
@@ -251,41 +239,40 @@ function getGuildState(guildId, slot) {
       ffmpegProcess: null,
       currentUrl: null,
       guildId,
-      slot,
     };
 
     player.on(AudioPlayerStatus.Idle, () => {
       if (state.currentUrl) {
         setTimeout(() => {
-          play(guildId, slot, state.currentUrl).catch((err) => {
-            log("play", `Retry failed [${guildId}#${slot}] ${err.message}`);
+          play(guildId, state.currentUrl).catch((err) => {
+            log("play", `Retry failed [${guildId}] ${err.message}`);
           });
         }, STREAM_RETRY_MS);
       }
     });
 
     player.on("stateChange", (oldState, newState) => {
-      log("player", `State [${guildId}#${slot}] ${oldState.status} -> ${newState.status}`);
+      log("player", `State [${guildId}] ${oldState.status} -> ${newState.status}`);
     });
 
     player.on("debug", (message) => {
-      log("player", `Debug [${guildId}#${slot}] ${message}`);
+      log("player", `Debug [${guildId}] ${message}`);
     });
 
     player.on("error", (err) => {
-      log("audio", `Fehler [${guildId}#${slot}] ${err.message}`);
+      log("audio", `Fehler [${guildId}] ${err.message}`);
       if (state.currentUrl) {
         setTimeout(() => {
-          play(guildId, slot, state.currentUrl).catch((err2) => {
-            log("play", `Retry failed [${guildId}#${slot}] ${err2.message}`);
+          play(guildId, state.currentUrl).catch((err2) => {
+            log("play", `Retry failed [${guildId}] ${err2.message}`);
           });
         }, STREAM_RETRY_MS);
       }
     });
 
-    guildStates.set(key, state);
+    guildStates.set(guildId, state);
   }
-  return guildStates.get(key);
+  return guildStates.get(guildId);
 }
 
 function cleanupFFmpeg(state) {
@@ -391,15 +378,15 @@ async function resolveHttpMeta(url) {
   }
 }
 
-async function autoFetchMeta(url, guildId, slot) {
+async function autoFetchMeta(url, guildId) {
   let meta = null;
   if (ytdl.validateURL(url)) {
     meta = (await resolveYouTube(url)).meta;
   } else {
     meta = await resolveHttpMeta(url);
   }
-  await updateStreamMeta(guildId, slot, meta, null, null);
-  log("meta", `Auto meta [${guildId}#${slot}] ${meta?.title || "unknown"}`);
+  await updateStreamMeta(guildId, meta, null, null);
+  log("meta", `Auto meta [${guildId}] ${meta?.title || "unknown"}`);
 }
 
 async function createStreamResourceAsync(state, url) {
@@ -414,7 +401,7 @@ async function createStreamResourceAsync(state, url) {
       inputUrl = resolved.inputUrl;
       meta = resolved.meta;
     } catch (err) {
-      log("ytdl", `yt-dlp Fehler [${state.guildId}#${state.slot}] ${err.message}`);
+      log("ytdl", `yt-dlp Fehler [${state.guildId}] ${err.message}`);
       throw err;
     }
   } else {
@@ -440,12 +427,12 @@ async function createStreamResourceAsync(state, url) {
   ], { stdio: ["ignore", "pipe", "pipe"] });
 
   state.ffmpegProcess.on("exit", (code, signal) => {
-    log("ffmpeg", `Exit [${state.guildId}#${state.slot}] code=${code} signal=${signal}`);
+    log("ffmpeg", `Exit [${state.guildId}] code=${code} signal=${signal}`);
   });
   state.ffmpegProcess.stderr?.on("data", (chunk) => {
     const text = chunk.toString().trim();
     if (text) {
-      log("ffmpeg", `stderr [${state.guildId}#${state.slot}] ${text}`);
+      log("ffmpeg", `stderr [${state.guildId}] ${text}`);
     }
   });
 
@@ -457,24 +444,24 @@ async function createStreamResourceAsync(state, url) {
   };
 }
 
-async function play(guildId, slot, url) {
-  const state = getGuildState(guildId, slot);
+async function play(guildId, url) {
+  const state = getGuildState(guildId);
   state.currentUrl = url;
   const { resource, meta } = await createStreamResourceAsync(state, url);
   state.player.play(resource);
-  log("play", `Start [${guildId}#${slot}] ${url}`);
-  await updateNowPlaying(guildId, slot, meta);
+  log("play", `Start [${guildId}] ${url}`);
+  await updateNowPlaying(guildId, meta);
 }
 
-async function connectToChannel(guild, channel, slot) {
-  const state = getGuildState(guild.id, slot);
+async function connectToChannel(guild, channel) {
+  const state = getGuildState(guild.id);
 
   if (state.connection) {
     state.connection.destroy();
     state.connection = null;
   }
 
-  log("voice", `Join request [${guild.id}#${slot}] -> ${channel.name} (${channel.type})`);
+  log("voice", `Join request [${guild.id}] -> ${channel.name} (${channel.type})`);
 
   const connection = joinVoiceChannel({
     channelId: channel.id,
@@ -484,15 +471,15 @@ async function connectToChannel(guild, channel, slot) {
   });
 
   connection.on("stateChange", (oldState, newState) => {
-    log("voice", `State [${guild.id}#${slot}] ${oldState.status} -> ${newState.status}`);
+    log("voice", `State [${guild.id}] ${oldState.status} -> ${newState.status}`);
   });
 
   connection.on("error", (err) => {
-    log("voice", `Error [${guild.id}#${slot}] ${err.message}`);
+    log("voice", `Error [${guild.id}] ${err.message}`);
   });
 
   connection.on("debug", (message) => {
-    log("voice", `Debug [${guild.id}#${slot}] ${message}`);
+    log("voice", `Debug [${guild.id}] ${message}`);
   });
 
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
@@ -504,7 +491,7 @@ async function connectToChannel(guild, channel, slot) {
     } catch {
       connection.destroy();
       state.connection = null;
-      log("voice", `Disconnected [${guild.id}#${slot}]`);
+      log("voice", `Disconnected [${guild.id}]`);
     }
   });
 
@@ -522,29 +509,29 @@ async function connectToChannel(guild, channel, slot) {
     try {
       const me = await guild.members.fetch(client.user.id);
       await me.voice.setSuppressed(false);
-      log("voice", `Stage unsuppressed [${guild.id}#${slot}]`);
+      log("voice", `Stage unsuppressed [${guild.id}]`);
     } catch (err) {
-      log("voice", `Stage unsuppress failed [${guild.id}#${slot}] ${err.message}`);
+      log("voice", `Stage unsuppress failed [${guild.id}] ${err.message}`);
     }
   }
 
-  log("voice", `Verbunden [${guild.id}#${slot}] -> ${channel.name}`);
+  log("voice", `Verbunden [${guild.id}] -> ${channel.name}`);
   return state;
 }
 
-async function startGuildFromSettings(guildId, slot) {
-  const settings = getStreamSettings(guildId, slot);
+async function startGuildFromSettings(guildId) {
+  const settings = getGuildSettings(guildId);
   if (!settings || !settings.voice_channel_id || !settings.stream_url) return;
   const guild = client.guilds.cache.get(guildId);
   if (!guild) return;
   const channel = await guild.channels.fetch(settings.voice_channel_id);
   if (!channel || (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice)) return;
-  await connectToChannel(guild, channel, slot);
-  await play(guildId, slot, settings.stream_url);
+  await connectToChannel(guild, channel);
+  await play(guildId, settings.stream_url);
 }
 
-function stopGuildStream(guildId, slot) {
-  const state = getGuildState(guildId, slot);
+function stopGuildStream(guildId) {
+  const state = getGuildState(guildId);
   state.currentUrl = null;
   cleanupFFmpeg(state);
   state.player.stop();
@@ -556,15 +543,7 @@ function stopGuildStream(guildId, slot) {
   if (!anyActive && client.user) {
     client.user.setActivity("Radio", { type: ActivityType.Playing });
   }
-  log("play", `Stop [${guildId}#${slot}]`);
-}
-
-function stopOtherSlots(guildId, slot) {
-  for (let s = 1; s <= MAX_SLOTS; s += 1) {
-    if (s !== slot) {
-      stopGuildStream(guildId, s);
-    }
-  }
+  log("play", `Stop [${guildId}]`);
 }
 
 function updatePresence(title) {
@@ -597,7 +576,7 @@ async function resolveMetaChannel(guild, voiceChannel, settings) {
   return firstText || null;
 }
 
-async function getOrCreateThread(baseChannel, voiceChannelName, slot, settings) {
+async function getOrCreateThread(baseChannel, voiceChannelName, settings) {
   if (!baseChannel?.threads?.create) return null;
 
   if (settings?.meta_thread_id) {
@@ -605,7 +584,7 @@ async function getOrCreateThread(baseChannel, voiceChannelName, slot, settings) 
     if (thread) return thread;
   }
 
-  const threadName = `${voiceChannelName || "voice"}-slot-${slot}`;
+  const threadName = `${voiceChannelName || "voice"}-radio`;
   const thread = await baseChannel.threads.create({
     name: threadName.slice(0, 100),
     autoArchiveDuration: 1440,
@@ -614,10 +593,10 @@ async function getOrCreateThread(baseChannel, voiceChannelName, slot, settings) 
   return thread;
 }
 
-async function updateStreamMeta(guildId, slot, meta, metaChannelId, metaThreadId) {
-  const current = getStreamSettings(guildId, slot) || {};
+async function updateStreamMeta(guildId, meta, metaChannelId, metaThreadId) {
+  const current = getGuildSettings(guildId) || {};
   const stmt = db.prepare(`
-    UPDATE guild_streams SET
+    UPDATE guild_settings SET
       meta_channel_id = @metaChannelId,
       meta_thread_id = @metaThreadId,
       last_title = @lastTitle,
@@ -625,11 +604,10 @@ async function updateStreamMeta(guildId, slot, meta, metaChannelId, metaThreadId
       last_quality = @lastQuality,
       last_url = @lastUrl,
       updated_at = @updatedAt
-    WHERE guild_id = @guildId AND slot = @slot
+    WHERE guild_id = @guildId
   `);
   stmt.run({
     guildId,
-    slot,
     metaChannelId: metaChannelId ?? current.meta_channel_id ?? null,
     metaThreadId: metaThreadId ?? current.meta_thread_id ?? null,
     lastTitle: meta?.title ?? current.last_title ?? null,
@@ -640,10 +618,10 @@ async function updateStreamMeta(guildId, slot, meta, metaChannelId, metaThreadId
   });
 }
 
-async function updateNowPlaying(guildId, slot, meta) {
+async function updateNowPlaying(guildId, meta) {
   const guild = client.guilds.cache.get(guildId);
   if (!guild) return;
-  const settings = getStreamSettings(guildId, slot) || {};
+  const settings = getGuildSettings(guildId) || {};
   const voiceChannel = settings.voice_channel_id
     ? await guild.channels.fetch(settings.voice_channel_id).catch(() => null)
     : null;
@@ -652,11 +630,11 @@ async function updateNowPlaying(guildId, slot, meta) {
 
   const baseChannel = await resolveMetaChannel(guild, voiceChannel, settings);
   if (!baseChannel) {
-    log("meta", `No text channel found [${guildId}#${slot}]`);
+    log("meta", `No text channel found [${guildId}]`);
     return;
   }
 
-  const thread = await getOrCreateThread(baseChannel, voiceChannel?.name, slot, settings);
+  const thread = await getOrCreateThread(baseChannel, voiceChannel?.name, settings);
   const target = thread || baseChannel;
 
   const title = meta?.title || settings.last_title || "Unbekannter Stream";
@@ -665,7 +643,7 @@ async function updateNowPlaying(guildId, slot, meta) {
   const link = meta?.url || settings.last_url || settings.stream_url || "—";
 
   const message = [
-    `**Jetzt laeuft (Slot ${slot})**`,
+    "**Jetzt laeuft**",
     `Titel: ${title}`,
     `Quelle: ${source}`,
     `Link: ${link}`,
@@ -673,11 +651,11 @@ async function updateNowPlaying(guildId, slot, meta) {
   ].join("\n");
 
   await target.send({ content: message }).catch((err) => {
-    log("meta", `Post failed [${guildId}#${slot}] ${err.message}`);
+    log("meta", `Post failed [${guildId}] ${err.message}`);
   });
 
-  await updateStreamMeta(guildId, slot, meta, baseChannel.id, thread?.id || null);
-  log("meta", `Posted [${guildId}#${slot}] channel=${baseChannel.id} thread=${thread?.id || "none"}`);
+  await updateStreamMeta(guildId, meta, baseChannel.id, thread?.id || null);
+  log("meta", `Posted [${guildId}] channel=${baseChannel.id} thread=${thread?.id || "none"}`);
 }
 
 function escapeHtml(value) {
@@ -720,52 +698,34 @@ async function registerCommands() {
       .setDescription("Zeigt Hilfe und Befehle."),
     new SlashCommandBuilder()
       .setName("setchannel")
-      .setDescription("Setzt den Sprachkanal fuer einen Slot.")
-      .addIntegerOption((option) =>
-        option.setName("slot").setDescription("Slot 1-3").setRequired(true)
-      )
+      .setDescription("Setzt den Sprachkanal fuer den Bot.")
       .addChannelOption((option) =>
         option.setName("kanal").setDescription("Sprachkanal").setRequired(true)
       ),
     new SlashCommandBuilder()
       .setName("setstream")
-      .setDescription("Setzt die Stream-URL fuer einen Slot.")
-      .addIntegerOption((option) =>
-        option.setName("slot").setDescription("Slot 1-3").setRequired(true)
-      )
+      .setDescription("Setzt die Stream-URL.")
       .addStringOption((option) =>
         option.setName("url").setDescription("Stream-URL").setRequired(true)
       ),
     new SlashCommandBuilder()
       .setName("play")
-      .setDescription("Startet den Stream fuer einen Slot.")
-      .addIntegerOption((option) =>
-        option.setName("slot").setDescription("Slot 1-3").setRequired(true)
-      ),
+      .setDescription("Startet den Stream."),
     new SlashCommandBuilder()
       .setName("stop")
-      .setDescription("Stoppt den Stream fuer einen Slot.")
-      .addIntegerOption((option) =>
-        option.setName("slot").setDescription("Slot 1-3").setRequired(true)
-      ),
+      .setDescription("Stoppt den Stream."),
     new SlashCommandBuilder()
       .setName("status")
-      .setDescription("Zeigt Einstellungen fuer alle Slots."),
+      .setDescription("Zeigt aktuelle Einstellungen."),
     new SlashCommandBuilder()
       .setName("setmetachannel")
       .setDescription("Setzt den Textkanal fuer Now-Playing Updates.")
-      .addIntegerOption((option) =>
-        option.setName("slot").setDescription("Slot 1-3").setRequired(true)
-      )
       .addChannelOption((option) =>
         option.setName("kanal").setDescription("Textkanal").setRequired(true)
       ),
     new SlashCommandBuilder()
       .setName("setmeta")
       .setDescription("Optional: Metadaten manuell setzen (ueberschreibt auto).")
-      .addIntegerOption((option) =>
-        option.setName("slot").setDescription("Slot 1-3").setRequired(true)
-      )
       .addStringOption((option) =>
         option.setName("titel").setDescription("Titel/Name")
       )
@@ -986,7 +946,7 @@ app.get("/", (req, res) => {
   const totalGuilds = client.guilds.cache.size;
   const configured = db.prepare(`
     SELECT COUNT(DISTINCT guild_id) as count
-    FROM guild_streams
+    FROM guild_settings
     WHERE voice_channel_id IS NOT NULL AND stream_url IS NOT NULL
   `).get().count;
   const activeStreams = [...guildStates.values()].filter((state) => state.currentUrl).length;
@@ -996,8 +956,11 @@ app.get("/", (req, res) => {
       <h1>Discord Radio Hosting</h1>
       <p>Ein Bot, viele Server. Ein Dashboard, um Kanal und Stream zu verwalten.</p>
       <div class="cta">
-        <a class="button" href="${inviteUrl()}">Bot hinzufuegen</a>
-        <a class="button secondary" href="/dashboard">Dashboard</a>
+        ${req.session.user
+          ? `<a class="button" href="${inviteUrl()}">Bot hinzufuegen</a>
+             <a class="button secondary" href="/dashboard">Dashboard</a>`
+          : `<a class="button" href="/login">Mit Discord anmelden</a>
+             <a class="button secondary" href="/docs">Dokumentation</a>`}
       </div>
       <p class="muted">Hinweis: Fuer das Dashboard musst du dich mit Discord einloggen und "Server verwalten" besitzen.</p>
       <div class="stats">
@@ -1101,6 +1064,14 @@ app.get("/logout", (req, res) => {
   });
 });
 
+app.get("/add-bot/:id", requireLogin, (req, res) => {
+  const guildId = req.params.id;
+  if (!hasManageGuild(req, guildId)) {
+    return res.status(403).send("Keine Berechtigung.");
+  }
+  return res.redirect(inviteUrl(guildId));
+});
+
 app.get("/dashboard", requireLogin, async (req, res) => {
   const flash = req.session.flash;
   req.session.flash = null;
@@ -1111,8 +1082,7 @@ app.get("/dashboard", requireLogin, async (req, res) => {
 
   for (const guild of guilds) {
     const botGuild = client.guilds.cache.get(guild.id);
-    const settingsRows = getGuildStreams(guild.id);
-    const settingsBySlot = new Map(settingsRows.map((row) => [row.slot, row]));
+    const settings = getGuildSettings(guild.id) || {};
     const isInstalled = Boolean(botGuild);
     let channels = [];
 
@@ -1128,54 +1098,19 @@ app.get("/dashboard", requireLogin, async (req, res) => {
 
     const inviteButton = isInstalled
       ? `<span class="pill">Bot installiert</span>`
-      : `<a class="button secondary" href="${inviteUrl(guild.id)}">Bot hinzufuegen</a>`;
+      : `<a class="button secondary" href="/add-bot/${escapeHtml(guild.id)}">Bot hinzufuegen</a>`;
 
-    const slots = [];
-    for (let slot = 1; slot <= MAX_SLOTS; slot += 1) {
-      const settings = settingsBySlot.get(slot) || {};
-      const selectedChannel = settings.voice_channel_id || "";
-      const channelOptions = channels.length
-        ? channels.map((channel) => {
-            const selected = selectedChannel === channel.id ? "selected" : "";
-            return `<option value="${escapeHtml(channel.id)}" ${selected}>${escapeHtml(channel.name)}</option>`;
-          }).join("")
-        : `<option value="">Keine Kanaele gefunden</option>`;
+    const selectedChannel = settings.voice_channel_id || "";
+    const channelOptions = channels.length
+      ? channels.map((channel) => {
+          const selected = selectedChannel === channel.id ? "selected" : "";
+          return `<option value="${escapeHtml(channel.id)}" ${selected}>${escapeHtml(channel.name)}</option>`;
+        }).join("")
+      : `<option value="">Keine Kanaele gefunden</option>`;
 
-      const streamValue = settings.stream_url ? escapeHtml(settings.stream_url) : "";
-      const autoPlayChecked = settings.auto_play ? "checked" : "";
-      const startDisabled = (!settings.voice_channel_id || !settings.stream_url || !isInstalled) ? "disabled" : "";
-
-      slots.push(`
-        <div class="card">
-          <div class="row">
-            <h3>Slot ${slot}</h3>
-            ${slot === 1 ? `<span class="pill">Standard</span>` : `<span class="pill">Optional</span>`}
-          </div>
-          <form method="post" action="/guild/${escapeHtml(guild.id)}/slot/${slot}/settings">
-            <label>Sprachkanal</label>
-            <select name="voiceChannelId" ${isInstalled ? "" : "disabled"}>
-              <option value="">Bitte waehlen</option>
-              ${channelOptions}
-            </select>
-            <label>Stream URL</label>
-            <input name="streamUrl" placeholder="https://..." value="${streamValue}" ${isInstalled ? "" : "disabled"}/>
-            <label>
-              <input type="checkbox" name="autoPlay" value="1" ${autoPlayChecked} ${isInstalled ? "" : "disabled"}/>
-              Auto-Play nach Neustart
-            </label>
-            <button class="button" type="submit" ${isInstalled ? "" : "disabled"}>Speichern</button>
-          </form>
-          <div class="row">
-            <form method="post" action="/guild/${escapeHtml(guild.id)}/slot/${slot}/start">
-              <button class="button" type="submit" ${startDisabled}>Start</button>
-            </form>
-            <form method="post" action="/guild/${escapeHtml(guild.id)}/slot/${slot}/stop">
-              <button class="button secondary" type="submit" ${isInstalled ? "" : "disabled"}>Stop</button>
-            </form>
-          </div>
-        </div>
-      `);
-    }
+    const streamValue = settings.stream_url ? escapeHtml(settings.stream_url) : "";
+    const autoPlayChecked = settings.auto_play ? "checked" : "";
+    const startDisabled = (!settings.voice_channel_id || !settings.stream_url || !isInstalled) ? "disabled" : "";
 
     cards.push(`
       <div class="card">
@@ -1184,8 +1119,27 @@ app.get("/dashboard", requireLogin, async (req, res) => {
           ${inviteButton}
         </div>
         <p class="muted">Server ID: ${escapeHtml(guild.id)}</p>
-        <div class="grid">
-          ${slots.join("")}
+        <form method="post" action="/guild/${escapeHtml(guild.id)}/settings">
+          <label>Sprachkanal</label>
+          <select name="voiceChannelId" ${isInstalled ? "" : "disabled"}>
+            <option value="">Bitte waehlen</option>
+            ${channelOptions}
+          </select>
+          <label>Stream URL</label>
+          <input name="streamUrl" placeholder="https://..." value="${streamValue}" ${isInstalled ? "" : "disabled"}/>
+          <label>
+            <input type="checkbox" name="autoPlay" value="1" ${autoPlayChecked} ${isInstalled ? "" : "disabled"}/>
+            Auto-Play nach Neustart
+          </label>
+          <button class="button" type="submit" ${isInstalled ? "" : "disabled"}>Speichern</button>
+        </form>
+        <div class="row">
+          <form method="post" action="/guild/${escapeHtml(guild.id)}/start">
+            <button class="button" type="submit" ${startDisabled}>Start</button>
+          </form>
+          <form method="post" action="/guild/${escapeHtml(guild.id)}/stop">
+            <button class="button secondary" type="submit" ${isInstalled ? "" : "disabled"}>Stop</button>
+          </form>
         </div>
       </div>
     `);
@@ -1220,13 +1174,13 @@ app.get("/docs", requireLogin, (req, res) => {
         <h3>Slash Commands</h3>
         <pre>
 /help
-/setchannel slot:&lt;1-3&gt; kanal:&lt;Sprachkanal&gt;
-/setstream slot:&lt;1-3&gt; url:&lt;Stream-URL&gt;
-/play slot:&lt;1-3&gt;
-/stop slot:&lt;1-3&gt;
+/setchannel kanal:&lt;Sprachkanal&gt;
+/setstream url:&lt;Stream-URL&gt;
+/play
+/stop
 /status
-/setmetachannel slot:&lt;1-3&gt; kanal:&lt;Textkanal&gt;
-/setmeta slot:&lt;1-3&gt; titel:&lt;...&gt; quelle:&lt;...&gt; url:&lt;...&gt; qualitaet:&lt;...&gt;
+/setmetachannel kanal:&lt;Textkanal&gt;
+/setmeta titel:&lt;...&gt; quelle:&lt;...&gt; url:&lt;...&gt; qualitaet:&lt;...&gt;
         </pre>
       </div>
       <div class="card">
@@ -1243,10 +1197,24 @@ https://www.youtube.com/watch?v=VIDEO_ID
         <p class="muted">Hinweis: YouTube kann wegen Geo/Age/Cookies blockieren. In dem Fall hilft ein direkter Stream-Link oder eine Cookies-Datei.</p>
       </div>
       <div class="card">
+        <h3>Stream-Quellen</h3>
+        <p>Beispiel-Quelle fuer MP3-Streams:</p>
+        <p><a href="https://somafm.com/" target="_blank" rel="noreferrer">SomaFM Streams</a></p>
+      </div>
+      <div class="card">
+        <h3>Login & Datenschutz</h3>
+        <p>Du meldest dich mit deinem Discord-Account an. Das Dashboard zeigt nur deine eigenen Server (mit "Server verwalten").</p>
+        <p class="muted">Oeffentlich ist nur die Gesamtanzahl der Server, nicht deine Serverliste.</p>
+      </div>
+      <div class="card">
+        <h3>Bot hinzufuegen</h3>
+        <p>Nach dem Login siehst du pro Server einen Button "Bot hinzufuegen".</p>
+      </div>
+      <div class="card">
         <h3>Now-Playing</h3>
         <p>Der Bot postet automatisch Titel/Quelle/Qualitaet in einen Thread oder Textkanal.</p>
         <pre>
-/setmetachannel slot:1 kanal:#radio
+/setmetachannel kanal:#radio
         </pre>
       </div>
       <div class="card">
@@ -1255,7 +1223,7 @@ https://www.youtube.com/watch?v=VIDEO_ID
       </div>
       <div class="card">
         <h3>Wichtig</h3>
-        <p>Pro Server kann der Bot nur in einem Sprachkanal gleichzeitig sein. Wenn du einen anderen Slot startest, wird der aktuelle Stream gestoppt.</p>
+        <p>Pro Server kann der Bot nur in einem Sprachkanal gleichzeitig sein. Fuer mehrere Streams brauchst du mehrere Bot-Instanzen.</p>
       </div>
     </section>
   `;
@@ -1272,12 +1240,8 @@ function hasManageGuild(req, guildId) {
   return guilds.some((guild) => guild.id === guildId);
 }
 
-app.post("/guild/:id/slot/:slot/settings", requireLogin, async (req, res) => {
+app.post("/guild/:id/settings", requireLogin, async (req, res) => {
   const guildId = req.params.id;
-  const slot = Number(req.params.slot);
-  if (!Number.isInteger(slot) || slot < 1 || slot > MAX_SLOTS) {
-    return res.status(400).send("Ungueltiger Slot.");
-  }
   if (!hasManageGuild(req, guildId)) {
     return res.status(403).send("Keine Berechtigung.");
   }
@@ -1291,38 +1255,34 @@ app.post("/guild/:id/slot/:slot/settings", requireLogin, async (req, res) => {
     return res.redirect("/dashboard");
   }
 
-  saveStreamSettings(guildId, slot, voiceChannelId, streamUrl, autoPlay);
+  saveGuildSettings(guildId, voiceChannelId, streamUrl, autoPlay);
   req.session.flash = "Einstellungen gespeichert.";
 
   if (autoPlay && voiceChannelId && streamUrl) {
     try {
-      await startGuildFromSettings(guildId, slot);
+      await startGuildFromSettings(guildId);
     } catch (err) {
-      log("autoplay", `Fehler [${guildId}#${slot}] ${err.message}`);
+      log("autoplay", `Fehler [${guildId}] ${err.message}`);
     }
   }
 
   return res.redirect("/dashboard");
 });
 
-app.post("/guild/:id/slot/:slot/start", requireLogin, async (req, res) => {
+app.post("/guild/:id/start", requireLogin, async (req, res) => {
   const guildId = req.params.id;
-  const slot = Number(req.params.slot);
-  if (!Number.isInteger(slot) || slot < 1 || slot > MAX_SLOTS) {
-    return res.status(400).send("Ungueltiger Slot.");
-  }
   if (!hasManageGuild(req, guildId)) {
     return res.status(403).send("Keine Berechtigung.");
   }
 
-  const settings = getStreamSettings(guildId, slot);
+  const settings = getGuildSettings(guildId);
   if (!settings || !settings.voice_channel_id || !settings.stream_url) {
     req.session.flash = "Bitte Kanal und Stream zuerst setzen.";
     return res.redirect("/dashboard");
   }
 
   try {
-    await startGuildFromSettings(guildId, slot);
+    await startGuildFromSettings(guildId);
     req.session.flash = "Stream gestartet.";
   } catch (err) {
     req.session.flash = `Start fehlgeschlagen: ${err.message}`;
@@ -1331,32 +1291,26 @@ app.post("/guild/:id/slot/:slot/start", requireLogin, async (req, res) => {
   return res.redirect("/dashboard");
 });
 
-app.post("/guild/:id/slot/:slot/stop", requireLogin, (req, res) => {
+app.post("/guild/:id/stop", requireLogin, (req, res) => {
   const guildId = req.params.id;
-  const slot = Number(req.params.slot);
-  if (!Number.isInteger(slot) || slot < 1 || slot > MAX_SLOTS) {
-    return res.status(400).send("Ungueltiger Slot.");
-  }
   if (!hasManageGuild(req, guildId)) {
     return res.status(403).send("Keine Berechtigung.");
   }
 
-  stopGuildStream(guildId, slot);
+  stopGuildStream(guildId);
   req.session.flash = "Stream gestoppt.";
   return res.redirect("/dashboard");
 });
 
 client.on("guildCreate", (guild) => {
-  const existing = getStreamSettings(guild.id, 1);
+  const existing = getGuildSettings(guild.id);
   if (!existing) {
-    saveStreamSettings(guild.id, 1, null, null, 0);
+    saveGuildSettings(guild.id, null, null, 0);
   }
 });
 
 client.on("guildDelete", (guild) => {
-  for (let slot = 1; slot <= MAX_SLOTS; slot += 1) {
-    stopGuildStream(guild.id, slot);
-  }
+  stopGuildStream(guild.id);
 });
 
 client.once(Events.ClientReady, async () => {
@@ -1367,9 +1321,9 @@ client.once(Events.ClientReady, async () => {
   const autoPlay = listAutoPlaySettings();
   for (const entry of autoPlay) {
     try {
-      await startGuildFromSettings(entry.guild_id, entry.slot);
+      await startGuildFromSettings(entry.guild_id);
     } catch (err) {
-      log("autoplay", `Fehler [${entry.guild_id}#${entry.slot}] ${err.message}`);
+      log("autoplay", `Fehler [${entry.guild_id}] ${err.message}`);
     }
   }
 });
@@ -1393,16 +1347,17 @@ client.on("interactionCreate", async (interaction) => {
       "Beispiele:",
       "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_INTERNATIONAL.mp3",
       "http://stream.live.vc.bbcmedia.co.uk/bbc_radio_fourlw_online_nonuk",
-      "/setchannel slot:<1-3> kanal:<Sprachkanal>",
-      "/setstream slot:<1-3> url:<Stream-URL>",
-      "/play slot:<1-3>",
-      "/stop slot:<1-3>",
+      "/setchannel kanal:<Sprachkanal>",
+      "/setstream url:<Stream-URL>",
+      "/play",
+      "/stop",
       "/status",
-      "/setmetachannel slot:<1-3> kanal:<Textkanal>",
-      "/setmeta slot:<1-3> titel:<...> quelle:<...> url:<...> qualitaet:<...>",
+      "/setmetachannel kanal:<Textkanal>",
+      "/setmeta titel:<...> quelle:<...> url:<...> qualitaet:<...>",
       "",
       "Hinweis: Pro Server nur 1 Voice-Connection gleichzeitig.",
-      "Wenn du Slot 2/3 startest, stoppt Slot 1 automatisch.",
+      "Fuer mehrere Streams brauchst du mehrere Bot-Instanzen.",
+      "Wenn YouTube blockiert: Cookies-Datei nutzen (YTDLP_COOKIES).",
     ].join("\n");
     return interaction.reply({
       content: `Hilfe:\n${help}`,
@@ -1411,31 +1366,17 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.commandName === "status") {
-    const rows = getGuildStreams(guildId);
-    if (!rows.length) {
+    const settings = getGuildSettings(guildId);
+    if (!settings) {
       return interaction.reply({
         content: "Noch keine Einstellungen. Nutze /setchannel und /setstream.",
         flags: EPHEMERAL,
       });
     }
-    const lines = rows
-      .sort((a, b) => a.slot - b.slot)
-      .map((row) => {
-        const chan = row.voice_channel_id || "nicht gesetzt";
-        const url = row.stream_url || "nicht gesetzt";
-        const meta = row.meta_channel_id ? ` MetaChannel=${row.meta_channel_id}` : "";
-        return `Slot ${row.slot}: Kanal=${chan} Stream=${url}${meta}`;
-      })
-      .join("\n");
-    return interaction.reply({ content: lines, flags: EPHEMERAL });
-  }
-
-  const slot = interaction.options.getInteger("slot", true);
-  if (!Number.isInteger(slot) || slot < 1 || slot > MAX_SLOTS) {
-    return interaction.reply({
-      content: `Slot muss zwischen 1 und ${MAX_SLOTS} liegen.`,
-      flags: EPHEMERAL,
-    });
+    const chan = settings.voice_channel_id || "nicht gesetzt";
+    const url = settings.stream_url || "nicht gesetzt";
+    const meta = settings.meta_channel_id ? ` MetaChannel=${settings.meta_channel_id}` : "";
+    return interaction.reply({ content: `Kanal=${chan} Stream=${url}${meta}`, flags: EPHEMERAL });
   }
 
   if (interaction.commandName === "setchannel") {
@@ -1446,10 +1387,10 @@ client.on("interactionCreate", async (interaction) => {
         flags: EPHEMERAL,
       });
     }
-    const current = getStreamSettings(guildId, slot) || {};
-    saveStreamSettings(guildId, slot, channel.id, current.stream_url || null, current.auto_play || 0);
+    const current = getGuildSettings(guildId) || {};
+    saveGuildSettings(guildId, channel.id, current.stream_url || null, current.auto_play || 0);
     return interaction.reply({
-      content: `Slot ${slot}: Sprachkanal gesetzt (${channel.name}).`,
+      content: `Sprachkanal gesetzt (${channel.name}).`,
       flags: EPHEMERAL,
     });
   }
@@ -1462,10 +1403,10 @@ client.on("interactionCreate", async (interaction) => {
         flags: EPHEMERAL,
       });
     }
-    ensureStreamRow(guildId, slot);
-    await updateStreamMeta(guildId, slot, null, channel.id, null);
+    ensureGuildRow(guildId);
+    await updateStreamMeta(guildId, null, channel.id, null);
     return interaction.reply({
-      content: `Slot ${slot}: Meta-Channel gesetzt (${channel.name}).`,
+      content: `Meta-Channel gesetzt (${channel.name}).`,
       flags: EPHEMERAL,
     });
   }
@@ -1481,10 +1422,10 @@ client.on("interactionCreate", async (interaction) => {
       url: url || null,
       quality: quality || null,
     };
-    ensureStreamRow(guildId, slot);
-    await updateStreamMeta(guildId, slot, meta, null, null);
+    ensureGuildRow(guildId);
+    await updateStreamMeta(guildId, meta, null, null);
     return interaction.reply({
-      content: `Slot ${slot}: Metadaten gespeichert.`,
+      content: "Metadaten gespeichert.",
       flags: EPHEMERAL,
     });
   }
@@ -1498,19 +1439,19 @@ client.on("interactionCreate", async (interaction) => {
         flags: EPHEMERAL,
       });
     }
-    const current = getStreamSettings(guildId, slot) || {};
-    saveStreamSettings(guildId, slot, current.voice_channel_id || null, url, current.auto_play || 0);
-    autoFetchMeta(url, guildId, slot).catch((err) => {
-      log("meta", `Auto fetch failed [${guildId}#${slot}] ${err.message}`);
+    const current = getGuildSettings(guildId) || {};
+    saveGuildSettings(guildId, current.voice_channel_id || null, url, current.auto_play || 0);
+    autoFetchMeta(url, guildId).catch((err) => {
+      log("meta", `Auto fetch failed [${guildId}] ${err.message}`);
     });
     return interaction.reply({
-      content: `Slot ${slot}: Stream-URL gespeichert.`,
+      content: "Stream-URL gespeichert.",
       flags: EPHEMERAL,
     });
   }
 
   if (interaction.commandName === "play") {
-    const settings = getStreamSettings(guildId, slot);
+    const settings = getGuildSettings(guildId);
     if (!settings || !settings.voice_channel_id || !settings.stream_url) {
       return interaction.reply({
         content: "Bitte erst /setchannel und /setstream ausfuehren.",
@@ -1526,11 +1467,10 @@ client.on("interactionCreate", async (interaction) => {
     }
     try {
       await interaction.reply({ content: "Starte Stream...", flags: EPHEMERAL });
-      stopOtherSlots(guildId, slot);
-      log("cmd", `play [${guildId}#${slot}] channel=${channel.id} url=${settings.stream_url}`);
-      await connectToChannel(interaction.guild, channel, slot);
-      await play(guildId, slot, settings.stream_url);
-      const baseChannel = await resolveMetaChannel(interaction.guild, channel, getStreamSettings(guildId, slot));
+      log("cmd", `play [${guildId}] channel=${channel.id} url=${settings.stream_url}`);
+      await connectToChannel(interaction.guild, channel);
+      await play(guildId, settings.stream_url);
+      const baseChannel = await resolveMetaChannel(interaction.guild, channel, getGuildSettings(guildId));
       if (!baseChannel) {
         await interaction.followUp({
           content: "Kein Textkanal fuer Now-Playing gefunden. Bitte /setmetachannel setzen.",
@@ -1538,7 +1478,7 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
     } catch (err) {
-      log("cmd", `play failed [${guildId}#${slot}] ${err.message}`);
+      log("cmd", `play failed [${guildId}] ${err.message}`);
       return interaction.followUp({
         content: `Fehler beim Start: ${err.message}`,
         flags: EPHEMERAL,
@@ -1548,9 +1488,9 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.commandName === "stop") {
-    stopGuildStream(guildId, slot);
+    stopGuildStream(guildId);
     return interaction.reply({
-      content: `Slot ${slot}: Stream gestoppt.`,
+      content: "Stream gestoppt.",
       flags: EPHEMERAL,
     });
   }

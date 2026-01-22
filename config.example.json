@@ -5,6 +5,5 @@
   "publicBaseUrl": "https://your-domain.example",
   "sessionSecret": "CHANGE_ME",
   "port": 3000,
-  "dbPath": "/app/data/data.sqlite",
-  "maxSlots": 1
+  "dbPath": "/app/data/data.sqlite"
 }
