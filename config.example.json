@@ -6,5 +6,5 @@
   "sessionSecret": "CHANGE_ME",
   "port": 3000,
   "dbPath": "/app/data/data.sqlite",
-  "maxSlots": 3
+  "maxSlots": 1
 }

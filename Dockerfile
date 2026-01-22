@@ -4,6 +4,7 @@ WORKDIR /app
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg yt-dlp \
+  && (yt-dlp -U || true) \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./

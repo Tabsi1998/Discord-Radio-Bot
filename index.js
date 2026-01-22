@@ -81,6 +81,8 @@ const logFile = path.join(logDir, "app.log");
 const MAX_SLOTS = Math.max(1, Math.min(3, config.maxSlots || 3));
 const EPHEMERAL = 64;
 const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
+const YTDLP_COOKIES = process.env.YTDLP_COOKIES || path.join(__dirname, "data", "cookies.txt");
+const YTDLP_ARGS = (process.env.YTDLP_ARGS || "").trim().split(/\s+/).filter(Boolean);
 const STREAM_RETRY_MS = 2_000;
 
 function log(scope, message, extra) {
@@ -333,9 +335,24 @@ function execFileCapture(command, args, timeoutMs = 20_000) {
 }
 
 async function resolveYouTube(url) {
-  const info = await execFileCapture(YTDLP_PATH, ["-J", "--no-warnings", "--skip-download", url], 30_000);
+  const baseArgs = [
+    "--no-warnings",
+    "--no-playlist",
+    "--ignore-errors",
+    "--extractor-args",
+    "youtube:player_client=android,ios,web",
+    ...YTDLP_ARGS,
+  ];
+  if (fs.existsSync(YTDLP_COOKIES)) {
+    baseArgs.push("--cookies", YTDLP_COOKIES);
+  }
+  const info = await execFileCapture(YTDLP_PATH, ["-J", "--skip-download", ...baseArgs, url], 30_000);
   const json = JSON.parse(info.stdout);
-  const stream = await execFileCapture(YTDLP_PATH, ["-f", "bestaudio", "-g", url], 30_000);
+  const stream = await execFileCapture(
+    YTDLP_PATH,
+    ["-f", "bestaudio[ext=webm]/bestaudio/best", "-g", ...baseArgs, url],
+    30_000
+  );
   const directUrl = stream.stdout.split("\n").find(Boolean);
   const title = json.title || "YouTube";
   const uploader = json.uploader || json.channel || "YouTube";
@@ -542,6 +559,14 @@ function stopGuildStream(guildId, slot) {
   log("play", `Stop [${guildId}#${slot}]`);
 }
 
+function stopOtherSlots(guildId, slot) {
+  for (let s = 1; s <= MAX_SLOTS; s += 1) {
+    if (s !== slot) {
+      stopGuildStream(guildId, s);
+    }
+  }
+}
+
 function updatePresence(title) {
   if (!client.user) return;
   const name = title ? `Radio: ${title}` : "Radio";
@@ -626,7 +651,10 @@ async function updateNowPlaying(guildId, slot, meta) {
   updatePresence(meta?.title || "Radio");
 
   const baseChannel = await resolveMetaChannel(guild, voiceChannel, settings);
-  if (!baseChannel) return;
+  if (!baseChannel) {
+    log("meta", `No text channel found [${guildId}#${slot}]`);
+    return;
+  }
 
   const thread = await getOrCreateThread(baseChannel, voiceChannel?.name, slot, settings);
   const target = thread || baseChannel;
@@ -649,6 +677,7 @@ async function updateNowPlaying(guildId, slot, meta) {
   });
 
   await updateStreamMeta(guildId, slot, meta, baseChannel.id, thread?.id || null);
+  log("meta", `Posted [${guildId}#${slot}] channel=${baseChannel.id} thread=${thread?.id || "none"}`);
 }
 
 function escapeHtml(value) {
@@ -915,7 +944,7 @@ function renderLayout({ title, body, user }) {
     <div class="logo">Radio Host</div>
     <nav class="row">
       <a href="/">Start</a>
-      ${user ? `<a href="/dashboard">Dashboard</a><a href="/logout">Logout</a>` : `<a href="${loginUrl()}">Login</a>`}
+      ${user ? `<a href="/dashboard">Dashboard</a><a href="/docs">Docs</a><a href="/logout">Logout</a>` : `<a href="${loginUrl()}">Login</a>`}
     </nav>
   </header>
   <main class="container">
@@ -940,6 +969,10 @@ function manageableGuilds(guilds) {
 }
 
 const app = express();
+app.use((req, res, next) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  next();
+});
 app.use(express.urlencoded({ extended: false }));
 app.use(session({
   name: "radio_host",
@@ -1176,6 +1209,64 @@ app.get("/dashboard", requireLogin, async (req, res) => {
   }));
 });
 
+app.get("/docs", requireLogin, (req, res) => {
+  const body = `
+    <section class="hero">
+      <h1>Dokumentation</h1>
+      <p>Hier findest du alle Befehle und gueltige Stream-Links.</p>
+    </section>
+    <section class="grid">
+      <div class="card">
+        <h3>Slash Commands</h3>
+        <pre>
+/help
+/setchannel slot:&lt;1-3&gt; kanal:&lt;Sprachkanal&gt;
+/setstream slot:&lt;1-3&gt; url:&lt;Stream-URL&gt;
+/play slot:&lt;1-3&gt;
+/stop slot:&lt;1-3&gt;
+/status
+/setmetachannel slot:&lt;1-3&gt; kanal:&lt;Textkanal&gt;
+/setmeta slot:&lt;1-3&gt; titel:&lt;...&gt; quelle:&lt;...&gt; url:&lt;...&gt; qualitaet:&lt;...&gt;
+        </pre>
+      </div>
+      <div class="card">
+        <h3>Gueltige Links</h3>
+        <p>Funktioniert:</p>
+        <pre>
+Direkter MP3/AAC/OGG Stream:
+https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_INTERNATIONAL.mp3
+http://stream.live.vc.bbcmedia.co.uk/bbc_radio_fourlw_online_nonuk
+
+YouTube (Live/VOD):
+https://www.youtube.com/watch?v=VIDEO_ID
+        </pre>
+        <p class="muted">Hinweis: YouTube kann wegen Geo/Age/Cookies blockieren. In dem Fall hilft ein direkter Stream-Link oder eine Cookies-Datei.</p>
+      </div>
+      <div class="card">
+        <h3>Now-Playing</h3>
+        <p>Der Bot postet automatisch Titel/Quelle/Qualitaet in einen Thread oder Textkanal.</p>
+        <pre>
+/setmetachannel slot:1 kanal:#radio
+        </pre>
+      </div>
+      <div class="card">
+        <h3>Umlaute</h3>
+        <p>UTF-8 ist aktiv. Umlaute wie ä, ö, ü, ß funktionieren in Messages, Web-UI und Logs.</p>
+      </div>
+      <div class="card">
+        <h3>Wichtig</h3>
+        <p>Pro Server kann der Bot nur in einem Sprachkanal gleichzeitig sein. Wenn du einen anderen Slot startest, wird der aktuelle Stream gestoppt.</p>
+      </div>
+    </section>
+  `;
+
+  res.send(renderLayout({
+    title: "Docs",
+    body,
+    user: req.session.user,
+  }));
+});
+
 function hasManageGuild(req, guildId) {
   const guilds = manageableGuilds(req.session.guilds || []);
   return guilds.some((guild) => guild.id === guildId);
@@ -1291,6 +1382,17 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.commandName === "help") {
     const help = [
+      "So funktioniert es:",
+      "1) /setchannel + /setstream",
+      "2) /play",
+      "",
+      "Gueltige Links:",
+      "- Direkter MP3/AAC/OGG Stream",
+      "- YouTube (Live/VOD, kann wegen Geo/Age/Cookies blockieren)",
+      "",
+      "Beispiele:",
+      "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_INTERNATIONAL.mp3",
+      "http://stream.live.vc.bbcmedia.co.uk/bbc_radio_fourlw_online_nonuk",
       "/setchannel slot:<1-3> kanal:<Sprachkanal>",
       "/setstream slot:<1-3> url:<Stream-URL>",
       "/play slot:<1-3>",
@@ -1298,9 +1400,12 @@ client.on("interactionCreate", async (interaction) => {
       "/status",
       "/setmetachannel slot:<1-3> kanal:<Textkanal>",
       "/setmeta slot:<1-3> titel:<...> quelle:<...> url:<...> qualitaet:<...>",
+      "",
+      "Hinweis: Pro Server nur 1 Voice-Connection gleichzeitig.",
+      "Wenn du Slot 2/3 startest, stoppt Slot 1 automatisch.",
     ].join("\n");
     return interaction.reply({
-      content: `Befehle:\n${help}`,
+      content: `Hilfe:\n${help}`,
       flags: EPHEMERAL,
     });
   }
@@ -1421,9 +1526,17 @@ client.on("interactionCreate", async (interaction) => {
     }
     try {
       await interaction.reply({ content: "Starte Stream...", flags: EPHEMERAL });
+      stopOtherSlots(guildId, slot);
       log("cmd", `play [${guildId}#${slot}] channel=${channel.id} url=${settings.stream_url}`);
       await connectToChannel(interaction.guild, channel, slot);
       await play(guildId, slot, settings.stream_url);
+      const baseChannel = await resolveMetaChannel(interaction.guild, channel, getStreamSettings(guildId, slot));
+      if (!baseChannel) {
+        await interaction.followUp({
+          content: "Kein Textkanal fuer Now-Playing gefunden. Bitte /setmetachannel setzen.",
+          flags: EPHEMERAL,
+        });
+      }
     } catch (err) {
       log("cmd", `play failed [${guildId}#${slot}] ${err.message}`);
       return interaction.followUp({

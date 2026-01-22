@@ -13,7 +13,7 @@ das Dashboard ist zusaetzlich.
    - `publicBaseUrl` (z.B. `https://radio.example`)
    - `sessionSecret`
    - `dbPath` (bei Docker: `/app/data/data.sqlite`)
-   - `maxSlots` (1-3, wie viele Streams pro Server moeglich sind)
+   - `maxSlots` (1-3, wie viele Streams pro Server moeglich sind; Standard 1)
 4) Discord Developer Portal (einmalig):
    - https://discord.com/developers/applications -> "New Application"
    - Name setzen -> Create
@@ -70,5 +70,9 @@ das Dashboard ist zusaetzlich.
 - Direkte Audio-Streams (MP3/AAC/OGG) sind am stabilsten.
 - YouTube-Livestreams werden ueber `yt-dlp` versucht (im Docker-Image enthalten).
 - Ohne Docker: `yt-dlp` muss im PATH sein (oder `YTDLP_PATH` setzen).
+- Pro Server ist nur **eine** Voice-Connection gleichzeitig moeglich (Discord Limit). Wenn du Slot 2/3 startest, wird Slot 1 gestoppt.
+- Fuer YouTube-Streams mit Sperren kann eine Cookies-Datei helfen (`YTDLP_COOKIES=/app/data/cookies.txt`).
+- Metadaten-Posts: Wenn du kein Ergebnis siehst, setze einen Textkanal mit `/setmetachannel`.
 - Wenn du "restricted uri" siehst: die Redirect URL stimmt nicht exakt mit `publicBaseUrl` ueberein.
 - Wenn du die MemoryStore-Warnung siehst: Session-Store ist jetzt SQLite-basiert.
+ - UTF-8 ist aktiv, Umlaute (ä, ö, ü, ß) funktionieren in Web-UI und Nachrichten.
