@@ -51,6 +51,8 @@ das Dashboard ist zusaetzlich.
 - Login via Discord OAuth2.
 - Dashboard: bis zu 3 Slots pro Server, Kanal/Stream setzen, Start/Stop, Auto-Play.
 - Bot laeuft auf allen Servern gleichzeitig, ohne Mehrfach-Install.
+- Now-Playing Infos werden im Voice-Chat (falls verfuegbar) oder in einem gesetzten Textkanal gepostet.
+ - Bot-Status zeigt den aktuellen Titel.
 
 ## Slash Commands (bleiben aktiv)
 - `/help`
@@ -59,10 +61,14 @@ das Dashboard ist zusaetzlich.
 - `/play slot:<1-3>`
 - `/stop slot:<1-3>`
 - `/status`
+- `/setmetachannel slot:<1-3> kanal:<Textkanal>`
+- `/setmeta slot:<1-3> titel:<...> quelle:<...> url:<...> qualitaet:<...>`
 
 ## Hinweise
 - Der Bot braucht die Rechte: Verbinden + Sprechen im Ziel-Sprachkanal.
+- Fuer Now-Playing Posts: Send Messages + Create Public Threads + Send Messages in Threads.
 - Direkte Audio-Streams (MP3/AAC/OGG) sind am stabilsten.
-- YouTube-Livestreams werden ueber `ytdl-core` versucht.
+- YouTube-Livestreams werden ueber `yt-dlp` versucht (im Docker-Image enthalten).
+- Ohne Docker: `yt-dlp` muss im PATH sein (oder `YTDLP_PATH` setzen).
 - Wenn du "restricted uri" siehst: die Redirect URL stimmt nicht exakt mit `publicBaseUrl` ueberein.
 - Wenn du die MemoryStore-Warnung siehst: Session-Store ist jetzt SQLite-basiert.

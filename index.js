@@ -14,6 +14,8 @@ const {
   Routes,
   SlashCommandBuilder,
   Events,
+  ActivityType,
+  PermissionsBitField,
 } = require("discord.js");
 const {
   joinVoiceChannel,
@@ -57,7 +59,13 @@ if (!config.publicBaseUrl || !config.sessionSecret) {
 
 const DISCORD_API = "https://discord.com/api";
 const MANAGE_GUILD = 0x20n;
-const BOT_PERMISSIONS = 3145728;
+const BOT_PERMISSIONS = new PermissionsBitField([
+  PermissionsBitField.Flags.Connect,
+  PermissionsBitField.Flags.Speak,
+  PermissionsBitField.Flags.SendMessages,
+  PermissionsBitField.Flags.CreatePublicThreads,
+  PermissionsBitField.Flags.SendMessagesInThreads,
+]).bitfield;
 const dbDir = path.dirname(config.dbPath);
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
@@ -72,6 +80,8 @@ if (!fs.existsSync(logDir)) {
 const logFile = path.join(logDir, "app.log");
 const MAX_SLOTS = Math.max(1, Math.min(3, config.maxSlots || 3));
 const EPHEMERAL = 64;
+const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
+const STREAM_RETRY_MS = 2_000;
 
 function log(scope, message, extra) {
   const stamp = new Date().toISOString();
@@ -92,10 +102,32 @@ db.exec(`
     voice_channel_id TEXT,
     stream_url TEXT,
     auto_play INTEGER DEFAULT 0,
+    meta_channel_id TEXT,
+    meta_thread_id TEXT,
+    last_title TEXT,
+    last_source TEXT,
+    last_quality TEXT,
+    last_url TEXT,
     updated_at INTEGER,
     PRIMARY KEY (guild_id, slot)
   );
 `);
+
+const columnsToAdd = [
+  ["meta_channel_id", "TEXT"],
+  ["meta_thread_id", "TEXT"],
+  ["last_title", "TEXT"],
+  ["last_source", "TEXT"],
+  ["last_quality", "TEXT"],
+  ["last_url", "TEXT"],
+];
+for (const [name, type] of columnsToAdd) {
+  try {
+    db.prepare(`ALTER TABLE guild_streams ADD COLUMN ${name} ${type}`).run();
+  } catch {
+    // Column already exists.
+  }
+}
 
 const hasLegacyTable = db.prepare(`
   SELECT name FROM sqlite_master WHERE type='table' AND name='guild_settings'
@@ -136,44 +168,75 @@ function stateKey(guildId, slot) {
 
 function saveStreamSettings(guildId, slot, voiceChannelId, streamUrl, autoPlay) {
   const stmt = db.prepare(`
-    INSERT INTO guild_streams (guild_id, slot, voice_channel_id, stream_url, auto_play, updated_at)
-    VALUES (@guildId, @slot, @voiceChannelId, @streamUrl, @autoPlay, @updatedAt)
+    INSERT INTO guild_streams (
+      guild_id, slot, voice_channel_id, stream_url, auto_play,
+      meta_channel_id, meta_thread_id, last_title, last_source, last_quality, last_url,
+      updated_at
+    )
+    VALUES (
+      @guildId, @slot, @voiceChannelId, @streamUrl, @autoPlay,
+      @metaChannelId, @metaThreadId, @lastTitle, @lastSource, @lastQuality, @lastUrl,
+      @updatedAt
+    )
     ON CONFLICT(guild_id, slot) DO UPDATE SET
       voice_channel_id = excluded.voice_channel_id,
       stream_url = excluded.stream_url,
       auto_play = excluded.auto_play,
+      meta_channel_id = excluded.meta_channel_id,
+      meta_thread_id = excluded.meta_thread_id,
+      last_title = excluded.last_title,
+      last_source = excluded.last_source,
+      last_quality = excluded.last_quality,
+      last_url = excluded.last_url,
       updated_at = excluded.updated_at;
   `);
+  const current = getStreamSettings(guildId, slot) || {};
   stmt.run({
     guildId,
     slot,
     voiceChannelId,
     streamUrl,
     autoPlay,
+    metaChannelId: current.meta_channel_id || null,
+    metaThreadId: current.meta_thread_id || null,
+    lastTitle: current.last_title || null,
+    lastSource: current.last_source || null,
+    lastQuality: current.last_quality || null,
+    lastUrl: current.last_url || null,
     updatedAt: Date.now(),
   });
 }
 
 function getStreamSettings(guildId, slot) {
   return db.prepare(`
-    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play
+    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play,
+           meta_channel_id, meta_thread_id, last_title, last_source, last_quality, last_url
     FROM guild_streams WHERE guild_id = ? AND slot = ?
   `).get(guildId, slot);
 }
 
 function getGuildStreams(guildId) {
   return db.prepare(`
-    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play
+    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play,
+           meta_channel_id, meta_thread_id, last_title, last_source, last_quality, last_url
     FROM guild_streams WHERE guild_id = ?
   `).all(guildId);
 }
 
 function listAutoPlaySettings() {
   return db.prepare(`
-    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play
+    SELECT guild_id, slot, voice_channel_id, stream_url, auto_play,
+           meta_channel_id, meta_thread_id, last_title, last_source, last_quality, last_url
     FROM guild_streams
     WHERE auto_play = 1 AND voice_channel_id IS NOT NULL AND stream_url IS NOT NULL
   `).all();
+}
+
+function ensureStreamRow(guildId, slot) {
+  const existing = getStreamSettings(guildId, slot);
+  if (!existing) {
+    saveStreamSettings(guildId, slot, null, null, 0);
+  }
 }
 
 function getGuildState(guildId, slot) {
@@ -191,7 +254,11 @@ function getGuildState(guildId, slot) {
 
     player.on(AudioPlayerStatus.Idle, () => {
       if (state.currentUrl) {
-        setTimeout(() => play(guildId, slot, state.currentUrl), 2_000);
+        setTimeout(() => {
+          play(guildId, slot, state.currentUrl).catch((err) => {
+            log("play", `Retry failed [${guildId}#${slot}] ${err.message}`);
+          });
+        }, STREAM_RETRY_MS);
       }
     });
 
@@ -206,7 +273,11 @@ function getGuildState(guildId, slot) {
     player.on("error", (err) => {
       log("audio", `Fehler [${guildId}#${slot}] ${err.message}`);
       if (state.currentUrl) {
-        setTimeout(() => play(guildId, slot, state.currentUrl), 2_000);
+        setTimeout(() => {
+          play(guildId, slot, state.currentUrl).catch((err2) => {
+            log("play", `Retry failed [${guildId}#${slot}] ${err2.message}`);
+          });
+        }, STREAM_RETRY_MS);
       }
     });
 
@@ -231,30 +302,119 @@ function isHttpUrl(value) {
   }
 }
 
-function createStreamResource(state, url) {
+function execFileCapture(command, args, timeoutMs = 20_000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`${command} timeout`));
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        reject(new Error(`${command} exited ${code}: ${stderr.trim()}`));
+      } else {
+        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+      }
+    });
+  });
+}
+
+async function resolveYouTube(url) {
+  const info = await execFileCapture(YTDLP_PATH, ["-J", "--no-warnings", "--skip-download", url], 30_000);
+  const json = JSON.parse(info.stdout);
+  const stream = await execFileCapture(YTDLP_PATH, ["-f", "bestaudio", "-g", url], 30_000);
+  const directUrl = stream.stdout.split("\n").find(Boolean);
+  const title = json.title || "YouTube";
+  const uploader = json.uploader || json.channel || "YouTube";
+  const quality = json.abr ? `${json.abr} kbps / 48 kHz` : "48 kHz (Discord)";
+  return {
+    inputUrl: directUrl,
+    meta: {
+      title,
+      source: uploader,
+      url: json.webpage_url || url,
+      quality,
+    },
+  };
+}
+
+async function resolveHttpMeta(url) {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    const icyName = res.headers.get("icy-name");
+    const icyDesc = res.headers.get("icy-description");
+    const title = icyName || null;
+    const source = icyDesc || new URL(url).hostname;
+    return {
+      title,
+      source,
+      url,
+      quality: "48 kHz (Discord)",
+    };
+  } catch {
+    return {
+      title: null,
+      source: new URL(url).hostname,
+      url,
+      quality: "48 kHz (Discord)",
+    };
+  }
+}
+
+async function autoFetchMeta(url, guildId, slot) {
+  let meta = null;
+  if (ytdl.validateURL(url)) {
+    meta = (await resolveYouTube(url)).meta;
+  } else {
+    meta = await resolveHttpMeta(url);
+  }
+  await updateStreamMeta(guildId, slot, meta, null, null);
+  log("meta", `Auto meta [${guildId}#${slot}] ${meta?.title || "unknown"}`);
+}
+
+async function createStreamResourceAsync(state, url) {
   cleanupFFmpeg(state);
 
+  let inputUrl = url;
+  let meta = null;
+
   if (ytdl.validateURL(url)) {
-    const stream = ytdl(url, {
-      filter: "audioonly",
-      quality: "highestaudio",
-      highWaterMark: 1 << 25,
-    });
-    stream.on("error", (err) => {
-      log("ytdl", `Stream Fehler [${state.guildId}#${state.slot}] ${err.message}`);
-    });
-    return createAudioResource(stream, {
-      inputType: StreamType.WebmOpus,
-    });
+    try {
+      const resolved = await resolveYouTube(url);
+      inputUrl = resolved.inputUrl;
+      meta = resolved.meta;
+    } catch (err) {
+      log("ytdl", `yt-dlp Fehler [${state.guildId}#${state.slot}] ${err.message}`);
+      throw err;
+    }
+  } else {
+    meta = await resolveHttpMeta(url);
+  }
+
+  if (!ffmpegPath) {
+    throw new Error("ffmpeg not found");
   }
 
   state.ffmpegProcess = spawn(ffmpegPath, [
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
-    "-i", url,
+    "-i", inputUrl,
     "-analyzeduration", "0",
-    "-loglevel", "0",
+    "-loglevel", "error",
     "-vn",
     "-f", "s16le",
     "-ar", "48000",
@@ -272,17 +432,21 @@ function createStreamResource(state, url) {
     }
   });
 
-  return createAudioResource(state.ffmpegProcess.stdout, {
-    inputType: StreamType.Raw,
-  });
+  return {
+    resource: createAudioResource(state.ffmpegProcess.stdout, {
+      inputType: StreamType.Raw,
+    }),
+    meta,
+  };
 }
 
-function play(guildId, slot, url) {
+async function play(guildId, slot, url) {
   const state = getGuildState(guildId, slot);
   state.currentUrl = url;
-  const resource = createStreamResource(state, url);
+  const { resource, meta } = await createStreamResourceAsync(state, url);
   state.player.play(resource);
   log("play", `Start [${guildId}#${slot}] ${url}`);
+  await updateNowPlaying(guildId, slot, meta);
 }
 
 async function connectToChannel(guild, channel, slot) {
@@ -357,9 +521,9 @@ async function startGuildFromSettings(guildId, slot) {
   const guild = client.guilds.cache.get(guildId);
   if (!guild) return;
   const channel = await guild.channels.fetch(settings.voice_channel_id);
-  if (!channel || channel.type !== ChannelType.GuildVoice) return;
+  if (!channel || (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice)) return;
   await connectToChannel(guild, channel, slot);
-  play(guildId, slot, settings.stream_url);
+  await play(guildId, slot, settings.stream_url);
 }
 
 function stopGuildStream(guildId, slot) {
@@ -371,7 +535,120 @@ function stopGuildStream(guildId, slot) {
     state.connection.destroy();
     state.connection = null;
   }
+  const anyActive = [...guildStates.values()].some((s) => s.currentUrl);
+  if (!anyActive && client.user) {
+    client.user.setActivity("Radio", { type: ActivityType.Playing });
+  }
   log("play", `Stop [${guildId}#${slot}]`);
+}
+
+function updatePresence(title) {
+  if (!client.user) return;
+  const name = title ? `Radio: ${title}` : "Radio";
+  client.user.setActivity(name.slice(0, 128), { type: ActivityType.Playing });
+}
+
+async function resolveMetaChannel(guild, voiceChannel, settings) {
+  if (voiceChannel?.isTextBased?.()) {
+    return voiceChannel;
+  }
+
+  if (settings?.meta_channel_id) {
+    const channel = await guild.channels.fetch(settings.meta_channel_id).catch(() => null);
+    if (channel && channel.isTextBased?.()) {
+      return channel;
+    }
+  }
+
+  if (guild.systemChannelId) {
+    const channel = await guild.channels.fetch(guild.systemChannelId).catch(() => null);
+    if (channel && channel.isTextBased?.()) {
+      return channel;
+    }
+  }
+
+  const channels = await guild.channels.fetch();
+  const firstText = channels.find((ch) => ch.isTextBased?.());
+  return firstText || null;
+}
+
+async function getOrCreateThread(baseChannel, voiceChannelName, slot, settings) {
+  if (!baseChannel?.threads?.create) return null;
+
+  if (settings?.meta_thread_id) {
+    const thread = await baseChannel.threads.fetch(settings.meta_thread_id).catch(() => null);
+    if (thread) return thread;
+  }
+
+  const threadName = `${voiceChannelName || "voice"}-slot-${slot}`;
+  const thread = await baseChannel.threads.create({
+    name: threadName.slice(0, 100),
+    autoArchiveDuration: 1440,
+    reason: "Radio stream updates",
+  });
+  return thread;
+}
+
+async function updateStreamMeta(guildId, slot, meta, metaChannelId, metaThreadId) {
+  const current = getStreamSettings(guildId, slot) || {};
+  const stmt = db.prepare(`
+    UPDATE guild_streams SET
+      meta_channel_id = @metaChannelId,
+      meta_thread_id = @metaThreadId,
+      last_title = @lastTitle,
+      last_source = @lastSource,
+      last_quality = @lastQuality,
+      last_url = @lastUrl,
+      updated_at = @updatedAt
+    WHERE guild_id = @guildId AND slot = @slot
+  `);
+  stmt.run({
+    guildId,
+    slot,
+    metaChannelId: metaChannelId ?? current.meta_channel_id ?? null,
+    metaThreadId: metaThreadId ?? current.meta_thread_id ?? null,
+    lastTitle: meta?.title ?? current.last_title ?? null,
+    lastSource: meta?.source ?? current.last_source ?? null,
+    lastQuality: meta?.quality ?? current.last_quality ?? null,
+    lastUrl: meta?.url ?? current.last_url ?? null,
+    updatedAt: Date.now(),
+  });
+}
+
+async function updateNowPlaying(guildId, slot, meta) {
+  const guild = client.guilds.cache.get(guildId);
+  if (!guild) return;
+  const settings = getStreamSettings(guildId, slot) || {};
+  const voiceChannel = settings.voice_channel_id
+    ? await guild.channels.fetch(settings.voice_channel_id).catch(() => null)
+    : null;
+
+  updatePresence(meta?.title || "Radio");
+
+  const baseChannel = await resolveMetaChannel(guild, voiceChannel, settings);
+  if (!baseChannel) return;
+
+  const thread = await getOrCreateThread(baseChannel, voiceChannel?.name, slot, settings);
+  const target = thread || baseChannel;
+
+  const title = meta?.title || settings.last_title || "Unbekannter Stream";
+  const source = meta?.source || settings.last_source || "Quelle unbekannt";
+  const quality = meta?.quality || settings.last_quality || "48 kHz (Discord)";
+  const link = meta?.url || settings.last_url || settings.stream_url || "—";
+
+  const message = [
+    `**Jetzt laeuft (Slot ${slot})**`,
+    `Titel: ${title}`,
+    `Quelle: ${source}`,
+    `Link: ${link}`,
+    `Audio: ${quality}`,
+  ].join("\n");
+
+  await target.send({ content: message }).catch((err) => {
+    log("meta", `Post failed [${guildId}#${slot}] ${err.message}`);
+  });
+
+  await updateStreamMeta(guildId, slot, meta, baseChannel.id, thread?.id || null);
 }
 
 function escapeHtml(value) {
@@ -445,6 +722,33 @@ async function registerCommands() {
     new SlashCommandBuilder()
       .setName("status")
       .setDescription("Zeigt Einstellungen fuer alle Slots."),
+    new SlashCommandBuilder()
+      .setName("setmetachannel")
+      .setDescription("Setzt den Textkanal fuer Now-Playing Updates.")
+      .addIntegerOption((option) =>
+        option.setName("slot").setDescription("Slot 1-3").setRequired(true)
+      )
+      .addChannelOption((option) =>
+        option.setName("kanal").setDescription("Textkanal").setRequired(true)
+      ),
+    new SlashCommandBuilder()
+      .setName("setmeta")
+      .setDescription("Optional: Metadaten manuell setzen (ueberschreibt auto).")
+      .addIntegerOption((option) =>
+        option.setName("slot").setDescription("Slot 1-3").setRequired(true)
+      )
+      .addStringOption((option) =>
+        option.setName("titel").setDescription("Titel/Name")
+      )
+      .addStringOption((option) =>
+        option.setName("quelle").setDescription("Quelle/Rechte")
+      )
+      .addStringOption((option) =>
+        option.setName("url").setDescription("Link zur Quelle")
+      )
+      .addStringOption((option) =>
+        option.setName("qualitaet").setDescription("Audio-Qualitaet (z.B. 320kbps/48kHz)")
+      ),
   ].map((cmd) => cmd.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(config.token);
@@ -992,6 +1296,8 @@ client.on("interactionCreate", async (interaction) => {
       "/play slot:<1-3>",
       "/stop slot:<1-3>",
       "/status",
+      "/setmetachannel slot:<1-3> kanal:<Textkanal>",
+      "/setmeta slot:<1-3> titel:<...> quelle:<...> url:<...> qualitaet:<...>",
     ].join("\n");
     return interaction.reply({
       content: `Befehle:\n${help}`,
@@ -1012,7 +1318,8 @@ client.on("interactionCreate", async (interaction) => {
       .map((row) => {
         const chan = row.voice_channel_id || "nicht gesetzt";
         const url = row.stream_url || "nicht gesetzt";
-        return `Slot ${row.slot}: Kanal=${chan} Stream=${url}`;
+        const meta = row.meta_channel_id ? ` MetaChannel=${row.meta_channel_id}` : "";
+        return `Slot ${row.slot}: Kanal=${chan} Stream=${url}${meta}`;
       })
       .join("\n");
     return interaction.reply({ content: lines, flags: EPHEMERAL });
@@ -1042,6 +1349,41 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
+  if (interaction.commandName === "setmetachannel") {
+    const channel = interaction.options.getChannel("kanal", true);
+    if (!channel.isTextBased?.()) {
+      return interaction.reply({
+        content: "Bitte einen Textkanal waehlen.",
+        flags: EPHEMERAL,
+      });
+    }
+    ensureStreamRow(guildId, slot);
+    await updateStreamMeta(guildId, slot, null, channel.id, null);
+    return interaction.reply({
+      content: `Slot ${slot}: Meta-Channel gesetzt (${channel.name}).`,
+      flags: EPHEMERAL,
+    });
+  }
+
+  if (interaction.commandName === "setmeta") {
+    const title = interaction.options.getString("titel");
+    const source = interaction.options.getString("quelle");
+    const url = interaction.options.getString("url");
+    const quality = interaction.options.getString("qualitaet");
+    const meta = {
+      title: title || null,
+      source: source || null,
+      url: url || null,
+      quality: quality || null,
+    };
+    ensureStreamRow(guildId, slot);
+    await updateStreamMeta(guildId, slot, meta, null, null);
+    return interaction.reply({
+      content: `Slot ${slot}: Metadaten gespeichert.`,
+      flags: EPHEMERAL,
+    });
+  }
+
   if (interaction.commandName === "setstream") {
     const url = interaction.options.getString("url", true).trim();
     const isValid = isHttpUrl(url) || ytdl.validateURL(url);
@@ -1053,6 +1395,9 @@ client.on("interactionCreate", async (interaction) => {
     }
     const current = getStreamSettings(guildId, slot) || {};
     saveStreamSettings(guildId, slot, current.voice_channel_id || null, url, current.auto_play || 0);
+    autoFetchMeta(url, guildId, slot).catch((err) => {
+      log("meta", `Auto fetch failed [${guildId}#${slot}] ${err.message}`);
+    });
     return interaction.reply({
       content: `Slot ${slot}: Stream-URL gespeichert.`,
       flags: EPHEMERAL,
@@ -1078,7 +1423,7 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: "Starte Stream...", flags: EPHEMERAL });
       log("cmd", `play [${guildId}#${slot}] channel=${channel.id} url=${settings.stream_url}`);
       await connectToChannel(interaction.guild, channel, slot);
-      play(guildId, slot, settings.stream_url);
+      await play(guildId, slot, settings.stream_url);
     } catch (err) {
       log("cmd", `play failed [${guildId}#${slot}] ${err.message}`);
       return interaction.followUp({
