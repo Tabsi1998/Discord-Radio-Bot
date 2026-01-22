@@ -12,6 +12,7 @@ alles wird ueber das Dashboard gesetzt.
    - `token`, `clientId`, `clientSecret`
    - `publicBaseUrl` (z.B. `https://radio.example`)
    - `sessionSecret`
+   - `dbPath` (bei Docker: `/app/data/data.sqlite`)
 4) Discord Developer Portal (einmalig):
    - https://discord.com/developers/applications -> "New Application"
    - Name setzen -> Create
@@ -39,6 +40,8 @@ alles wird ueber das Dashboard gesetzt.
    `docker compose up -d --build`
 3) Logs:
    `docker compose logs -f`
+4) Falls die DB nicht erstellt werden kann:
+   - Stelle sicher, dass ein Ordner `data/` existiert und schreibbar ist.
 
 ## Web-Funktionen
 - Landing Page mit oeffentlichen Stats.

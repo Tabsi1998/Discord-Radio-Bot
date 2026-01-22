@@ -27,6 +27,7 @@ const config = {
   publicBaseUrl: process.env.PUBLIC_BASE_URL || fileConfig.publicBaseUrl,
   sessionSecret: process.env.SESSION_SECRET || fileConfig.sessionSecret,
   port: Number(process.env.PORT || fileConfig.port || 3000),
+  dbPath: process.env.DB_PATH || fileConfig.dbPath || path.join(__dirname, "data", "data.sqlite"),
 };
 
 if (!config.token || !config.clientId || !config.clientSecret) {
@@ -42,7 +43,12 @@ const DISCORD_API = "https://discord.com/api";
 const MANAGE_GUILD = 0x20n;
 const BOT_PERMISSIONS = 3145728;
 
-const db = new Database(path.join(__dirname, "data.sqlite"));
+const dbDir = path.dirname(config.dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const db = new Database(config.dbPath);
 db.exec(`
   CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id TEXT PRIMARY KEY,

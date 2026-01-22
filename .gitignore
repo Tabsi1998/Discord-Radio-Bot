@@ -1,5 +1,5 @@
 node_modules/
 config.json
-data.sqlite
+data/
 npm-debug.log*
 yarn-error.log*

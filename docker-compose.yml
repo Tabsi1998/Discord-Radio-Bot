@@ -9,4 +9,4 @@ services:
       - "3000:3000"
     volumes:
       - ./config.json:/app/config.json:ro
-      - ./data.sqlite:/app/data.sqlite
+      - ./data:/app/data
