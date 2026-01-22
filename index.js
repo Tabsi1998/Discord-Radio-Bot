@@ -24,7 +24,13 @@ const {
   VoiceConnectionStatus,
   entersState,
 } = require("@discordjs/voice");
-const ffmpegPath = require("ffmpeg-static");
+let ffmpegPath = null;
+try {
+  ffmpegPath = require("ffmpeg-static");
+} catch {
+  ffmpegPath = null;
+}
+ffmpegPath = process.env.FFMPEG_PATH || ffmpegPath || "ffmpeg";
 
 const configPath = path.join(__dirname, "config.json");
 const fileConfig = fs.existsSync(configPath) ? require(configPath) : {};
