@@ -4,6 +4,7 @@ const { spawn } = require("child_process");
 const ytdl = require("ytdl-core");
 const express = require("express");
 const session = require("express-session");
+const SQLiteSessionStore = require("better-sqlite3-session-store")(session);
 const Database = require("better-sqlite3");
 const {
   Client,
@@ -12,6 +13,7 @@ const {
   REST,
   Routes,
   SlashCommandBuilder,
+  Events,
 } = require("discord.js");
 const {
   joinVoiceChannel,
@@ -51,6 +53,7 @@ const DISCORD_API = "https://discord.com/api";
 const MANAGE_GUILD = 0x20n;
 const BOT_PERMISSIONS = 3145728;
 const MAX_SLOTS = Math.max(1, Math.min(3, config.maxSlots || 3));
+const EPHEMERAL = 64;
 
 function log(scope, message, extra) {
   const stamp = new Date().toISOString();
@@ -67,6 +70,7 @@ if (!fs.existsSync(dbDir)) {
 }
 
 const db = new Database(config.dbPath);
+const sessionDb = new Database(path.join(dbDir, "sessions.sqlite"));
 db.exec(`
   CREATE TABLE IF NOT EXISTS guild_streams (
     guild_id TEXT,
@@ -565,6 +569,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use(session({
   name: "radio_host",
   secret: config.sessionSecret,
+  store: new SQLiteSessionStore({ client: sessionDb }),
   resave: false,
   saveUninitialized: false,
 }));
@@ -888,7 +893,7 @@ client.on("guildDelete", (guild) => {
   }
 });
 
-client.once("ready", async () => {
+client.once(Events.ClientReady, async () => {
   log("bot", `Logged in as ${client.user.tag}`);
   registerCommands().catch((err) => {
     log("discord", `Command registration failed: ${err.message}`);
@@ -918,7 +923,7 @@ client.on("interactionCreate", async (interaction) => {
     ].join("\n");
     return interaction.reply({
       content: `Befehle:\n${help}`,
-      ephemeral: true,
+      flags: EPHEMERAL,
     });
   }
 
@@ -927,7 +932,7 @@ client.on("interactionCreate", async (interaction) => {
     if (!rows.length) {
       return interaction.reply({
         content: "Noch keine Einstellungen. Nutze /setchannel und /setstream.",
-        ephemeral: true,
+        flags: EPHEMERAL,
       });
     }
     const lines = rows
@@ -938,14 +943,14 @@ client.on("interactionCreate", async (interaction) => {
         return `Slot ${row.slot}: Kanal=${chan} Stream=${url}`;
       })
       .join("\n");
-    return interaction.reply({ content: lines, ephemeral: true });
+    return interaction.reply({ content: lines, flags: EPHEMERAL });
   }
 
   const slot = interaction.options.getInteger("slot", true);
   if (!Number.isInteger(slot) || slot < 1 || slot > MAX_SLOTS) {
     return interaction.reply({
       content: `Slot muss zwischen 1 und ${MAX_SLOTS} liegen.`,
-      ephemeral: true,
+      flags: EPHEMERAL,
     });
   }
 
@@ -954,14 +959,14 @@ client.on("interactionCreate", async (interaction) => {
     if (channel.type !== ChannelType.GuildVoice) {
       return interaction.reply({
         content: "Bitte einen echten Sprachkanal waehlen.",
-        ephemeral: true,
+        flags: EPHEMERAL,
       });
     }
     const current = getStreamSettings(guildId, slot) || {};
     saveStreamSettings(guildId, slot, channel.id, current.stream_url || null, current.auto_play || 0);
     return interaction.reply({
       content: `Slot ${slot}: Sprachkanal gesetzt (${channel.name}).`,
-      ephemeral: true,
+      flags: EPHEMERAL,
     });
   }
 
@@ -971,14 +976,14 @@ client.on("interactionCreate", async (interaction) => {
     if (!isValid) {
       return interaction.reply({
         content: "Bitte eine gueltige http(s)-URL oder YouTube-URL angeben.",
-        ephemeral: true,
+        flags: EPHEMERAL,
       });
     }
     const current = getStreamSettings(guildId, slot) || {};
     saveStreamSettings(guildId, slot, current.voice_channel_id || null, url, current.auto_play || 0);
     return interaction.reply({
       content: `Slot ${slot}: Stream-URL gespeichert.`,
-      ephemeral: true,
+      flags: EPHEMERAL,
     });
   }
 
@@ -987,24 +992,24 @@ client.on("interactionCreate", async (interaction) => {
     if (!settings || !settings.voice_channel_id || !settings.stream_url) {
       return interaction.reply({
         content: "Bitte erst /setchannel und /setstream ausfuehren.",
-        ephemeral: true,
+        flags: EPHEMERAL,
       });
     }
     const channel = await interaction.guild.channels.fetch(settings.voice_channel_id);
     if (!channel || channel.type !== ChannelType.GuildVoice) {
       return interaction.reply({
         content: "Sprachkanal existiert nicht mehr. Bitte neu setzen.",
-        ephemeral: true,
+        flags: EPHEMERAL,
       });
     }
     try {
-      await interaction.reply({ content: "Starte Stream...", ephemeral: true });
+      await interaction.reply({ content: "Starte Stream...", flags: EPHEMERAL });
       await connectToChannel(interaction.guild, channel, slot);
       play(guildId, slot, settings.stream_url);
     } catch (err) {
       return interaction.followUp({
         content: `Fehler beim Start: ${err.message}`,
-        ephemeral: true,
+        flags: EPHEMERAL,
       });
     }
     return;
@@ -1014,7 +1019,7 @@ client.on("interactionCreate", async (interaction) => {
     stopGuildStream(guildId, slot);
     return interaction.reply({
       content: `Slot ${slot}: Stream gestoppt.`,
-      ephemeral: true,
+      flags: EPHEMERAL,
     });
   }
 });

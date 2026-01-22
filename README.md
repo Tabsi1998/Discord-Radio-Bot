@@ -63,3 +63,4 @@ alles wird ueber das Dashboard gesetzt.
 - Direkte Audio-Streams (MP3/AAC/OGG) sind am stabilsten.
 - YouTube-Livestreams werden ueber `ytdl-core` versucht.
 - Wenn du "restricted uri" siehst: die Redirect URL stimmt nicht exakt mit `publicBaseUrl` ueberein.
+ - Wenn du die MemoryStore-Warnung siehst: Session-Store ist jetzt SQLite-basiert.
