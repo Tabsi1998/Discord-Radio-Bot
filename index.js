@@ -230,7 +230,17 @@ function createStreamResource(state, url) {
     "-ar", "48000",
     "-ac", "2",
     "pipe:1",
-  ], { stdio: ["ignore", "pipe", "ignore"] });
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+
+  state.ffmpegProcess.on("exit", (code, signal) => {
+    log("ffmpeg", `Exit [${state.guildId}#${state.slot}] code=${code} signal=${signal}`);
+  });
+  state.ffmpegProcess.stderr?.on("data", (chunk) => {
+    const text = chunk.toString().trim();
+    if (text) {
+      log("ffmpeg", `stderr [${state.guildId}#${state.slot}] ${text}`);
+    }
+  });
 
   return createAudioResource(state.ffmpegProcess.stdout, {
     inputType: StreamType.Raw,
@@ -260,6 +270,10 @@ async function connectToChannel(guild, channel, slot) {
     selfDeaf: false,
   });
 
+  connection.on("stateChange", (oldState, newState) => {
+    log("voice", `State [${guild.id}#${slot}] ${oldState.status} -> ${newState.status}`);
+  });
+
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
     try {
       await Promise.race([
@@ -275,7 +289,13 @@ async function connectToChannel(guild, channel, slot) {
 
   connection.subscribe(state.player);
   state.connection = connection;
-  await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+  } catch (err) {
+    connection.destroy();
+    state.connection = null;
+    throw new Error(`Voice connect timeout: ${err.message}`);
+  }
   log("voice", `Verbunden [${guild.id}#${slot}] -> ${channel.name}`);
   return state;
 }
