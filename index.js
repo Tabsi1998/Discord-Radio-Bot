@@ -52,18 +52,6 @@ if (!config.publicBaseUrl || !config.sessionSecret) {
 const DISCORD_API = "https://discord.com/api";
 const MANAGE_GUILD = 0x20n;
 const BOT_PERMISSIONS = 3145728;
-const MAX_SLOTS = Math.max(1, Math.min(3, config.maxSlots || 3));
-const EPHEMERAL = 64;
-
-function log(scope, message, extra) {
-  const stamp = new Date().toISOString();
-  if (extra) {
-    console.log(`[${stamp}] [${scope}] ${message}`, extra);
-  } else {
-    console.log(`[${stamp}] [${scope}] ${message}`);
-  }
-}
-
 const dbDir = path.dirname(config.dbPath);
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
@@ -71,6 +59,26 @@ if (!fs.existsSync(dbDir)) {
 
 const db = new Database(config.dbPath);
 const sessionDb = new Database(path.join(dbDir, "sessions.sqlite"));
+const logDir = path.join(dbDir, "logs");
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir, { recursive: true });
+}
+const logFile = path.join(logDir, "app.log");
+const MAX_SLOTS = Math.max(1, Math.min(3, config.maxSlots || 3));
+const EPHEMERAL = 64;
+
+function log(scope, message, extra) {
+  const stamp = new Date().toISOString();
+  const line = extra
+    ? `[${stamp}] [${scope}] ${message} ${JSON.stringify(extra)}`
+    : `[${stamp}] [${scope}] ${message}`;
+  console.log(line);
+  try {
+    fs.appendFileSync(logFile, `${line}\n`);
+  } catch (err) {
+    console.error("Log write failed:", err.message);
+  }
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS guild_streams (
     guild_id TEXT,
@@ -104,6 +112,14 @@ if (hasLegacyTable) {
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
+});
+
+process.on("unhandledRejection", (reason) => {
+  log("process", "UnhandledRejection", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  log("process", `UncaughtException ${err.message}`);
 });
 
 const guildStates = new Map();
@@ -263,6 +279,8 @@ async function connectToChannel(guild, channel, slot) {
     state.connection = null;
   }
 
+  log("voice", `Join request [${guild.id}#${slot}] -> ${channel.name} (${channel.type})`);
+
   const connection = joinVoiceChannel({
     channelId: channel.id,
     guildId: guild.id,
@@ -296,6 +314,17 @@ async function connectToChannel(guild, channel, slot) {
     state.connection = null;
     throw new Error(`Voice connect timeout: ${err.message}`);
   }
+
+  if (channel.type === ChannelType.GuildStageVoice) {
+    try {
+      const me = await guild.members.fetch(client.user.id);
+      await me.voice.setSuppressed(false);
+      log("voice", `Stage unsuppressed [${guild.id}#${slot}]`);
+    } catch (err) {
+      log("voice", `Stage unsuppress failed [${guild.id}#${slot}] ${err.message}`);
+    }
+  }
+
   log("voice", `Verbunden [${guild.id}#${slot}] -> ${channel.name}`);
   return state;
 }
@@ -932,6 +961,7 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand() || !interaction.guild) return;
 
   const guildId = interaction.guild.id;
+  log("cmd", `/${interaction.commandName} by ${interaction.user?.tag || interaction.user?.id} in ${guildId}`);
 
   if (interaction.commandName === "help") {
     const help = [
@@ -976,7 +1006,7 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.commandName === "setchannel") {
     const channel = interaction.options.getChannel("kanal", true);
-    if (channel.type !== ChannelType.GuildVoice) {
+    if (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice) {
       return interaction.reply({
         content: "Bitte einen echten Sprachkanal waehlen.",
         flags: EPHEMERAL,
@@ -1016,7 +1046,7 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
     const channel = await interaction.guild.channels.fetch(settings.voice_channel_id);
-    if (!channel || channel.type !== ChannelType.GuildVoice) {
+    if (!channel || (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice)) {
       return interaction.reply({
         content: "Sprachkanal existiert nicht mehr. Bitte neu setzen.",
         flags: EPHEMERAL,
@@ -1024,9 +1054,11 @@ client.on("interactionCreate", async (interaction) => {
     }
     try {
       await interaction.reply({ content: "Starte Stream...", flags: EPHEMERAL });
+      log("cmd", `play [${guildId}#${slot}] channel=${channel.id} url=${settings.stream_url}`);
       await connectToChannel(interaction.guild, channel, slot);
       play(guildId, slot, settings.stream_url);
     } catch (err) {
+      log("cmd", `play failed [${guildId}#${slot}] ${err.message}`);
       return interaction.followUp({
         content: `Fehler beim Start: ${err.message}`,
         flags: EPHEMERAL,
