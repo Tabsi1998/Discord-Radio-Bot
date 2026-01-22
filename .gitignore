@@ -1,0 +1,5 @@
+node_modules/
+config.json
+data.sqlite
+npm-debug.log*
+yarn-error.log*

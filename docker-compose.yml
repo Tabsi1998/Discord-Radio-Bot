@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  discord-bot:
+    build: .
+    container_name: discord-radio-bot
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./data.sqlite:/app/data.sqlite
