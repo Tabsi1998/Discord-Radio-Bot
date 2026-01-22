@@ -13,6 +13,7 @@ alles wird ueber das Dashboard gesetzt.
    - `publicBaseUrl` (z.B. `https://radio.example`)
    - `sessionSecret`
    - `dbPath` (bei Docker: `/app/data/data.sqlite`)
+   - `maxSlots` (1-3, wie viele Streams pro Server moeglich sind)
 4) Discord Developer Portal (einmalig):
    - https://discord.com/developers/applications -> "New Application"
    - Name setzen -> Create
@@ -46,11 +47,19 @@ alles wird ueber das Dashboard gesetzt.
 ## Web-Funktionen
 - Landing Page mit oeffentlichen Stats.
 - Login via Discord OAuth2.
-- Dashboard: Kanal/Stream setzen, Start/Stop, Auto-Play.
+- Dashboard: bis zu 3 Slots pro Server, Kanal/Stream setzen, Start/Stop, Auto-Play.
 - Bot laeuft auf allen Servern gleichzeitig, ohne Mehrfach-Install.
+
+## Slash Commands (bleiben aktiv)
+- `/help`
+- `/setchannel slot:<1-3> kanal:<Sprachkanal>`
+- `/setstream slot:<1-3> url:<Stream-URL>`
+- `/play slot:<1-3>`
+- `/stop slot:<1-3>`
+- `/status`
 
 ## Hinweise
 - Der Bot braucht die Rechte: Verbinden + Sprechen im Ziel-Sprachkanal.
 - Direkte Audio-Streams (MP3/AAC/OGG) sind am stabilsten.
 - YouTube-Livestreams werden ueber `ytdl-core` versucht.
- - Wenn du "restricted uri" siehst: die Redirect URL stimmt nicht exakt mit `publicBaseUrl` ueberein.
+- Wenn du "restricted uri" siehst: die Redirect URL stimmt nicht exakt mit `publicBaseUrl` ueberein.
