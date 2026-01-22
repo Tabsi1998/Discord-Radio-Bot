@@ -111,7 +111,7 @@ if (hasLegacyTable) {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 
 process.on("unhandledRejection", (reason) => {
@@ -187,6 +187,14 @@ function getGuildState(guildId, slot) {
       if (state.currentUrl) {
         setTimeout(() => play(guildId, slot, state.currentUrl), 2_000);
       }
+    });
+
+    player.on("stateChange", (oldState, newState) => {
+      log("player", `State [${guildId}#${slot}] ${oldState.status} -> ${newState.status}`);
+    });
+
+    player.on("debug", (message) => {
+      log("player", `Debug [${guildId}#${slot}] ${message}`);
     });
 
     player.on("error", (err) => {
@@ -290,6 +298,14 @@ async function connectToChannel(guild, channel, slot) {
 
   connection.on("stateChange", (oldState, newState) => {
     log("voice", `State [${guild.id}#${slot}] ${oldState.status} -> ${newState.status}`);
+  });
+
+  connection.on("error", (err) => {
+    log("voice", `Error [${guild.id}#${slot}] ${err.message}`);
+  });
+
+  connection.on("debug", (message) => {
+    log("voice", `Debug [${guild.id}#${slot}] ${message}`);
   });
 
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
