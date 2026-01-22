@@ -32,7 +32,9 @@ das Dashboard ist zusaetzlich.
      - Client Secret kopieren = `clientSecret`
    - Bot Permissions fuer Invite:
      - Connect + Speak
-5) Start:
+5) Node Version:
+   - Node.js >= 22.12.0
+6) Start:
    `npm start`
 
 ## Docker (einfacher Install)
