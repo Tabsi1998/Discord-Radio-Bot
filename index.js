@@ -266,6 +266,7 @@ function loginUrl() {
     response_type: "code",
     redirect_uri: `${config.publicBaseUrl}/auth/callback`,
     scope: "identify guilds",
+    prompt: "consent",
   });
   return `${DISCORD_API}/oauth2/authorize?${params.toString()}`;
 }
@@ -478,6 +479,7 @@ app.get("/", (req, res) => {
         <a class="button" href="${inviteUrl()}">Bot hinzufuegen</a>
         <a class="button secondary" href="/dashboard">Dashboard</a>
       </div>
+      <p class="muted">Hinweis: Fuer das Dashboard musst du dich mit Discord einloggen und "Server verwalten" besitzen.</p>
       <div class="stats">
         <div class="stat">
           <h3>${totalGuilds}</h3>
@@ -503,6 +505,26 @@ app.get("/login", (req, res) => {
 });
 
 app.get("/auth/callback", async (req, res) => {
+  if (req.query.error) {
+    const error = escapeHtml(req.query.error);
+    const desc = escapeHtml(req.query.error_description || "");
+    const body = `
+      <section class="hero">
+        <h1>Discord Login fehlgeschlagen</h1>
+        <p class="muted">Fehler: ${error}</p>
+        ${desc ? `<div class="flash">${desc}</div>` : ""}
+        <div class="cta">
+          <a class="button" href="/login">Erneut versuchen</a>
+        </div>
+      </section>
+    `;
+    return res.send(renderLayout({
+      title: "Login Fehler",
+      body,
+      user: req.session.user,
+    }));
+  }
+
   const code = req.query.code;
   if (!code) {
     return res.status(400).send("Kein Code erhalten.");

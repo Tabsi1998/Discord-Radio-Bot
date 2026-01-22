@@ -25,8 +25,8 @@ alles wird ueber das Dashboard gesetzt.
      - "Public Bot" = ON (wenn externe Server den Bot hinzufuegen sollen)
      - "Privileged Gateway Intents": nichts noetig fuer diesen Bot
    - "OAuth2" -> "General":
-     - Redirects:
-       - `https://radio.example/auth/callback` (muss zu `publicBaseUrl` passen)
+     - Redirects (exakt, inkl. https und ohne Slash am Ende):
+       - `https://radio.example/auth/callback` (muss 1:1 zu `publicBaseUrl` passen)
    - "OAuth2" -> "General" oder "Client Secret":
      - Client Secret kopieren = `clientSecret`
    - Bot Permissions fuer Invite:
@@ -53,3 +53,4 @@ alles wird ueber das Dashboard gesetzt.
 - Der Bot braucht die Rechte: Verbinden + Sprechen im Ziel-Sprachkanal.
 - Direkte Audio-Streams (MP3/AAC/OGG) sind am stabilsten.
 - YouTube-Livestreams werden ueber `ytdl-core` versucht.
+ - Wenn du "restricted uri" siehst: die Redirect URL stimmt nicht exakt mit `publicBaseUrl` ueberein.
