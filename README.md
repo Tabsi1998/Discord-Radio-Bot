@@ -1,7 +1,7 @@
 # Discord Radio Hosting
 
-Eine Web-UI fuer einen Multi-Server Radio/Livestream Bot. Kein Discord-Command noetig:
-alles wird ueber das Dashboard gesetzt.
+Eine Web-UI fuer einen Multi-Server Radio/Livestream Bot. Slash-Commands bleiben aktiv;
+das Dashboard ist zusaetzlich.
 
 ## Einrichtung
 1) Abhaengigkeiten installieren:
@@ -63,4 +63,4 @@ alles wird ueber das Dashboard gesetzt.
 - Direkte Audio-Streams (MP3/AAC/OGG) sind am stabilsten.
 - YouTube-Livestreams werden ueber `ytdl-core` versucht.
 - Wenn du "restricted uri" siehst: die Redirect URL stimmt nicht exakt mit `publicBaseUrl` ueberein.
- - Wenn du die MemoryStore-Warnung siehst: Session-Store ist jetzt SQLite-basiert.
+- Wenn du die MemoryStore-Warnung siehst: Session-Store ist jetzt SQLite-basiert.
