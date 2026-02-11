@@ -12,6 +12,18 @@ Das Script fragt nach `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` sowie deinen Stat
 docker compose up -d --build
 ```
 
+## Update (Ubuntu)
+```bash
+bash ./update.sh
+```
+Das Script holt Updates aus Git, bewahrt lokale Änderungen (z. B. `stations.json`) und baut den Container neu.
+
+## Autostart nach Server-Neustart (Ubuntu)
+```bash
+sudo bash ./install-systemd.sh
+```
+Das installiert einen Systemd-Service, der den Bot beim Boot startet.
+
 ## One-Command Installation (Windows Docker)
 ```powershell
 .\install.ps1
