@@ -63,4 +63,5 @@ docker compose up -d --build
 ## Hinweise
 - Slash-Commands werden beim Container-Start automatisch registriert (wenn ENV gesetzt).
 - Manche Streams benötigen FFmpeg. Im Docker-Image ist FFmpeg enthalten.
+- Für beste Audioqualität wird nativer Opus genutzt (Dockerfile installiert Build-Dependencies).
 - `stations.json` wird bei `/addstation` und `/removestation` geschrieben (im Docker-Setup als RW Volume gemountet).

@@ -10,10 +10,10 @@
     "deploy": "node src/deploy-commands.js"
   },
   "dependencies": {
+    "@discordjs/opus": "^0.10.0",
     "@discordjs/rest": "^2.4.2",
     "@discordjs/voice": "^0.18.0",
     "discord.js": "^14.17.3",
-    "dotenv": "^16.4.7",
-    "opusscript": "^0.1.1"
+    "dotenv": "^16.4.7"
   }
 }
