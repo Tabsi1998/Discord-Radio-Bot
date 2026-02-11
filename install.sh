@@ -23,6 +23,52 @@ prompt_yesno() {
 
 echo "== Discord Radio Bot Installer (Ubuntu) =="
 
+ensure_sudo() {
+  if [[ $EUID -eq 0 ]]; then
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+  else
+    echo "sudo fehlt. Bitte als root ausführen." >&2
+    exit 1
+  fi
+}
+
+install_docker() {
+  echo "Installiere Docker..."
+  $SUDO apt-get update
+  $SUDO apt-get install -y ca-certificates curl gnupg
+  $SUDO install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | $SUDO gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  $SUDO chmod a+r /etc/apt/keyrings/docker.gpg
+
+  local arch
+  arch="$(dpkg --print-architecture)"
+  echo "deb [arch=$arch signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+    $SUDO tee /etc/apt/sources.list.d/docker.list >/dev/null
+
+  $SUDO apt-get update
+  $SUDO apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  $SUDO systemctl enable --now docker
+}
+
+ensure_sudo
+
+if ! command -v docker >/dev/null 2>&1; then
+  install_docker
+fi
+
+if ! command -v docker compose >/dev/null 2>&1; then
+  echo "docker compose fehlt. Bitte Docker Compose Plugin installieren." >&2
+  exit 1
+fi
+
+DOCKER="docker"
+if ! docker info >/dev/null 2>&1; then
+  DOCKER="$SUDO docker"
+fi
+
 token=$(prompt_nonempty "DISCORD_TOKEN")
 client_id=$(prompt_nonempty "CLIENT_ID")
 guild_id=$(prompt_nonempty "GUILD_ID")
@@ -63,14 +109,17 @@ stations_json=$(echo "$stations_json" | sed '$s/},/}/')
 
 cat > "$stations_file" <<EOF
 {
-  \"defaultStationKey\": \"$default_key\",
-  \"stations\": {
+  "defaultStationKey": "$default_key",
+  "stations": {
 $stations_json
   }
 }
 EOF
 
 echo "Starte Docker Compose..."
-docker compose up -d --build
+$DOCKER compose up -d --build
 
-echo "Fertig. Bot läuft in Docker."
+echo "Installiere Autostart (systemd)..."
+$SUDO bash ./install-systemd.sh
+
+echo "Fertig. Bot läuft in Docker und startet automatisch mit dem System."
