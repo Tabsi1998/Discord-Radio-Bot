@@ -4,7 +4,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { spawn } from "node:child_process";
-import { Client, GatewayIntentBits } from "discord.js";
+import { AttachmentBuilder, Client, GatewayIntentBits } from "discord.js";
 import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
@@ -23,7 +23,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const stationsPath = path.resolve(__dirname, "..", "stations.json");
 const logsDir = path.resolve(__dirname, "..", "logs");
 const logFile = path.join(logsDir, "bot.log");
-const maxLogSizeBytes = 5 * 1024 * 1024;
+const maxLogSizeBytes = Number(process.env.LOG_MAX_MB || "5") * 1024 * 1024;
+const auditFile = path.join(logsDir, "audit.log");
 const startTime = Date.now();
 
 function ensureLogsDir() {
@@ -62,14 +63,30 @@ function log(level, message) {
   }
 }
 
+const auditBuffer = [];
+function audit(message) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] ${message}`;
+  auditBuffer.push(line);
+  if (auditBuffer.length > 200) auditBuffer.shift();
+  try {
+    ensureLogsDir();
+    fs.appendFileSync(auditFile, `${line}\n`);
+  } catch {
+    // ignore audit errors
+  }
+}
+
 function loadStations() {
   if (!fs.existsSync(stationsPath)) {
-    return { defaultStationKey: null, stations: {} };
+    return { defaultStationKey: null, stations: {}, locked: false, qualityPreset: "custom" };
   }
   const data = JSON.parse(fs.readFileSync(stationsPath, "utf8"));
   if (!data || typeof data !== "object" || !data.stations || typeof data.stations !== "object") {
-    return { defaultStationKey: null, stations: {} };
+    return { defaultStationKey: null, stations: {}, locked: false, qualityPreset: "custom" };
   }
+  if (typeof data.locked !== "boolean") data.locked = false;
+  if (!data.qualityPreset) data.qualityPreset = "custom";
   return data;
 }
 
@@ -102,6 +119,9 @@ function getState(guildId) {
       lastChannelId: null,
       volume: 100,
       currentProcess: null,
+      lastStreamErrorAt: null,
+      reconnectCount: 0,
+      lastReconnectAt: null,
       reconnectAttempts: 0,
       reconnectTimer: null
     };
@@ -166,8 +186,22 @@ function resolveStation(key) {
   return stations.stations[key] ? key : null;
 }
 
+function getFallbackKey(currentKey) {
+  if (stations.fallbackKeys && Array.isArray(stations.fallbackKeys)) {
+    const next = stations.fallbackKeys.find((k) => stations.stations[k] && k !== currentKey);
+    if (next) return next;
+  }
+  if (stations.defaultStationKey && stations.defaultStationKey !== currentKey) {
+    return stations.defaultStationKey;
+  }
+  const keys = Object.keys(stations.stations);
+  return keys.find((k) => k !== currentKey) || null;
+}
+
 async function createResource(url, volume) {
-  const transcode = String(process.env.TRANSCODE || "0") === "1";
+  const preset = stations.qualityPreset || "custom";
+  const presetBitrate = preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
+  const transcode = String(process.env.TRANSCODE || "0") === "1" || preset !== "custom";
   if (transcode) {
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
@@ -183,7 +217,7 @@ async function createResource(url, volume) {
 
     let inputType = StreamType.Raw;
     if (mode === "opus") {
-      const bitrate = String(process.env.OPUS_BITRATE || "192k");
+      const bitrate = presetBitrate || String(process.env.OPUS_BITRATE || "192k");
       const vbr = String(process.env.OPUS_VBR || "on");
       const compression = String(process.env.OPUS_COMPRESSION || "10");
       const frame = String(process.env.OPUS_FRAME || "20");
@@ -268,6 +302,7 @@ async function connectToVoice(interaction) {
     clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
   }
+  state.lastReconnectAt = new Date().toISOString();
 
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
     scheduleReconnect(interaction.guildId);
@@ -317,6 +352,8 @@ function scheduleReconnect(guildId) {
       scheduleReconnect(guildId);
     }
   }, delay);
+  state.reconnectCount += 1;
+  state.lastReconnectAt = new Date().toISOString();
 }
 
 client.once("ready", () => {
@@ -341,6 +378,22 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const state = getState(interaction.guildId);
+
+  function isAdmin() {
+    const adminUsers = (process.env.ADMIN_USER_IDS || "").split(",").map((v) => v.trim()).filter(Boolean);
+    const adminRoles = (process.env.ADMIN_ROLE_IDS || "").split(",").map((v) => v.trim()).filter(Boolean);
+    if (adminUsers.includes(interaction.user.id)) return true;
+    if (!adminRoles.length) return true;
+    const roles = interaction.member?.roles;
+    const roleIds = roles?.cache ? Array.from(roles.cache.keys()) : roles?.ids || [];
+    return adminRoles.some((id) => roleIds.includes(id));
+  }
+
+  function requireAdmin() {
+    if (isAdmin()) return true;
+    interaction.reply({ content: "Keine Rechte für diesen Command.", ephemeral: true });
+    return false;
+  }
 
   if (interaction.commandName === "stations") {
     const list = Object.entries(stations.stations)
@@ -410,6 +463,11 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.commandName === "addstation") {
+    if (stations.locked) {
+      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
+      return;
+    }
+    if (!requireAdmin()) return;
     const name = interaction.options.getString("name", true).trim();
     const url = interaction.options.getString("url", true).trim();
     let key = interaction.options.getString("key", false);
@@ -431,11 +489,17 @@ client.on("interactionCreate", async (interaction) => {
       stations.defaultStationKey = key;
     }
     saveStations(stations);
+    audit(`addstation by ${interaction.user.tag}: ${key} (${url})`);
     await interaction.reply({ content: `Station hinzugefügt: ${name} (key: ${key})`, ephemeral: false });
     return;
   }
 
   if (interaction.commandName === "setdefault") {
+    if (stations.locked) {
+      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
+      return;
+    }
+    if (!requireAdmin()) return;
     const key = interaction.options.getString("key", true);
     if (!stations.stations[key]) {
       await interaction.reply({ content: "Station nicht gefunden.", ephemeral: true });
@@ -443,11 +507,17 @@ client.on("interactionCreate", async (interaction) => {
     }
     stations.defaultStationKey = key;
     saveStations(stations);
+    audit(`setdefault by ${interaction.user.tag}: ${key}`);
     await interaction.reply({ content: `Default gesetzt: ${key}`, ephemeral: false });
     return;
   }
 
   if (interaction.commandName === "renamestation") {
+    if (stations.locked) {
+      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
+      return;
+    }
+    if (!requireAdmin()) return;
     const key = interaction.options.getString("key", true);
     const name = interaction.options.getString("name", true).trim();
     if (!stations.stations[key]) {
@@ -456,11 +526,17 @@ client.on("interactionCreate", async (interaction) => {
     }
     stations.stations[key].name = name;
     saveStations(stations);
+    audit(`renamestation by ${interaction.user.tag}: ${key} -> ${name}`);
     await interaction.reply({ content: `Station umbenannt: ${key} -> ${name}`, ephemeral: false });
     return;
   }
 
   if (interaction.commandName === "removestation") {
+    if (stations.locked) {
+      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
+      return;
+    }
+    if (!requireAdmin()) return;
     const key = interaction.options.getString("key", true);
     if (!stations.stations[key]) {
       await interaction.reply({ content: "Station nicht gefunden.", ephemeral: true });
@@ -475,6 +551,7 @@ client.on("interactionCreate", async (interaction) => {
       state.currentStationKey = null;
     }
     saveStations(stations);
+    audit(`removestation by ${interaction.user.tag}: ${key}`);
     await interaction.reply({ content: `Station entfernt: ${key}`, ephemeral: false });
     return;
   }
@@ -491,6 +568,78 @@ client.on("interactionCreate", async (interaction) => {
       resource.volume.setVolume(Math.max(0, Math.min(1, value / 100)));
     }
     await interaction.reply({ content: `Lautstärke gesetzt: ${value}`, ephemeral: false });
+    return;
+  }
+
+  if (interaction.commandName === "quality") {
+    if (!requireAdmin()) return;
+    const preset = interaction.options.getString("preset", true);
+    stations.qualityPreset = preset;
+    saveStations(stations);
+    audit(`quality by ${interaction.user.tag}: ${preset}`);
+    await interaction.reply({ content: `Quality preset gesetzt: ${preset}`, ephemeral: false });
+    return;
+  }
+
+  if (interaction.commandName === "lock") {
+    if (!requireAdmin()) return;
+    const mode = interaction.options.getString("mode", true);
+    stations.locked = mode === "on";
+    saveStations(stations);
+    audit(`lock by ${interaction.user.tag}: ${mode}`);
+    await interaction.reply({ content: `Lock: ${mode}`, ephemeral: false });
+    return;
+  }
+
+  if (interaction.commandName === "audit") {
+    const lines = auditBuffer.slice(-10).join("\n") || "Keine Einträge.";
+    await interaction.reply({ content: lines, ephemeral: true });
+    return;
+  }
+
+  if (interaction.commandName === "health") {
+    const content = [
+      `Letzter Stream-Fehler: ${state.lastStreamErrorAt || "-"}`,
+      `Reconnects: ${state.reconnectCount}`,
+      `Letzter Reconnect: ${state.lastReconnectAt || "-"}`
+    ].join("\n");
+    await interaction.reply({ content, ephemeral: true });
+    return;
+  }
+
+  if (interaction.commandName === "backupstations") {
+    if (!requireAdmin()) return;
+    const data = fs.readFileSync(stationsPath);
+    const attachment = new AttachmentBuilder(data, { name: "stations.json" });
+    await interaction.reply({ content: "Backup:", files: [attachment], ephemeral: true });
+    return;
+  }
+
+  if (interaction.commandName === "importstations") {
+    if (stations.locked) {
+      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
+      return;
+    }
+    if (!requireAdmin()) return;
+    const file = interaction.options.getAttachment("file", true);
+    try {
+      const res = await fetch(file.url);
+      const json = await res.json();
+      if (!json || typeof json !== "object" || !json.stations || typeof json.stations !== "object") {
+        throw new Error("Ungültiges JSON");
+      }
+      stations = {
+        defaultStationKey: json.defaultStationKey || Object.keys(json.stations)[0] || null,
+        stations: json.stations,
+        locked: Boolean(json.locked),
+        qualityPreset: json.qualityPreset || "custom"
+      };
+      saveStations(stations);
+      audit(`importstations by ${interaction.user.tag}`);
+      await interaction.reply({ content: "Stations importiert.", ephemeral: false });
+    } catch (err) {
+      await interaction.reply({ content: `Import fehlgeschlagen: ${err.message}`, ephemeral: true });
+    }
     return;
   }
 
@@ -549,6 +698,22 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.editReply(`Starte: ${station.name}`);
     } catch (err) {
       log("ERROR", `Play error: ${err.message}`);
+      state.lastStreamErrorAt = new Date().toISOString();
+      const fallbackKey = getFallbackKey(key);
+      if (fallbackKey && fallbackKey !== key) {
+        try {
+          const fallback = stations.stations[fallbackKey];
+          const { resource, process } = await createResource(fallback.url, state.volume);
+          state.currentProcess = process;
+          state.player.play(resource);
+          state.currentStationKey = fallbackKey;
+          await interaction.editReply(`Fehler bei ${station.name}. Fallback: ${fallback.name}`);
+          return;
+        } catch (fallbackErr) {
+          log("ERROR", `Fallback error: ${fallbackErr.message}`);
+          state.lastStreamErrorAt = new Date().toISOString();
+        }
+      }
       await interaction.editReply(`Fehler beim Starten: ${err.message}`);
     }
   }

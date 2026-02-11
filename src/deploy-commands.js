@@ -66,7 +66,50 @@ const commands = [
     .setDescription("Listet Stationen (paginiert)")
     .addIntegerOption((option) =>
       option.setName("page").setDescription("Seite (ab 1)").setRequired(false)
-    )
+    ),
+  new SlashCommandBuilder()
+    .setName("health")
+    .setDescription("Zeigt Stream-Health und Reconnects"),
+  new SlashCommandBuilder()
+    .setName("backupstations")
+    .setDescription("Exportiert stations.json"),
+  new SlashCommandBuilder()
+    .setName("importstations")
+    .setDescription("Importiert stations.json (Attachment)")
+    .addAttachmentOption((option) =>
+      option.setName("file").setDescription("stations.json").setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("quality")
+    .setDescription("Setzt Transcoding Preset")
+    .addStringOption((option) =>
+      option
+        .setName("preset")
+        .setDescription("low/medium/high/custom")
+        .setRequired(true)
+        .addChoices(
+          { name: "low", value: "low" },
+          { name: "medium", value: "medium" },
+          { name: "high", value: "high" },
+          { name: "custom", value: "custom" }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("lock")
+    .setDescription("Sperrt/entsperrt Stations-Änderungen")
+    .addStringOption((option) =>
+      option
+        .setName("mode")
+        .setDescription("on/off")
+        .setRequired(true)
+        .addChoices(
+          { name: "on", value: "on" },
+          { name: "off", value: "off" }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("audit")
+    .setDescription("Zeigt letzte Änderungen")
 ].map((cmd) => cmd.toJSON());
 
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;

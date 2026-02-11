@@ -59,12 +59,19 @@ docker compose up -d --build
 - `/renamestation key name`
 - `/setvolume value`
 - `/status`
+- `/health`
+- `/backupstations`
+- `/importstations file`
+- `/quality preset`
+- `/lock on|off`
+- `/audit`
 
 ## Hinweise
 - Slash-Commands werden beim Container-Start automatisch registriert (wenn ENV gesetzt).
 - Manche Streams benötigen FFmpeg. Im Docker-Image ist FFmpeg enthalten.
 - Für beste Audioqualität wird nativer Opus genutzt (Dockerfile installiert Build-Dependencies).
 - `stations.json` wird bei `/addstation` und `/removestation` geschrieben (im Docker-Setup als RW Volume gemountet).
+- Logs liegen unter `./logs` (Docker Volume ist gemountet).
 
 ## Audio-Qualität (optional)
 Standard: Der Stream wird direkt an Discord gegeben. Optional kannst du **FFmpeg-Transcoding** aktivieren:
@@ -79,3 +86,11 @@ OPUS_FRAME=20
 ```
 
 Empfohlen: `TRANSCODE_MODE=opus` mit 48 kHz, Stereo, SOXR-Resampling.
+
+## Admin-Rechte (optional)
+In `.env` kannst du Admins festlegen:
+```
+ADMIN_USER_IDS=123,456
+ADMIN_ROLE_IDS=789,012
+```
+Wenn `ADMIN_ROLE_IDS` leer ist, dürfen alle Admin-Commands nutzen.

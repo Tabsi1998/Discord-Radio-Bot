@@ -6,4 +6,5 @@ services:
       - .env
     volumes:
       - ./stations.json:/app/stations.json
+      - ./logs:/app/logs
     restart: unless-stopped
