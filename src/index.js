@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
+import { spawn } from "node:child_process";
 import { Client, GatewayIntentBits } from "discord.js";
 import {
   AudioPlayerStatus,
@@ -11,7 +12,8 @@ import {
   createAudioResource,
   demuxProbe,
   entersState,
-  joinVoiceChannel
+  joinVoiceChannel,
+  StreamType
 } from "@discordjs/voice";
 import dotenv from "dotenv";
 
@@ -99,6 +101,7 @@ function getState(guildId) {
       currentMeta: null,
       lastChannelId: null,
       volume: 100,
+      currentProcess: null,
       reconnectAttempts: 0,
       reconnectTimer: null
     };
@@ -107,8 +110,20 @@ function getState(guildId) {
       const current = stations.stations[state.currentStationKey];
       if (!current) return;
       try {
-        const nextResource = await createResource(current.url, state.volume);
-        player.play(nextResource);
+        if (state.currentProcess) {
+          state.currentProcess.kill("SIGKILL");
+          state.currentProcess = null;
+        }
+        const { resource, process } = await createResource(current.url, state.volume);
+        state.currentProcess = process;
+        if (process) {
+          process.on("close", () => {
+            if (state.currentProcess === process) {
+              state.currentProcess = null;
+            }
+          });
+        }
+        player.play(resource);
       } catch {
         // ignore; next /play will retry
       }
@@ -152,6 +167,58 @@ function resolveStation(key) {
 }
 
 async function createResource(url, volume) {
+  const transcode = String(process.env.TRANSCODE || "0") === "1";
+  if (transcode) {
+    const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
+    const args = [
+      "-loglevel", "warning",
+      "-reconnect", "1",
+      "-reconnect_streamed", "1",
+      "-reconnect_delay_max", "5",
+      "-i", url,
+      "-ar", "48000",
+      "-ac", "2",
+      "-af", "aresample=resampler=soxr"
+    ];
+
+    let inputType = StreamType.Raw;
+    if (mode === "opus") {
+      const bitrate = String(process.env.OPUS_BITRATE || "192k");
+      const vbr = String(process.env.OPUS_VBR || "on");
+      const compression = String(process.env.OPUS_COMPRESSION || "10");
+      const frame = String(process.env.OPUS_FRAME || "20");
+      args.push(
+        "-c:a", "libopus",
+        "-b:a", bitrate,
+        "-vbr", vbr,
+        "-compression_level", compression,
+        "-frame_duration", frame,
+        "-f", "opus",
+        "pipe:1"
+      );
+      inputType = StreamType.Opus;
+    } else {
+      args.push(
+        "-f", "s16le",
+        "-acodec", "pcm_s16le",
+        "pipe:1"
+      );
+      inputType = StreamType.Raw;
+    }
+
+    log("INFO", `ffmpeg ${args.join(" ")}`);
+    const ffmpeg = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+    ffmpeg.stderr.on("data", (chunk) => {
+      const line = chunk.toString().trim();
+      if (line) log("INFO", `ffmpeg: ${line}`);
+    });
+    const resource = createAudioResource(ffmpeg.stdout, { inputType, inlineVolume: true });
+    if (resource.volume) {
+      resource.volume.setVolume(Math.max(0, Math.min(1, volume / 100)));
+    }
+    return { resource, process: ffmpeg };
+  }
+
   const res = await fetch(url, { redirect: "follow" });
   if (!res.ok || !res.body) {
     throw new Error(`Stream konnte nicht geladen werden: ${res.status}`);
@@ -162,7 +229,7 @@ async function createResource(url, volume) {
   if (resource.volume) {
     resource.volume.setVolume(Math.max(0, Math.min(1, volume / 100)));
   }
-  return resource;
+  return { resource, process: null };
 }
 
 async function connectToVoice(interaction) {
@@ -329,6 +396,10 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.commandName === "stop") {
     state.player.stop();
+    if (state.currentProcess) {
+      state.currentProcess.kill("SIGKILL");
+      state.currentProcess = null;
+    }
     if (state.connection) {
       state.connection.destroy();
       state.connection = null;
@@ -456,7 +527,19 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.deferReply();
 
     try {
-      const resource = await createResource(station.url, state.volume);
+      if (state.currentProcess) {
+        state.currentProcess.kill("SIGKILL");
+        state.currentProcess = null;
+      }
+      const { resource, process } = await createResource(station.url, state.volume);
+      state.currentProcess = process;
+      if (process) {
+        process.on("close", () => {
+          if (state.currentProcess === process) {
+            state.currentProcess = null;
+          }
+        });
+      }
       state.player.play(resource);
       state.currentStationKey = key;
       state.currentMeta = null;

@@ -65,3 +65,17 @@ docker compose up -d --build
 - Manche Streams benötigen FFmpeg. Im Docker-Image ist FFmpeg enthalten.
 - Für beste Audioqualität wird nativer Opus genutzt (Dockerfile installiert Build-Dependencies).
 - `stations.json` wird bei `/addstation` und `/removestation` geschrieben (im Docker-Setup als RW Volume gemountet).
+
+## Audio-Qualität (optional)
+Standard: Der Stream wird direkt an Discord gegeben. Optional kannst du **FFmpeg-Transcoding** aktivieren:
+
+```env
+TRANSCODE=1
+TRANSCODE_MODE=opus   # opus oder pcm
+OPUS_BITRATE=192k
+OPUS_VBR=on
+OPUS_COMPRESSION=10
+OPUS_FRAME=20
+```
+
+Empfohlen: `TRANSCODE_MODE=opus` mit 48 kHz, Stereo, SOXR-Resampling.
