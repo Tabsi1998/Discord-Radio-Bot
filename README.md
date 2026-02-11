@@ -51,9 +51,14 @@ docker compose up -d --build
 - `/resume`
 - `/stop`
 - `/stations`
+- `/list [page]`
 - `/now`
 - `/addstation name url [key]`
 - `/removestation key`
+- `/setdefault key`
+- `/renamestation key name`
+- `/setvolume value`
+- `/status`
 
 ## Hinweise
 - Slash-Commands werden beim Container-Start automatisch registriert (wenn ENV gesetzt).

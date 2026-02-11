@@ -36,6 +36,36 @@ const commands = [
     .setDescription("Entfernt eine Station")
     .addStringOption((option) =>
       option.setName("key").setDescription("Station-Key").setRequired(true).setAutocomplete(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("setdefault")
+    .setDescription("Setzt die Standard-Station")
+    .addStringOption((option) =>
+      option.setName("key").setDescription("Station-Key").setRequired(true).setAutocomplete(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("renamestation")
+    .setDescription("Benennt eine Station um")
+    .addStringOption((option) =>
+      option.setName("key").setDescription("Station-Key").setRequired(true).setAutocomplete(true)
+    )
+    .addStringOption((option) =>
+      option.setName("name").setDescription("Neuer Name").setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("setvolume")
+    .setDescription("Setzt die Lautstärke (0-100)")
+    .addIntegerOption((option) =>
+      option.setName("value").setDescription("0 bis 100").setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("status")
+    .setDescription("Zeigt Status, Uptime und Last"),
+  new SlashCommandBuilder()
+    .setName("list")
+    .setDescription("Listet Stationen (paginiert)")
+    .addIntegerOption((option) =>
+      option.setName("page").setDescription("Seite (ab 1)").setRequired(false)
     )
 ].map((cmd) => cmd.toJSON());
 
