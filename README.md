@@ -40,7 +40,10 @@ docker compose up -d --build
 - `/stop`
 - `/stations`
 - `/now`
+- `/addstation name url [key]`
+- `/removestation key`
 
 ## Hinweise
 - Slash-Commands werden beim Container-Start automatisch registriert (wenn ENV gesetzt).
 - Manche Streams benötigen FFmpeg. Im Docker-Image ist FFmpeg enthalten.
+- `stations.json` wird bei `/addstation` und `/removestation` geschrieben (im Docker-Setup als RW Volume gemountet).

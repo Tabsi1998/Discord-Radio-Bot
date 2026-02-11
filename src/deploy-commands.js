@@ -1,20 +1,8 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { REST, Routes } from "@discordjs/rest";
-import { SlashCommandBuilder } from "discord.js";
+import { REST } from "@discordjs/rest";
+import { SlashCommandBuilder, Routes } from "discord.js";
 import dotenv from "dotenv";
 
 dotenv.config();
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const stationsPath = path.resolve(__dirname, "..", "stations.json");
-const stations = JSON.parse(fs.readFileSync(stationsPath, "utf8"));
-
-const stationChoices = Object.entries(stations.stations)
-  .slice(0, 25)
-  .map(([key, value]) => ({ name: value.name, value: key }));
-
 const commands = [
   new SlashCommandBuilder()
     .setName("play")
@@ -24,13 +12,31 @@ const commands = [
         .setName("station")
         .setDescription("Welche Station?")
         .setRequired(false)
-        .addChoices(...stationChoices)
+        .setAutocomplete(true)
     ),
   new SlashCommandBuilder().setName("pause").setDescription("Pausiert die Wiedergabe"),
   new SlashCommandBuilder().setName("resume").setDescription("Setzt die Wiedergabe fort"),
   new SlashCommandBuilder().setName("stop").setDescription("Stoppt die Wiedergabe und verlässt den Channel"),
   new SlashCommandBuilder().setName("stations").setDescription("Zeigt verfügbare Stationen"),
-  new SlashCommandBuilder().setName("now").setDescription("Zeigt die aktuelle Station")
+  new SlashCommandBuilder().setName("now").setDescription("Zeigt die aktuelle Station"),
+  new SlashCommandBuilder()
+    .setName("addstation")
+    .setDescription("Fügt eine Station hinzu")
+    .addStringOption((option) =>
+      option.setName("name").setDescription("Anzeigename").setRequired(true)
+    )
+    .addStringOption((option) =>
+      option.setName("url").setDescription("Stream-URL").setRequired(true)
+    )
+    .addStringOption((option) =>
+      option.setName("key").setDescription("Optionaler Key (ohne Leerzeichen)").setRequired(false)
+    ),
+  new SlashCommandBuilder()
+    .setName("removestation")
+    .setDescription("Entfernt eine Station")
+    .addStringOption((option) =>
+      option.setName("key").setDescription("Station-Key").setRequired(true).setAutocomplete(true)
+    )
 ].map((cmd) => cmd.toJSON());
 
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;

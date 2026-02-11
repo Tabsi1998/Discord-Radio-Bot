@@ -18,7 +18,23 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const stationsPath = path.resolve(__dirname, "..", "stations.json");
-const stations = JSON.parse(fs.readFileSync(stationsPath, "utf8"));
+
+function loadStations() {
+  if (!fs.existsSync(stationsPath)) {
+    return { defaultStationKey: null, stations: {} };
+  }
+  const data = JSON.parse(fs.readFileSync(stationsPath, "utf8"));
+  if (!data || typeof data !== "object" || !data.stations || typeof data.stations !== "object") {
+    return { defaultStationKey: null, stations: {} };
+  }
+  return data;
+}
+
+function saveStations(data) {
+  fs.writeFileSync(stationsPath, JSON.stringify(data, null, 2));
+}
+
+let stations = loadStations();
 
 const { DISCORD_TOKEN } = process.env;
 if (!DISCORD_TOKEN) {
@@ -35,11 +51,26 @@ const guildState = new Map();
 function getState(guildId) {
   if (!guildState.has(guildId)) {
     const player = createAudioPlayer();
-    guildState.set(guildId, {
+    const state = {
       player,
       connection: null,
       currentStationKey: null
+    };
+    player.on(AudioPlayerStatus.Idle, async () => {
+      if (!state.currentStationKey) return;
+      const current = stations.stations[state.currentStationKey];
+      if (!current) return;
+      try {
+        const nextResource = await createResource(current.url);
+        player.play(nextResource);
+      } catch {
+        // ignore; next /play will retry
+      }
     });
+    player.on("error", () => {
+      // keep running; next idle handler will retry if possible
+    });
+    guildState.set(guildId, state);
   }
   return guildState.get(guildId);
 }
@@ -110,6 +141,20 @@ client.once("ready", () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isAutocomplete()) {
+    const focused = interaction.options.getFocused(true);
+    if (focused.name === "station" || focused.name === "key") {
+      const query = String(focused.value || "").toLowerCase();
+      const items = Object.entries(stations.stations)
+        .map(([key, value]) => ({ key, name: value.name }))
+        .filter((item) => item.key.toLowerCase().includes(query) || item.name.toLowerCase().includes(query))
+        .slice(0, 25)
+        .map((item) => ({ name: `${item.name} (${item.key})`, value: item.key }));
+      await interaction.respond(items);
+      return;
+    }
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const state = getState(interaction.guildId);
@@ -155,6 +200,51 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
+  if (interaction.commandName === "addstation") {
+    const name = interaction.options.getString("name", true).trim();
+    const url = interaction.options.getString("url", true).trim();
+    let key = interaction.options.getString("key", false);
+    if (key) {
+      key = key.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    } else {
+      key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    }
+    if (!key) {
+      await interaction.reply({ content: "Ungültiger Key.", ephemeral: true });
+      return;
+    }
+    if (stations.stations[key]) {
+      await interaction.reply({ content: "Key existiert bereits.", ephemeral: true });
+      return;
+    }
+    stations.stations[key] = { name, url };
+    if (!stations.defaultStationKey) {
+      stations.defaultStationKey = key;
+    }
+    saveStations(stations);
+    await interaction.reply({ content: `Station hinzugefügt: ${name} (key: ${key})`, ephemeral: false });
+    return;
+  }
+
+  if (interaction.commandName === "removestation") {
+    const key = interaction.options.getString("key", true);
+    if (!stations.stations[key]) {
+      await interaction.reply({ content: "Station nicht gefunden.", ephemeral: true });
+      return;
+    }
+    delete stations.stations[key];
+    if (stations.defaultStationKey === key) {
+      stations.defaultStationKey = Object.keys(stations.stations)[0] || null;
+    }
+    if (state.currentStationKey === key) {
+      state.player.stop();
+      state.currentStationKey = null;
+    }
+    saveStations(stations);
+    await interaction.reply({ content: `Station entfernt: ${key}`, ephemeral: false });
+    return;
+  }
+
   if (interaction.commandName === "play") {
     const key = resolveStation(interaction.options.getString("station"));
     if (!key) {
@@ -172,9 +262,6 @@ client.on("interactionCreate", async (interaction) => {
       const resource = await createResource(station.url);
       state.player.play(resource);
       state.currentStationKey = key;
-      state.player.once(AudioPlayerStatus.Idle, () => {
-        // no-op: keep state
-      });
       await interaction.editReply(`Starte: ${station.name}`);
     } catch (err) {
       await interaction.editReply(`Fehler beim Starten: ${err.message}`);

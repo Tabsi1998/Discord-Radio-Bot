@@ -5,5 +5,5 @@ services:
     env_file:
       - .env
     volumes:
-      - ./stations.json:/app/stations.json:ro
+      - ./stations.json:/app/stations.json
     restart: unless-stopped
