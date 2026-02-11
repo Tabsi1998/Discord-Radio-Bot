@@ -1,0 +1,13 @@
+{
+  "defaultStationKey": "oneworldradio",
+  "stations": {
+    "oneworldradio": {
+      "name": "One World Radio",
+      "url": "https://tomorrowland.my105.ch/oneworldradio.mp3"
+    },
+    "lofi": {
+      "name": "Lofi Girl",
+      "url": "https://icecast.somafm.com/groovesalad"
+    }
+  }
+}
