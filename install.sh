@@ -25,6 +25,7 @@ echo "== Discord Radio Bot Installer (Ubuntu) =="
 
 ensure_sudo() {
   if [[ $EUID -eq 0 ]]; then
+    SUDO=""
     return 0
   fi
   if command -v sudo >/dev/null 2>&1; then
