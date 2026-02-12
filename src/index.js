@@ -307,6 +307,10 @@ async function connectToVoice(interaction) {
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
     scheduleReconnect(interaction.guildId);
   });
+  connection.on("error", (err) => {
+    log("ERROR", `VoiceConnection error: ${err?.message || err}`);
+    scheduleReconnect(interaction.guildId);
+  });
 
   return connection;
 }
@@ -336,6 +340,10 @@ async function tryReconnect(guildId) {
   state.connection = connection;
   state.reconnectAttempts = 0;
   state.reconnectTimer = null;
+  connection.on("error", (err) => {
+    log("ERROR", `VoiceConnection error: ${err?.message || err}`);
+    scheduleReconnect(guildId);
+  });
 }
 
 function scheduleReconnect(guildId) {
