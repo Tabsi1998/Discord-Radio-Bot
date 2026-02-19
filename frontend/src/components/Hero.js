@@ -1,0 +1,239 @@
+import React from 'react';
+import { Radio, Volume2, Headphones } from 'lucide-react';
+
+function Equalizer() {
+  const bars = [0.4, 0.7, 0.5, 0.9, 0.6, 0.8, 0.3, 0.7, 0.5, 0.6, 0.8, 0.4];
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: 3,
+        height: 48,
+        padding: '0 8px',
+      }}
+    >
+      {bars.map((h, i) => (
+        <div
+          key={i}
+          className="eq-bar"
+          style={{
+            width: 4,
+            borderRadius: '2px 2px 0 0',
+            background: `linear-gradient(to top, #00F0FF, #BD00FF)`,
+            animationDuration: `${0.6 + Math.random() * 0.8}s`,
+            animationDelay: `${i * 0.08}s`,
+            height: `${h * 100}%`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function Hero({ stats }) {
+  return (
+    <section
+      id="top"
+      data-testid="hero-section"
+      style={{
+        position: 'relative',
+        minHeight: '85vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: '120px 24px 80px',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Background glows */}
+      <div className="hero-glow hero-glow-cyan" />
+      <div className="hero-glow hero-glow-purple" />
+
+      {/* Equalizer */}
+      <div style={{ marginBottom: 32 }}>
+        <Equalizer />
+      </div>
+
+      {/* Eyebrow */}
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 16px',
+          borderRadius: 999,
+          background: 'rgba(0, 240, 255, 0.06)',
+          border: '1px solid rgba(0, 240, 255, 0.15)',
+          marginBottom: 28,
+        }}
+      >
+        <Radio size={14} color="#00F0FF" />
+        <span
+          style={{
+            fontFamily: "'Orbitron', sans-serif",
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: '0.15em',
+            textTransform: 'uppercase',
+            color: '#00F0FF',
+          }}
+        >
+          Discord Radio Network
+        </span>
+      </div>
+
+      {/* Title */}
+      <h1
+        data-testid="hero-title"
+        style={{
+          fontFamily: "'Orbitron', sans-serif",
+          fontWeight: 800,
+          fontSize: 'clamp(32px, 6vw, 72px)',
+          lineHeight: 1.05,
+          letterSpacing: '-0.02em',
+          maxWidth: 800,
+          marginBottom: 20,
+        }}
+      >
+        Dreh die{' '}
+        <span style={{ color: '#00F0FF' }} className="glow-text-cyan">
+          Lautstärke
+        </span>{' '}
+        auf
+      </h1>
+
+      {/* Subtitle */}
+      <p
+        data-testid="hero-subtitle"
+        style={{
+          fontSize: 'clamp(16px, 2vw, 20px)',
+          color: '#A1A1AA',
+          maxWidth: 560,
+          lineHeight: 1.6,
+          marginBottom: 40,
+        }}
+      >
+        24/7 Radio-Bots für deinen Discord Server.
+        Wähle deine Station, lade den Bot ein und genieße nonstop Musik.
+      </p>
+
+      {/* CTA Buttons */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 16,
+          justifyContent: 'center',
+          marginBottom: 60,
+        }}
+      >
+        <a
+          href="#bots"
+          data-testid="hero-cta-invite"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '14px 32px',
+            borderRadius: 999,
+            background: '#fff',
+            color: '#050505',
+            fontWeight: 700,
+            fontSize: 15,
+            textDecoration: 'none',
+            cursor: 'pointer',
+            transition: 'transform 0.2s, box-shadow 0.2s',
+            boxShadow: '0 0 30px rgba(255,255,255,0.15)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'scale(1.05)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+        >
+          <Headphones size={18} />
+          Bot einladen
+        </a>
+        <a
+          href="#stations"
+          data-testid="hero-cta-stations"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '14px 32px',
+            borderRadius: 999,
+            background: 'transparent',
+            color: '#fff',
+            fontWeight: 600,
+            fontSize: 15,
+            textDecoration: 'none',
+            border: '1px solid rgba(255,255,255,0.15)',
+            cursor: 'pointer',
+            transition: 'background 0.2s, border-color 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.25)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+          }}
+        >
+          <Volume2 size={18} />
+          Stationen ansehen
+        </a>
+      </div>
+
+      {/* Quick stats */}
+      <div
+        data-testid="hero-quick-stats"
+        style={{
+          display: 'flex',
+          gap: 48,
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+        }}
+      >
+        {[
+          { label: 'Server', value: stats.servers || 0 },
+          { label: 'Stationen', value: stats.stations || 0 },
+          { label: 'Bots', value: stats.bots || 0 },
+        ].map((s) => (
+          <div key={s.label} style={{ textAlign: 'center' }}>
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 28,
+                fontWeight: 700,
+                color: '#00F0FF',
+              }}
+              className="glow-text-cyan"
+            >
+              {s.value.toLocaleString('de-DE')}
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: '#52525B',
+                fontWeight: 600,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                marginTop: 4,
+              }}
+            >
+              {s.label}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export default Hero;
