@@ -148,7 +148,7 @@ ensure_sudo
 # ====================================
 # Step 1: Docker pruefen
 # ====================================
-echo -e "${BOLD}Schritt 1/5: Docker pruefen${NC}"
+echo -e "${BOLD}Schritt 1/6: Docker pruefen${NC}"
 echo "─────────────────────────────────────"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -180,7 +180,7 @@ echo ""
 # ====================================
 # Step 2: Bestehende .env pruefen
 # ====================================
-echo -e "${BOLD}Schritt 2/5: Bot-Konfiguration${NC}"
+echo -e "${BOLD}Schritt 2/6: Bot-Konfiguration${NC}"
 echo "─────────────────────────────────────"
 
 existing_bots=0
@@ -292,7 +292,7 @@ echo ""
 # ====================================
 # Step 3: Stations
 # ====================================
-echo -e "${BOLD}Schritt 3/5: Radio-Stationen${NC}"
+echo -e "${BOLD}Schritt 3/6: Radio-Stationen${NC}"
 echo "─────────────────────────────────────"
 
 if [[ ! -f stations.json ]]; then
