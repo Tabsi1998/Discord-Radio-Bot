@@ -153,7 +153,7 @@ async function fetchStreamInfo(url) {
   }
 }
 
-async function createResource(url, volume, qualityPreset, botName) {
+async function createResource(url, volume, qualityPreset, botName, bitrateOverride) {
   const preset = qualityPreset || "custom";
   const presetBitrate =
     preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
@@ -162,54 +162,44 @@ async function createResource(url, volume, qualityPreset, botName) {
   if (transcode) {
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
-      "-loglevel",
-      "warning",
-      "-reconnect",
-      "1",
-      "-reconnect_streamed",
-      "1",
-      "-reconnect_delay_max",
-      "10",
-      "-reconnect_on_network_error",
-      "1",
-      "-reconnect_on_http_error",
-      "4xx,5xx",
-      "-rw_timeout",
-      "15000000",
-      "-timeout",
-      "15000000",
-      "-i",
-      url,
-      "-ar",
-      "48000",
-      "-ac",
-      "2",
-      "-af",
-      "aresample=resampler=soxr"
+      "-loglevel", "warning",
+      // === ZERO-LAG: instant stream start ===
+      "-fflags", "+nobuffer+flush_packets+genpts",
+      "-flags", "+low_delay",
+      "-probesize", "32768",
+      "-analyzeduration", "0",
+      "-thread_queue_size", "4096",
+      // === Reconnect resilience ===
+      "-reconnect", "1",
+      "-reconnect_streamed", "1",
+      "-reconnect_delay_max", "5",
+      "-reconnect_on_network_error", "1",
+      "-reconnect_on_http_error", "4xx,5xx",
+      "-rw_timeout", "10000000",
+      "-timeout", "10000000",
+      // === Input ===
+      "-i", url,
+      "-ar", "48000",
+      "-ac", "2",
+      "-vn"
     ];
 
     let inputType = StreamType.Raw;
     if (mode === "opus") {
-      const bitrate = presetBitrate || String(process.env.OPUS_BITRATE || "192k");
+      const bitrate = bitrateOverride || presetBitrate || String(process.env.OPUS_BITRATE || "192k");
       const vbr = String(process.env.OPUS_VBR || "on");
       const compression = String(process.env.OPUS_COMPRESSION || "10");
       const frame = String(process.env.OPUS_FRAME || "20");
 
       args.push(
-        "-c:a",
-        "libopus",
-        "-b:a",
-        bitrate,
-        "-vbr",
-        vbr,
-        "-compression_level",
-        compression,
-        "-frame_duration",
-        frame,
-        "-application",
-        "audio",
-        "-f",
-        "opus",
+        "-c:a", "libopus",
+        "-b:a", bitrate,
+        "-vbr", vbr,
+        "-compression_level", compression,
+        "-frame_duration", frame,
+        "-application", "audio",
+        "-packet_loss", "3",
+        "-f", "opus",
         "pipe:1"
       );
       inputType = StreamType.Opus;
@@ -219,7 +209,10 @@ async function createResource(url, volume, qualityPreset, botName) {
     }
 
     log("INFO", `[${botName}] ffmpeg ${args.join(" ")}`);
-    const ffmpeg = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const ffmpeg = spawn("ffmpeg", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, AV_LOG_FORCE_NOCOLOR: "1" }
+    });
 
     let stderrBuffer = "";
     ffmpeg.stderr.on("data", (chunk) => {
@@ -246,8 +239,8 @@ async function createResource(url, volume, qualityPreset, botName) {
 
   const res = await fetch(url, {
     redirect: "follow",
-    headers: { "User-Agent": "discord-radio-bot/2.1" },
-    signal: AbortSignal.timeout(15_000)
+    headers: { "User-Agent": "discord-radio-bot/3.0" },
+    signal: AbortSignal.timeout(10_000)
   });
   if (!res.ok || !res.body) {
     throw new Error(`Stream konnte nicht geladen werden: ${res.status}`);
