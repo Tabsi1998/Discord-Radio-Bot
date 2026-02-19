@@ -114,6 +114,14 @@ docker compose up -d --build
 bash ./update.sh
 ```
 
+`update.sh` fuehrt einen robusten One-Command-Update-Flow aus:
+- holt zuerst die neueste `update.sh`-Logik von `origin/main`
+- sichert lokale Runtime-Dateien (`.env`, `stations.json`, `docker-compose.override.yml`)
+- synchronisiert den Code hart auf `origin/main`
+- stellt die Runtime-Dateien wieder her
+- fuehrt `docker compose up -d --build --remove-orphans` aus
+- macht einen lokalen Health-Check
+
 ## Hinweise
 - `stations.json` und `logs/` sind als Volumes gemountet.
 - Globale Slash-Commands koennen bis zu ~1 Stunde brauchen, bis sie ueberall sichtbar sind.
