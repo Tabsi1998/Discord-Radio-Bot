@@ -369,8 +369,11 @@ class BotRuntime {
   handleStreamEnd(guildId, state, reason) {
     if (!state.shouldReconnect || !state.currentStationKey) return;
 
-    const delay = reason === "error" ? 3000 : 1000;
-    log("INFO", `[${this.config.name}] Stream ${reason} for guild=${guildId}, restarting in ${delay}ms`);
+    // Premium: faster reconnect for higher tiers
+    const tierConfig = getTierConfig(guildId);
+    const baseDelay = reason === "error" ? tierConfig.reconnectMs * 2 : tierConfig.reconnectMs;
+    const delay = Math.max(300, Math.min(baseDelay, 5000));
+    log("INFO", `[${this.config.name}] Stream ${reason} guild=${guildId} tier=${tierConfig.tier}, restart in ${delay}ms`);
 
     if (state.streamRestartTimer) {
       clearTimeout(state.streamRestartTimer);
@@ -384,16 +387,25 @@ class BotRuntime {
     }, delay);
   }
 
-  async playStation(state, stations, key) {
+  async playStation(state, stations, key, guildId) {
     const station = stations.stations[key];
     if (!station) throw new Error("Station nicht gefunden.");
 
     this.clearCurrentProcess(state);
+
+    // Premium: override bitrate based on tier
+    let bitrateOverride = null;
+    if (guildId) {
+      const tierConfig = getTierConfig(guildId);
+      bitrateOverride = tierConfig.bitrate;
+    }
+
     const { resource, process } = await createResource(
       station.url,
       state.volume,
       stations.qualityPreset,
-      this.config.name
+      this.config.name,
+      bitrateOverride
     );
 
     state.currentProcess = process;
