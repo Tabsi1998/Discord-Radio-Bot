@@ -1,9 +1,51 @@
 {
   "defaultStationKey": "oneworldradio",
+  "qualityPreset": "high",
+  "fallbackKeys": ["lofi", "pop"],
   "stations": {
     "oneworldradio": {
       "name": "Tomorrowland - One World Radio",
       "url": "https://tomorrowland.my105.ch/oneworldradio.mp3"
+    },
+    "lofi": {
+      "name": "Lofi Hip Hop Radio",
+      "url": "https://streams.ilovemusic.de/iloveradio17.mp3"
+    },
+    "classicrock": {
+      "name": "Classic Rock Radio",
+      "url": "https://streams.ilovemusic.de/iloveradio21.mp3"
+    },
+    "chillout": {
+      "name": "Chillout Lounge",
+      "url": "https://streams.ilovemusic.de/iloveradio7.mp3"
+    },
+    "dance": {
+      "name": "Dance Radio",
+      "url": "https://streams.ilovemusic.de/iloveradio2.mp3"
+    },
+    "hiphop": {
+      "name": "Hip Hop Channel",
+      "url": "https://streams.ilovemusic.de/iloveradio3.mp3"
+    },
+    "techno": {
+      "name": "Techno Bunker",
+      "url": "https://streams.ilovemusic.de/iloveradio12.mp3"
+    },
+    "pop": {
+      "name": "Pop Hits",
+      "url": "https://streams.ilovemusic.de/iloveradio.mp3"
+    },
+    "rock": {
+      "name": "Rock Nation",
+      "url": "https://streams.ilovemusic.de/iloveradio4.mp3"
+    },
+    "bass": {
+      "name": "Bass Boost FM",
+      "url": "https://streams.ilovemusic.de/iloveradio16.mp3"
+    },
+    "deutschrap": {
+      "name": "Deutsch Rap",
+      "url": "https://streams.ilovemusic.de/iloveradio6.mp3"
     }
   }
 }
