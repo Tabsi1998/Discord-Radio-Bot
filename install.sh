@@ -377,7 +377,7 @@ echo ""
 # ====================================
 # Step 4: Audio-Qualitaet
 # ====================================
-echo -e "${BOLD}Schritt 4/5: Audio-Qualitaet${NC}"
+echo -e "${BOLD}Schritt 4/6: Audio-Qualitaet${NC}"
 echo "─────────────────────────────────────"
 
 if ! grep -q "^TRANSCODE=" .env 2>/dev/null; then
@@ -409,9 +409,37 @@ fi
 echo ""
 
 # ====================================
-# Step 5: Docker starten
+# Step 5: Premium / Stripe (Optional)
 # ====================================
-echo -e "${BOLD}Schritt 5/5: Docker Compose starten${NC}"
+echo -e "${BOLD}Schritt 5/6: Premium / Stripe (Optional)${NC}"
+echo "─────────────────────────────────────"
+
+if ! grep -q "^STRIPE_SECRET_KEY=" .env 2>/dev/null; then
+  if prompt_yes_no "Premium-Zahlungen mit Stripe einrichten? (Optional)" "n"; then
+    echo ""
+    echo -e "  ${CYAN}Erstelle einen Stripe-Account unter https://stripe.com${NC}"
+    echo -e "  ${DIM}Du findest deine Keys unter: Dashboard > Developers > API keys${NC}"
+    echo ""
+    stripe_key="$(prompt_nonempty "Stripe Secret Key (sk_test_... oder sk_live_...)")"
+    write_env_line "STRIPE_SECRET_KEY" "$stripe_key"
+    stripe_pub="$(prompt_default "Stripe Public Key (pk_test_... optional)" "")"
+    if [[ -n "$stripe_pub" ]]; then
+      write_env_line "STRIPE_PUBLIC_KEY" "$stripe_pub"
+    fi
+    ok "Stripe konfiguriert."
+  else
+    info "Stripe uebersprungen. Kann spaeter mit setup-stripe.sh eingerichtet werden."
+  fi
+else
+  ok "Stripe bereits konfiguriert."
+fi
+
+echo ""
+
+# ====================================
+# Step 6: Docker starten
+# ====================================
+echo -e "${BOLD}Schritt 6/6: Docker Compose starten${NC}"
 echo "─────────────────────────────────────"
 
 info "Baue und starte Container..."
