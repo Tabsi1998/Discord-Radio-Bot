@@ -167,7 +167,15 @@ async function createResource(url, volume, qualityPreset, botName) {
       "-reconnect_streamed",
       "1",
       "-reconnect_delay_max",
-      "5",
+      "10",
+      "-reconnect_on_network_error",
+      "1",
+      "-reconnect_on_http_error",
+      "4xx,5xx",
+      "-rw_timeout",
+      "15000000",
+      "-timeout",
+      "15000000",
       "-i",
       url,
       "-ar",
@@ -196,6 +204,8 @@ async function createResource(url, volume, qualityPreset, botName) {
         compression,
         "-frame_duration",
         frame,
+        "-application",
+        "audio",
         "-f",
         "opus",
         "pipe:1"
@@ -208,9 +218,20 @@ async function createResource(url, volume, qualityPreset, botName) {
 
     log("INFO", `[${botName}] ffmpeg ${args.join(" ")}`);
     const ffmpeg = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+
+    let stderrBuffer = "";
     ffmpeg.stderr.on("data", (chunk) => {
-      const line = chunk.toString().trim();
-      if (line) log("INFO", `[${botName}] ffmpeg: ${line}`);
+      stderrBuffer += chunk.toString();
+      const lines = stderrBuffer.split("\n");
+      stderrBuffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed) log("INFO", `[${botName}] ffmpeg: ${trimmed}`);
+      }
+    });
+
+    ffmpeg.on("error", (err) => {
+      log("ERROR", `[${botName}] ffmpeg process error: ${err?.message || err}`);
     });
 
     const resource = createAudioResource(ffmpeg.stdout, { inputType, inlineVolume: true });
@@ -221,7 +242,11 @@ async function createResource(url, volume, qualityPreset, botName) {
     return { resource, process: ffmpeg };
   }
 
-  const res = await fetch(url, { redirect: "follow" });
+  const res = await fetch(url, {
+    redirect: "follow",
+    headers: { "User-Agent": "discord-radio-bot/2.1" },
+    signal: AbortSignal.timeout(15_000)
+  });
   if (!res.ok || !res.body) {
     throw new Error(`Stream konnte nicht geladen werden: ${res.status}`);
   }
