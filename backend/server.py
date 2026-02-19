@@ -88,6 +88,7 @@ def load_bots_from_env():
                 "name": f"Radio Bot {i}",
                 "clientId": f"0000000000000000{i:02d}",
                 "inviteUrl": "",
+                "requiredTier": "free",
                 "color": BOT_COLORS[(i - 1) % len(BOT_COLORS)],
                 "avatarUrl": BOT_IMAGES[(i - 1) % len(BOT_IMAGES)],
                 "servers": 0,
