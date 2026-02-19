@@ -3,54 +3,75 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Radio Bot Control</title>
+    <title>Radio Bot Invite Dashboard</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="bg-shape shape-a"></div>
-    <div class="bg-shape shape-b"></div>
+    <div class="noise"></div>
 
     <main class="page">
       <header class="hero">
-        <p class="eyebrow">Discord Radio Bot</p>
-        <h1>Invite Dashboard</h1>
-        <p class="subline">
-          Fuege einen oder mehrere Bot-Worker in deinen Server ein. Jeder Button ist ein eigener Bot.
-        </p>
+        <div>
+          <p class="eyebrow">Discord Radio Network</p>
+          <h1>Quick Stats</h1>
+          <p class="subline">Mehrere Bot-Worker, ein gemeinsames Dashboard, direkte Invite-Links pro Bot.</p>
+        </div>
+        <section class="health" id="healthBox">
+          <span class="dot"></span>
+          <span id="healthText">Lade Backend-Status...</span>
+        </section>
       </header>
 
-      <section class="health" id="healthBox">
-        <span class="dot"></span>
-        <span id="healthText">Lade Backend-Status...</span>
+      <section class="summary-grid" aria-label="Gesamtstatistik">
+        <article class="summary-card summary-servers">
+          <h2>Servers</h2>
+          <p id="sumServers">0</p>
+        </article>
+        <article class="summary-card summary-users">
+          <h2>Users</h2>
+          <p id="sumUsers">0</p>
+        </article>
+        <article class="summary-card summary-connections">
+          <h2>Connections</h2>
+          <p id="sumConnections">0</p>
+        </article>
+        <article class="summary-card summary-listeners">
+          <h2>Listeners</h2>
+          <p id="sumListeners">0</p>
+        </article>
       </section>
 
       <section>
-        <h2>Bots</h2>
+        <h2 class="section-title">Bot Cards</h2>
         <div id="botGrid" class="bot-grid"></div>
       </section>
 
       <section>
-        <h2>Stations</h2>
+        <h2 class="section-title">Stations</h2>
         <div id="stationsBox" class="stations-box">Lade Stations...</div>
       </section>
     </main>
 
     <template id="botCardTemplate">
       <article class="bot-card">
-        <div class="card-top">
+        <div class="card-head">
+          <div class="bot-icon" aria-hidden="true"></div>
           <h3 class="bot-name"></h3>
-          <span class="badge">Invite</span>
         </div>
-        <p class="bot-id"></p>
+
+        <p class="meta-label">BOT STATISTICS</p>
         <ul class="stats">
-          <li><strong>Status:</strong> <span class="ready"></span></li>
-          <li><strong>Guilds:</strong> <span class="guilds"></span></li>
-          <li><strong>Uptime:</strong> <span class="uptime"></span></li>
-          <li><strong>User:</strong> <span class="user"></span></li>
+          <li><span>Servers:</span> <strong class="servers"></strong></li>
+          <li><span>Users:</span> <strong class="users"></strong></li>
+          <li><span>Connections:</span> <strong class="connections"></strong></li>
+          <li><span>Listeners:</span> <strong class="listeners"></strong></li>
         </ul>
+
+        <p class="bot-meta">Tag: <span class="user"></span> | Uptime: <span class="uptime"></span></p>
+
         <div class="card-actions">
-          <a class="invite-btn" target="_blank" rel="noopener noreferrer">Bot einladen</a>
-          <button class="copy-btn" type="button">Link kopieren</button>
+          <a class="invite-btn" target="_blank" rel="noopener noreferrer">INVITE</a>
+          <button class="copy-btn" type="button">COPY</button>
         </div>
       </article>
     </template>

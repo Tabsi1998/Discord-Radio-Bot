@@ -1,3 +1,25 @@
+const formatter = new Intl.NumberFormat("de-DE");
+
+const toneClasses = [
+  "tone-1",
+  "tone-2",
+  "tone-3",
+  "tone-4",
+  "tone-5",
+  "tone-6",
+  "tone-7",
+  "tone-8",
+  "tone-9",
+  "tone-10",
+  "tone-11",
+  "tone-12"
+];
+
+function formatInt(value) {
+  const num = Number(value) || 0;
+  return formatter.format(num);
+}
+
 function formatUptime(seconds) {
   const sec = Math.max(0, Number(seconds) || 0);
   const h = Math.floor(sec / 3600);
@@ -17,6 +39,13 @@ async function copyToClipboard(text) {
   }
 }
 
+function renderSummary(totals) {
+  document.getElementById("sumServers").textContent = formatInt(totals?.servers);
+  document.getElementById("sumUsers").textContent = formatInt(totals?.users);
+  document.getElementById("sumConnections").textContent = formatInt(totals?.connections);
+  document.getElementById("sumListeners").textContent = formatInt(totals?.listeners);
+}
+
 function renderBots(bots) {
   const grid = document.getElementById("botGrid");
   const tpl = document.getElementById("botCardTemplate");
@@ -27,14 +56,21 @@ function renderBots(bots) {
     return;
   }
 
-  for (const bot of bots) {
+  bots.forEach((bot, index) => {
     const node = tpl.content.firstElementChild.cloneNode(true);
+    const tone = toneClasses[index % toneClasses.length];
+    node.classList.add(tone);
+
+    const icon = node.querySelector(".bot-icon");
+    icon.textContent = (bot.name || "B").slice(0, 1).toUpperCase();
+
     node.querySelector(".bot-name").textContent = bot.name || "Bot";
-    node.querySelector(".bot-id").textContent = `Client ID: ${bot.clientId || "-"}`;
-    node.querySelector(".ready").textContent = bot.ready ? "online" : "offline";
-    node.querySelector(".guilds").textContent = String(bot.guilds ?? 0);
-    node.querySelector(".uptime").textContent = formatUptime(bot.uptimeSec);
+    node.querySelector(".servers").textContent = formatInt(bot.servers);
+    node.querySelector(".users").textContent = formatInt(bot.users);
+    node.querySelector(".connections").textContent = formatInt(bot.connections);
+    node.querySelector(".listeners").textContent = formatInt(bot.listeners);
     node.querySelector(".user").textContent = bot.userTag || "-";
+    node.querySelector(".uptime").textContent = formatUptime(bot.uptimeSec);
 
     const invite = node.querySelector(".invite-btn");
     invite.href = bot.inviteUrl;
@@ -42,14 +78,14 @@ function renderBots(bots) {
     const copy = node.querySelector(".copy-btn");
     copy.addEventListener("click", async () => {
       const ok = await copyToClipboard(bot.inviteUrl);
-      copy.textContent = ok ? "Kopiert" : "Copy fehlgeschlagen";
+      copy.textContent = ok ? "COPIED" : "ERROR";
       setTimeout(() => {
-        copy.textContent = "Link kopieren";
-      }, 1300);
+        copy.textContent = "COPY";
+      }, 1200);
     });
 
     grid.appendChild(node);
-  }
+  });
 }
 
 function renderStations(payload) {
@@ -64,11 +100,11 @@ function renderStations(payload) {
   if (stations.length === 0) {
     lines.push("Keine Stationen konfiguriert. Nutze: bash ./stations.sh wizard");
   } else {
-    for (const station of stations.slice(0, 12)) {
+    for (const station of stations.slice(0, 16)) {
       lines.push(`- ${station.name} (${station.key})`);
     }
-    if (stations.length > 12) {
-      lines.push(`... und ${stations.length - 12} weitere`);
+    if (stations.length > 16) {
+      lines.push(`... und ${stations.length - 16} weitere`);
     }
   }
 
@@ -102,6 +138,8 @@ async function refresh() {
       fetchJson("/api/stations"),
       fetchJson("/api/health")
     ]);
+
+    renderSummary(botsRes.totals || {});
     renderBots(botsRes.bots || []);
     renderStations(stationsRes);
     renderHealth(healthRes);

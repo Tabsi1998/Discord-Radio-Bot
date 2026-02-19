@@ -726,7 +726,22 @@ class BotRuntime {
     }
   }
 
+  collectStats() {
+    const servers = this.client.guilds.cache.size;
+    const users = this.client.guilds.cache.reduce((sum, guild) => sum + (Number(guild.memberCount) || 0), 0);
+
+    let connections = 0;
+    let listeners = 0;
+    for (const state of this.guildState.values()) {
+      if (state.connection) connections += 1;
+      if (state.connection && state.currentStationKey) listeners += 1;
+    }
+
+    return { servers, users, connections, listeners };
+  }
+
   getPublicStatus() {
+    const stats = this.collectStats();
     return {
       id: this.config.id,
       name: this.config.name,
@@ -734,7 +749,11 @@ class BotRuntime {
       inviteUrl: buildInviteUrl(this.config),
       ready: this.client.isReady(),
       userTag: this.client.user?.tag || null,
-      guilds: this.client.guilds.cache.size,
+      guilds: stats.servers,
+      servers: stats.servers,
+      users: stats.users,
+      connections: stats.connections,
+      listeners: stats.listeners,
       uptimeSec: Math.floor((Date.now() - this.startedAt) / 1000),
       error: this.startError ? String(this.startError.message || this.startError) : null
     };
@@ -796,8 +815,21 @@ function startWebServer(runtimes) {
     const requestUrl = new URL(req.url || "/", "http://localhost");
 
     if (requestUrl.pathname === "/api/bots") {
+      const bots = runtimes.map((runtime) => runtime.getPublicStatus());
+      const totals = bots.reduce(
+        (acc, bot) => {
+          acc.servers += Number(bot.servers) || 0;
+          acc.users += Number(bot.users) || 0;
+          acc.connections += Number(bot.connections) || 0;
+          acc.listeners += Number(bot.listeners) || 0;
+          return acc;
+        },
+        { servers: 0, users: 0, connections: 0, listeners: 0 }
+      );
+
       sendJson(res, 200, {
-        bots: runtimes.map((runtime) => runtime.getPublicStatus())
+        bots,
+        totals
       });
       return;
     }
