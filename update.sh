@@ -141,8 +141,8 @@ if [[ "$MODE" == "--show-bots" ]]; then
   echo -e "  ${BOLD}Konfigurierte Bots (${bot_count}):${NC}"
   echo ""
   for i in $(seq 1 "$bot_count"); do
-    name=$(grep "^BOT_NAME_${i}=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
-    cid=$(grep "^BOT_APP_ID_${i}=" .env 2>/dev/null | cut -d= -f2- || echo "?")
+    name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
+    cid=$(grep "^BOT_${i}_CLIENT_ID=" .env 2>/dev/null | cut -d= -f2- || echo "?")
     echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC}"
     echo -e "       Client ID: ${DIM}${cid}${NC}"
     echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
