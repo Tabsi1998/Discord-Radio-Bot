@@ -78,9 +78,27 @@ export function loadStations() {
 
 export function saveStations(data) {
   const normalized = normalizeStationsData(data);
+  const serialized = JSON.stringify(normalized, null, 2);
   const tempPath = `${stationsPath}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(normalized, null, 2));
-  fs.renameSync(tempPath, stationsPath);
+  try {
+    fs.writeFileSync(tempPath, serialized);
+    fs.renameSync(tempPath, stationsPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+
+    // Bind-mounted single files can reject rename() with EBUSY.
+    if (err?.code === "EBUSY" || err?.code === "EXDEV" || err?.code === "EPERM") {
+      fs.writeFileSync(stationsPath, serialized);
+    } else {
+      throw err;
+    }
+  }
   return normalized;
 }
 
