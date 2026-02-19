@@ -193,10 +193,75 @@ function renderBots(bots) {
   });
 }
 
-// --- Render Stations ---
+// --- Audio Player ---
+var currentAudio = null;
+var currentPlayingKey = null;
+
+function playStation(station) {
+  stopStation();
+  currentAudio = new Audio(station.url);
+  currentAudio.play().then(function() {
+    currentPlayingKey = station.key;
+    updateNowPlaying(station);
+    filterStations(document.getElementById('stationSearch').value);
+  }).catch(function() {
+    currentPlayingKey = null;
+    updateNowPlaying(null);
+  });
+  currentAudio.onerror = function() {
+    currentPlayingKey = null;
+    updateNowPlaying(null);
+    filterStations(document.getElementById('stationSearch').value);
+  };
+}
+
+function stopStation() {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.src = '';
+    currentAudio = null;
+  }
+  currentPlayingKey = null;
+  updateNowPlaying(null);
+  filterStations(document.getElementById('stationSearch').value);
+}
+
+function updateNowPlaying(station) {
+  var container = document.getElementById('nowPlaying');
+  if (!station) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = 'flex';
+  container.innerHTML = '';
+
+  // EQ icon
+  var eqWrap = document.createElement('div');
+  eqWrap.style.cssText = 'display:flex;align-items:flex-end;gap:2px;height:18px';
+  [0.5, 0.8, 0.6, 1, 0.7].forEach(function(h, i) {
+    var b = document.createElement('div');
+    b.className = 'eq-bar';
+    b.style.cssText = 'width:3px;border-radius:1px;background:#00F0FF;height:' + (h*100) + '%;animation-duration:' + (0.4+Math.random()*0.6).toFixed(2) + 's;animation-delay:' + (i*0.08).toFixed(2) + 's';
+    eqWrap.appendChild(b);
+  });
+  container.appendChild(eqWrap);
+
+  var name = document.createElement('span');
+  name.style.cssText = 'font-size:14px;font-weight:600;flex:1';
+  name.textContent = station.name;
+  container.appendChild(name);
+
+  var stopBtn = document.createElement('button');
+  stopBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:#fff;cursor:pointer';
+  stopBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+  stopBtn.onclick = stopStation;
+  container.appendChild(stopBtn);
+}
+
+// --- Render Stations with Play button ---
 function renderStations(stations) {
   allStations = stations || [];
-  document.getElementById('stationCount').textContent = allStations.length + ' verfügbare Stationen. Nutze /play station im Discord.';
+  document.getElementById('stationCount').textContent = allStations.length + ' verfügbare Stationen. Klicke zum Vorhören oder nutze /play im Discord.';
   filterStations('');
 }
 
