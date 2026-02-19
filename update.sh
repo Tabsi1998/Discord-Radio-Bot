@@ -25,6 +25,7 @@ PRESERVE_FILES=(
   ".env"
   "stations.json"
   "premium.json"
+  "bot-state.json"
   "docker-compose.override.yml"
 )
 
