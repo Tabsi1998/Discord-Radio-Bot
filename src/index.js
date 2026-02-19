@@ -339,18 +339,49 @@ class BotRuntime {
 
   clearCurrentProcess(state) {
     if (state.currentProcess) {
-      state.currentProcess.kill("SIGKILL");
+      try {
+        state.currentProcess.kill("SIGKILL");
+      } catch {
+        // process may already be dead
+      }
       state.currentProcess = null;
     }
   }
 
   trackProcessLifecycle(state, process) {
     if (!process) return;
-    process.on("close", () => {
+    process.on("close", (code) => {
+      if (state.currentProcess === process) {
+        state.currentProcess = null;
+      }
+      if (code && code !== 0) {
+        log("INFO", `[${this.config.name}] ffmpeg exited with code ${code}`);
+      }
+    });
+    process.on("error", (err) => {
+      log("ERROR", `[${this.config.name}] ffmpeg process error: ${err?.message || err}`);
       if (state.currentProcess === process) {
         state.currentProcess = null;
       }
     });
+  }
+
+  handleStreamEnd(guildId, state, reason) {
+    if (!state.shouldReconnect || !state.currentStationKey) return;
+
+    const delay = reason === "error" ? 3000 : 1000;
+    log("INFO", `[${this.config.name}] Stream ${reason} for guild=${guildId}, restarting in ${delay}ms`);
+
+    if (state.streamRestartTimer) {
+      clearTimeout(state.streamRestartTimer);
+    }
+
+    state.streamRestartTimer = setTimeout(() => {
+      state.streamRestartTimer = null;
+      this.restartCurrentStation(state).catch((err) => {
+        log("ERROR", `[${this.config.name}] Stream restart failed: ${err?.message || err}`);
+      });
+    }, delay);
   }
 
   async playStation(state, stations, key) {
