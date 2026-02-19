@@ -57,12 +57,16 @@ def load_bots_from_env():
         color = BOT_COLORS[(i - 1) % len(BOT_COLORS)]
         img = BOT_IMAGES[(i - 1) % len(BOT_IMAGES)] if i <= len(BOT_IMAGES) else ""
 
+        required_tier = os.environ.get(f"BOT_{i}_TIER", "free").strip().lower()
+        is_premium_bot = required_tier != "free"
+
         bots.append({
             "botId": f"bot-{i}",
             "index": i,
             "name": name,
             "clientId": cid or f"0000000000000000{i:02d}",
-            "inviteUrl": f"https://discord.com/oauth2/authorize?client_id={cid}&scope=bot%20applications.commands&permissions=3145728" if cid else "",
+            "inviteUrl": None if is_premium_bot else (f"https://discord.com/oauth2/authorize?client_id={cid}&scope=bot%20applications.commands&permissions=3145728" if cid else ""),
+            "requiredTier": required_tier,
             "color": color,
             "avatarUrl": img,
             "servers": 0,
