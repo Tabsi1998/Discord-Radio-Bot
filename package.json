@@ -9,13 +9,16 @@
     "start": "node src/index.js",
     "deploy": "node src/deploy-commands.js",
     "stations": "node src/stations-cli.js",
-    "stations:wizard": "node src/stations-cli.js wizard"
+    "stations:wizard": "node src/stations-cli.js wizard",
+    "premium": "node src/premium-cli.js",
+    "premium:wizard": "node src/premium-cli.js wizard"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
     "@discordjs/rest": "^2.4.2",
     "@discordjs/voice": "^0.18.0",
     "discord.js": "^14.17.3",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "stripe": "^17.0.0"
   }
 }
