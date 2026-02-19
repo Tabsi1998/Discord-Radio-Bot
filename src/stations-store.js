@@ -113,3 +113,26 @@ export function isValidQualityPreset(preset) {
 export function normalizeKey(rawKey) {
   return sanitizeKey(rawKey);
 }
+
+export function resolveStation(stations, key) {
+  if (!key) {
+    return stations.stations[stations.defaultStationKey]
+      ? stations.defaultStationKey
+      : Object.keys(stations.stations)[0] || null;
+  }
+  return stations.stations[key] ? key : null;
+}
+
+export function getFallbackKey(stations, currentKey) {
+  if (Array.isArray(stations.fallbackKeys) && stations.fallbackKeys.length) {
+    const next = stations.fallbackKeys.find((k) => stations.stations[k] && k !== currentKey);
+    if (next) return next;
+  }
+
+  if (stations.defaultStationKey && stations.defaultStationKey !== currentKey) {
+    return stations.defaultStationKey;
+  }
+
+  const keys = Object.keys(stations.stations);
+  return keys.find((k) => k !== currentKey) || null;
+}
