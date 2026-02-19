@@ -92,21 +92,25 @@ class DiscordRadioBotAPITester:
         )
 
     def test_bots_endpoint(self):
-        """Test /api/bots endpoint"""
+        """Test /api/bots endpoint - Dynamic bots with avatar URLs"""
         def validate_bots(data):
             if 'bots' not in data:
                 return "Missing 'bots' field"
             if not isinstance(data['bots'], list):
                 return "'bots' should be a list"
-            if len(data['bots']) != 4:
-                return f"Expected 4 bots, got {len(data['bots'])}"
+            if len(data['bots']) == 0:
+                return "No bots found - should have at least placeholder bots"
             
-            # Check first bot structure
+            # Check first bot structure for dynamic bots
             bot = data['bots'][0]
-            required_fields = ['bot_id', 'name', 'color', 'description']
+            required_fields = ['bot_id', 'name', 'color', 'avatar_url', 'client_id']
             for field in required_fields:
                 if field not in bot:
                     return f"Missing required bot field: {field}"
+            
+            # Check avatar_url points to /img/bot-N.png
+            if not bot['avatar_url'].startswith('/img/bot-'):
+                return f"Bot avatar_url should point to /img/bot-N.png, got: {bot['avatar_url']}"
             
             if 'totals' not in data:
                 return "Missing 'totals' field"
@@ -114,7 +118,7 @@ class DiscordRadioBotAPITester:
             return True
 
         return self.run_test(
-            "Bots Endpoint",
+            "Bots Endpoint (Dynamic with Avatars)",
             "GET",
             "api/bots",
             200,
