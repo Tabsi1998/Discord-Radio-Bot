@@ -189,7 +189,7 @@ class DiscordRadioBotAPITester:
         )
 
     def test_commands_endpoint(self):
-        """Test /api/commands endpoint"""
+        """Test /api/commands endpoint - Should return commands with German umlauts"""
         def validate_commands(data):
             if 'commands' not in data:
                 return "Missing 'commands' field"
@@ -212,10 +212,17 @@ class DiscordRadioBotAPITester:
                 if expected not in command_names:
                     return f"Missing expected command: {expected}"
             
+            # Check for German umlauts in descriptions
+            all_descriptions = ' '.join(cmd['description'] for cmd in data['commands'])
+            german_chars = ['ä', 'ö', 'ü', 'ß']
+            umlauts_found = any(char in all_descriptions for char in german_chars)
+            if not umlauts_found:
+                return "Command descriptions should contain German umlauts (ä, ö, ü)"
+            
             return True
 
         return self.run_test(
-            "Commands Endpoint",
+            "Commands Endpoint (German umlauts)",
             "GET",
             "api/commands",
             200,
