@@ -283,11 +283,12 @@ async def verify_premium(body: dict):
         return {"error": "Stripe nicht konfiguriert."}
 
     try:
-        from emergentintegrations.llm.stripe import retrieve_checkout_session
-        session = await retrieve_checkout_session(api_key=stripe_key, session_id=session_id)
+        import stripe
+        stripe.api_key = stripe_key
+        session = stripe.checkout.Session.retrieve(session_id)
 
-        if session.get("payment_status") == "paid":
-            metadata = session.get("metadata", {})
+        if session.payment_status == "paid":
+            metadata = session.metadata or {}
             server_id = metadata.get("serverId", "")
             tier = metadata.get("tier", "")
             if server_id and tier and tier in ("pro", "ultimate"):
