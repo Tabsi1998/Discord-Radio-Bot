@@ -237,6 +237,32 @@ async def check_premium(serverId: str = ""):
 async def get_tiers():
     return {"tiers": TIERS}
 
+@app.get("/api/premium/invite-links")
+async def premium_invite_links(serverId: str = ""):
+    if not serverId or not serverId.isdigit() or len(serverId) < 17:
+        return {"error": "serverId muss 17-22 Ziffern sein."}
+    data = load_premium()
+    license_info = data.get("licenses", {}).get(serverId)
+    tier = license_info.get("tier", "free") if license_info else "free"
+    tier_rank = {"free": 0, "pro": 1, "ultimate": 2}
+    server_rank = tier_rank.get(tier, 0)
+
+    bots_data = load_bots_from_env()
+    links = []
+    for bot in bots_data:
+        bot_tier = bot.get("requiredTier", "free")
+        bot_rank = tier_rank.get(bot_tier, 0)
+        has_access = server_rank >= bot_rank
+        links.append({
+            "botId": bot["botId"],
+            "name": bot["name"],
+            "requiredTier": bot_tier,
+            "hasAccess": has_access,
+            "inviteUrl": bot.get("inviteUrl") if has_access and bot_tier == "free" else (f"https://discord.com/oauth2/authorize?client_id={bot['clientId']}&scope=bot%20applications.commands&permissions=3145728" if has_access else None),
+        })
+    return {"serverId": serverId, "serverTier": tier, "bots": links}
+
+
 @app.post("/api/premium/checkout")
 async def premium_checkout(body: dict):
     tier = body.get("tier", "")
