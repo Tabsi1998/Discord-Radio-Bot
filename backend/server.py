@@ -2,9 +2,12 @@ import os
 import json
 from pathlib import Path
 from datetime import datetime, timezone
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
+
+load_dotenv()
 
 app = FastAPI(title="Discord Radio Bot API")
 
