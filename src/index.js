@@ -731,52 +731,77 @@ class BotRuntime {
   }
 
   async handleAutocomplete(interaction) {
-    const focused = interaction.options.getFocused(true);
+    try {
+      const focused = interaction.options.getFocused(true);
 
-    if (focused.name === "station") {
-      const stations = loadStations();
-      const query = String(focused.value || "").toLowerCase();
-      const items = Object.entries(stations.stations)
-        .map(([key, value]) => ({ key, name: value.name }))
-        .filter((item) => item.key.toLowerCase().includes(query) || item.name.toLowerCase().includes(query))
-        .slice(0, 25)
-        .map((item) => ({ name: `${item.name} (${item.key})`, value: item.key }));
+      if (focused.name === "station") {
+        const stations = loadStations();
+        const query = String(focused.value || "").toLowerCase().trim();
+        const allStations = Object.entries(stations.stations)
+          .map(([key, value]) => ({ key, name: value.name }));
 
-      await interaction.respond(items);
-      return;
-    }
+        // Wenn kein Query, zeige alle Stationen (bis 25)
+        const items = (query
+          ? allStations.filter((item) =>
+              item.key.toLowerCase().includes(query) ||
+              item.name.toLowerCase().includes(query)
+            )
+          : allStations
+        )
+          .slice(0, 25)
+          .map((item) => ({ name: clipText(`${item.name} (${item.key})`, 100), value: item.key }));
 
-    if (focused.name === "channel") {
-      if (!interaction.guild) {
-        await interaction.respond([]);
+        log("INFO", `[${this.config.name}] Autocomplete station: query="${query}" results=${items.length}/${allStations.length}`);
+        await interaction.respond(items);
         return;
       }
 
-      const query = String(focused.value || "").trim().toLowerCase();
-      const channels = await this.listVoiceChannels(interaction.guild);
-      const items = channels
-        .filter((channel) => {
-          if (!query) return true;
-          if (channel.id.includes(query)) return true;
-          return channel.name.toLowerCase().includes(query);
-        })
-        .slice(0, 25)
-        .map((channel) => {
-          const prefix = channel.type === ChannelType.GuildStageVoice ? "Stage" : "Voice";
-          const count = Number(channel.members?.size || 0);
-          return {
-            name: clipText(`${prefix}: ${channel.name} (${count})`, 100),
-            value: channel.id
-          };
-        });
+      if (focused.name === "channel") {
+        if (!interaction.guild) {
+          await interaction.respond([]);
+          return;
+        }
 
-      await interaction.respond(items);
-      return;
-    }
+        const query = String(focused.value || "").trim().toLowerCase();
 
-    if (focused.name !== "station" && focused.name !== "channel") {
+        // Fetch channels fresh to ensure we have the latest list
+        try {
+          await interaction.guild.channels.fetch();
+        } catch {
+          // Fallback to cached channels
+        }
+
+        const channels = await this.listVoiceChannels(interaction.guild);
+        const items = channels
+          .filter((channel) => {
+            if (!query) return true;
+            if (channel.id.includes(query)) return true;
+            return channel.name.toLowerCase().includes(query);
+          })
+          .slice(0, 25)
+          .map((channel) => {
+            const prefix = channel.type === ChannelType.GuildStageVoice ? "Stage" : "Voice";
+            const count = Number(channel.members?.size || 0);
+            return {
+              name: clipText(`${prefix}: ${channel.name} (${count})`, 100),
+              value: channel.id
+            };
+          });
+
+        log("INFO", `[${this.config.name}] Autocomplete channel: query="${query}" results=${items.length}/${channels.length}`);
+        await interaction.respond(items);
+        return;
+      }
+
+      // Unknown option
       await interaction.respond([]);
-      return;
+    } catch (err) {
+      log("ERROR", `[${this.config.name}] Autocomplete error: ${err?.message || err}`);
+      try {
+        await interaction.respond([]);
+      } catch {
+        // interaction might have already been responded to
+      }
     }
   }
 
