@@ -1104,8 +1104,10 @@ class BotRuntime {
       await interaction.deferReply();
 
       try {
-        await this.playStation(state, stations, key);
-        await interaction.editReply(`Starte: ${selectedStation?.name || key}`);
+        await this.playStation(state, stations, key, interaction.guildId);
+        const tierConfig = getTierConfig(interaction.guildId);
+        const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
+        await interaction.editReply(`Starte: ${selectedStation?.name || key}${tierLabel}`);
       } catch (err) {
         log("ERROR", `[${this.config.name}] Play error: ${err.message}`);
         state.lastStreamErrorAt = new Date().toISOString();
@@ -1113,7 +1115,7 @@ class BotRuntime {
         const fallbackKey = getFallbackKey(stations, key);
         if (fallbackKey && fallbackKey !== key && stations.stations[fallbackKey]) {
           try {
-            await this.playStation(state, stations, fallbackKey);
+            await this.playStation(state, stations, fallbackKey, interaction.guildId);
             await interaction.editReply(
               `Fehler bei ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`
             );
