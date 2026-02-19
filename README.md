@@ -131,3 +131,4 @@ bash ./update.sh
 - Wird ein Bot manuell aus dem Voice-Channel gekickt, deaktiviert er Auto-Reconnect. Starte ihn dann gezielt neu mit `/play`.
 - `CLEAN_GUILD_COMMANDS_ON_BOOT=1` entfernt veraltete Guild-Commands beim Start (verhindert doppelte `/play`-Eintraege).
 - Discord-Presence wird dynamisch gesetzt: im Profil/Member-List steht bei laufendem Stream der aktuelle Sender (Listening), sonst `Bereit fuer /play`.
+- `channel` bei `/play` ist suchbar per Autocomplete (Voice/Stage, Name oder ID), damit du auch bei vielen Kanaelen schnell den richtigen findest.

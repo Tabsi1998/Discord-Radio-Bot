@@ -417,6 +417,56 @@ class BotRuntime {
     return guild.members.fetchMe().catch(() => null);
   }
 
+  async listVoiceChannels(guild) {
+    let channels = [...guild.channels.cache.values()];
+    if (!channels.length) {
+      await guild.channels.fetch().catch(() => null);
+      channels = [...guild.channels.cache.values()];
+    }
+
+    return channels
+      .filter(
+        (channel) =>
+          channel &&
+          channel.isVoiceBased() &&
+          (channel.type === ChannelType.GuildVoice || channel.type === ChannelType.GuildStageVoice)
+      )
+      .sort((a, b) => {
+        const posDiff = (a.rawPosition || 0) - (b.rawPosition || 0);
+        if (posDiff !== 0) return posDiff;
+        return a.name.localeCompare(b.name, "de");
+      });
+  }
+
+  async resolveVoiceChannelFromInput(guild, inputValue) {
+    const raw = String(inputValue || "").trim();
+    if (!raw) return null;
+
+    const mention = raw.match(/^<#(\d+)>$/);
+    const idInput = mention ? mention[1] : /^\d+$/.test(raw) ? raw : null;
+
+    if (idInput) {
+      const byId = guild.channels.cache.get(idInput) || (await guild.channels.fetch(idInput).catch(() => null));
+      if (
+        byId &&
+        byId.isVoiceBased() &&
+        (byId.type === ChannelType.GuildVoice || byId.type === ChannelType.GuildStageVoice)
+      ) {
+        return byId;
+      }
+    }
+
+    const channels = await this.listVoiceChannels(guild);
+    const query = raw.toLowerCase();
+    const exact = channels.find((channel) => channel.name.toLowerCase() === query);
+    if (exact) return exact;
+
+    const startsWith = channels.find((channel) => channel.name.toLowerCase().startsWith(query));
+    if (startsWith) return startsWith;
+
+    return channels.find((channel) => channel.name.toLowerCase().includes(query)) || null;
+  }
+
   buildPresenceActivity() {
     const activeStations = [];
     for (const state of this.guildState.values()) {
@@ -681,22 +731,53 @@ class BotRuntime {
   }
 
   async handleAutocomplete(interaction) {
-    const stations = loadStations();
     const focused = interaction.options.getFocused(true);
 
-    if (focused.name !== "station") {
-      await interaction.respond([]);
+    if (focused.name === "station") {
+      const stations = loadStations();
+      const query = String(focused.value || "").toLowerCase();
+      const items = Object.entries(stations.stations)
+        .map(([key, value]) => ({ key, name: value.name }))
+        .filter((item) => item.key.toLowerCase().includes(query) || item.name.toLowerCase().includes(query))
+        .slice(0, 25)
+        .map((item) => ({ name: `${item.name} (${item.key})`, value: item.key }));
+
+      await interaction.respond(items);
       return;
     }
 
-    const query = String(focused.value || "").toLowerCase();
-    const items = Object.entries(stations.stations)
-      .map(([key, value]) => ({ key, name: value.name }))
-      .filter((item) => item.key.toLowerCase().includes(query) || item.name.toLowerCase().includes(query))
-      .slice(0, 25)
-      .map((item) => ({ name: `${item.name} (${item.key})`, value: item.key }));
+    if (focused.name === "channel") {
+      if (!interaction.guild) {
+        await interaction.respond([]);
+        return;
+      }
 
-    await interaction.respond(items);
+      const query = String(focused.value || "").trim().toLowerCase();
+      const channels = await this.listVoiceChannels(interaction.guild);
+      const items = channels
+        .filter((channel) => {
+          if (!query) return true;
+          if (channel.id.includes(query)) return true;
+          return channel.name.toLowerCase().includes(query);
+        })
+        .slice(0, 25)
+        .map((channel) => {
+          const prefix = channel.type === ChannelType.GuildStageVoice ? "Stage" : "Voice";
+          const count = Number(channel.members?.size || 0);
+          return {
+            name: clipText(`${prefix}: ${channel.name} (${count})`, 100),
+            value: channel.id
+          };
+        });
+
+      await interaction.respond(items);
+      return;
+    }
+
+    if (focused.name !== "station" && focused.name !== "channel") {
+      await interaction.respond([]);
+      return;
+    }
   }
 
   async handleInteraction(interaction) {
@@ -851,19 +932,37 @@ class BotRuntime {
 
     if (interaction.commandName === "play") {
       const requested = interaction.options.getString("station");
-      const requestedChannel = interaction.options.getChannel("channel");
+      const requestedChannelInput = interaction.options.getString("channel");
+      let requestedChannel = interaction.options.getChannel("channel");
       const key = resolveStation(stations, requested);
       if (!key) {
         await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
         return;
       }
 
+      const guild = interaction.guild;
+      if (!guild) {
+        await interaction.reply({ content: "Guild konnte nicht ermittelt werden.", ephemeral: true });
+        return;
+      }
+
+      if (!requestedChannel && requestedChannelInput) {
+        requestedChannel = await this.resolveVoiceChannelFromInput(guild, requestedChannelInput);
+        if (!requestedChannel) {
+          await interaction.reply({
+            content: "Voice-Channel nicht gefunden. Nutze die Vorschlaege in `channel` oder gib eine gueltige Channel-ID an.",
+            ephemeral: true
+          });
+          return;
+        }
+      }
+
       const memberChannelId = interaction.member?.voice?.channel?.id || null;
       log(
         "INFO",
-        `[${this.config.name}] /play guild=${interaction.guildId} station=${key} optionChannel=${
-          requestedChannel?.id || "-"
-        } memberChannel=${memberChannelId || "-"}`
+        `[${this.config.name}] /play guild=${interaction.guildId} station=${key} optionChannelInput=${
+          requestedChannelInput || "-"
+        } resolvedChannel=${requestedChannel?.id || "-"} memberChannel=${memberChannelId || "-"}`
       );
 
       const selectedStation = stations.stations[key];
