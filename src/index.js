@@ -1101,30 +1101,51 @@ class BotRuntime {
   }
 }
 
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+};
+
 function sendJson(res, status, payload) {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store"
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": "*"
   });
   res.end(JSON.stringify(payload));
 }
 
-function sendFile(res, filename, contentType) {
-  const filePath = path.join(webDir, filename);
-  if (!filePath.startsWith(webDir)) {
+function sendStaticFile(res, filePath) {
+  const resolved = path.resolve(filePath);
+  const resolvedWebDir = path.resolve(webDir);
+  if (!resolved.startsWith(resolvedWebDir)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
   }
 
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(resolved)) {
     res.writeHead(404);
     res.end("Not found");
     return;
   }
 
-  res.writeHead(200, { "Content-Type": contentType });
-  fs.createReadStream(filePath).pipe(res);
+  const ext = path.extname(resolved).toLowerCase();
+  const contentType = MIME_TYPES[ext] || "application/octet-stream";
+  const cacheControl = ext === ".html" ? "no-cache" : "public, max-age=86400";
+
+  res.writeHead(200, { "Content-Type": contentType, "Cache-Control": cacheControl });
+  fs.createReadStream(resolved).pipe(res);
 }
 
 function startWebServer(runtimes) {
@@ -1136,6 +1157,17 @@ function startWebServer(runtimes) {
   const server = http.createServer((req, res) => {
     const requestUrl = new URL(req.url || "/", "http://localhost");
 
+    // CORS
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // --- API routes ---
     if (requestUrl.pathname === "/api/bots") {
       const bots = runtimes.map((runtime) => runtime.getPublicStatus());
       const totals = bots.reduce(
@@ -1149,10 +1181,7 @@ function startWebServer(runtimes) {
         { servers: 0, users: 0, connections: 0, listeners: 0 }
       );
 
-      sendJson(res, 200, {
-        bots,
-        totals
-      });
+      sendJson(res, 200, { bots, totals });
       return;
     }
 
@@ -1182,23 +1211,10 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (requestUrl.pathname === "/") {
-      sendFile(res, "index.html", "text/html; charset=utf-8");
-      return;
-    }
-
-    if (requestUrl.pathname === "/app.js") {
-      sendFile(res, "app.js", "text/javascript; charset=utf-8");
-      return;
-    }
-
-    if (requestUrl.pathname === "/styles.css") {
-      sendFile(res, "styles.css", "text/css; charset=utf-8");
-      return;
-    }
-
-    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Not found");
+    // --- Static file serving from web/ ---
+    const safePath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
+    const filePath = path.join(webDir, safePath);
+    sendStaticFile(res, filePath);
   });
 
   server.listen(webInternalPort, webBind, () => {
