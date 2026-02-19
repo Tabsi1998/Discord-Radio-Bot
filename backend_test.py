@@ -161,7 +161,7 @@ class DiscordRadioBotAPITester:
         )
 
     def test_stats_endpoint(self):
-        """Test /api/stats endpoint"""
+        """Test /api/stats endpoint - Should include bot and station counts"""
         def validate_stats(data):
             required_fields = ['servers', 'users', 'connections', 'listeners', 'bots', 'stations']
             for field in required_fields:
@@ -170,13 +170,18 @@ class DiscordRadioBotAPITester:
                 if not isinstance(data[field], int):
                     return f"Field '{field}' should be an integer"
             
-            if data['bots'] != 4:
-                return f"Expected 4 bots in stats, got {data['bots']}"
+            # Should have at least some bots (placeholder or from .env)
+            if data['bots'] < 1:
+                return f"Expected at least 1 bot in stats, got {data['bots']}"
+            
+            # Should have 11 stations
+            if data['stations'] != 11:
+                return f"Expected 11 stations in stats, got {data['stations']}"
             
             return True
 
         return self.run_test(
-            "Stats Endpoint",
+            "Stats Endpoint (Bot and Station counts)",
             "GET",
             "api/stats",
             200,
