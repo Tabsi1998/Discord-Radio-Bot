@@ -244,21 +244,31 @@ async def premium_checkout(body: dict):
         return {"error": "Stripe nicht konfiguriert."}
 
     try:
-        from emergentintegrations.llm.stripe import create_checkout_session
+        import stripe
+        stripe.api_key = stripe_key
+
         price_map = {"pro": 499, "ultimate": 999}
         tier_names = {"pro": "Radio Bot Pro", "ultimate": "Radio Bot Ultimate"}
 
-        session = await create_checkout_session(
-            api_key=stripe_key,
-            product_name=tier_names[tier],
-            unit_amount=price_map[tier],
-            currency="eur",
-            quantity=1,
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="payment",
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "product_data": {
+                        "name": tier_names[tier],
+                        "description": f"Premium {TIERS[tier]['name']} fuer Server {server_id}",
+                    },
+                    "unit_amount": price_map[tier],
+                },
+                "quantity": 1,
+            }],
+            metadata={"serverId": server_id, "tier": tier},
             success_url=(return_url or "http://localhost") + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
             cancel_url=(return_url or "http://localhost") + "?payment=cancelled",
-            metadata={"serverId": server_id, "tier": tier}
         )
-        return {"sessionId": session.get("id", ""), "url": session.get("url", "")}
+        return {"sessionId": session.id, "url": session.url}
     except Exception as e:
         return {"error": f"Checkout fehlgeschlagen: {str(e)}"}
 
