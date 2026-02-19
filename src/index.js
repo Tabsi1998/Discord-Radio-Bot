@@ -1200,11 +1200,13 @@ class BotRuntime {
         meta: state.currentMeta || null,
       });
     }
+    const isPremiumBot = this.config.requiredTier && this.config.requiredTier !== "free";
     return {
       id: this.config.id,
       name: this.config.name,
       clientId: this.config.clientId,
-      inviteUrl: buildInviteUrl(this.config),
+      inviteUrl: isPremiumBot ? null : buildInviteUrl(this.config),
+      requiredTier: this.config.requiredTier || "free",
       ready: this.client.isReady(),
       userTag: this.client.user?.tag || null,
       avatarUrl: this.client.user?.displayAvatarURL({ extension: "png", size: 256 }) || null,
