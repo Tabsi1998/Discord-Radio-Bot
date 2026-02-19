@@ -749,6 +749,7 @@ class BotRuntime {
       inviteUrl: buildInviteUrl(this.config),
       ready: this.client.isReady(),
       userTag: this.client.user?.tag || null,
+      avatarUrl: this.client.user?.displayAvatarURL({ extension: "png", size: 256 }) || null,
       guilds: stats.servers,
       servers: stats.servers,
       users: stats.users,

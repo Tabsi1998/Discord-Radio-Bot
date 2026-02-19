@@ -62,7 +62,15 @@ function renderBots(bots) {
     node.classList.add(tone);
 
     const icon = node.querySelector(".bot-icon");
-    icon.textContent = (bot.name || "B").slice(0, 1).toUpperCase();
+    if (bot.avatarUrl) {
+      icon.textContent = "";
+      icon.style.backgroundImage = `url(${bot.avatarUrl})`;
+      icon.classList.add("has-image");
+    } else {
+      icon.style.backgroundImage = "";
+      icon.classList.remove("has-image");
+      icon.textContent = (bot.name || "B").slice(0, 1).toUpperCase();
+    }
 
     node.querySelector(".bot-name").textContent = bot.name || "Bot";
     node.querySelector(".servers").textContent = formatInt(bot.servers);
