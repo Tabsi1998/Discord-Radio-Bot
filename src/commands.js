@@ -41,7 +41,10 @@ export function buildCommandBuilders() {
       ),
     new SlashCommandBuilder()
       .setName("health")
-      .setDescription("Zeigt Stream-Health und Reconnects")
+      .setDescription("Zeigt Stream-Health und Reconnects"),
+    new SlashCommandBuilder()
+      .setName("premium")
+      .setDescription("Zeigt den Premium-Status dieses Servers")
   ];
 }
 
