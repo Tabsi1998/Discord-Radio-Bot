@@ -24,6 +24,10 @@ db = client[DB_NAME]
 
 STATIONS_FILE = Path(__file__).parent.parent / "stations.json"
 
+# Bot-Bilder (für die Webseite)
+BOT_IMAGES = ["/img/bot-1.png", "/img/bot-2.png", "/img/bot-3.png", "/img/bot-4.png"]
+BOT_COLORS = ["cyan", "green", "pink", "amber", "purple", "red"]
+
 
 def load_stations_from_file():
     if not STATIONS_FILE.exists():
@@ -32,17 +36,50 @@ def load_stations_from_file():
         return json.load(f)
 
 
-def seed_bots_if_empty():
-    if db.bots.count_documents({}) == 0:
-        default_bots = [
-            {
-                "bot_id": "bot-1",
-                "name": "Radio Bot 1",
-                "client_id": "000000000000000001",
-                "color": "cyan",
-                "description": "Dein erster Radio-Bot fuer 24/7 Musik",
-                "invite_url": "",
-                "avatar_url": "",
+def load_bots_from_env():
+    """Dynamisch Bots aus der .env laden - beliebig viele (1-20)."""
+    bots = []
+    for i in range(1, 21):
+        name_key = f"BOT_{i}_NAME"
+        token_key = f"BOT_{i}_TOKEN"
+        client_id_key = f"BOT_{i}_CLIENT_ID"
+
+        token = os.environ.get(token_key, "").strip()
+        cid = os.environ.get(client_id_key, "").strip()
+
+        if not token and not cid:
+            continue
+
+        name = os.environ.get(name_key, f"Radio Bot {i}").strip()
+        color = BOT_COLORS[(i - 1) % len(BOT_COLORS)]
+        img = BOT_IMAGES[(i - 1) % len(BOT_IMAGES)] if i <= len(BOT_IMAGES) else ""
+
+        bots.append({
+            "bot_id": f"bot-{i}",
+            "index": i,
+            "name": name,
+            "client_id": cid or f"0000000000000000{i:02d}",
+            "color": color,
+            "avatar_url": img,
+            "servers": 0,
+            "users": 0,
+            "connections": 0,
+            "listeners": 0,
+            "ready": False,
+            "user_tag": None,
+            "uptime_sec": 0,
+        })
+
+    # Wenn keine Bots in .env konfiguriert, Platzhalter-Bots zeigen
+    if not bots:
+        for i in range(1, 5):
+            bots.append({
+                "bot_id": f"bot-{i}",
+                "index": i,
+                "name": f"Radio Bot {i}",
+                "client_id": f"0000000000000000{i:02d}",
+                "color": BOT_COLORS[(i - 1) % len(BOT_COLORS)],
+                "avatar_url": BOT_IMAGES[(i - 1) % len(BOT_IMAGES)],
                 "servers": 0,
                 "users": 0,
                 "connections": 0,
@@ -50,61 +87,9 @@ def seed_bots_if_empty():
                 "ready": False,
                 "user_tag": None,
                 "uptime_sec": 0,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            },
-            {
-                "bot_id": "bot-2",
-                "name": "Radio Bot 2",
-                "client_id": "000000000000000002",
-                "color": "green",
-                "description": "Zweiter Bot fuer paralleles Streaming",
-                "invite_url": "",
-                "avatar_url": "",
-                "servers": 0,
-                "users": 0,
-                "connections": 0,
-                "listeners": 0,
-                "ready": False,
-                "user_tag": None,
-                "uptime_sec": 0,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            },
-            {
-                "bot_id": "bot-3",
-                "name": "Radio Bot 3",
-                "client_id": "000000000000000003",
-                "color": "pink",
-                "description": "Dritter Bot fuer noch mehr Channels",
-                "invite_url": "",
-                "avatar_url": "",
-                "servers": 0,
-                "users": 0,
-                "connections": 0,
-                "listeners": 0,
-                "ready": False,
-                "user_tag": None,
-                "uptime_sec": 0,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            },
-            {
-                "bot_id": "bot-4",
-                "name": "Radio Bot 4",
-                "client_id": "000000000000000004",
-                "color": "amber",
-                "description": "Vierter Bot fuer maximale Abdeckung",
-                "invite_url": "",
-                "avatar_url": "",
-                "servers": 0,
-                "users": 0,
-                "connections": 0,
-                "listeners": 0,
-                "ready": False,
-                "user_tag": None,
-                "uptime_sec": 0,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-        ]
-        db.bots.insert_many(default_bots)
+            })
+
+    return bots
 
 
 def seed_stations_if_empty():
@@ -112,20 +97,20 @@ def seed_stations_if_empty():
         file_data = load_stations_from_file()
         stations_list = []
         file_stations = file_data.get("stations", {})
+        genre_map = {
+            "oneworldradio": "Electronic / Festival",
+            "lofi": "Lo-Fi / Chill",
+            "classicrock": "Rock / Classic",
+            "chillout": "Chill / Ambient",
+            "dance": "Dance / EDM",
+            "hiphop": "Hip Hop / Rap",
+            "techno": "Techno / House",
+            "pop": "Pop / Charts",
+            "rock": "Rock / Alternative",
+            "bass": "Bass / Dubstep",
+            "deutschrap": "Deutsch Rap",
+        }
         for key, val in file_stations.items():
-            genre_map = {
-                "oneworldradio": "Electronic / Festival",
-                "lofi": "Lo-Fi / Chill",
-                "classicrock": "Rock / Classic",
-                "chillout": "Chill / Ambient",
-                "dance": "Dance / EDM",
-                "hiphop": "Hip Hop / Rap",
-                "techno": "Techno / House",
-                "pop": "Pop / Charts",
-                "rock": "Rock / Alternative",
-                "bass": "Bass / Dubstep",
-                "deutschrap": "Deutsch Rap",
-            }
             stations_list.append({
                 "key": key,
                 "name": val.get("name", key),
@@ -139,7 +124,6 @@ def seed_stations_if_empty():
             db.stations.insert_many(stations_list)
 
 
-seed_bots_if_empty()
 seed_stations_if_empty()
 
 
@@ -150,8 +134,7 @@ async def health():
 
 @app.get("/api/bots")
 async def get_bots():
-    bots_cursor = db.bots.find({}, {"_id": 0})
-    bots = list(bots_cursor)
+    bots = load_bots_from_env()
     totals = {"servers": 0, "users": 0, "connections": 0, "listeners": 0}
     for bot in bots:
         totals["servers"] += bot.get("servers", 0)
@@ -179,10 +162,10 @@ async def get_stations():
 
 @app.get("/api/stats")
 async def get_stats():
-    bot_count = db.bots.count_documents({})
+    bots = load_bots_from_env()
     station_count = db.stations.count_documents({})
-    totals = {"servers": 0, "users": 0, "connections": 0, "listeners": 0, "bots": bot_count, "stations": station_count}
-    for bot in db.bots.find({}, {"_id": 0, "servers": 1, "users": 1, "connections": 1, "listeners": 1}):
+    totals = {"servers": 0, "users": 0, "connections": 0, "listeners": 0, "bots": len(bots), "stations": station_count}
+    for bot in bots:
         totals["servers"] += bot.get("servers", 0)
         totals["users"] += bot.get("users", 0)
         totals["connections"] += bot.get("connections", 0)
