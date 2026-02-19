@@ -10,6 +10,7 @@ import { ActivityType, ChannelType, Client, GatewayIntentBits, PermissionFlagsBi
 import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
+  NoSubscriberBehavior,
   createAudioPlayer,
   createAudioResource,
   demuxProbe,
@@ -18,8 +19,9 @@ import {
   StreamType
 } from "@discordjs/voice";
 import dotenv from "dotenv";
-import { loadStations } from "./stations-store.js";
+import { loadStations, resolveStation, getFallbackKey } from "./stations-store.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
+import { getTier, getTierConfig, getLicense, listLicenses, addLicense, TIERS } from "./premium-store.js";
 
 dotenv.config();
 
