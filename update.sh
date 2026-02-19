@@ -87,7 +87,7 @@ write_env_line() {
 
 count_bots() {
   local c=0
-  while grep -q "^BOT_TOKEN_$((c+1))=" .env 2>/dev/null; do
+  while grep -q "^BOT_$((c+1))_TOKEN=" .env 2>/dev/null; do
     c=$((c+1))
   done
   echo "$c"
