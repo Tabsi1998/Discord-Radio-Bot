@@ -3,79 +3,163 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Radio Bot Invite Dashboard</title>
+    <meta name="description" content="Discord Radio Bot - 24/7 Radio-Streams fuer deinen Discord Server" />
+    <title>Discord Radio Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="noise"></div>
+    <div class="noise-overlay"></div>
 
-    <main class="page">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">Discord Radio Network</p>
-          <h1>Quick Stats</h1>
-          <p class="subline">Mehrere Bot-Worker, ein gemeinsames Dashboard, direkte Invite-Links pro Bot.</p>
+    <!-- Navbar -->
+    <nav class="navbar" id="navbar">
+      <a href="#top" class="nav-logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>
+        <span>RADIO<em>BOT</em></span>
+      </a>
+      <div class="nav-links">
+        <a href="#bots">Bots</a>
+        <a href="#features">Features</a>
+        <a href="#stations">Stationen</a>
+        <a href="#commands">Commands</a>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero" id="top">
+      <div class="hero-glow hero-glow-cyan"></div>
+      <div class="hero-glow hero-glow-purple"></div>
+
+      <div class="equalizer" id="equalizer"></div>
+
+      <div class="hero-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>
+        <span>DISCORD RADIO NETWORK</span>
+      </div>
+
+      <h1 class="hero-title">Dreh die <span class="glow-cyan">Lautst&auml;rke</span> auf</h1>
+      <p class="hero-sub">24/7 Radio-Bots f&uuml;r deinen Discord Server. W&auml;hle deine Station, lade den Bot ein und genie&szlig;e nonstop Musik.</p>
+
+      <div class="hero-actions">
+        <a href="#bots" class="btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+          Bot einladen
+        </a>
+        <a href="#stations" class="btn-secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          Stationen ansehen
+        </a>
+      </div>
+
+      <div class="hero-stats" id="heroStats">
+        <div class="hero-stat"><span class="stat-num" id="statServers">0</span><span class="stat-label">SERVER</span></div>
+        <div class="hero-stat"><span class="stat-num" id="statStations">0</span><span class="stat-label">STATIONEN</span></div>
+        <div class="hero-stat"><span class="stat-num" id="statBots">0</span><span class="stat-label">BOTS</span></div>
+      </div>
+    </section>
+
+    <!-- Bots Directory -->
+    <section class="section" id="bots">
+      <div class="container">
+        <span class="section-eyebrow cyan">W&auml;hle deine Frequenz</span>
+        <h2 class="section-title">Unsere Radio Bots</h2>
+        <p class="section-sub">Jeder Bot ist ein eigener Worker. Lade alle ein f&uuml;r maximale Abdeckung auf deinem Server.</p>
+        <div class="bot-grid" id="botGrid">
+          <p class="muted">Lade Bots...</p>
         </div>
-        <section class="health" id="healthBox">
-          <span class="dot"></span>
-          <span id="healthText">Lade Backend-Status...</span>
-        </section>
-      </header>
+      </div>
+    </section>
 
-      <section class="summary-grid" aria-label="Gesamtstatistik">
-        <article class="summary-card summary-servers">
-          <h2>Servers</h2>
-          <p id="sumServers">0</p>
-        </article>
-        <article class="summary-card summary-users">
-          <h2>Users</h2>
-          <p id="sumUsers">0</p>
-        </article>
-        <article class="summary-card summary-connections">
-          <h2>Connections</h2>
-          <p id="sumConnections">0</p>
-        </article>
-        <article class="summary-card summary-listeners">
-          <h2>Listeners</h2>
-          <p id="sumListeners">0</p>
-        </article>
-      </section>
+    <!-- Features -->
+    <section class="section section-glow" id="features">
+      <div class="container">
+        <div class="text-center">
+          <span class="section-eyebrow cyan">Warum Radio Bot?</span>
+          <h2 class="section-title">Gebaut f&uuml;r Qualit&auml;t</h2>
+        </div>
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon cyan-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+            <div><h3>24/7 Streaming</h3><p>Nonstop Radio, rund um die Uhr. Dein Server schl&auml;ft nie.</p></div>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon green-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+            <div><h3>Multi-Bot System</h3><p>Bis zu 20 Bots parallel. Jeder Bot kann in einem eigenen Channel spielen.</p></div>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon amber-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+            <div><h3>Sofort bereit</h3><p>Slash-Commands. Kein Prefix n&ouml;tig. /play und los.</p></div>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon pink-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EC4899" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></div>
+            <div><h3>HQ Audio</h3><p>Opus-Transcoding mit konfigurierbarer Bitrate. Kristallklarer Sound.</p></div>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon purple-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+            <div><h3>Auto-Reconnect</h3><p>F&auml;llt die Verbindung, verbindet sich der Bot automatisch neu.</p></div>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon red-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF2A2A" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+            <div><h3>Flexibel konfigurierbar</h3><p>Eigene Stationen, Quality Presets, Fallback-Stationen.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-      <section>
-        <h2 class="section-title">Bot Cards</h2>
-        <div id="botGrid" class="bot-grid"></div>
-      </section>
+    <!-- Stations -->
+    <section class="section" id="stations">
+      <div class="container">
+        <span class="section-eyebrow cyan">Live Station Directory</span>
+        <h2 class="section-title">Radio Stationen</h2>
+        <p class="section-sub" id="stationCount">Lade Stationen...</p>
 
-      <section>
-        <h2 class="section-title">Stations</h2>
-        <div id="stationsBox" class="stations-box">Lade Stations...</div>
-      </section>
-    </main>
-
-    <template id="botCardTemplate">
-      <article class="bot-card">
-        <div class="card-head">
-          <div class="bot-icon" aria-hidden="true"></div>
-          <h3 class="bot-name"></h3>
+        <div class="station-search-wrap">
+          <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#52525B" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" class="station-search" id="stationSearch" placeholder="Station suchen..." />
         </div>
 
-        <p class="meta-label">BOT STATISTICS</p>
-        <ul class="stats">
-          <li><span>Servers:</span> <strong class="servers"></strong></li>
-          <li><span>Users:</span> <strong class="users"></strong></li>
-          <li><span>Connections:</span> <strong class="connections"></strong></li>
-          <li><span>Listeners:</span> <strong class="listeners"></strong></li>
-        </ul>
-
-        <p class="bot-meta">Tag: <span class="user"></span> | Uptime: <span class="uptime"></span></p>
-
-        <div class="card-actions">
-          <a class="invite-btn" target="_blank" rel="noopener noreferrer">INVITE</a>
-          <button class="copy-btn" type="button">COPY</button>
+        <div class="station-list" id="stationList">
+          <p class="muted">Lade Stationen...</p>
         </div>
-      </article>
-    </template>
+      </div>
+    </section>
 
-    <script src="/app.js" type="module"></script>
+    <!-- Commands -->
+    <section class="section section-glow-purple" id="commands">
+      <div class="container">
+        <div class="text-center">
+          <span class="section-eyebrow purple">Slash Commands</span>
+          <h2 class="section-title">Steuerung</h2>
+        </div>
+        <div class="commands-terminal">
+          <div class="terminal-header">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#52525B" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span>discord-commands</span>
+          </div>
+          <div class="commands-list" id="commandsList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-stats" id="footerStats"></div>
+        <div class="footer-bottom">
+          <div class="footer-logo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>
+            <span>RADIO<em>BOT</em></span>
+          </div>
+          <a href="https://github.com/Tabsi1998/Discord-Radio-Bot" target="_blank" rel="noopener noreferrer" class="footer-gh">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+          </a>
+          <span class="footer-love">Gebaut mit <svg width="12" height="12" viewBox="0 0 24 24" fill="#FF2A2A" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> f&uuml;r Discord</span>
+        </div>
+      </div>
+    </footer>
+
+    <script src="/app.js"></script>
   </body>
 </html>
