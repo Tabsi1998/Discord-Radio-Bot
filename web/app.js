@@ -32,12 +32,35 @@ function fmtInt(v) { return fmt.format(Number(v) || 0); }
 
 var allStations = [];
 
-// --- Navbar scroll ---
+// --- Navbar scroll + mobile toggle ---
 window.addEventListener('scroll', function() {
   var nav = document.getElementById('navbar');
   if (window.scrollY > 40) { nav.classList.add('scrolled'); }
   else { nav.classList.remove('scrolled'); }
 });
+
+(function initMobileNav() {
+  var toggle = document.getElementById('navToggle');
+  var mobile = document.getElementById('navMobile');
+  var icon = document.getElementById('navIcon');
+  var isOpen = false;
+
+  toggle.addEventListener('click', function() {
+    isOpen = !isOpen;
+    mobile.classList.toggle('open', isOpen);
+    icon.innerHTML = isOpen
+      ? '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'
+      : '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>';
+  });
+
+  mobile.querySelectorAll('a').forEach(function(a) {
+    a.addEventListener('click', function() {
+      isOpen = false;
+      mobile.classList.remove('open');
+      icon.innerHTML = '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>';
+    });
+  });
+})();
 
 // --- Equalizer bars ---
 (function initEq() {
