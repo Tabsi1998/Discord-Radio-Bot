@@ -450,6 +450,10 @@ echo -e "${BOLD}Schritt 6/6: Docker Compose starten${NC}"
 echo "─────────────────────────────────────"
 
 info "Baue und starte Container..."
+# Sicherstellen dass gemountete Dateien existieren
+[[ -f premium.json ]] || echo '{"pro":[],"ultimate":[]}' > premium.json
+[[ -f bot-state.json ]] || echo '{}' > bot-state.json
+
 $DOCKER compose up -d --build
 
 echo ""
