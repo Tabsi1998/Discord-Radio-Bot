@@ -1223,6 +1223,71 @@ class BotRuntime {
     };
   }
 
+  // === State Persistence: Speichert aktuellen Zustand fuer Auto-Reconnect nach Restart ===
+  persistState() {
+    saveBotState(this.config.id, this.guildState);
+  }
+
+  async restoreState(stations) {
+    const saved = getBotState(this.config.id);
+    if (!saved || Object.keys(saved).length === 0) return;
+
+    log("INFO", `[${this.config.name}] Stelle ${Object.keys(saved).length} Verbindung(en) wieder her...`);
+
+    for (const [guildId, data] of Object.entries(saved)) {
+      try {
+        const guild = this.client.guilds.cache.get(guildId);
+        if (!guild) {
+          log("INFO", `[${this.config.name}] Guild ${guildId} nicht gefunden, ueberspringe.`);
+          clearBotGuild(this.config.id, guildId);
+          continue;
+        }
+
+        const channel = guild.channels.cache.get(data.channelId);
+        if (!channel || !channel.isVoiceBased()) {
+          log("INFO", `[${this.config.name}] Channel ${data.channelId} in ${guild.name} nicht gefunden.`);
+          clearBotGuild(this.config.id, guildId);
+          continue;
+        }
+
+        const stationKey = resolveStation(stations, data.stationKey);
+        if (!stationKey) {
+          log("INFO", `[${this.config.name}] Station ${data.stationKey} nicht mehr vorhanden.`);
+          clearBotGuild(this.config.id, guildId);
+          continue;
+        }
+
+        log("INFO", `[${this.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${stations.stations[stationKey].name}`);
+
+        const state = this.getState(guildId);
+        state.volume = data.volume ?? 100;
+        state.shouldReconnect = true;
+        state.lastChannelId = data.channelId;
+
+        const connection = joinVoiceChannel({
+          channelId: channel.id,
+          guildId,
+          adapterCreator: guild.voiceAdapterCreator,
+          selfDeaf: true,
+          selfMute: false,
+          group: this.voiceGroup,
+        });
+
+        state.connection = connection;
+        connection.subscribe(state.player);
+        this.attachConnectionHandlers(guildId, connection);
+
+        await this.playStation(state, stations, stationKey, guildId);
+        log("INFO", `[${this.config.name}] Wiederhergestellt: ${guild.name} -> ${stations.stations[stationKey].name}`);
+
+        // Kurze Pause zwischen Reconnects um Rate-Limits zu vermeiden
+        await new Promise(r => setTimeout(r, 1500));
+      } catch (err) {
+        log("ERROR", `[${this.config.name}] Restore fehlgeschlagen fuer Guild ${guildId}: ${err?.message || err}`);
+      }
+    }
+  }
+
   async stop() {
     for (const state of this.guildState.values()) {
       state.shouldReconnect = false;
