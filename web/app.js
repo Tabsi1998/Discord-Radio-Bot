@@ -1,4 +1,4 @@
-/* === Discord Radio Bot - Frontend v2.1 === */
+/* === Discord Radio Bot - Frontend v3.0 === */
 
 var BOT_COLORS = [
   { name: 'cyan',   accent: '#00F0FF', glow: 'rgba(0,240,255,0.15)',  border: 'rgba(0,240,255,0.25)' },
@@ -10,8 +10,6 @@ var BOT_COLORS = [
 ];
 
 var STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '#FF2A2A'];
-
-// Bot-Bilder - die 4 Custom-Avatare cyclen
 var BOT_IMAGES = ['/img/bot-1.png', '/img/bot-2.png', '/img/bot-3.png', '/img/bot-4.png'];
 
 var COMMANDS = [
@@ -31,6 +29,7 @@ var fmt = new Intl.NumberFormat('de-DE');
 function fmtInt(v) { return fmt.format(Number(v) || 0); }
 
 var allStations = [];
+var lastBotsData = [];
 
 // --- Navbar scroll + mobile toggle ---
 window.addEventListener('scroll', function() {
@@ -47,7 +46,12 @@ window.addEventListener('scroll', function() {
 
   toggle.addEventListener('click', function() {
     isOpen = !isOpen;
-    mobile.classList.toggle('open', isOpen);
+    if (isOpen) {
+      mobile.classList.add('open');
+      mobile.style.display = '';
+    } else {
+      mobile.classList.remove('open');
+    }
     icon.innerHTML = isOpen
       ? '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'
       : '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>';
@@ -62,7 +66,10 @@ window.addEventListener('scroll', function() {
   });
 })();
 
-// --- Equalizer bars ---
+// --- Dynamic Equalizer ---
+var eqBars = [];
+var eqIsPlaying = false;
+
 (function initEq() {
   var el = document.getElementById('equalizer');
   var heights = [0.4, 0.7, 0.5, 0.9, 0.6, 0.8, 0.3, 0.7, 0.5, 0.6, 0.8, 0.4];
@@ -72,8 +79,28 @@ window.addEventListener('scroll', function() {
     bar.style.height = (h * 100) + '%';
     bar.style.animation = 'eq ' + (0.6 + Math.random() * 0.8).toFixed(2) + 's ease-in-out ' + (i * 0.08).toFixed(2) + 's infinite';
     el.appendChild(bar);
+    eqBars.push(bar);
   });
 })();
+
+function setEqActive(active) {
+  var el = document.getElementById('equalizer');
+  if (active && !eqIsPlaying) {
+    eqIsPlaying = true;
+    el.classList.add('active');
+    eqBars.forEach(function(bar, i) {
+      bar.style.animation = 'eq-active ' + (0.3 + Math.random() * 0.5).toFixed(2) + 's ease-in-out ' + (i * 0.06).toFixed(2) + 's infinite';
+      bar.style.background = 'linear-gradient(to top, #00F0FF, #BD00FF, #FF2A2A)';
+    });
+  } else if (!active && eqIsPlaying) {
+    eqIsPlaying = false;
+    el.classList.remove('active');
+    eqBars.forEach(function(bar, i) {
+      bar.style.animation = 'eq ' + (0.6 + Math.random() * 0.8).toFixed(2) + 's ease-in-out ' + (i * 0.08).toFixed(2) + 's infinite';
+      bar.style.background = 'linear-gradient(to top, var(--cyan), var(--purple))';
+    });
+  }
+}
 
 // --- Commands (static) ---
 (function renderCommands() {
@@ -112,8 +139,9 @@ function copyText(text, btn) {
   }).catch(function() {});
 }
 
-// --- Render Bots (dynamisch - beliebig viele) ---
+// --- Render Bots ---
 function renderBots(bots) {
+  lastBotsData = bots;
   var grid = document.getElementById('botGrid');
   grid.innerHTML = '';
   if (!bots || bots.length === 0) {
@@ -136,13 +164,11 @@ function renderBots(bots) {
       card.style.boxShadow = '';
     });
 
-    // Akzent-Balken
     var bar = document.createElement('div');
     bar.className = 'accent-bar';
     bar.style.background = c.accent;
     card.appendChild(bar);
 
-    // Bot-Avatar + Name
     var head = document.createElement('div');
     head.className = 'bot-head';
 
@@ -157,7 +183,6 @@ function renderBots(bots) {
     img.alt = bot.name || 'Bot';
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:12px';
     img.onerror = function() {
-      // Fallback auf SVG-Icon
       this.style.display = 'none';
       icon.innerHTML += '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="' + c.accent + '" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>';
     };
@@ -174,9 +199,7 @@ function renderBots(bots) {
     info.appendChild(tag);
     head.appendChild(icon);
     head.appendChild(info);
-    card.appendChild(head);
 
-    // Status
     var status = document.createElement('div');
     status.className = 'bot-status';
     var dot = document.createElement('div');
@@ -185,11 +208,8 @@ function renderBots(bots) {
     status.appendChild(document.createTextNode(bot.ready ? 'Online' : 'Konfigurierbar'));
     info.appendChild(status);
 
-    head.appendChild(icon);
-    head.appendChild(info);
     card.appendChild(head);
 
-    // Bot-Statistiken (wie Jockie Music)
     var statsBox = document.createElement('div');
     statsBox.style.cssText = 'padding:14px 0;margin-bottom:16px;border-top:1px solid ' + c.accent + '15;border-bottom:1px solid ' + c.accent + '15';
 
@@ -221,7 +241,6 @@ function renderBots(bots) {
     statsBox.appendChild(statsGrid);
     card.appendChild(statsBox);
 
-    // Actions
     var actions = document.createElement('div');
     actions.className = 'bot-actions';
 
@@ -260,14 +279,18 @@ function playStation(station) {
     currentPlayingKey = station.key;
     updateNowPlaying(station);
     filterStations(document.getElementById('stationSearch').value);
-  }).catch(function() {
+    setEqActive(true);
+  }).catch(function(err) {
+    console.error('Audio play failed:', err);
     currentPlayingKey = null;
     updateNowPlaying(null);
+    setEqActive(false);
   });
   currentAudio.onerror = function() {
     currentPlayingKey = null;
     updateNowPlaying(null);
     filterStations(document.getElementById('stationSearch').value);
+    setEqActive(false);
   };
 }
 
@@ -279,6 +302,7 @@ function stopStation() {
   }
   currentPlayingKey = null;
   updateNowPlaying(null);
+  setEqActive(false);
   filterStations(document.getElementById('stationSearch').value);
 }
 
@@ -291,7 +315,6 @@ function setVolume(val) {
 function toggleMute() {
   currentMuted = !currentMuted;
   if (currentAudio) currentAudio.volume = currentMuted ? 0 : currentVolume / 100;
-  // Re-render now playing to update mute icon
   var station = allStations.find(function(s) { return s.key === currentPlayingKey; });
   if (station) updateNowPlaying(station);
 }
@@ -311,16 +334,16 @@ function updateNowPlaying(station) {
   [0.5, 0.8, 0.6, 1, 0.7].forEach(function(h, i) {
     var b = document.createElement('div');
     b.className = 'eq-bar';
-    b.style.cssText = 'width:3px;border-radius:1px;background:#00F0FF;height:' + (h*100) + '%;animation-duration:' + (0.4+Math.random()*0.6).toFixed(2) + 's;animation-delay:' + (i*0.08).toFixed(2) + 's';
+    b.style.cssText = 'width:3px;border-radius:1px;background:#00F0FF;height:' + (h*100) + '%;animation:eq-active ' + (0.3+Math.random()*0.5).toFixed(2) + 's ease-in-out ' + (i*0.06).toFixed(2) + 's infinite';
     eqWrap.appendChild(b);
   });
   container.appendChild(eqWrap);
 
   // Station Name
-  var name = document.createElement('span');
-  name.style.cssText = 'font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-  name.textContent = station.name;
-  container.appendChild(name);
+  var nameEl = document.createElement('span');
+  nameEl.style.cssText = 'font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+  nameEl.textContent = station.name;
+  container.appendChild(nameEl);
 
   // Volume Controls
   var volWrap = document.createElement('div');
@@ -342,24 +365,24 @@ function updateNowPlaying(station) {
   slider.max = '100';
   slider.value = currentMuted ? '0' : String(currentVolume);
   slider.className = 'vol-slider';
+  var pct = currentMuted ? 0 : currentVolume;
+  slider.style.background = 'linear-gradient(to right, #00F0FF ' + pct + '%, rgba(255,255,255,0.1) ' + pct + '%)';
+
+  // Volume Number (declare before slider.oninput so it's in scope)
+  var volNum = document.createElement('span');
+  volNum.style.cssText = 'font-size:11px;font-family:JetBrains Mono,monospace;color:#52525B;width:28px;text-align:right';
+  volNum.textContent = currentMuted ? '0' : String(currentVolume);
+
   slider.oninput = function() {
     var v = Number(this.value);
     setVolume(v);
     this.style.background = 'linear-gradient(to right, #00F0FF ' + v + '%, rgba(255,255,255,0.1) ' + v + '%)';
     volNum.textContent = v;
-    // Update mute icon
     muteBtn.style.color = v === 0 ? '#FF2A2A' : '#A1A1AA';
   };
-  var pct = currentMuted ? 0 : currentVolume;
-  slider.style.background = 'linear-gradient(to right, #00F0FF ' + pct + '%, rgba(255,255,255,0.1) ' + pct + '%)';
+
   volWrap.appendChild(slider);
-
-  // Volume Number
-  var volNum = document.createElement('span');
-  volNum.style.cssText = 'font-size:11px;font-family:JetBrains Mono,monospace;color:#52525B;width:28px;text-align:right';
-  volNum.textContent = currentMuted ? '0' : String(currentVolume);
   volWrap.appendChild(volNum);
-
   container.appendChild(volWrap);
 
   // Stop Button
@@ -370,7 +393,7 @@ function updateNowPlaying(station) {
   container.appendChild(stopBtn);
 }
 
-// --- Render Stations with Play button ---
+// --- Render Stations ---
 function renderStations(stations) {
   allStations = stations || [];
   document.getElementById('stationCount').textContent = allStations.length + ' verfügbare Stationen. Klicke zum Vorhören oder nutze /play im Discord.';
@@ -436,7 +459,7 @@ function filterStations(query) {
       [0.6, 1, 0.7, 0.9].forEach(function(h, j) {
         var b = document.createElement('div');
         b.className = 'eq-bar';
-        b.style.cssText = 'width:3px;border-radius:1px;background:' + color + ';height:' + (h*100) + '%;animation-duration:' + (0.4+Math.random()*0.6).toFixed(2) + 's;animation-delay:' + (j*0.1).toFixed(2) + 's';
+        b.style.cssText = 'width:3px;border-radius:1px;background:' + color + ';height:' + (h*100) + '%;animation:eq-active ' + (0.3+Math.random()*0.5).toFixed(2) + 's ease-in-out ' + (j*0.06).toFixed(2) + 's infinite';
         eqWrap.appendChild(b);
       });
       item.appendChild(eqWrap);
@@ -450,6 +473,97 @@ function filterStations(query) {
 document.getElementById('stationSearch').addEventListener('input', function(e) {
   filterStations(e.target.value);
 });
+
+// --- Live Dashboard ---
+function formatUptime(seconds) {
+  if (!seconds || seconds <= 0) return '--';
+  var d = Math.floor(seconds / 86400);
+  var h = Math.floor((seconds % 86400) / 3600);
+  var m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return d + 'd ' + h + 'h';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+
+function renderDashboard(bots, totals) {
+  var activeStreams = 0;
+  var listeners = 0;
+  var maxUptime = 0;
+  var readyCount = 0;
+
+  (bots || []).forEach(function(bot) {
+    activeStreams += Number(bot.connections) || 0;
+    listeners += Number(bot.listeners) || 0;
+    if (bot.ready) readyCount++;
+    var up = Number(bot.uptimeSec) || 0;
+    if (up > maxUptime) maxUptime = up;
+  });
+
+  var el;
+  el = document.getElementById('dashActiveStreams');
+  if (el) el.textContent = fmtInt(activeStreams);
+
+  el = document.getElementById('dashListeners');
+  if (el) el.textContent = fmtInt(listeners);
+
+  el = document.getElementById('dashUptime');
+  if (el) el.textContent = formatUptime(maxUptime);
+
+  el = document.getElementById('dashHealthStatus');
+  if (el) {
+    if (!bots || bots.length === 0) {
+      el.textContent = 'Keine Bots';
+      el.style.color = '#52525B';
+    } else if (readyCount === bots.length) {
+      el.textContent = 'Alles OK';
+      el.style.color = '#39FF14';
+    } else if (readyCount > 0) {
+      el.textContent = readyCount + '/' + bots.length;
+      el.style.color = '#FFB800';
+    } else {
+      el.textContent = 'Offline';
+      el.style.color = '#FF2A2A';
+    }
+  }
+
+  // Render table
+  var tbody = document.getElementById('dashTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!bots || bots.length === 0) {
+    tbody.innerHTML = '<p class="muted" style="padding:16px;text-align:center">Keine Bots konfiguriert.</p>';
+    return;
+  }
+
+  bots.forEach(function(bot, i) {
+    var c = BOT_COLORS[i % BOT_COLORS.length];
+    var row = document.createElement('div');
+    row.className = 'dash-table-row';
+
+    var nameCell = document.createElement('span');
+    nameCell.className = 'dash-bot-name';
+    nameCell.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + c.accent + ';flex-shrink:0"></span> ' + (bot.name || 'Bot ' + (i + 1));
+
+    var statusCell = document.createElement('span');
+    statusCell.className = 'dash-status-badge ' + (bot.ready ? 'online' : 'offline');
+    statusCell.textContent = bot.ready ? 'Online' : 'Offline';
+
+    var serverCell = document.createElement('span');
+    serverCell.className = 'dash-stat-cell';
+    serverCell.textContent = fmtInt(bot.servers || 0);
+
+    var connCell = document.createElement('span');
+    connCell.className = 'dash-stat-cell';
+    connCell.textContent = fmtInt(bot.connections || 0);
+
+    row.appendChild(nameCell);
+    row.appendChild(statusCell);
+    row.appendChild(serverCell);
+    row.appendChild(connCell);
+    tbody.appendChild(row);
+  });
+}
 
 // --- Footer Stats ---
 function renderFooterStats(data) {
@@ -502,6 +616,7 @@ async function refresh() {
     renderBots(bots);
     renderStations(stations);
     renderFooterStats(totals);
+    renderDashboard(bots, totals);
 
     // Hero stats
     document.getElementById('statServers').textContent = fmtInt(totals.servers);
