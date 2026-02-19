@@ -144,7 +144,9 @@ async function cmdWizard() {
   console.log("    \x1b[31m2\x1b[0m) Premium entfernen");
   console.log("    \x1b[36m3\x1b[0m) Alle Lizenzen anzeigen");
   console.log("    \x1b[33m4\x1b[0m) Server pruefen");
-  console.log("    \x1b[2m5\x1b[0m) Beenden");
+  console.log("    \x1b[35m5\x1b[0m) Tier-Infos");
+  console.log("    \x1b[36m6\x1b[0m) Bot Invite-Links");
+  console.log("    \x1b[2m7\x1b[0m) Beenden");
   console.log("");
 
   const choice = await rl.question("  \x1b[36m?\x1b[0m \x1b[1mAktion waehlen\x1b[0m: ");
@@ -154,11 +156,43 @@ async function cmdWizard() {
     case "2": return cmdRemove([]);
     case "3": return cmdList();
     case "4": return cmdCheck([]);
-    case "5": return 0;
+    case "5": return cmdTiers();
+    case "6": return cmdInvite();
+    case "7": return 0;
     default:
       fail("Unbekannte Aktion.");
       return 1;
   }
+}
+
+async function cmdTiers() {
+  console.log("");
+  console.log("  \x1b[1mVerfuegbare Tiers:\x1b[0m");
+  console.log("");
+  Object.entries(TIERS).forEach(([k, v]) => printTierInfo(k, v));
+  console.log("");
+  return 0;
+}
+
+async function cmdInvite() {
+  let bots;
+  try {
+    bots = loadBotConfigs();
+  } catch (err) {
+    fail("Fehler beim Laden der Bot-Konfiguration: " + err.message);
+    info("Pruefe deine .env Datei.");
+    return 1;
+  }
+  console.log("");
+  console.log(`  \x1b[1mBot Invite-Links (${bots.length} Bots):\x1b[0m`);
+  console.log("");
+  for (const bot of bots) {
+    const url = buildInviteUrl(bot);
+    console.log(`  \x1b[36m${bot.name}\x1b[0m \x1b[2m(${bot.clientId})\x1b[0m`);
+    console.log(`  \x1b[32m${url}\x1b[0m`);
+    console.log("");
+  }
+  return 0;
 }
 
 async function run() {
