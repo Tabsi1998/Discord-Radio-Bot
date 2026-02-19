@@ -32,7 +32,9 @@ read_web_port() {
   printf "%s" "$value"
 }
 
-echo "== Update Discord Radio Bot =="
+echo ""
+echo "== Discord Radio Bot - Auto Update =="
+echo ""
 
 require_cmd git
 require_cmd docker
@@ -41,8 +43,9 @@ if ! command -v docker compose >/dev/null 2>&1; then
   exit 1
 fi
 
+# Self-update bootstrap: fetch newest update.sh from remote and re-run
 if [[ "${RADIO_BOT_UPDATE_BOOTSTRAP:-0}" != "1" ]]; then
-  echo "Lade neueste Update-Logik von $REMOTE/$BRANCH ..."
+  echo "[1/5] Lade neueste Update-Logik von $REMOTE/$BRANCH ..."
   git fetch --prune "$REMOTE" "$BRANCH"
 
   if git cat-file -e "$REMOTE/$BRANCH:update.sh" 2>/dev/null; then
@@ -62,7 +65,8 @@ if [[ "${RADIO_BOT_UPDATE_BOOTSTRAP:-0}" != "1" ]]; then
   fi
 fi
 
-echo "Erstelle Backup lokaler Runtime-Dateien ..."
+# Backup
+echo "[2/5] Erstelle Backup lokaler Runtime-Dateien ..."
 ts="$(date +%Y%m%d-%H%M%S)"
 backup_root="$APP_DIR/.update-backups"
 backup_dir="$backup_root/$ts"
@@ -76,7 +80,8 @@ for file in "${PRESERVE_FILES[@]}"; do
   fi
 done
 
-echo "Synchronisiere Code mit $REMOTE/$BRANCH ..."
+# Git sync
+echo "[3/5] Synchronisiere Code mit $REMOTE/$BRANCH ..."
 git fetch --prune "$REMOTE" "$BRANCH"
 
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
@@ -93,7 +98,8 @@ git clean -fd \
   -e stations.json \
   -e docker-compose.override.yml
 
-echo "Stelle Runtime-Dateien wieder her ..."
+# Restore
+echo "[4/5] Stelle Runtime-Dateien wieder her ..."
 for file in "${PRESERVE_FILES[@]}"; do
   if [[ -e "$backup_dir/$file" ]]; then
     mkdir -p "$(dirname "$file")"
@@ -105,13 +111,17 @@ done
 echo "Setze Script-Rechte ..."
 chmod +x docker-entrypoint.sh install.sh update.sh install-systemd.sh stations.sh 2>/dev/null || true
 
-echo "Starte Docker Compose (Rebuild) ..."
+# Rebuild
+echo "[5/5] Starte Docker Compose (Rebuild) ..."
 docker compose up -d --build --remove-orphans
 
+# Health check
 web_port="$(read_web_port)"
+echo ""
+echo "Warte auf Health-Check..."
+sleep 3
 if command -v curl >/dev/null 2>&1; then
-  echo "Pruefe Health unter http://127.0.0.1:${web_port}/api/health ..."
-  if curl -fsS --max-time 8 "http://127.0.0.1:${web_port}/api/health" >/dev/null; then
+  if curl -fsS --max-time 10 "http://127.0.0.1:${web_port}/api/health" >/dev/null 2>&1; then
     echo "Health-Check OK."
   else
     echo "WARN: Health-Check fehlgeschlagen. Bitte Logs pruefen:" >&2
@@ -120,6 +130,9 @@ if command -v curl >/dev/null 2>&1; then
 fi
 
 echo ""
-echo "Update fertig."
-echo "Backup: $backup_dir"
-echo "Webseite: http://<server-ip>:${web_port}"
+echo "============================================"
+echo "  Update fertig."
+echo "============================================"
+echo "  Backup: $backup_dir"
+echo "  Webseite: http://<server-ip>:${web_port}"
+echo ""
