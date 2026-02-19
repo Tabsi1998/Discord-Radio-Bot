@@ -281,14 +281,28 @@ function filterStations(query) {
 
   filtered.forEach(function(s, i) {
     var color = STATION_COLORS[i % STATION_COLORS.length];
+    var isPlaying = currentPlayingKey === s.key;
     var item = document.createElement('div');
     item.className = 'station-item';
+    item.style.cursor = 'pointer';
+    if (isPlaying) {
+      item.style.background = color + '10';
+      item.style.borderColor = color + '30';
+    }
+
+    item.onclick = function() {
+      if (isPlaying) { stopStation(); } else { playStation(s); }
+    };
 
     var icon = document.createElement('div');
     icon.className = 'station-icon';
-    icon.style.background = color + '12';
-    icon.style.border = '1px solid ' + color + '22';
-    icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>';
+    icon.style.background = isPlaying ? color : color + '12';
+    icon.style.border = '1px solid ' + (isPlaying ? color : color + '22');
+    if (isPlaying) {
+      icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#050505" stroke="#050505" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+    } else {
+      icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>';
+    }
 
     var info = document.createElement('div');
     info.style.cssText = 'flex:1;min-width:0';
@@ -303,6 +317,19 @@ function filterStations(query) {
 
     item.appendChild(icon);
     item.appendChild(info);
+
+    if (isPlaying) {
+      var eqWrap = document.createElement('div');
+      eqWrap.style.cssText = 'display:flex;align-items:flex-end;gap:2px;height:16px';
+      [0.6, 1, 0.7, 0.9].forEach(function(h, j) {
+        var b = document.createElement('div');
+        b.className = 'eq-bar';
+        b.style.cssText = 'width:3px;border-radius:1px;background:' + color + ';height:' + (h*100) + '%;animation-duration:' + (0.4+Math.random()*0.6).toFixed(2) + 's;animation-delay:' + (j*0.1).toFixed(2) + 's';
+        eqWrap.appendChild(b);
+      });
+      item.appendChild(eqWrap);
+    }
+
     list.appendChild(item);
   });
 }
