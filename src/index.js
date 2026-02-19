@@ -978,14 +978,11 @@ class BotRuntime {
       }
 
       if (!requestedChannel && requestedChannelInput) {
-        requestedChannel = await this.resolveVoiceChannelFromInput(guild, requestedChannelInput);
-        if (!requestedChannel) {
-          await interaction.reply({
-            content: "Voice-Channel nicht gefunden. Nutze die Vorschlaege in `channel` oder gib eine gueltige Channel-ID an.",
-            ephemeral: true
-          });
-          return;
-        }
+        await interaction.reply({
+          content: "Voice-Channel nicht gefunden. Nutze die Vorschläge in `channel` oder gib eine gültige Channel-ID an.",
+          ephemeral: true
+        });
+        return;
       }
 
       const memberChannelId = interaction.member?.voice?.channel?.id || null;
