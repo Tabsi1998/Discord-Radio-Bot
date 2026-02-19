@@ -8,5 +8,7 @@ services:
       - "${WEB_PORT:-8081}:${WEB_INTERNAL_PORT:-8080}"
     volumes:
       - ./stations.json:/app/stations.json
+      - ./premium.json:/app/premium.json
+      - ./bot-state.json:/app/bot-state.json
       - ./logs:/app/logs
     restart: unless-stopped
