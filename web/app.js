@@ -1,6 +1,6 @@
-/* === Discord Radio Bot - Frontend === */
+/* === Discord Radio Bot - Frontend v2.1 === */
 
-const BOT_COLORS = [
+var BOT_COLORS = [
   { name: 'cyan',   accent: '#00F0FF', glow: 'rgba(0,240,255,0.15)',  border: 'rgba(0,240,255,0.25)' },
   { name: 'green',  accent: '#39FF14', glow: 'rgba(57,255,20,0.15)',  border: 'rgba(57,255,20,0.25)' },
   { name: 'pink',   accent: '#EC4899', glow: 'rgba(236,72,153,0.15)', border: 'rgba(236,72,153,0.25)' },
@@ -9,39 +9,42 @@ const BOT_COLORS = [
   { name: 'red',    accent: '#FF2A2A', glow: 'rgba(255,42,42,0.15)',  border: 'rgba(255,42,42,0.25)' },
 ];
 
-const STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '#FF2A2A'];
+var STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '#FF2A2A'];
 
-const COMMANDS = [
+// Bot-Bilder - die 4 Custom-Avatare cyclen
+var BOT_IMAGES = ['/img/bot-1.png', '/img/bot-2.png', '/img/bot-3.png', '/img/bot-4.png'];
+
+var COMMANDS = [
   { name: '/play',      args: '[station] [channel]', desc: 'Startet einen Radio-Stream im Voice-Channel' },
   { name: '/pause',     args: '',                     desc: 'Pausiert die aktuelle Wiedergabe' },
   { name: '/resume',    args: '',                     desc: 'Setzt die Wiedergabe fort' },
-  { name: '/stop',      args: '',                     desc: 'Stoppt die Wiedergabe und verlaesst den Channel' },
-  { name: '/stations',  args: '',                     desc: 'Zeigt alle verfuegbaren Radio-Stationen' },
+  { name: '/stop',      args: '',                     desc: 'Stoppt die Wiedergabe und verlässt den Channel' },
+  { name: '/stations',  args: '',                     desc: 'Zeigt alle verfügbaren Radio-Stationen' },
   { name: '/list',      args: '[page]',               desc: 'Listet Stationen paginiert auf' },
   { name: '/now',       args: '',                     desc: 'Zeigt die aktuelle Station und Metadaten' },
-  { name: '/setvolume', args: '<0-100>',              desc: 'Setzt die Lautstaerke' },
+  { name: '/setvolume', args: '<0-100>',              desc: 'Setzt die Lautstärke' },
   { name: '/status',    args: '',                     desc: 'Zeigt Bot-Status, Uptime und Last' },
   { name: '/health',    args: '',                     desc: 'Zeigt Stream-Health und Reconnect-Info' },
 ];
 
-const fmt = new Intl.NumberFormat('de-DE');
+var fmt = new Intl.NumberFormat('de-DE');
 function fmtInt(v) { return fmt.format(Number(v) || 0); }
 
-let allStations = [];
+var allStations = [];
 
 // --- Navbar scroll ---
 window.addEventListener('scroll', function() {
-  const nav = document.getElementById('navbar');
+  var nav = document.getElementById('navbar');
   if (window.scrollY > 40) { nav.classList.add('scrolled'); }
   else { nav.classList.remove('scrolled'); }
 });
 
 // --- Equalizer bars ---
 (function initEq() {
-  const el = document.getElementById('equalizer');
-  const heights = [0.4, 0.7, 0.5, 0.9, 0.6, 0.8, 0.3, 0.7, 0.5, 0.6, 0.8, 0.4];
+  var el = document.getElementById('equalizer');
+  var heights = [0.4, 0.7, 0.5, 0.9, 0.6, 0.8, 0.3, 0.7, 0.5, 0.6, 0.8, 0.4];
   heights.forEach(function(h, i) {
-    const bar = document.createElement('div');
+    var bar = document.createElement('div');
     bar.className = 'eq-bar';
     bar.style.height = (h * 100) + '%';
     bar.style.animation = 'eq ' + (0.6 + Math.random() * 0.8).toFixed(2) + 's ease-in-out ' + (i * 0.08).toFixed(2) + 's infinite';
@@ -51,7 +54,7 @@ window.addEventListener('scroll', function() {
 
 // --- Commands (static) ---
 (function renderCommands() {
-  const list = document.getElementById('commandsList');
+  var list = document.getElementById('commandsList');
   list.innerHTML = '';
   COMMANDS.forEach(function(cmd) {
     var row = document.createElement('div');
@@ -86,17 +89,18 @@ function copyText(text, btn) {
   }).catch(function() {});
 }
 
-// --- Render Bots ---
+// --- Render Bots (dynamisch - beliebig viele) ---
 function renderBots(bots) {
   var grid = document.getElementById('botGrid');
   grid.innerHTML = '';
   if (!bots || bots.length === 0) {
-    grid.innerHTML = '<p class="muted">Keine Bots konfiguriert. Richte Bots in der .env Datei ein.</p>';
+    grid.innerHTML = '<p class="muted">Keine Bots konfiguriert.</p>';
     return;
   }
   bots.forEach(function(bot, i) {
     var c = BOT_COLORS[i % BOT_COLORS.length];
     var url = bot.inviteUrl || ('https://discord.com/oauth2/authorize?client_id=' + bot.clientId + '&scope=bot%20applications.commands&permissions=3145728');
+    var botImg = bot.avatarUrl || BOT_IMAGES[i % BOT_IMAGES.length];
 
     var card = document.createElement('article');
     card.className = 'bot-card';
@@ -109,25 +113,33 @@ function renderBots(bots) {
       card.style.boxShadow = '';
     });
 
-    // Accent bar
+    // Akzent-Balken
     var bar = document.createElement('div');
     bar.className = 'accent-bar';
     bar.style.background = c.accent;
     card.appendChild(bar);
 
-    // Head
+    // Bot-Avatar + Name
     var head = document.createElement('div');
     head.className = 'bot-head';
+
     var icon = document.createElement('div');
     icon.className = 'bot-icon';
     icon.style.background = 'linear-gradient(135deg,' + c.accent + '22,' + c.accent + '08)';
     icon.style.border = '1px solid ' + c.accent + '33';
-    if (bot.avatarUrl) {
-      icon.style.backgroundImage = 'url(' + bot.avatarUrl + ')';
-      icon.style.backgroundSize = 'cover';
-    } else {
-      icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="' + c.accent + '" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>';
-    }
+    icon.style.overflow = 'hidden';
+
+    var img = document.createElement('img');
+    img.src = botImg;
+    img.alt = bot.name || 'Bot';
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:12px';
+    img.onerror = function() {
+      // Fallback auf SVG-Icon
+      this.style.display = 'none';
+      icon.innerHTML += '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="' + c.accent + '" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>';
+    };
+    icon.appendChild(img);
+
     var info = document.createElement('div');
     var name = document.createElement('div');
     name.className = 'bot-name';
@@ -141,21 +153,19 @@ function renderBots(bots) {
     head.appendChild(info);
     card.appendChild(head);
 
-    // Stats
-    var stats = document.createElement('div');
-    stats.style.cssText = 'font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.8';
-    stats.innerHTML = '<span style="color:var(--muted)">Server:</span> <strong>' + fmtInt(bot.servers) + '</strong> &middot; ' +
-                      '<span style="color:var(--muted)">Nutzer:</span> <strong>' + fmtInt(bot.users) + '</strong> &middot; ' +
-                      '<span style="color:var(--muted)">Live:</span> <strong>' + fmtInt(bot.connections) + '</strong>';
-    card.appendChild(stats);
-
-    // Status dot
+    // Status
     var status = document.createElement('div');
     status.className = 'bot-status';
     var dot = document.createElement('div');
     dot.className = 'bot-status-dot ' + (bot.ready ? 'online' : 'offline');
     status.appendChild(dot);
     status.appendChild(document.createTextNode(bot.ready ? 'Online' : 'Konfigurierbar'));
+    if (bot.servers > 0) {
+      var srvSpan = document.createElement('span');
+      srvSpan.style.cssText = 'margin-left:8px;color:#A1A1AA';
+      srvSpan.textContent = fmtInt(bot.servers) + ' Server';
+      status.appendChild(srvSpan);
+    }
     card.appendChild(status);
 
     // Actions
@@ -186,7 +196,7 @@ function renderBots(bots) {
 // --- Render Stations ---
 function renderStations(stations) {
   allStations = stations || [];
-  document.getElementById('stationCount').textContent = allStations.length + ' verfuegbare Stationen. Nutze /play station im Discord.';
+  document.getElementById('stationCount').textContent = allStations.length + ' verfügbare Stationen. Nutze /play station im Discord.';
   filterStations('');
 }
 
@@ -215,13 +225,6 @@ function filterStations(query) {
     icon.style.border = '1px solid ' + color + '22';
     icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>';
 
-    if (s.key === allStations[0]?.key && allStations[0]?.key) {
-      // Default station marker
-      var defDot = document.createElement('div');
-      defDot.className = 'station-default';
-      icon.appendChild(defDot);
-    }
-
     var info = document.createElement('div');
     info.style.cssText = 'flex:1;min-width:0';
     var nm = document.createElement('div');
@@ -244,14 +247,14 @@ document.getElementById('stationSearch').addEventListener('input', function(e) {
   filterStations(e.target.value);
 });
 
-// --- Render footer stats ---
+// --- Footer Stats ---
 function renderFooterStats(data) {
   var el = document.getElementById('footerStats');
   var items = [
     { label: 'Server', value: data.servers || 0, color: '#00F0FF' },
     { label: 'Nutzer', value: data.users || 0, color: '#39FF14' },
     { label: 'Verbindungen', value: data.connections || 0, color: '#EC4899' },
-    { label: 'Zuhoerer', value: data.listeners || 0, color: '#FFB800' },
+    { label: 'Zuhörer', value: data.listeners || 0, color: '#FFB800' },
   ];
   el.innerHTML = '';
   items.forEach(function(s) {
@@ -280,10 +283,13 @@ async function fetchJson(url) {
 
 async function refresh() {
   try {
-    var [botsRes, stationsRes] = await Promise.all([
+    var results = await Promise.all([
       fetchJson('/api/bots'),
       fetchJson('/api/stations'),
     ]);
+
+    var botsRes = results[0];
+    var stationsRes = results[1];
 
     var bots = botsRes.bots || [];
     var totals = botsRes.totals || {};
@@ -298,7 +304,7 @@ async function refresh() {
     document.getElementById('statStations').textContent = fmtInt(stationsRes.total || stations.length);
     document.getElementById('statBots').textContent = fmtInt(bots.length);
   } catch (e) {
-    console.error('API error:', e);
+    console.error('API Fehler:', e);
   }
 }
 
