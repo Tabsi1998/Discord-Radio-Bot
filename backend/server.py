@@ -99,6 +99,7 @@ def seed_stations_if_empty():
         file_stations = file_data.get("stations", {})
         genre_map = {
             "oneworldradio": "Electronic / Festival",
+            "tomorrowlandanthems": "Electronic / Festival",
             "lofi": "Lo-Fi / Chill",
             "classicrock": "Rock / Classic",
             "chillout": "Chill / Ambient",
