@@ -474,10 +474,12 @@ class BotRuntime {
       activeStations.push(clipText(state.currentStationName || state.currentStationKey, 96));
     }
 
+    const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
+
     if (activeStations.length === 0) {
       return {
-        type: ActivityType.Watching,
-        name: "Bereit fuer /play"
+        type: ActivityType.Listening,
+        name: publicUrl ? `Bereit für /play | ${publicUrl}` : "Bereit für /play"
       };
     }
 
