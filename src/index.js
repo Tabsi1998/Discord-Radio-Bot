@@ -1292,7 +1292,7 @@ function startWebServer(runtimes) {
   const webBind = process.env.WEB_BIND || "0.0.0.0";
   const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url || "/", "http://localhost");
 
     // CORS
