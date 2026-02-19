@@ -126,14 +126,14 @@ class DiscordRadioBotAPITester:
         )
 
     def test_stations_endpoint(self):
-        """Test /api/stations endpoint"""
+        """Test /api/stations endpoint - Should return 11 stations with genres"""
         def validate_stations(data):
             if 'stations' not in data:
                 return "Missing 'stations' field"
             if not isinstance(data['stations'], list):
                 return "'stations' should be a list"
-            if len(data['stations']) < 10:
-                return f"Expected at least 10 stations, got {len(data['stations'])}"
+            if len(data['stations']) != 11:
+                return f"Expected exactly 11 stations, got {len(data['stations'])}"
             
             # Check station structure
             station = data['stations'][0]
@@ -142,13 +142,18 @@ class DiscordRadioBotAPITester:
                 if field not in station:
                     return f"Missing required station field: {field}"
             
+            # Verify genres are properly assigned
+            genres_found = set(s['genre'] for s in data['stations'] if s.get('genre'))
+            if len(genres_found) < 5:  # Should have diverse genres
+                return f"Expected diverse genres, only found: {genres_found}"
+            
             if 'total' not in data:
                 return "Missing 'total' field"
             
             return True
 
         return self.run_test(
-            "Stations Endpoint",
+            "Stations Endpoint (11 stations with genres)",
             "GET",
             "api/stations",
             200,
