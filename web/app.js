@@ -191,18 +191,38 @@ function renderBots(bots) {
     head.appendChild(icon); head.appendChild(info);
     card.appendChild(head);
 
+    var isPremiumBot = bot.requiredTier && bot.requiredTier !== 'free';
+    var tierColors = { pro: '#FFB800', ultimate: '#BD00FF' };
+
+    // Premium badge neben Name
+    if (isPremiumBot) {
+      var badge = document.createElement('span');
+      badge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;font-family:Orbitron,sans-serif;letter-spacing:0.1em;margin-left:8px;background:' + (tierColors[bot.requiredTier] || '#FFB800') + '15;color:' + (tierColors[bot.requiredTier] || '#FFB800') + ';border:1px solid ' + (tierColors[bot.requiredTier] || '#FFB800') + '30';
+      badge.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M2 4l3 12h14l3-12-5 4-5-6-5 6z"/><path d="M5 16l-1 4h16l-1-4"/></svg> ' + (bot.requiredTier === 'ultimate' ? 'ULTIMATE' : 'PRO');
+      name.appendChild(badge);
+    }
+
     var actions = document.createElement('div');
     actions.className = 'bot-actions';
-    var invBtn = document.createElement('a');
-    invBtn.className = 'invite-btn'; invBtn.href = url; invBtn.target = '_blank'; invBtn.rel = 'noopener noreferrer';
-    invBtn.style.background = c.accent;
-    invBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg> Einladen';
-    actions.appendChild(invBtn);
-    var cpBtn = document.createElement('button');
-    cpBtn.className = 'copy-btn'; cpBtn.type = 'button';
-    cpBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-    cpBtn.addEventListener('click', function() { copyText(url, cpBtn); });
-    actions.appendChild(cpBtn);
+
+    if (isPremiumBot) {
+      var lockBtn = document.createElement('a');
+      lockBtn.className = 'invite-btn'; lockBtn.href = '#premium';
+      lockBtn.style.cssText = 'background:' + (tierColors[bot.requiredTier] || '#FFB800') + '15;color:' + (tierColors[bot.requiredTier] || '#FFB800') + ';border:1px solid ' + (tierColors[bot.requiredTier] || '#FFB800') + '30';
+      lockBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> ' + (bot.requiredTier === 'ultimate' ? 'Ultimate' : 'Pro') + ' erforderlich';
+      actions.appendChild(lockBtn);
+    } else {
+      var invBtn = document.createElement('a');
+      invBtn.className = 'invite-btn'; invBtn.href = url; invBtn.target = '_blank'; invBtn.rel = 'noopener noreferrer';
+      invBtn.style.background = c.accent;
+      invBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg> Einladen';
+      actions.appendChild(invBtn);
+      var cpBtn = document.createElement('button');
+      cpBtn.className = 'copy-btn'; cpBtn.type = 'button';
+      cpBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+      cpBtn.addEventListener('click', function() { copyText(url, cpBtn); });
+      actions.appendChild(cpBtn);
+    }
     card.appendChild(actions);
     grid.appendChild(card);
   });
