@@ -383,8 +383,8 @@ class BotRuntime {
 
     // Premium: faster reconnect for higher tiers
     const tierConfig = getTierConfig(guildId);
-    const baseDelay = reason === "error" ? tierConfig.reconnectMs * 2 : tierConfig.reconnectMs;
-    const delay = Math.max(300, Math.min(baseDelay, 5000));
+    const baseDelay = reason === "error" ? tierConfig.reconnectMs : Math.max(100, tierConfig.reconnectMs / 2);
+    const delay = Math.max(100, Math.min(baseDelay, 5000));
     log("INFO", `[${this.config.name}] Stream ${reason} guild=${guildId} tier=${tierConfig.tier}, restart in ${delay}ms`);
 
     if (state.streamRestartTimer) {
