@@ -336,6 +336,10 @@ class BotRuntime {
       clearTimeout(state.reconnectTimer);
       state.reconnectTimer = null;
     }
+    if (state.streamRestartTimer) {
+      clearTimeout(state.streamRestartTimer);
+      state.streamRestartTimer = null;
+    }
   }
 
   clearCurrentProcess(state) {
