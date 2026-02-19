@@ -491,6 +491,8 @@ fi
 echo ""
 echo -e "  ${BOLD}Nuetzliche Befehle:${NC}"
 echo -e "    Stationen:        ${GREEN}bash ./stations.sh${NC}"
+echo -e "    Premium:          ${GREEN}node src/premium-cli.js wizard${NC}"
+echo -e "    Stripe Setup:     ${GREEN}bash ./setup-stripe.sh${NC}"
 echo -e "    Update:           ${GREEN}bash ./update.sh${NC}"
 echo -e "    Logs:             ${GREEN}docker compose logs -f radio-bot${NC}"
 echo -e "    Status:           ${GREEN}docker compose ps${NC}"
