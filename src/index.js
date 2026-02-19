@@ -615,14 +615,32 @@ class BotRuntime {
       }
     };
 
-    connection.on(VoiceConnectionStatus.Disconnected, () => {
-      markDisconnected();
-      if (!state.shouldReconnect) return;
-      const guild = this.client.guilds.cache.get(guildId);
-      const botChannelId = guild?.members?.me?.voice?.channelId || null;
-      if (!botChannelId) return;
-      state.lastChannelId = botChannelId;
-      this.scheduleReconnect(guildId);
+    connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      if (!state.shouldReconnect) {
+        markDisconnected();
+        return;
+      }
+
+      // Try to recover the existing connection first (e.g. after region move)
+      try {
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+        ]);
+        // Connection is recovering on its own
+        log("INFO", `[${this.config.name}] Voice connection recovering for guild=${guildId}`);
+      } catch {
+        // Recovery failed, destroy and schedule full reconnect
+        log("INFO", `[${this.config.name}] Voice connection lost for guild=${guildId}, scheduling reconnect`);
+        markDisconnected();
+        try { connection.destroy(); } catch { /* ignore */ }
+        const guild = this.client.guilds.cache.get(guildId);
+        const botChannelId = guild?.members?.me?.voice?.channelId || null;
+        if (botChannelId) {
+          state.lastChannelId = botChannelId;
+        }
+        this.scheduleReconnect(guildId);
+      }
     });
 
     connection.on(VoiceConnectionStatus.Destroyed, () => {
