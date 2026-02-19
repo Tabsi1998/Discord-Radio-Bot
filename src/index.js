@@ -141,28 +141,28 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
       "-loglevel", "warning",
-      // === ZERO-LAG v2: ultra-low latency stream start ===
+      // === ZERO-LAG v3: minimale Buffer, sofortiger Start ===
       "-fflags", "+nobuffer+flush_packets+genpts+discardcorrupt",
       "-flags", "+low_delay",
-      "-probesize", "16384",
+      "-probesize", "8192",
       "-analyzeduration", "0",
-      "-thread_queue_size", "8192",
+      "-thread_queue_size", "512",
       "-max_delay", "0",
       "-avioflags", "direct",
-      // === Reconnect resilience ===
+      // === Reconnect bei Stream-Abbruch ===
       "-reconnect", "1",
       "-reconnect_streamed", "1",
-      "-reconnect_delay_max", "3",
+      "-reconnect_delay_max", "2",
       "-reconnect_on_network_error", "1",
       "-reconnect_on_http_error", "4xx,5xx",
-      "-rw_timeout", "8000000",
-      "-timeout", "8000000",
+      "-rw_timeout", "5000000",
+      "-timeout", "5000000",
       // === Input ===
       "-i", url,
       "-ar", "48000",
       "-ac", "2",
       "-vn",
-      // === Output buffer flush ===
+      // === Sofort flushen ===
       "-flush_packets", "1",
     ];
 
@@ -170,7 +170,8 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
     if (mode === "opus") {
       const bitrate = bitrateOverride || presetBitrate || String(process.env.OPUS_BITRATE || "192k");
       const vbr = String(process.env.OPUS_VBR || "on");
-      const compression = String(process.env.OPUS_COMPRESSION || "10");
+      // compression_level 5 statt 10 = weniger CPU-Last = weniger Latenz
+      const compression = String(process.env.OPUS_COMPRESSION || "5");
       const frame = String(process.env.OPUS_FRAME || "20");
 
       args.push(
@@ -180,12 +181,12 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
         "-compression_level", compression,
         "-frame_duration", frame,
         "-application", "lowdelay",
-        "-packet_loss", "5",
+        "-packet_loss", "3",
         "-cutoff", "20000",
-        "-f", "opus",
+        "-f", "ogg",
         "pipe:1"
       );
-      inputType = StreamType.Opus;
+      inputType = StreamType.OggOpus;
     } else {
       args.push("-f", "s16le", "-acodec", "pcm_s16le", "pipe:1");
       inputType = StreamType.Raw;
@@ -196,11 +197,6 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, AV_LOG_FORCE_NOCOLOR: "1" }
     });
-
-    // Set high water mark on stdout for smoother buffering
-    if (ffmpeg.stdout) {
-      ffmpeg.stdout.setEncoding = undefined; // ensure binary mode
-    }
 
     let stderrBuffer = "";
     ffmpeg.stderr.on("data", (chunk) => {
@@ -217,7 +213,10 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       log("ERROR", `[${botName}] ffmpeg process error: ${err?.message || err}`);
     });
 
-    const resource = createAudioResource(ffmpeg.stdout, { inputType, inlineVolume: true });
+    const resource = createAudioResource(ffmpeg.stdout, {
+      inputType,
+      inlineVolume: true,
+    });
     if (resource.volume) {
       resource.volume.setVolume(clampVolume(volume));
     }
