@@ -47,11 +47,57 @@ read_web_port() {
   printf "%s" "$value"
 }
 
+prompt_yes_no() {
+  local label="$1"
+  local def="${2:-j}"
+  local val
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}${label}${NC} [${def}]: ")" val
+  val="${val:-$def}"
+  [[ "$val" == "j" || "$val" == "J" || "$val" == "y" || "$val" == "Y" ]]
+}
+
+prompt_nonempty() {
+  local label="$1"
+  local val=""
+  while [[ -z "$val" ]]; do
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${label}: ")" val
+    val=$(echo "$val" | xargs)
+    if [[ -z "$val" ]]; then echo -e "  ${RED}Pflichtfeld!${NC}"; fi
+  done
+  printf "%s" "$val"
+}
+
+prompt_default() {
+  local label="$1"
+  local def="$2"
+  local val
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${label} [${def}]: ")" val
+  printf "%s" "${val:-$def}"
+}
+
+write_env_line() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" .env 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${value}|" .env
+  else
+    echo "${key}=${value}" >> .env
+  fi
+}
+
+count_bots() {
+  local c=0
+  while grep -q "^BOT_TOKEN_$((c+1))=" .env 2>/dev/null; do
+    c=$((c+1))
+  done
+  echo "$c"
+}
+
 echo ""
 echo -e "${CYAN}${BOLD}"
 echo "  ╔═══════════════════════════════════════════╗"
 echo "  ║                                           ║"
-echo "  ║     Discord Radio Bot - Auto Update       ║"
+echo "  ║   Discord Radio Bot - Update & Manage     ║"
 echo "  ║                                           ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -65,8 +111,99 @@ if ! command -v docker compose >/dev/null 2>&1; then
 fi
 
 # ====================================
-# Self-update bootstrap
+# Parse mode: --update, --add-bot, --manage, or interactive
 # ====================================
+MODE="${1:-}"
+
+if [[ -z "$MODE" ]]; then
+  echo -e "  ${BOLD}Was moechtest du tun?${NC}"
+  echo ""
+  echo -e "    ${GREEN}1${NC}) Update       - Code aktualisieren & Container rebuild"
+  echo -e "    ${YELLOW}2${NC}) Bot hinzufuegen - Neuen Bot konfigurieren"
+  echo -e "    ${CYAN}3${NC}) Bots anzeigen  - Konfigurierte Bots zeigen"
+  echo -e "    ${DIM}4${NC}) Premium CLI  - Premium-Lizenzen verwalten"
+  echo ""
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" MODE_CHOICE
+  case "$MODE_CHOICE" in
+    1) MODE="--update" ;;
+    2) MODE="--add-bot" ;;
+    3) MODE="--show-bots" ;;
+    4) MODE="--premium" ;;
+    *) MODE="--update" ;;
+  esac
+fi
+
+# ====================================
+# MODE: Show bots
+# ====================================
+if [[ "$MODE" == "--show-bots" ]]; then
+  bot_count=$(count_bots)
+  echo -e "  ${BOLD}Konfigurierte Bots (${bot_count}):${NC}"
+  echo ""
+  for i in $(seq 1 "$bot_count"); do
+    name=$(grep "^BOT_NAME_${i}=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
+    cid=$(grep "^BOT_APP_ID_${i}=" .env 2>/dev/null | cut -d= -f2- || echo "?")
+    echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC}"
+    echo -e "       Client ID: ${DIM}${cid}${NC}"
+    echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
+    echo ""
+  done
+  exit 0
+fi
+
+# ====================================
+# MODE: Premium CLI
+# ====================================
+if [[ "$MODE" == "--premium" ]]; then
+  node src/premium-cli.js wizard
+  exit $?
+fi
+
+# ====================================
+# MODE: Add Bot
+# ====================================
+if [[ "$MODE" == "--add-bot" ]]; then
+  echo -e "${BOLD}Bot hinzufuegen${NC}"
+  echo "─────────────────────────────────────"
+
+  bot_count=$(count_bots)
+  new_index=$((bot_count + 1))
+
+  echo -e "  ${DIM}Aktuell: ${bot_count} Bot(s) konfiguriert${NC}"
+  echo ""
+
+  bot_name="$(prompt_default "Name" "Radio Bot ${new_index}")"
+  bot_token="$(prompt_nonempty "Token")"
+  bot_client_id="$(prompt_nonempty "Client ID")"
+  bot_perms="$(prompt_default "Permissions" "3145728")"
+
+  write_env_line "BOT_NAME_${new_index}" "$bot_name"
+  write_env_line "BOT_TOKEN_${new_index}" "$bot_token"
+  write_env_line "BOT_APP_ID_${new_index}" "$bot_client_id"
+  write_env_line "BOT_PERMISSIONS_${new_index}" "$bot_perms"
+
+  ok "Bot ${new_index} konfiguriert: ${bot_name}"
+  echo ""
+  echo -e "  ${GREEN}Invite-Link:${NC}"
+  echo -e "  https://discord.com/oauth2/authorize?client_id=${bot_client_id}&scope=bot%20applications.commands&permissions=${bot_perms}"
+  echo ""
+
+  if prompt_yes_no "Container jetzt neu starten?" "j"; then
+    info "Starte Container neu..."
+    docker compose up -d --build --remove-orphans
+    ok "Container neu gestartet."
+  else
+    warn "Neustart uebersprungen. Fuehre 'docker compose up -d --build' manuell aus."
+  fi
+
+  exit 0
+fi
+
+# ====================================
+# MODE: Update (default)
+# ====================================
+
+# Step 1: Self-update bootstrap
 if [[ "${RADIO_BOT_UPDATE_BOOTSTRAP:-0}" != "1" ]]; then
   echo -e "${BOLD}Schritt 1/5: Neueste Update-Logik laden${NC}"
   echo "─────────────────────────────────────────"
@@ -82,7 +219,7 @@ if [[ "${RADIO_BOT_UPDATE_BOOTSTRAP:-0}" != "1" ]]; then
     APP_DIR="$APP_DIR" \
     UPDATE_REMOTE="$REMOTE" \
     UPDATE_BRANCH="$BRANCH" \
-    "$tmp_script" "$@"
+    "$tmp_script" --update "$@"
 
     rc=$?
     rm -f "$tmp_script"
@@ -91,9 +228,7 @@ if [[ "${RADIO_BOT_UPDATE_BOOTSTRAP:-0}" != "1" ]]; then
   ok "Update-Script geladen."
 fi
 
-# ====================================
 # Step 2: Backup
-# ====================================
 echo ""
 echo -e "${BOLD}Schritt 2/5: Backup erstellen${NC}"
 echo "─────────────────────────────────────────"
@@ -111,9 +246,7 @@ for file in "${PRESERVE_FILES[@]}"; do
   fi
 done
 
-# ====================================
 # Step 3: Git sync
-# ====================================
 echo ""
 echo -e "${BOLD}Schritt 3/5: Code synchronisieren${NC}"
 echo "─────────────────────────────────────────"
@@ -135,6 +268,7 @@ git clean -fd \
   -e .update-backups \
   -e .env \
   -e stations.json \
+  -e premium.json \
   -e docker-compose.override.yml
 
 if [[ "$old_head" == "$new_head" ]]; then
@@ -143,9 +277,7 @@ else
   ok "Code aktualisiert: ${old_head:0:8} -> ${new_head:0:8}"
 fi
 
-# ====================================
 # Step 4: Restore
-# ====================================
 echo ""
 echo -e "${BOLD}Schritt 4/5: Runtime-Dateien wiederherstellen${NC}"
 echo "─────────────────────────────────────────"
@@ -158,11 +290,9 @@ for file in "${PRESERVE_FILES[@]}"; do
   fi
 done
 
-chmod +x docker-entrypoint.sh install.sh update.sh install-systemd.sh stations.sh 2>/dev/null || true
+chmod +x docker-entrypoint.sh install.sh update.sh setup-stripe.sh 2>/dev/null || true
 
-# ====================================
 # Step 5: Rebuild & Health
-# ====================================
 echo ""
 echo -e "${BOLD}Schritt 5/5: Docker Compose rebuild${NC}"
 echo "─────────────────────────────────────────"
@@ -209,9 +339,8 @@ else
   echo -e "    ${YELLOW}cp ${backup_dir}/.env .env && docker compose up -d --build${NC}"
 fi
 
-# ====================================
 # Summary
-# ====================================
+bot_count=$(count_bots)
 echo ""
 echo -e "${GREEN}${BOLD}"
 echo "  ╔═══════════════════════════════════════════╗"
@@ -221,6 +350,13 @@ echo "  ║                                           ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
 echo ""
+echo -e "  ${CYAN}Bots:${NC}      ${bot_count} konfiguriert"
 echo -e "  ${CYAN}Backup:${NC}    ${backup_dir}"
 echo -e "  ${CYAN}Webseite:${NC}  http://<server-ip>:${web_port}"
+echo ""
+echo -e "  ${BOLD}Weitere Befehle:${NC}"
+echo -e "    Bot hinzufuegen:  ${GREEN}./update.sh --add-bot${NC}"
+echo -e "    Bots anzeigen:    ${GREEN}./update.sh --show-bots${NC}"
+echo -e "    Premium:          ${GREEN}./update.sh --premium${NC}"
+echo -e "    Logs:             ${GREEN}docker compose logs -f radio-bot${NC}"
 echo ""
