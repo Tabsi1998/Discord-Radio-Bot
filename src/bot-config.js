@@ -46,7 +46,8 @@ function loadLegacySingleBot(env) {
       name: sanitizeName(env.BOT_NAME, "Radio Bot"),
       token,
       clientId,
-      permissions: sanitizeNumberString(env.BOT_PERMISSIONS) || null
+      permissions: sanitizeNumberString(env.BOT_PERMISSIONS) || null,
+      requiredTier: "free"
     }
   ];
 }
