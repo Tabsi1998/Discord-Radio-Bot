@@ -744,7 +744,8 @@ class BotRuntime {
       channelId: channel.id,
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator,
-      group: this.voiceGroup
+      group: this.voiceGroup,
+      selfDeaf: true
     });
     log("INFO", `[${this.config.name}] Join Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
 
@@ -785,7 +786,8 @@ class BotRuntime {
       channelId: channel.id,
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator,
-      group: this.voiceGroup
+      group: this.voiceGroup,
+      selfDeaf: true
     });
     log("INFO", `[${this.config.name}] Rejoin Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
 
