@@ -1380,6 +1380,34 @@ function startWebServer(runtimes) {
       return;
     }
 
+    // Premium Bot Invite-Links: nur fuer berechtigte Server
+    if (requestUrl.pathname === "/api/premium/invite-links" && req.method === "GET") {
+      const serverId = requestUrl.searchParams.get("serverId");
+      if (!serverId || !/^\d{17,22}$/.test(serverId)) {
+        sendJson(res, 400, { error: "serverId muss 17-22 Ziffern sein." });
+        return;
+      }
+      const tierConfig = getTierConfig(serverId);
+      const tierRank = { free: 0, pro: 1, ultimate: 2 };
+      const serverRank = tierRank[tierConfig.tier] || 0;
+
+      const links = runtimes.map((rt) => {
+        const botTier = rt.config.requiredTier || "free";
+        const botRank = tierRank[botTier] || 0;
+        const hasAccess = serverRank >= botRank;
+        return {
+          botId: rt.config.id,
+          name: rt.config.name,
+          requiredTier: botTier,
+          hasAccess,
+          inviteUrl: hasAccess ? buildInviteUrl(rt.config) : null,
+        };
+      });
+
+      sendJson(res, 200, { serverId, serverTier: tierConfig.tier, bots: links });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/premium/tiers" && req.method === "GET") {
       sendJson(res, 200, { tiers: TIERS });
       return;
