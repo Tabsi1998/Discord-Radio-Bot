@@ -1179,6 +1179,23 @@ class BotRuntime {
 
   getPublicStatus() {
     const stats = this.collectStats();
+    // Per-guild details: was spielt wo
+    const guildDetails = [];
+    for (const [guildId, state] of this.guildState.entries()) {
+      const guild = this.client.guilds.cache.get(guildId);
+      if (!guild) continue;
+      guildDetails.push({
+        guildId,
+        guildName: guild.name,
+        stationKey: state.currentStationKey || null,
+        stationName: state.currentStationName || null,
+        channelId: state.lastChannelId || null,
+        channelName: state.lastChannelId ? guild.channels.cache.get(state.lastChannelId)?.name || null : null,
+        volume: state.volume,
+        playing: !!state.currentStationKey,
+        meta: state.currentMeta || null,
+      });
+    }
     return {
       id: this.config.id,
       name: this.config.name,
@@ -1193,7 +1210,8 @@ class BotRuntime {
       connections: stats.connections,
       listeners: stats.listeners,
       uptimeSec: Math.floor((Date.now() - this.startedAt) / 1000),
-      error: this.startError ? String(this.startError.message || this.startError) : null
+      error: this.startError ? String(this.startError.message || this.startError) : null,
+      guildDetails,
     };
   }
 
