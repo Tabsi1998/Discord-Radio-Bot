@@ -1168,7 +1168,7 @@ class BotRuntime {
       state.player.stop();
       this.clearCurrentProcess(state);
       if (state.connection) {
-        state.connection.destroy();
+        try { state.connection.destroy(); } catch { /* ignore */ }
         state.connection = null;
       }
       state.currentStationKey = null;
