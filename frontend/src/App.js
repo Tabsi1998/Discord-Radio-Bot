@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Hero from './components/Hero';
 import BotDirectory from './components/BotDirectory';
+import LiveDashboard from './components/LiveDashboard';
 import Features from './components/Features';
 import StationBrowser from './components/StationBrowser';
 import Commands from './components/Commands';
+import Premium from './components/Premium';
 import StatsFooter from './components/StatsFooter';
 import Navbar from './components/Navbar';
 
@@ -37,6 +39,8 @@ function App() {
 
   useEffect(() => {
     fetchData();
+    const interval = setInterval(fetchData, 15000);
+    return () => clearInterval(interval);
   }, [fetchData]);
 
   return (
@@ -45,9 +49,11 @@ function App() {
       <Navbar />
       <Hero stats={stats} />
       <BotDirectory bots={bots} loading={loading} />
+      <LiveDashboard bots={bots} />
       <Features />
       <StationBrowser stations={stations} loading={loading} />
       <Commands commands={commands} />
+      <Premium />
       <StatsFooter stats={stats} />
     </div>
   );
