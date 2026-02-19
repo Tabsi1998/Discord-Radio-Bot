@@ -205,6 +205,8 @@ async function run() {
     case "remove":  return cmdRemove(rest);
     case "list":    return cmdList();
     case "check":   return cmdCheck(rest);
+    case "tiers":   return cmdTiers();
+    case "invite":  return cmdInvite();
     case "wizard":  return cmdWizard();
     case "help":
     case "--help":
@@ -215,6 +217,8 @@ async function run() {
       console.log("    premium.sh remove <server-id>");
       console.log("    premium.sh list");
       console.log("    premium.sh check <server-id>");
+      console.log("    premium.sh tiers");
+      console.log("    premium.sh invite");
       console.log("    premium.sh wizard");
       console.log("");
       console.log("  Tiers:");
