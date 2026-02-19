@@ -366,7 +366,6 @@ STATIONS_EOF
   ok "11 Standard-Stationen erstellt."
 else
   ok "stations.json vorhanden (wird beibehalten)."
-  local count
   count=$(python3 -c "import json;d=json.load(open('stations.json'));print(len(d.get('stations',{})))" 2>/dev/null || echo "?")
   info "Stationen: $count"
 fi
