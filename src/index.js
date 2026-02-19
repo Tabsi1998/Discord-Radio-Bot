@@ -163,25 +163,29 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
       "-loglevel", "warning",
-      // === ZERO-LAG: instant stream start ===
-      "-fflags", "+nobuffer+flush_packets+genpts",
+      // === ZERO-LAG v2: ultra-low latency stream start ===
+      "-fflags", "+nobuffer+flush_packets+genpts+discardcorrupt",
       "-flags", "+low_delay",
-      "-probesize", "32768",
+      "-probesize", "16384",
       "-analyzeduration", "0",
-      "-thread_queue_size", "4096",
+      "-thread_queue_size", "8192",
+      "-max_delay", "0",
+      "-avioflags", "direct",
       // === Reconnect resilience ===
       "-reconnect", "1",
       "-reconnect_streamed", "1",
-      "-reconnect_delay_max", "5",
+      "-reconnect_delay_max", "3",
       "-reconnect_on_network_error", "1",
       "-reconnect_on_http_error", "4xx,5xx",
-      "-rw_timeout", "10000000",
-      "-timeout", "10000000",
+      "-rw_timeout", "8000000",
+      "-timeout", "8000000",
       // === Input ===
       "-i", url,
       "-ar", "48000",
       "-ac", "2",
-      "-vn"
+      "-vn",
+      // === Output buffer flush ===
+      "-flush_packets", "1",
     ];
 
     let inputType = StreamType.Raw;
@@ -197,8 +201,9 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
         "-vbr", vbr,
         "-compression_level", compression,
         "-frame_duration", frame,
-        "-application", "audio",
-        "-packet_loss", "3",
+        "-application", "lowdelay",
+        "-packet_loss", "5",
+        "-cutoff", "20000",
         "-f", "opus",
         "pipe:1"
       );
@@ -213,6 +218,11 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, AV_LOG_FORCE_NOCOLOR: "1" }
     });
+
+    // Set high water mark on stdout for smoother buffering
+    if (ffmpeg.stdout) {
+      ffmpeg.stdout.setEncoding = undefined; // ensure binary mode
+    }
 
     let stderrBuffer = "";
     ffmpeg.stderr.on("data", (chunk) => {
