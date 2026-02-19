@@ -1021,6 +1021,30 @@ class BotRuntime {
       return;
     }
 
+    if (interaction.commandName === "premium") {
+      const gid = interaction.guildId;
+      const tierConfig = getTierConfig(gid);
+      const license = getLicense(gid);
+
+      const tierEmoji = { free: "", pro: " [PRO]", ultimate: " [ULTIMATE]" };
+      const lines = [
+        `Premium Status${tierEmoji[tierConfig.tier] || ""}`,
+        `Server: ${interaction.guild?.name || gid}`,
+        `Tier: ${tierConfig.name}`,
+        `Bitrate: ${tierConfig.bitrate}`,
+        `Reconnect: ${tierConfig.reconnectMs}ms`,
+        `Max Bots: ${tierConfig.maxBots}`,
+      ];
+      if (license) {
+        lines.push(`Aktiviert: ${license.activatedAt || "-"}`);
+      }
+      if (tierConfig.tier === "free") {
+        lines.push("", "Upgrade auf Pro/Ultimate fuer hoehere Qualitaet!");
+      }
+      await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+      return;
+    }
+
     if (interaction.commandName === "health") {
       const content = [
         `Bot: ${this.config.name}`,
