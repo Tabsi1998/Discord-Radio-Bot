@@ -160,13 +160,43 @@ function renderBots(bots) {
     dot.className = 'bot-status-dot ' + (bot.ready ? 'online' : 'offline');
     status.appendChild(dot);
     status.appendChild(document.createTextNode(bot.ready ? 'Online' : 'Konfigurierbar'));
-    if (bot.servers > 0) {
-      var srvSpan = document.createElement('span');
-      srvSpan.style.cssText = 'margin-left:8px;color:#A1A1AA';
-      srvSpan.textContent = fmtInt(bot.servers) + ' Server';
-      status.appendChild(srvSpan);
-    }
-    card.appendChild(status);
+    info.appendChild(status);
+
+    head.appendChild(icon);
+    head.appendChild(info);
+    card.appendChild(head);
+
+    // Bot-Statistiken (wie Jockie Music)
+    var statsBox = document.createElement('div');
+    statsBox.style.cssText = 'padding:14px 0;margin-bottom:16px;border-top:1px solid ' + c.accent + '15;border-bottom:1px solid ' + c.accent + '15';
+
+    var statsLabel = document.createElement('div');
+    statsLabel.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:' + c.accent + ';margin-bottom:10px;font-family:Orbitron,sans-serif';
+    statsLabel.textContent = 'BOT STATISTIKEN';
+    statsBox.appendChild(statsLabel);
+
+    var statsGrid = document.createElement('div');
+    statsGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px';
+    var statItems = [
+      { label: 'Server', value: bot.servers || 0 },
+      { label: 'Nutzer', value: bot.users || 0 },
+      { label: 'Verbindungen', value: bot.connections || 0 },
+      { label: 'Zuhörer', value: bot.listeners || 0 },
+    ];
+    statItems.forEach(function(si) {
+      var wrap = document.createElement('div');
+      var lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.05em';
+      lbl.textContent = si.label;
+      var val = document.createElement('div');
+      val.style.cssText = 'font-size:16px;font-weight:700;font-family:JetBrains Mono,monospace;color:#fff';
+      val.textContent = fmtInt(si.value);
+      wrap.appendChild(lbl);
+      wrap.appendChild(val);
+      statsGrid.appendChild(wrap);
+    });
+    statsBox.appendChild(statsGrid);
+    card.appendChild(statsBox);
 
     // Actions
     var actions = document.createElement('div');
