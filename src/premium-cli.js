@@ -1,6 +1,10 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { TIERS, addLicense, removeLicense, listLicenses, getLicense, getTierConfig } from "./premium-store.js";
+import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const rl = createInterface({ input: stdin, output: stdout });
 
