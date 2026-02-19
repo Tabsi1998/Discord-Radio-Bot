@@ -83,6 +83,7 @@ def load_bots_from_env():
                 "index": i,
                 "name": f"Radio Bot {i}",
                 "clientId": f"0000000000000000{i:02d}",
+                "inviteUrl": "",
                 "color": BOT_COLORS[(i - 1) % len(BOT_COLORS)],
                 "avatarUrl": BOT_IMAGES[(i - 1) % len(BOT_IMAGES)],
                 "servers": 0,
@@ -92,6 +93,7 @@ def load_bots_from_env():
                 "ready": False,
                 "userTag": None,
                 "uptimeSec": 0,
+                "guildDetails": [],
             })
 
     return bots
