@@ -1,4 +1,4 @@
-/* === Discord Radio Bot - Frontend v3.0 === */
+/* === Discord Radio Bot - Frontend v3.1 === */
 
 var BOT_COLORS = [
   { name: 'cyan',   accent: '#00F0FF', glow: 'rgba(0,240,255,0.15)',  border: 'rgba(0,240,255,0.25)' },
@@ -23,13 +23,13 @@ var COMMANDS = [
   { name: '/setvolume', args: '<0-100>',              desc: 'Setzt die Lautstärke' },
   { name: '/status',    args: '',                     desc: 'Zeigt Bot-Status, Uptime und Last' },
   { name: '/health',    args: '',                     desc: 'Zeigt Stream-Health und Reconnect-Info' },
+  { name: '/premium',   args: '',                     desc: 'Zeigt den Premium-Status dieses Servers' },
 ];
 
 var fmt = new Intl.NumberFormat('de-DE');
 function fmtInt(v) { return fmt.format(Number(v) || 0); }
 
 var allStations = [];
-var lastBotsData = [];
 
 // --- Navbar scroll + mobile toggle ---
 window.addEventListener('scroll', function() {
@@ -102,7 +102,7 @@ function setEqActive(active) {
   }
 }
 
-// --- Commands (static) ---
+// --- Commands ---
 (function renderCommands() {
   var list = document.getElementById('commandsList');
   list.innerHTML = '';
@@ -115,7 +115,7 @@ function setEqActive(active) {
     if (cmd.args) {
       var argsSpan = document.createElement('span');
       argsSpan.className = 'cmd-args';
-      argsSpan.textContent = cmd.args;
+      argsSpan.textContent = ' ' + cmd.args;
       badge.appendChild(argsSpan);
     }
     var desc = document.createElement('span');
@@ -141,7 +141,6 @@ function copyText(text, btn) {
 
 // --- Render Bots ---
 function renderBots(bots) {
-  lastBotsData = bots;
   var grid = document.getElementById('botGrid');
   grid.innerHTML = '';
   if (!bots || bots.length === 0) {
@@ -155,14 +154,8 @@ function renderBots(bots) {
 
     var card = document.createElement('article');
     card.className = 'bot-card';
-    card.addEventListener('mouseenter', function() {
-      card.style.borderColor = c.border;
-      card.style.boxShadow = '0 0 40px ' + c.glow;
-    });
-    card.addEventListener('mouseleave', function() {
-      card.style.borderColor = '';
-      card.style.boxShadow = '';
-    });
+    card.addEventListener('mouseenter', function() { card.style.borderColor = c.border; card.style.boxShadow = '0 0 40px ' + c.glow; });
+    card.addEventListener('mouseleave', function() { card.style.borderColor = ''; card.style.boxShadow = ''; });
 
     var bar = document.createElement('div');
     bar.className = 'accent-bar';
@@ -171,23 +164,15 @@ function renderBots(bots) {
 
     var head = document.createElement('div');
     head.className = 'bot-head';
-
     var icon = document.createElement('div');
     icon.className = 'bot-icon';
     icon.style.background = 'linear-gradient(135deg,' + c.accent + '22,' + c.accent + '08)';
     icon.style.border = '1px solid ' + c.accent + '33';
-    icon.style.overflow = 'hidden';
-
     var img = document.createElement('img');
-    img.src = botImg;
-    img.alt = bot.name || 'Bot';
+    img.src = botImg; img.alt = bot.name || 'Bot';
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:12px';
-    img.onerror = function() {
-      this.style.display = 'none';
-      icon.innerHTML += '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="' + c.accent + '" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>';
-    };
+    img.onerror = function() { this.style.display = 'none'; icon.innerHTML += '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="' + c.accent + '" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>'; };
     icon.appendChild(img);
-
     var info = document.createElement('div');
     var name = document.createElement('div');
     name.className = 'bot-name';
@@ -195,11 +180,7 @@ function renderBots(bots) {
     var tag = document.createElement('div');
     tag.className = 'bot-tag';
     tag.textContent = bot.userTag || 'Bereit';
-    info.appendChild(name);
-    info.appendChild(tag);
-    head.appendChild(icon);
-    head.appendChild(info);
-
+    info.appendChild(name); info.appendChild(tag);
     var status = document.createElement('div');
     status.className = 'bot-status';
     var dot = document.createElement('div');
@@ -207,65 +188,27 @@ function renderBots(bots) {
     status.appendChild(dot);
     status.appendChild(document.createTextNode(bot.ready ? 'Online' : 'Konfigurierbar'));
     info.appendChild(status);
-
+    head.appendChild(icon); head.appendChild(info);
     card.appendChild(head);
-
-    var statsBox = document.createElement('div');
-    statsBox.style.cssText = 'padding:14px 0;margin-bottom:16px;border-top:1px solid ' + c.accent + '15;border-bottom:1px solid ' + c.accent + '15';
-
-    var statsLabel = document.createElement('div');
-    statsLabel.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:' + c.accent + ';margin-bottom:10px;font-family:Orbitron,sans-serif';
-    statsLabel.textContent = 'BOT STATISTIKEN';
-    statsBox.appendChild(statsLabel);
-
-    var statsGrid = document.createElement('div');
-    statsGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px';
-    var statItems = [
-      { label: 'Server', value: bot.servers || 0 },
-      { label: 'Nutzer', value: bot.users || 0 },
-      { label: 'Verbindungen', value: bot.connections || 0 },
-      { label: 'Zuhörer', value: bot.listeners || 0 },
-    ];
-    statItems.forEach(function(si) {
-      var wrap = document.createElement('div');
-      var lbl = document.createElement('div');
-      lbl.style.cssText = 'font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.05em';
-      lbl.textContent = si.label;
-      var val = document.createElement('div');
-      val.style.cssText = 'font-size:16px;font-weight:700;font-family:JetBrains Mono,monospace;color:#fff';
-      val.textContent = fmtInt(si.value);
-      wrap.appendChild(lbl);
-      wrap.appendChild(val);
-      statsGrid.appendChild(wrap);
-    });
-    statsBox.appendChild(statsGrid);
-    card.appendChild(statsBox);
 
     var actions = document.createElement('div');
     actions.className = 'bot-actions';
-
     var invBtn = document.createElement('a');
-    invBtn.className = 'invite-btn';
-    invBtn.href = url;
-    invBtn.target = '_blank';
-    invBtn.rel = 'noopener noreferrer';
+    invBtn.className = 'invite-btn'; invBtn.href = url; invBtn.target = '_blank'; invBtn.rel = 'noopener noreferrer';
     invBtn.style.background = c.accent;
     invBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg> Einladen';
     actions.appendChild(invBtn);
-
     var cpBtn = document.createElement('button');
-    cpBtn.className = 'copy-btn';
-    cpBtn.type = 'button';
+    cpBtn.className = 'copy-btn'; cpBtn.type = 'button';
     cpBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
     cpBtn.addEventListener('click', function() { copyText(url, cpBtn); });
     actions.appendChild(cpBtn);
-
     card.appendChild(actions);
     grid.appendChild(card);
   });
 }
 
-// --- Audio Player mit Lautstärke ---
+// --- Audio Player ---
 var currentAudio = null;
 var currentPlayingKey = null;
 var currentVolume = 80;
@@ -287,19 +230,14 @@ function playStation(station) {
     setEqActive(false);
   });
   currentAudio.onerror = function() {
-    currentPlayingKey = null;
-    updateNowPlaying(null);
+    currentPlayingKey = null; updateNowPlaying(null);
     filterStations(document.getElementById('stationSearch').value);
     setEqActive(false);
   };
 }
 
 function stopStation() {
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.src = '';
-    currentAudio = null;
-  }
+  if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
   currentPlayingKey = null;
   updateNowPlaying(null);
   setEqActive(false);
@@ -307,8 +245,7 @@ function stopStation() {
 }
 
 function setVolume(val) {
-  currentVolume = val;
-  currentMuted = val === 0;
+  currentVolume = val; currentMuted = val === 0;
   if (currentAudio) currentAudio.volume = val / 100;
 }
 
@@ -321,14 +258,11 @@ function toggleMute() {
 
 function updateNowPlaying(station) {
   var container = document.getElementById('nowPlaying');
-  if (!station) {
-    container.style.display = 'none';
-    return;
-  }
+  if (!station) { container.style.display = 'none'; return; }
   container.style.display = 'flex';
   container.innerHTML = '';
 
-  // EQ Animation
+  // Mini EQ
   var eqWrap = document.createElement('div');
   eqWrap.style.cssText = 'display:flex;align-items:flex-end;gap:2px;height:20px;flex-shrink:0';
   [0.5, 0.8, 0.6, 1, 0.7].forEach(function(h, i) {
@@ -339,17 +273,16 @@ function updateNowPlaying(station) {
   });
   container.appendChild(eqWrap);
 
-  // Station Name
+  // Name
   var nameEl = document.createElement('span');
   nameEl.style.cssText = 'font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
   nameEl.textContent = station.name;
   container.appendChild(nameEl);
 
-  // Volume Controls
+  // Volume
   var volWrap = document.createElement('div');
   volWrap.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0';
 
-  // Mute Button
   var muteBtn = document.createElement('button');
   muteBtn.style.cssText = 'background:none;border:none;color:' + (currentMuted ? '#FF2A2A' : '#A1A1AA') + ';cursor:pointer;padding:4px;line-height:0';
   muteBtn.innerHTML = currentMuted
@@ -358,34 +291,27 @@ function updateNowPlaying(station) {
   muteBtn.onclick = toggleMute;
   volWrap.appendChild(muteBtn);
 
-  // Volume Slider
-  var slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = '0';
-  slider.max = '100';
-  slider.value = currentMuted ? '0' : String(currentVolume);
-  slider.className = 'vol-slider';
-  var pct = currentMuted ? 0 : currentVolume;
-  slider.style.background = 'linear-gradient(to right, #00F0FF ' + pct + '%, rgba(255,255,255,0.1) ' + pct + '%)';
-
-  // Volume Number (declare before slider.oninput so it's in scope)
   var volNum = document.createElement('span');
   volNum.style.cssText = 'font-size:11px;font-family:JetBrains Mono,monospace;color:#52525B;width:28px;text-align:right';
   volNum.textContent = currentMuted ? '0' : String(currentVolume);
 
+  var slider = document.createElement('input');
+  slider.type = 'range'; slider.min = '0'; slider.max = '100';
+  slider.value = currentMuted ? '0' : String(currentVolume);
+  slider.className = 'vol-slider';
+  var pct = currentMuted ? 0 : currentVolume;
+  slider.style.background = 'linear-gradient(to right, #00F0FF ' + pct + '%, rgba(255,255,255,0.1) ' + pct + '%)';
   slider.oninput = function() {
-    var v = Number(this.value);
-    setVolume(v);
+    var v = Number(this.value); setVolume(v);
     this.style.background = 'linear-gradient(to right, #00F0FF ' + v + '%, rgba(255,255,255,0.1) ' + v + '%)';
     volNum.textContent = v;
     muteBtn.style.color = v === 0 ? '#FF2A2A' : '#A1A1AA';
   };
-
   volWrap.appendChild(slider);
   volWrap.appendChild(volNum);
   container.appendChild(volWrap);
 
-  // Stop Button
+  // Stop
   var stopBtn = document.createElement('button');
   stopBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:#fff;cursor:pointer;flex-shrink:0';
   stopBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
@@ -393,7 +319,7 @@ function updateNowPlaying(station) {
   container.appendChild(stopBtn);
 }
 
-// --- Render Stations ---
+// --- Stations ---
 function renderStations(stations) {
   allStations = stations || [];
   document.getElementById('stationCount').textContent = allStations.length + ' verfügbare Stationen. Klicke zum Vorhören oder nutze /play im Discord.';
@@ -419,15 +345,8 @@ function filterStations(query) {
     var isPlaying = currentPlayingKey === s.key;
     var item = document.createElement('div');
     item.className = 'station-item';
-    item.style.cursor = 'pointer';
-    if (isPlaying) {
-      item.style.background = color + '10';
-      item.style.borderColor = color + '30';
-    }
-
-    item.onclick = function() {
-      if (isPlaying) { stopStation(); } else { playStation(s); }
-    };
+    if (isPlaying) { item.style.background = color + '10'; item.style.borderColor = color + '30'; }
+    item.onclick = function() { if (isPlaying) { stopStation(); } else { playStation(s); } };
 
     var icon = document.createElement('div');
     icon.className = 'station-icon';
@@ -442,126 +361,164 @@ function filterStations(query) {
     var info = document.createElement('div');
     info.style.cssText = 'flex:1;min-width:0';
     var nm = document.createElement('div');
-    nm.className = 'station-name';
-    nm.textContent = s.name;
+    nm.className = 'station-name'; nm.textContent = s.name;
     var ky = document.createElement('div');
-    ky.className = 'station-key';
-    ky.textContent = s.key;
-    info.appendChild(nm);
-    info.appendChild(ky);
-
-    item.appendChild(icon);
-    item.appendChild(info);
+    ky.className = 'station-key'; ky.textContent = s.key;
+    info.appendChild(nm); info.appendChild(ky);
+    item.appendChild(icon); item.appendChild(info);
 
     if (isPlaying) {
-      var eqWrap = document.createElement('div');
-      eqWrap.style.cssText = 'display:flex;align-items:flex-end;gap:2px;height:16px';
+      var eqW = document.createElement('div');
+      eqW.style.cssText = 'display:flex;align-items:flex-end;gap:2px;height:16px';
       [0.6, 1, 0.7, 0.9].forEach(function(h, j) {
         var b = document.createElement('div');
         b.className = 'eq-bar';
         b.style.cssText = 'width:3px;border-radius:1px;background:' + color + ';height:' + (h*100) + '%;animation:eq-active ' + (0.3+Math.random()*0.5).toFixed(2) + 's ease-in-out ' + (j*0.06).toFixed(2) + 's infinite';
-        eqWrap.appendChild(b);
+        eqW.appendChild(b);
       });
-      item.appendChild(eqWrap);
+      item.appendChild(eqW);
     }
-
     list.appendChild(item);
   });
 }
 
-// --- Station search ---
 document.getElementById('stationSearch').addEventListener('input', function(e) {
   filterStations(e.target.value);
 });
 
-// --- Live Dashboard ---
-function formatUptime(seconds) {
-  if (!seconds || seconds <= 0) return '--';
-  var d = Math.floor(seconds / 86400);
-  var h = Math.floor((seconds % 86400) / 3600);
-  var m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return d + 'd ' + h + 'h';
-  if (h > 0) return h + 'h ' + m + 'm';
-  return m + 'm';
+// --- Premium Checkout ---
+function startCheckout(tier) {
+  var modal = document.getElementById('premiumModal');
+  var input = document.getElementById('premiumServerId');
+  var submitBtn = document.getElementById('premiumSubmit');
+  var statusEl = document.getElementById('premiumStatus');
+
+  modal.style.display = 'flex';
+  input.value = '';
+  statusEl.textContent = '';
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Jetzt bezahlen';
+
+  // Store tier for submit
+  modal.dataset.tier = tier;
 }
 
-function renderDashboard(bots, totals) {
-  var activeStreams = 0;
-  var listeners = 0;
-  var maxUptime = 0;
-  var readyCount = 0;
+function closePremiumModal() {
+  document.getElementById('premiumModal').style.display = 'none';
+}
 
-  (bots || []).forEach(function(bot) {
-    activeStreams += Number(bot.connections) || 0;
-    listeners += Number(bot.listeners) || 0;
-    if (bot.ready) readyCount++;
-    var up = Number(bot.uptimeSec) || 0;
-    if (up > maxUptime) maxUptime = up;
-  });
+function submitPremiumCheckout() {
+  var modal = document.getElementById('premiumModal');
+  var input = document.getElementById('premiumServerId');
+  var submitBtn = document.getElementById('premiumSubmit');
+  var statusEl = document.getElementById('premiumStatus');
+  var tier = modal.dataset.tier;
+  var serverId = input.value.trim();
 
-  var el;
-  el = document.getElementById('dashActiveStreams');
-  if (el) el.textContent = fmtInt(activeStreams);
-
-  el = document.getElementById('dashListeners');
-  if (el) el.textContent = fmtInt(listeners);
-
-  el = document.getElementById('dashUptime');
-  if (el) el.textContent = formatUptime(maxUptime);
-
-  el = document.getElementById('dashHealthStatus');
-  if (el) {
-    if (!bots || bots.length === 0) {
-      el.textContent = 'Keine Bots';
-      el.style.color = '#52525B';
-    } else if (readyCount === bots.length) {
-      el.textContent = 'Alles OK';
-      el.style.color = '#39FF14';
-    } else if (readyCount > 0) {
-      el.textContent = readyCount + '/' + bots.length;
-      el.style.color = '#FFB800';
-    } else {
-      el.textContent = 'Offline';
-      el.style.color = '#FF2A2A';
-    }
-  }
-
-  // Render table
-  var tbody = document.getElementById('dashTableBody');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-
-  if (!bots || bots.length === 0) {
-    tbody.innerHTML = '<p class="muted" style="padding:16px;text-align:center">Keine Bots konfiguriert.</p>';
+  if (!/^\d{17,22}$/.test(serverId)) {
+    statusEl.textContent = 'Server ID muss 17-22 Ziffern sein!';
+    statusEl.style.color = '#FF2A2A';
     return;
   }
 
-  bots.forEach(function(bot, i) {
-    var c = BOT_COLORS[i % BOT_COLORS.length];
-    var row = document.createElement('div');
-    row.className = 'dash-table-row';
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Wird geladen...';
+  statusEl.textContent = '';
 
-    var nameCell = document.createElement('span');
-    nameCell.className = 'dash-bot-name';
-    nameCell.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + c.accent + ';flex-shrink:0"></span> ' + (bot.name || 'Bot ' + (i + 1));
+  fetch('/api/premium/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier: tier, serverId: serverId, returnUrl: window.location.origin })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      statusEl.textContent = data.error || 'Fehler beim Erstellen der Zahlung.';
+      statusEl.style.color = '#FF2A2A';
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Jetzt bezahlen';
+    }
+  })
+  .catch(function(err) {
+    statusEl.textContent = 'Verbindungsfehler: ' + err.message;
+    statusEl.style.color = '#FF2A2A';
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Jetzt bezahlen';
+  });
+}
 
-    var statusCell = document.createElement('span');
-    statusCell.className = 'dash-status-badge ' + (bot.ready ? 'online' : 'offline');
-    statusCell.textContent = bot.ready ? 'Online' : 'Offline';
+// --- Check for payment success on page load ---
+(function checkPaymentReturn() {
+  var params = new URLSearchParams(window.location.search);
+  var payment = params.get('payment');
+  var sessionId = params.get('session_id');
 
-    var serverCell = document.createElement('span');
-    serverCell.className = 'dash-stat-cell';
-    serverCell.textContent = fmtInt(bot.servers || 0);
+  if (payment === 'success' && sessionId) {
+    fetch('/api/premium/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: sessionId })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var banner = document.getElementById('paymentBanner');
+      if (data.success) {
+        banner.style.display = 'flex';
+        banner.style.background = 'rgba(57,255,20,0.1)';
+        banner.style.borderColor = 'rgba(57,255,20,0.3)';
+        banner.querySelector('span').textContent = data.message || 'Premium aktiviert!';
+        banner.querySelector('span').style.color = '#39FF14';
+      } else {
+        banner.style.display = 'flex';
+        banner.style.background = 'rgba(255,42,42,0.1)';
+        banner.style.borderColor = 'rgba(255,42,42,0.3)';
+        banner.querySelector('span').textContent = data.message || 'Zahlung fehlgeschlagen.';
+        banner.querySelector('span').style.color = '#FF2A2A';
+      }
+    }).catch(function() {});
 
-    var connCell = document.createElement('span');
-    connCell.className = 'dash-stat-cell';
-    connCell.textContent = fmtInt(bot.connections || 0);
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+  }
 
-    row.appendChild(nameCell);
-    row.appendChild(statusCell);
-    row.appendChild(serverCell);
-    row.appendChild(connCell);
-    tbody.appendChild(row);
+  if (payment === 'cancelled') {
+    var banner = document.getElementById('paymentBanner');
+    banner.style.display = 'flex';
+    banner.style.background = 'rgba(255,184,0,0.1)';
+    banner.style.borderColor = 'rgba(255,184,0,0.3)';
+    banner.querySelector('span').textContent = 'Zahlung abgebrochen.';
+    banner.querySelector('span').style.color = '#FFB800';
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+})();
+
+// --- Premium Status Check ---
+function checkPremiumStatus() {
+  var input = document.getElementById('premiumCheckInput');
+  var result = document.getElementById('premiumCheckResult');
+  var serverId = input.value.trim();
+
+  if (!/^\d{17,22}$/.test(serverId)) {
+    result.textContent = 'Server ID muss 17-22 Ziffern sein!';
+    result.style.color = '#FF2A2A';
+    return;
+  }
+
+  result.textContent = 'Prüfe...';
+  result.style.color = '#A1A1AA';
+
+  fetch('/api/premium/check?serverId=' + serverId)
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var tierColors = { free: '#A1A1AA', pro: '#FFB800', ultimate: '#BD00FF' };
+    result.style.color = tierColors[data.tier] || '#A1A1AA';
+    result.textContent = 'Tier: ' + data.name + ' | Bitrate: ' + data.bitrate + ' | Reconnect: ' + data.reconnectMs + 'ms';
+  })
+  .catch(function() {
+    result.textContent = 'Fehler beim Prüfen.';
+    result.style.color = '#FF2A2A';
   });
 }
 
@@ -571,23 +528,17 @@ function renderFooterStats(data) {
   var items = [
     { label: 'Server', value: data.servers || 0, color: '#00F0FF' },
     { label: 'Nutzer', value: data.users || 0, color: '#39FF14' },
-    { label: 'Verbindungen', value: data.connections || 0, color: '#EC4899' },
-    { label: 'Zuhörer', value: data.listeners || 0, color: '#FFB800' },
+    { label: 'Bots', value: data.bots || 0, color: '#EC4899' },
+    { label: 'Stationen', value: data.stations || 0, color: '#FFB800' },
   ];
   el.innerHTML = '';
   items.forEach(function(s) {
-    var div = document.createElement('div');
-    div.className = 'footer-stat';
-    var num = document.createElement('span');
-    num.className = 'footer-stat-num';
-    num.style.color = s.color;
-    num.style.textShadow = '0 0 15px ' + s.color + '50';
+    var div = document.createElement('div'); div.className = 'footer-stat';
+    var num = document.createElement('span'); num.className = 'footer-stat-num';
+    num.style.color = s.color; num.style.textShadow = '0 0 15px ' + s.color + '50';
     num.textContent = fmtInt(s.value);
-    var lbl = document.createElement('span');
-    lbl.className = 'footer-stat-label';
-    lbl.textContent = s.label;
-    div.appendChild(num);
-    div.appendChild(lbl);
+    var lbl = document.createElement('span'); lbl.className = 'footer-stat-label'; lbl.textContent = s.label;
+    div.appendChild(num); div.appendChild(lbl);
     el.appendChild(div);
   });
 }
@@ -608,17 +559,14 @@ async function refresh() {
 
     var botsRes = results[0];
     var stationsRes = results[1];
-
     var bots = botsRes.bots || [];
     var totals = botsRes.totals || {};
     var stations = stationsRes.stations || [];
 
     renderBots(bots);
     renderStations(stations);
-    renderFooterStats(totals);
-    renderDashboard(bots, totals);
+    renderFooterStats({ ...totals, bots: bots.length, stations: stationsRes.total || stations.length });
 
-    // Hero stats
     document.getElementById('statServers').textContent = fmtInt(totals.servers);
     document.getElementById('statStations').textContent = fmtInt(stationsRes.total || stations.length);
     document.getElementById('statBots').textContent = fmtInt(bots.length);
