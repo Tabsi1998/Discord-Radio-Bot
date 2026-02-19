@@ -18,10 +18,13 @@ function BotCard({ bot, index }) {
 
   const colorKey = bot.color || Object.keys(BOT_COLORS)[index % Object.keys(BOT_COLORS).length];
   const colors = BOT_COLORS[colorKey] || BOT_COLORS.cyan;
-  const inviteUrl = bot.inviteUrl || bot.invite_url || `https://discord.com/oauth2/authorize?client_id=${bot.clientId || bot.client_id || ''}&scope=bot%20applications.commands&permissions=3145728`;
+  const isPremiumBot = bot.requiredTier && bot.requiredTier !== 'free';
+  const inviteUrl = isPremiumBot ? null : (bot.inviteUrl || bot.invite_url || `https://discord.com/oauth2/authorize?client_id=${bot.clientId || bot.client_id || ''}&scope=bot%20applications.commands&permissions=3145728`);
   const botImage = bot.avatarUrl || bot.avatar_url || `/img/bot-${(index % 4) + 1}.png`;
+  const tierBadgeColors = { pro: '#FFB800', ultimate: '#BD00FF' };
 
   const handleCopy = async () => {
+    if (!inviteUrl) return;
     try {
       await navigator.clipboard.writeText(inviteUrl);
       setCopied(true);
