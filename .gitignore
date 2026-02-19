@@ -1,8 +1,5 @@
 .env
 node_modules
 npm-debug.log
-logs
--e 
-# Environment files
-*.env
-*.env.*
+logs/
+.update-backups/
