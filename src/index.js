@@ -291,7 +291,9 @@ class BotRuntime {
 
   getState(guildId) {
     if (!this.guildState.has(guildId)) {
-      const player = createAudioPlayer();
+      const player = createAudioPlayer({
+        behaviors: { noSubscriber: NoSubscriberBehavior.Play }
+      });
       const state = {
         player,
         connection: null,
