@@ -187,6 +187,108 @@ async def get_commands():
             {"name": "/now", "args": "", "description": "Zeigt die aktuelle Station und Metadaten"},
             {"name": "/setvolume", "args": "<0-100>", "description": "Setzt die Lautstärke"},
             {"name": "/status", "args": "", "description": "Zeigt Bot-Status, Uptime und Last"},
-            {"name": "/health", "args": "", "description": "Zeigt Stream-Health und Reconnect-Info"}
+            {"name": "/health", "args": "", "description": "Zeigt Stream-Health und Reconnect-Info"},
+            {"name": "/premium", "args": "", "description": "Zeigt den Premium-Status dieses Servers"}
         ]
     }
+
+
+PREMIUM_FILE = Path(__file__).parent.parent / "premium.json"
+TIERS = {
+    "free":     {"name": "Free",     "bitrate": "128k", "reconnectMs": 3000, "maxBots": 4},
+    "pro":      {"name": "Pro",      "bitrate": "192k", "reconnectMs": 1000, "maxBots": 10},
+    "ultimate": {"name": "Ultimate", "bitrate": "320k", "reconnectMs": 500,  "maxBots": 20},
+}
+
+def load_premium():
+    try:
+        if PREMIUM_FILE.exists():
+            return json.loads(PREMIUM_FILE.read_text())
+        return {"licenses": {}}
+    except Exception:
+        return {"licenses": {}}
+
+def save_premium(data):
+    PREMIUM_FILE.write_text(json.dumps(data, indent=2) + "\n")
+
+@app.get("/api/premium/check")
+async def check_premium(serverId: str = ""):
+    if not serverId or not serverId.isdigit() or len(serverId) < 17:
+        return {"error": "serverId muss 17-22 Ziffern sein."}
+    data = load_premium()
+    license_info = data.get("licenses", {}).get(serverId)
+    tier = license_info.get("tier", "free") if license_info else "free"
+    tier_config = TIERS.get(tier, TIERS["free"])
+    return {"serverId": serverId, "tier": tier, **tier_config, "license": license_info}
+
+@app.get("/api/premium/tiers")
+async def get_tiers():
+    return {"tiers": TIERS}
+
+@app.post("/api/premium/checkout")
+async def premium_checkout(body: dict):
+    tier = body.get("tier", "")
+    server_id = body.get("serverId", "")
+    return_url = body.get("returnUrl", "")
+
+    if tier not in ("pro", "ultimate"):
+        return {"error": "tier muss 'pro' oder 'ultimate' sein."}
+    if not server_id or not server_id.isdigit() or len(server_id) < 17:
+        return {"error": "serverId muss 17-22 Ziffern sein."}
+
+    stripe_key = os.environ.get("STRIPE_API_KEY", "")
+    if not stripe_key:
+        return {"error": "Stripe nicht konfiguriert."}
+
+    try:
+        from emergentintegrations.llm.stripe import create_checkout_session
+        price_map = {"pro": 499, "ultimate": 999}
+        tier_names = {"pro": "Radio Bot Pro", "ultimate": "Radio Bot Ultimate"}
+
+        session = await create_checkout_session(
+            api_key=stripe_key,
+            product_name=tier_names[tier],
+            unit_amount=price_map[tier],
+            currency="eur",
+            quantity=1,
+            success_url=(return_url or "http://localhost") + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=(return_url or "http://localhost") + "?payment=cancelled",
+            metadata={"serverId": server_id, "tier": tier}
+        )
+        return {"sessionId": session.get("id", ""), "url": session.get("url", "")}
+    except Exception as e:
+        return {"error": f"Checkout fehlgeschlagen: {str(e)}"}
+
+@app.post("/api/premium/verify")
+async def verify_premium(body: dict):
+    session_id = body.get("sessionId", "")
+    if not session_id:
+        return {"error": "sessionId erforderlich."}
+
+    stripe_key = os.environ.get("STRIPE_API_KEY", "")
+    if not stripe_key:
+        return {"error": "Stripe nicht konfiguriert."}
+
+    try:
+        from emergentintegrations.llm.stripe import retrieve_checkout_session
+        session = await retrieve_checkout_session(api_key=stripe_key, session_id=session_id)
+
+        if session.get("payment_status") == "paid":
+            metadata = session.get("metadata", {})
+            server_id = metadata.get("serverId", "")
+            tier = metadata.get("tier", "")
+            if server_id and tier and tier in ("pro", "ultimate"):
+                data = load_premium()
+                data["licenses"][server_id] = {
+                    "tier": tier,
+                    "activatedAt": datetime.now(timezone.utc).isoformat(),
+                    "activatedBy": "stripe",
+                    "note": f"Session: {session_id}"
+                }
+                save_premium(data)
+                return {"success": True, "serverId": server_id, "tier": tier,
+                        "message": f"Server {server_id} auf {TIERS[tier]['name']} aktiviert!"}
+
+        return {"success": False, "message": "Zahlung nicht abgeschlossen."}
+    except Exception as e:
+        return {"error": f"Verifizierung fehlgeschlagen: {str(e)}"}
