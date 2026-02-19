@@ -1,42 +1,73 @@
-# Discord Radio Bot - PRD v4
+# Discord Radio Bot - PRD v5 (Final)
 
-## Original Problem Statement
-1. Kritischer Bug: `/play` Command crasht wegen `getChannel()` auf String-Option (Type 3 vs Type 7)
-2. Bot-Presence in Discord professionell gestalten mit Webseiten-Link
-3. Audio-Player auf der Webseite zum Vorhören von Stationen
-4. Bot-Statistik-Cards wie Jockie Music (Server, Nutzer, Verbindungen, Zuhörer pro Bot)
-5. Richtige Umlaute überall
-6. Feature-Text korrigiert
+## Projekt-Übersicht
+Discord Radio Bot - Multi-Bot Radio-Streaming für Discord Server mit modernem Web-Interface.
 
-## Critical Bug Fix
-**`Option "channel" is of type: 3; expected 7`**
-- Ursache: `interaction.options.getChannel("channel")` auf einem `addStringOption` Feld
-- Fix: Ersetzt durch `interaction.options.getString("channel")` + `resolveVoiceChannelFromInput()`
-- Datei: `/app/src/index.js` Zeile 962
+## Repo-Struktur (bereinigt)
+```
+Discord-Radio-Bot/
+├── install.sh              # One-Command Installer (geführt)
+├── update.sh               # Auto-Update von Git (selbst-aktualisierend)
+├── stations.sh             # CLI Stationsverwaltung (Wizard)
+├── install-systemd.sh      # Autostart Setup
+├── radio-bot.service       # Systemd Service Template
+├── docker-compose.yml      # Docker Config
+├── Dockerfile              # Docker Build
+├── docker-entrypoint.sh    # Container Entrypoint
+├── package.json            # Node.js Dependencies (v2.1.0)
+├── stations.json           # Station-Config (11 Default-Stationen)
+├── .env                    # Bot-Tokens (NICHT im Git)
+├── .gitignore              # Bereinigt
+├── .gitattributes          # Line endings
+├── README.md               # Komplett neu geschrieben
+├── src/
+│   ├── index.js            # Bot-Hauptprogramm + Web-Server
+│   ├── commands.js         # Slash-Command Definitionen
+│   ├── bot-config.js       # Bot-Config aus .env
+│   ├── deploy-commands.js  # Command-Registrierung
+│   ├── stations-store.js   # Stations lesen/schreiben
+│   └── stations-cli.js     # CLI-Tool
+├── web/
+│   ├── index.html          # Web-Interface (mit Hamburger-Menü)
+│   ├── styles.css          # Responsive CSS (3 Breakpoints)
+│   ├── app.js              # Frontend-Logik + Audio-Player
+│   └── img/                # Bot-Avatare
+│       ├── bot-1.png
+│       ├── bot-2.png
+│       ├── bot-3.png
+│       └── bot-4.png
+└── logs/                   # Auto-generiert
+```
 
-## What's Been Implemented
+## Alle Fixes & Features (5 Sessions)
 
-### Session 4 - Bug Fix + Features
-- **KRITISCHER BUG GEFIXT**: getChannel() → getString() für Channel-Option im /play Command
-- **Audio-Player**: Stationen klickbar zum Vorhören auf der Webseite (React + web/)
-  - Now-Playing-Bar mit animierten EQ-Balken
-  - Play/Pause Toggle pro Station
-  - Stop-Button in der Now-Playing-Bar
-- **Bot-Statistik-Cards**: Farbcodierte Cards mit:
-  - Server, Nutzer, Verbindungen, Zuhörer pro Bot
-  - "BOT STATISTIKEN" Label in Bot-Akzentfarbe
-  - 2x2 Grid-Layout
-- **Genre-Filter**: Filter-Buttons für alle 11 Genres sichtbar
-- **Genre-Tags**: Auf jeder Station-Card angezeigt
-- **Bot-Presence verbessert**: Zeigt "Bereit für /play | <website-url>" statt "Bereit fuer /play"
+### Session 1: Web Interface Redesign
+- Cyber-Analog Dark Theme, Orbitron/DM Sans/JetBrains Mono
+- Hero, Bot Cards, Features, Stations, Commands, Footer
 
-## Testing (4 Iterationen)
-- Iteration 1: 100% Backend + Frontend
-- Iteration 2: 100% + Genres, Links, Search
-- Iteration 3: 100% + Dynamische Bots, Bilder, Umlaute
-- Iteration 4: 98% (nur Browser-Autoplay-Policy als minor)
+### Session 2: Repository Integration
+- web/ komplett neu, install.sh v2.1, update.sh v2.1
+- 11 Default-Stationen, Station Autocomplete Fix
 
-## Backlog
-### P0 - Docker rebuild auf Server und testen
-### P1 - Premium Bot Tier, Echtzeit-Listener via WebSocket
-### P2 - Analytics Dashboard, Discord OAuth2
+### Session 3: Dynamisierung
+- Dynamische Bots aus .env (1-20)
+- Bot-Bilder integriert
+- Umlaute überall korrekt
+- "Flexibel konfigurierbar" → "Unbegrenzt skalierbar"
+
+### Session 4: Bug Fix + Audio
+- KRITISCH: getChannel() → getString() für /play Command
+- Audio-Player auf Webseite
+- Bot-Statistik-Cards (Server/Nutzer/Verbindungen/Zuhörer)
+- Bot-Presence mit Webseiten-URL
+
+### Session 5: Perfektionierung
+- Junk-Dateien entfernt
+- .gitignore bereinigt
+- Mobile-Responsive mit 3 Breakpoints (900/768/480px)
+- Hamburger-Menü für Mobile
+- Touch-optimierte Tap-Targets
+- Alle Grids stacken auf Mobile
+- Commands Terminal stackt vertikal
+
+## Testing: 5 Iterationen, 100% Erfolgsrate
