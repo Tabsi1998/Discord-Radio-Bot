@@ -8,6 +8,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- Critical inline CSS to prevent FOUC -->
+    <style>
+      *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:'DM Sans',sans-serif;background:#050505;color:#fff;overflow-x:hidden}
+      .navbar{position:fixed;top:0;left:0;right:0;z-index:50;height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid transparent}
+      .nav-links a,.nav-mobile a{color:#A1A1AA;text-decoration:none}
+      .nav-mobile{display:none!important}
+      .nav-mobile.open{display:flex!important}
+      .nav-toggle{display:none}
+      @media(max-width:768px){.nav-links{display:none!important}.nav-toggle{display:block}}
+    </style>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -25,11 +36,11 @@
         <a href="#stations">Stationen</a>
         <a href="#commands">Commands</a>
       </div>
-      <button class="nav-toggle" id="navToggle" aria-label="Menü">
+      <button class="nav-toggle" id="navToggle" aria-label="Menu" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px;line-height:0">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="navIcon"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
     </nav>
-    <div class="nav-mobile" id="navMobile">
+    <div class="nav-mobile" id="navMobile" style="display:none">
       <a href="#bots">Bots</a>
       <a href="#features">Features</a>
       <a href="#stations">Stationen</a>
@@ -48,8 +59,8 @@
         <span>DISCORD RADIO NETWORK</span>
       </div>
 
-      <h1 class="hero-title">Dreh die <span class="glow-cyan">Lautstärke</span> auf</h1>
-      <p class="hero-sub">24/7 Radio-Bots für deinen Discord Server. Wähle deine Station, lade den Bot ein und genieße nonstop Musik.</p>
+      <h1 class="hero-title">Dreh die <span class="glow-cyan">Lautst&auml;rke</span> auf</h1>
+      <p class="hero-sub">24/7 Radio-Bots f&uuml;r deinen Discord Server. W&auml;hle deine Station, lade den Bot ein und genie&szlig;e nonstop Musik.</p>
 
       <div class="hero-actions">
         <a href="#bots" class="btn-primary">
@@ -72,26 +83,77 @@
     <!-- Bots Directory -->
     <section class="section" id="bots">
       <div class="container">
-        <span class="section-eyebrow cyan">Wähle deine Frequenz</span>
+        <span class="section-eyebrow cyan">W&auml;hle deine Frequenz</span>
         <h2 class="section-title">Unsere Radio Bots</h2>
-        <p class="section-sub">Jeder Bot ist ein eigener Worker. Lade so viele ein wie du möchtest für maximale Abdeckung.</p>
+        <p class="section-sub">Jeder Bot ist ein eigener Worker. Lade so viele ein wie du m&ouml;chtest f&uuml;r maximale Abdeckung.</p>
         <div class="bot-grid" id="botGrid">
           <p class="muted">Lade Bots...</p>
         </div>
       </div>
     </section>
 
+    <!-- Live Dashboard -->
+    <section class="section section-glow" id="dashboard">
+      <div class="container">
+        <span class="section-eyebrow cyan">Live Dashboard</span>
+        <h2 class="section-title">Echtzeit Status</h2>
+        <p class="section-sub">Was gerade l&auml;uft &ndash; aktualisiert sich automatisch.</p>
+        <div class="dashboard-grid" id="dashboardGrid">
+          <div class="dash-card">
+            <div class="dash-icon cyan-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg></div>
+            <div class="dash-info">
+              <span class="dash-value" id="dashActiveStreams">0</span>
+              <span class="dash-label">Aktive Streams</span>
+            </div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-icon green-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+            <div class="dash-info">
+              <span class="dash-value" id="dashListeners">0</span>
+              <span class="dash-label">Zuh&ouml;rer</span>
+            </div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-icon amber-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+            <div class="dash-info">
+              <span class="dash-value" id="dashUptime">--</span>
+              <span class="dash-label">Uptime</span>
+            </div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-icon pink-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EC4899" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+            <div class="dash-info">
+              <span class="dash-value" id="dashHealthStatus">--</span>
+              <span class="dash-label">System Health</span>
+            </div>
+          </div>
+        </div>
+        <!-- Active Bots Live Table -->
+        <div class="dash-live-table" id="dashLiveTable">
+          <div class="dash-table-header">
+            <span>Bot</span>
+            <span>Status</span>
+            <span>Server</span>
+            <span>Verbindungen</span>
+          </div>
+          <div class="dash-table-body" id="dashTableBody">
+            <p class="muted" style="padding:16px;text-align:center">Lade Live-Daten...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Features -->
-    <section class="section section-glow" id="features">
+    <section class="section" id="features">
       <div class="container">
         <div class="text-center">
           <span class="section-eyebrow cyan">Warum Radio Bot?</span>
-          <h2 class="section-title">Gebaut für Qualität</h2>
+          <h2 class="section-title">Gebaut f&uuml;r Qualit&auml;t</h2>
         </div>
         <div class="features-grid">
           <div class="feature-card">
             <div class="feature-icon cyan-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-            <div><h3>24/7 Streaming</h3><p>Nonstop Radio, rund um die Uhr. Dein Server schläft nie.</p></div>
+            <div><h3>24/7 Streaming</h3><p>Nonstop Radio, rund um die Uhr. Dein Server schl&auml;ft nie.</p></div>
           </div>
           <div class="feature-card">
             <div class="feature-icon green-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
@@ -99,7 +161,7 @@
           </div>
           <div class="feature-card">
             <div class="feature-icon amber-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
-            <div><h3>Sofort bereit</h3><p>Slash-Commands. Kein Prefix nötig. /play und los gehts.</p></div>
+            <div><h3>Sofort bereit</h3><p>Slash-Commands. Kein Prefix n&ouml;tig. /play und los gehts.</p></div>
           </div>
           <div class="feature-card">
             <div class="feature-icon pink-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EC4899" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></div>
@@ -107,18 +169,18 @@
           </div>
           <div class="feature-card">
             <div class="feature-icon purple-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-            <div><h3>Auto-Reconnect</h3><p>Fällt die Verbindung, verbindet sich der Bot automatisch neu.</p></div>
+            <div><h3>Auto-Reconnect</h3><p>F&auml;llt die Verbindung, verbindet sich der Bot automatisch neu.</p></div>
           </div>
           <div class="feature-card">
             <div class="feature-icon red-bg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF2A2A" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></div>
-            <div><h3>Unbegrenzt skalierbar</h3><p>Beliebig viele Bots hinzufügen. Jeder Bot läuft unabhängig und stabil.</p></div>
+            <div><h3>Unbegrenzt skalierbar</h3><p>Beliebig viele Bots hinzuf&uuml;gen. Jeder Bot l&auml;uft unabh&auml;ngig und stabil.</p></div>
           </div>
         </div>
       </div>
     </section>
 
     <!-- Stations -->
-    <section class="section" id="stations">
+    <section class="section section-glow" id="stations">
       <div class="container">
         <span class="section-eyebrow cyan">Live Station Directory</span>
         <h2 class="section-title">Radio Stationen</h2>
@@ -130,7 +192,7 @@
         </div>
 
         <!-- Now Playing Bar -->
-        <div class="now-playing" id="nowPlaying" style="display:none;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 20px;border-radius:14px;margin-bottom:20px;background:rgba(0,240,255,0.06);border:1px solid rgba(0,240,255,0.15)">
+        <div id="nowPlaying" style="display:none;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 20px;border-radius:14px;margin-bottom:20px;background:rgba(0,240,255,0.06);border:1px solid rgba(0,240,255,0.15)">
         </div>
 
         <div class="station-list" id="stationList">
@@ -156,6 +218,58 @@
       </div>
     </section>
 
+    <!-- Premium -->
+    <section class="section section-glow" id="premium">
+      <div class="container">
+        <div class="text-center">
+          <span class="section-eyebrow amber" style="color:#FFB800">Premium</span>
+          <h2 class="section-title">Upgrade dein Erlebnis</h2>
+          <p class="section-sub" style="margin:0 auto 40px">Noch mehr Qualit&auml;t, exklusive Features und Priority-Support.</p>
+        </div>
+        <div class="premium-grid">
+          <div class="premium-card">
+            <div class="premium-badge free">Free</div>
+            <div class="premium-price"><span class="premium-amount">0&euro;</span><span class="premium-period">/Monat</span></div>
+            <ul class="premium-features">
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Bis zu 4 Bots</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Alle Stationen</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Standard Audio (128k)</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Auto-Reconnect</li>
+              <li class="excluded"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#52525B" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> HQ Audio (192k+)</li>
+              <li class="excluded"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#52525B" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Priority Support</li>
+            </ul>
+            <a href="#bots" class="premium-btn free-btn">Jetzt starten</a>
+          </div>
+          <div class="premium-card featured">
+            <div class="premium-badge pro">Pro</div>
+            <div class="premium-price"><span class="premium-amount">4.99&euro;</span><span class="premium-period">/Monat</span></div>
+            <ul class="premium-features">
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Bis zu 10 Bots</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Alle Stationen</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> HQ Audio (192k Opus)</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Priority Auto-Reconnect</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Custom Stationen</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> E-Mail Support</li>
+            </ul>
+            <a href="#" class="premium-btn pro-btn" onclick="alert('Kontaktiere uns auf Discord!');return false">Upgrade auf Pro</a>
+          </div>
+          <div class="premium-card">
+            <div class="premium-badge ultimate">Ultimate</div>
+            <div class="premium-price"><span class="premium-amount">9.99&euro;</span><span class="premium-period">/Monat</span></div>
+            <ul class="premium-features">
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Bis zu 20 Bots</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#39FF14" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Alle + Exklusive Stationen</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Ultra HQ Audio (320k)</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Sofort-Reconnect</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Eigene Station-URLs</li>
+              <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Priority Discord Support</li>
+            </ul>
+            <a href="#" class="premium-btn ultimate-btn" onclick="alert('Kontaktiere uns auf Discord!');return false">Upgrade auf Ultimate</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Footer -->
     <footer class="footer">
       <div class="container">
@@ -168,7 +282,7 @@
           <a href="https://github.com/Tabsi1998/Discord-Radio-Bot" target="_blank" rel="noopener noreferrer" class="footer-gh">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
           </a>
-          <span class="footer-love">Gebaut mit <svg width="12" height="12" viewBox="0 0 24 24" fill="#FF2A2A" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> für Discord</span>
+          <span class="footer-love">Gebaut mit <svg width="12" height="12" viewBox="0 0 24 24" fill="#FF2A2A" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> f&uuml;r Discord</span>
         </div>
       </div>
     </footer>
