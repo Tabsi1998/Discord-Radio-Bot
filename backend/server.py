@@ -62,6 +62,7 @@ def load_bots_from_env():
             "index": i,
             "name": name,
             "clientId": cid or f"0000000000000000{i:02d}",
+            "inviteUrl": f"https://discord.com/oauth2/authorize?client_id={cid}&scope=bot%20applications.commands&permissions=3145728" if cid else "",
             "color": color,
             "avatarUrl": img,
             "servers": 0,
@@ -71,6 +72,7 @@ def load_bots_from_env():
             "ready": False,
             "userTag": None,
             "uptimeSec": 0,
+            "guildDetails": [],
         })
 
     # Wenn keine Bots in .env konfiguriert, Platzhalter-Bots zeigen
