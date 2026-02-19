@@ -1,134 +1,160 @@
-# radio-bot
+# Discord Radio Bot v2.1.0
 
-Discord Radio Bot fuer Ubuntu/Linux mit:
-- Multi-Bot Backend (z. B. 4 Bots in einem Prozess)
-- Invite-Webseite (`/`) fuer alle konfigurierten Bots
-- Stationsverwaltung nur ueber CLI (inkl. gefuehrtem Wizard)
+24/7 Radio-Streaming fuer Discord Server. Multi-Bot-System mit bis zu 20 parallelen Bots, modernem Web-Interface und CLI-Stationsverwaltung.
 
-## Architektur
-- 1 gemeinsames Backend (`src/index.js`)
-- N Bot-Accounts (`BOT_1_*`, `BOT_2_*`, ...)
-- 1 gemeinsame Webseite (`web/`) mit Invite-Links
-- 1 gemeinsame Stationsdatei (`stations.json`)
+## Features
 
-Damit kannst du in einem Discord-Server mehrere deiner Bots parallel einladen.
+- **Multi-Bot**: Bis zu 20 Bots parallel, jeder in eigenem Voice-Channel
+- **Slash-Commands**: `/play`, `/pause`, `/resume`, `/stop`, `/stations`, `/now`, `/setvolume`, `/status`, `/health`, `/list`
+- **HQ Audio**: Opus-Transcoding mit konfigurierbarer Bitrate (low/medium/high/custom)
+- **Auto-Reconnect**: Automatische Wiederverbindung bei Verbindungsabbruch
+- **Fallback-Stationen**: Bei Stream-Fehler automatisch auf Alternative wechseln
+- **Web-Interface**: Modernes Invite-Dashboard mit Bot-Cards, Station-Directory und Live-Stats
+- **CLI-Verwaltung**: Stations-Wizard und Kommandozeilen-Tools
+- **Docker**: One-Command Installation und Updates
+- **Systemd**: Autostart nach Server-Neustart
 
-## Schnellstart (Ubuntu/Linux)
+## Schnellstart
+
+### One-Command Installation
+
 ```bash
+git clone https://github.com/Tabsi1998/Discord-Radio-Bot.git
+cd Discord-Radio-Bot
 bash ./install.sh
 ```
 
-Das Setup fragt dich u. a. nach:
-- Anzahl Bot-Accounts
-- pro Bot: Name, Token, Client ID
-- Web-Port
+Der Installer fragt interaktiv nach:
+- Anzahl der Bots (1-20)
+- Bot-Tokens und Client-IDs pro Bot
+- Web-Port (Standard: 8081)
+- Optionale Public-URL
 
-Danach:
-- startet Docker Compose
-- registriert globale Slash-Commands fuer alle Bots
-- installiert den Systemd-Autostart
+### Was du brauchst
 
-## Domain / Webseite
-Die Invite-Seite liegt auf `http://<server-ip>:<WEB_PORT>`.
+1. **Discord Bot erstellen**: https://discord.com/developers/applications
+2. **Bot-Token** und **Client-ID** pro Bot-Account
+3. **Server mit Docker** (Ubuntu empfohlen)
 
-Mit Reverse-Proxy (z. B. Nginx/Caddy) kannst du sie auf eine Domain legen,
-z. B. `https://bot.deinedomain.tld`.
+## Stationsverwaltung
 
-Compose published standardmaessig:
-- `${WEB_PORT:-8081}:${WEB_INTERNAL_PORT:-8080}`
-
-## Bot-Konfiguration (.env)
-Beispiel:
-```env
-REGISTER_COMMANDS_ON_BOOT=1
-CLEAN_GUILD_COMMANDS_ON_BOOT=1
-WEB_PORT=8081
-WEB_INTERNAL_PORT=8080
-WEB_BIND=0.0.0.0
-
-BOT_1_NAME=Radio Bot 1
-BOT_1_TOKEN=...
-BOT_1_CLIENT_ID=...
-BOT_1_PERMISSIONS=
-
-BOT_2_NAME=Radio Bot 2
-BOT_2_TOKEN=...
-BOT_2_CLIENT_ID=...
-BOT_2_PERMISSIONS=
-```
-
-Legacy (Single-Bot) wird weiterhin unterstuetzt:
-- `DISCORD_TOKEN`
-- `CLIENT_ID`
-- optional `BOT_NAME`
-
-## Stationsverwaltung (CLI)
-Einfachster Weg (Docker-Wrapper):
+### Wizard (interaktiv)
 ```bash
 bash ./stations.sh
 ```
-Ohne Argument startet automatisch ein Wizard.
 
-Direkt:
+### Direkte Befehle
 ```bash
-bash ./stations.sh wizard
-bash ./stations.sh list
-bash ./stations.sh add "One World Radio" "https://tomorrowland.my105.ch/oneworldradio.mp3" oneworldradio
-bash ./stations.sh remove oneworldradio
-bash ./stations.sh rename oneworldradio "OWR"
-bash ./stations.sh set-default oneworldradio
-bash ./stations.sh quality high
-bash ./stations.sh fallback oneworldradio,lofi
-bash ./stations.sh fallback clear
+bash ./stations.sh list                          # Alle Stationen anzeigen
+bash ./stations.sh add "Mein Radio" "https://..."  # Station hinzufuegen
+bash ./stations.sh remove meinradio              # Station entfernen
+bash ./stations.sh rename meinradio "Neuer Name" # Umbenennen
+bash ./stations.sh set-default lofi              # Default setzen
+bash ./stations.sh quality high                  # Quality Preset (low/medium/high/custom)
+bash ./stations.sh fallback lofi,pop             # Fallback-Liste
+bash ./stations.sh fallback clear                # Fallback leeren
 ```
 
-Alternative ohne Docker-Wrapper:
-```bash
-npm run stations -- wizard
-```
-
-## Discord Commands (Playback only)
-- `/play [station] [channel]`
-- `/pause`
-- `/resume`
-- `/stop`
-- `/stations`
-- `/list [page]`
-- `/now`
-- `/setvolume value`
-- `/status`
-- `/health`
-
-## Multi-Bot Invite Workflow
-1. Erstelle mehrere Discord Applications (eine pro Bot).
-2. Trage jede Kombination aus Token + Client ID in `.env` ein.
-3. Starte den Stack neu: `docker compose up -d --build`.
-4. Oeffne die Webseite und nutze pro Bot den Invite-Button.
-
-## Docker
-```bash
-docker compose up -d --build
-```
+### Standard-Stationen (11 Stationen vorinstalliert)
+- Tomorrowland - One World Radio
+- Lofi Hip Hop Radio
+- Classic Rock Radio
+- Chillout Lounge
+- Dance Radio
+- Hip Hop Channel
+- Techno Bunker
+- Pop Hits
+- Rock Nation
+- Bass Boost FM
+- Deutsch Rap
 
 ## Update
+
 ```bash
 bash ./update.sh
 ```
 
-`update.sh` fuehrt einen robusten One-Command-Update-Flow aus:
-- holt zuerst die neueste `update.sh`-Logik von `origin/main`
-- sichert lokale Runtime-Dateien (`.env`, `stations.json`, `docker-compose.override.yml`)
-- synchronisiert den Code hart auf `origin/main`
-- stellt die Runtime-Dateien wieder her
-- fuehrt `docker compose up -d --build --remove-orphans` aus
-- macht einen lokalen Health-Check
+Das Update-Script:
+1. Sichert `.env` und `stations.json` automatisch
+2. Holt neuesten Code von GitHub
+3. Stellt deine Konfiguration wieder her
+4. Baut Docker neu und startet den Bot
 
-## Hinweise
-- `stations.json` und `logs/` sind als Volumes gemountet.
-- Globale Slash-Commands koennen bis zu ~1 Stunde brauchen, bis sie ueberall sichtbar sind.
-- FFmpeg ist im Docker-Image enthalten.
-- Jeder Bot nutzt eine eigene Voice-Connection-Gruppe (mehrere Bots koennen im selben Server parallel in unterschiedlichen Channels laufen).
-- Wird ein Bot manuell aus dem Voice-Channel gekickt, deaktiviert er Auto-Reconnect. Starte ihn dann gezielt neu mit `/play`.
-- `CLEAN_GUILD_COMMANDS_ON_BOOT=1` entfernt veraltete Guild-Commands beim Start (verhindert doppelte `/play`-Eintraege).
-- Discord-Presence wird dynamisch gesetzt: im Profil/Member-List steht bei laufendem Stream der aktuelle Sender (Listening), sonst `Bereit fuer /play`.
-- `channel` bei `/play` ist suchbar per Autocomplete (Voice/Stage, Name oder ID), damit du auch bei vielen Kanaelen schnell den richtigen findest.
+## Web-Interface
+
+Nach der Installation erreichbar unter `http://<server-ip>:<port>`
+
+Features:
+- Modernes Dark-Theme Design
+- Bot-Cards mit Invite-Links (pro Bot)
+- Station-Directory mit Live-Suche
+- Slash-Command Referenz
+- Live-Statistiken (Server, Nutzer, Verbindungen)
+- Auto-Refresh alle 15 Sekunden
+
+## Dateistruktur
+
+```
+Discord-Radio-Bot/
+  install.sh          # One-Command Installer
+  update.sh           # Auto-Update von Git
+  stations.sh         # CLI Stationsverwaltung
+  install-systemd.sh  # Autostart Setup
+  radio-bot.service   # Systemd Service Template
+  docker-compose.yml  # Docker Compose Config
+  Dockerfile          # Docker Build
+  docker-entrypoint.sh
+  package.json
+  stations.json       # Station-Konfiguration (wird NICHT ueberschrieben)
+  .env                # Bot-Tokens (wird NICHT ueberschrieben)
+  src/
+    index.js          # Bot-Hauptprogramm + Web-Server
+    commands.js       # Slash-Command Definitionen
+    bot-config.js     # Bot-Konfiguration aus .env
+    deploy-commands.js # Command-Registrierung bei Discord
+    stations-store.js  # Stations lesen/schreiben
+    stations-cli.js    # CLI-Tool
+  web/
+    index.html        # Web-Interface
+    styles.css        # Styling
+    app.js            # Frontend-Logik
+  logs/               # Bot-Logs (automatisch)
+```
+
+## Umgebungsvariablen (.env)
+
+| Variable | Beschreibung | Standard |
+|---|---|---|
+| `BOT_N_TOKEN` | Discord Bot Token (N=1..20) | - |
+| `BOT_N_CLIENT_ID` | Discord Client ID | - |
+| `BOT_N_NAME` | Bot-Anzeigename | Radio Bot N |
+| `BOT_N_PERMISSIONS` | Bot-Permissions | 3145728 |
+| `WEB_PORT` | Host-Port fuer Web-Interface | 8081 |
+| `WEB_INTERNAL_PORT` | Container-interner Port | 8080 |
+| `WEB_BIND` | Bind-Adresse | 0.0.0.0 |
+| `PUBLIC_WEB_URL` | Oeffentliche URL | - |
+| `REGISTER_COMMANDS_ON_BOOT` | Slash-Commands registrieren | 1 |
+| `CLEAN_GUILD_COMMANDS_ON_BOOT` | Guild-Commands bereinigen | 1 |
+| `TRANSCODE` | FFmpeg Transcoding aktiv | 0 |
+| `LOG_MAX_MB` | Max Log-Groesse in MB | 5 |
+
+## Troubleshooting
+
+### Bot startet nicht
+```bash
+docker compose logs --tail=100 radio-bot
+```
+
+### Stationen laden nicht im Discord
+- Pruefe ob `stations.json` Stationen enthaelt: `bash ./stations.sh list`
+- Discord-Autocomplete braucht bis zu 1 Minute nach Bot-Neustart
+- Mindestens 1 Station muss konfiguriert sein
+
+### Kein Sound
+- Bot braucht `Connect` + `Speak` Permissions im Voice-Channel
+- Stream-URL muss erreichbar sein (teste mit `curl <url>`)
+- Quality Preset testen: `bash ./stations.sh quality high`
+
+## Lizenz
+
+MIT
