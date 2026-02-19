@@ -60,6 +60,22 @@ function ensureUniqueClientIds(bots) {
   }
 }
 
+function maskToken(token) {
+  const value = String(token || "");
+  if (value.length <= 8) return "***";
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
+function ensureUniqueTokens(bots) {
+  const seen = new Set();
+  for (const bot of bots) {
+    if (seen.has(bot.token)) {
+      throw new Error(`TOKEN doppelt konfiguriert (z. B. ${maskToken(bot.token)}).`);
+    }
+    seen.add(bot.token);
+  }
+}
+
 export function buildInviteUrl(bot) {
   const base = new URL("https://discord.com/oauth2/authorize");
   base.searchParams.set("client_id", bot.clientId);
@@ -80,5 +96,6 @@ export function loadBotConfigs(env = process.env) {
   }
 
   ensureUniqueClientIds(bots);
+  ensureUniqueTokens(bots);
   return bots;
 }

@@ -232,6 +232,7 @@ async function createResource(url, volume, qualityPreset, botName) {
 class BotRuntime {
   constructor(config) {
     this.config = config;
+    this.voiceGroup = `bot-${this.config.clientId}`;
     this.client = new Client({
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
     });
@@ -240,7 +241,7 @@ class BotRuntime {
     this.readyAt = null;
     this.startError = null;
 
-    this.client.once("ready", () => {
+    this.client.once("clientReady", () => {
       this.readyAt = Date.now();
       log("INFO", `[${this.config.name}] Eingeloggt als ${this.client.user.tag}`);
     });
@@ -249,6 +250,10 @@ class BotRuntime {
       this.handleInteraction(interaction).catch((err) => {
         log("ERROR", `[${this.config.name}] interaction error: ${err?.stack || err}`);
       });
+    });
+
+    this.client.on("voiceStateUpdate", (oldState, newState) => {
+      this.handleBotVoiceStateUpdate(oldState, newState);
     });
   }
 
@@ -360,6 +365,41 @@ class BotRuntime {
     }
   }
 
+  handleBotVoiceStateUpdate(oldState, newState) {
+    if (!this.client.user) return;
+    if (newState.id !== this.client.user.id) return;
+
+    const guildId = newState.guild.id;
+    const state = this.getState(guildId);
+    const oldChannelId = oldState.channelId;
+    const newChannelId = newState.channelId;
+
+    if (newChannelId) {
+      state.lastChannelId = newChannelId;
+      return;
+    }
+
+    if (!oldChannelId || !state.shouldReconnect) return;
+
+    log(
+      "INFO",
+      `[${this.config.name}] Aus Voice entfernt (Guild ${guildId}, Channel ${oldChannelId}); Auto-Reconnect deaktiviert.`
+    );
+
+    state.shouldReconnect = false;
+    this.clearReconnectTimer(state);
+    state.player.stop();
+    this.clearCurrentProcess(state);
+    if (state.connection) {
+      state.connection.destroy();
+      state.connection = null;
+    }
+    state.currentStationKey = null;
+    state.currentMeta = null;
+    state.lastChannelId = null;
+    state.reconnectAttempts = 0;
+  }
+
   attachConnectionHandlers(guildId, connection) {
     const state = this.getState(guildId);
 
@@ -372,6 +412,10 @@ class BotRuntime {
     connection.on(VoiceConnectionStatus.Disconnected, () => {
       markDisconnected();
       if (!state.shouldReconnect) return;
+      const guild = this.client.guilds.cache.get(guildId);
+      const botChannelId = guild?.members?.me?.voice?.channelId || null;
+      if (!botChannelId) return;
+      state.lastChannelId = botChannelId;
       this.scheduleReconnect(guildId);
     });
 
@@ -431,8 +475,10 @@ class BotRuntime {
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator
+      adapterCreator: guild.voiceAdapterCreator,
+      group: this.voiceGroup
     });
+    log("INFO", `[${this.config.name}] Join Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
@@ -470,8 +516,10 @@ class BotRuntime {
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator
+      adapterCreator: guild.voiceAdapterCreator,
+      group: this.voiceGroup
     });
+    log("INFO", `[${this.config.name}] Rejoin Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
@@ -501,7 +549,7 @@ class BotRuntime {
     state.reconnectAttempts = attempt;
     const delay = Math.min(30_000, 1_000 * Math.pow(2, attempt));
 
-    log("INFO", `[${this.config.name}] Reconnecting in ${delay}ms (attempt ${attempt})`);
+    log("INFO", `[${this.config.name}] Reconnecting guild=${guildId} in ${delay}ms (attempt ${attempt})`);
     state.reconnectTimer = setTimeout(async () => {
       state.reconnectTimer = null;
       if (!state.shouldReconnect) return;

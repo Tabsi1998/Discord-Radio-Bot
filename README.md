@@ -126,3 +126,5 @@ bash ./update.sh
 - `stations.json` und `logs/` sind als Volumes gemountet.
 - Globale Slash-Commands koennen bis zu ~1 Stunde brauchen, bis sie ueberall sichtbar sind.
 - FFmpeg ist im Docker-Image enthalten.
+- Jeder Bot nutzt eine eigene Voice-Connection-Gruppe (mehrere Bots koennen im selben Server parallel in unterschiedlichen Channels laufen).
+- Wird ein Bot manuell aus dem Voice-Channel gekickt, deaktiviert er Auto-Reconnect. Starte ihn dann gezielt neu mit `/play`.
