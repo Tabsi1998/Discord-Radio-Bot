@@ -1,9 +1,16 @@
 {
   "defaultStationKey": "oneworldradio",
+  "qualityPreset": "high",
+  "locked": false,
+  "fallbackKeys": ["lofi", "pop"],
   "stations": {
     "oneworldradio": {
       "name": "Tomorrowland - One World Radio",
       "url": "https://tomorrowland.my105.ch/oneworldradio.mp3"
+    },
+    "tomorrowlandanthems": {
+      "name": "Tomorrowland Anthems",
+      "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAB.mp3"
     },
     "lofi": {
       "name": "Lofi Hip Hop Radio",
