@@ -311,6 +311,7 @@ class BotRuntime {
         lastReconnectAt: null,
         reconnectAttempts: 0,
         reconnectTimer: null,
+        streamRestartTimer: null,
         shouldReconnect: false
       };
 
