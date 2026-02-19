@@ -1,14 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
+ok()    { echo -e "${GREEN}[OK]${NC}   $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
+fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
+
 prompt_nonempty() {
   local label="$1"
   local val=""
   while [[ -z "$val" ]]; do
-    read -r -p "$label: " val
+    read -r -p "$(echo -e "${CYAN}?${NC} ${BOLD}${label}${NC}: ")" val
     val="${val//$'\r'/}"
     val="${val//$'\n'/}"
     val="${val//$'\t'/}"
+    if [[ -z "$val" ]]; then
+      echo -e "  ${RED}Dieses Feld ist erforderlich.${NC}"
+    fi
   done
   printf "%s" "$val"
 }
@@ -17,7 +34,7 @@ prompt_default() {
   local label="$1"
   local def="$2"
   local val
-  read -r -p "$label [$def]: " val
+  read -r -p "$(echo -e "${CYAN}?${NC} ${BOLD}${label}${NC} ${DIM}[${def}]${NC}: ")" val
   val="${val//$'\r'/}"
   val="${val//$'\n'/}"
   val="${val//$'\t'/}"
@@ -40,15 +57,15 @@ prompt_int_range() {
       printf "%s" "$val"
       return
     fi
-    echo "Bitte Zahl zwischen $min und $max eingeben."
+    echo -e "  ${RED}Bitte Zahl zwischen $min und $max eingeben.${NC}"
   done
 }
 
 prompt_yes_no() {
   local label="$1"
-  local def="${2:-y}"
+  local def="${2:-j}"
   local val
-  read -r -p "$label [$def]: " val
+  read -r -p "$(echo -e "${CYAN}?${NC} ${BOLD}${label}${NC} ${DIM}[${def}]${NC}: ")" val
   val="${val,,}"
   if [[ -z "$val" ]]; then
     val="$def"
@@ -64,11 +81,34 @@ write_env_line() {
   printf '%s=%s\n' "$key" "$value" >> .env
 }
 
+validate_token() {
+  local token="$1"
+  if [[ ${#token} -lt 50 ]]; then
+    return 1
+  fi
+  if [[ ! "$token" =~ \. ]]; then
+    return 1
+  fi
+  return 0
+}
+
+validate_client_id() {
+  local cid="$1"
+  if [[ ! "$cid" =~ ^[0-9]{17,22}$ ]]; then
+    return 1
+  fi
+  return 0
+}
+
+clear
 echo ""
-echo "============================================"
-echo "  Discord Radio Bot - One-Command Installer"
-echo "  v2.1.0"
-echo "============================================"
+echo -e "${CYAN}${BOLD}"
+echo "  ╔═══════════════════════════════════════════╗"
+echo "  ║                                           ║"
+echo "  ║    Discord Radio Bot - Installer v3.0     ║"
+echo "  ║                                           ║"
+echo "  ╚═══════════════════════════════════════════╝"
+echo -e "${NC}"
 echo ""
 
 ensure_sudo() {
@@ -79,13 +119,13 @@ ensure_sudo() {
   if command -v sudo >/dev/null 2>&1; then
     SUDO="sudo"
   else
-    echo "sudo fehlt. Bitte als root ausfuehren." >&2
+    fail "sudo fehlt. Bitte als root ausfuehren."
     exit 1
   fi
 }
 
 install_docker() {
-  echo "[1/4] Installiere Docker..."
+  info "Installiere Docker..."
   $SUDO apt-get update -qq
   $SUDO apt-get install -y -qq ca-certificates curl gnupg
   $SUDO install -m 0755 -d /etc/apt/keyrings
@@ -100,70 +140,163 @@ install_docker() {
   $SUDO apt-get update -qq
   $SUDO apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   $SUDO systemctl enable --now docker
-  echo "  Docker installiert."
+  ok "Docker installiert."
 }
 
 ensure_sudo
 
-# Step 1: Docker
-echo "[1/4] Pruefe Docker..."
+# ====================================
+# Step 1: Docker pruefen
+# ====================================
+echo -e "${BOLD}Schritt 1/5: Docker pruefen${NC}"
+echo "─────────────────────────────────────"
+
 if ! command -v docker >/dev/null 2>&1; then
-  install_docker
+  warn "Docker nicht gefunden."
+  if prompt_yes_no "Docker jetzt automatisch installieren?" "j"; then
+    install_docker
+  else
+    fail "Docker wird benoetigt. Bitte manuell installieren."
+    exit 1
+  fi
 else
-  echo "  Docker gefunden: $(docker --version)"
+  ok "Docker gefunden: $(docker --version | head -1)"
 fi
 
 if ! command -v docker compose >/dev/null 2>&1; then
-  echo "docker compose fehlt. Bitte Docker Compose Plugin installieren." >&2
+  fail "docker compose Plugin fehlt."
+  echo "  Installiere es mit: sudo apt-get install docker-compose-plugin"
   exit 1
 fi
+ok "Docker Compose verfuegbar."
 
 DOCKER="docker"
 if ! docker info >/dev/null 2>&1; then
   DOCKER="$SUDO docker"
 fi
 
-# Step 2: Bot-Konfiguration
 echo ""
-echo "[2/4] Bot-Konfiguration"
-echo "---"
 
-bot_count="$(prompt_int_range "Wie viele Bot-Accounts willst du konfigurieren" "4" 1 20)"
-web_port="$(prompt_int_range "Web-Port fuer Invite-Seite" "8081" 1 65535)"
-public_url="$(prompt_default "Oeffentliche URL (optional, z.B. https://bot.deinedomain.tld)" "")"
+# ====================================
+# Step 2: Bestehende .env pruefen
+# ====================================
+echo -e "${BOLD}Schritt 2/5: Bot-Konfiguration${NC}"
+echo "─────────────────────────────────────"
 
-if [[ -n "$public_url" ]]; then
-  public_url="${public_url%%/}"
+existing_bots=0
+if [[ -f .env ]]; then
+  # Count existing bots
+  while true; do
+    local_n=$((existing_bots + 1))
+    if grep -q "^BOT_${local_n}_TOKEN=" .env 2>/dev/null; then
+      existing_bots=$local_n
+    else
+      break
+    fi
+  done
 fi
 
-: > .env
-write_env_line "REGISTER_COMMANDS_ON_BOOT" "1"
-write_env_line "CLEAN_GUILD_COMMANDS_ON_BOOT" "1"
-write_env_line "WEB_PORT" "$web_port"
-write_env_line "WEB_INTERNAL_PORT" "8080"
-write_env_line "WEB_BIND" "0.0.0.0"
-write_env_line "PUBLIC_WEB_URL" "$public_url"
+if [[ $existing_bots -gt 0 ]]; then
+  ok "Bestehende Konfiguration gefunden ($existing_bots Bots)."
+  if prompt_yes_no "Bestehende .env beibehalten und erweitern?" "j"; then
+    echo ""
+    if prompt_yes_no "Weitere Bots hinzufuegen?" "n"; then
+      add_count="$(prompt_int_range "Wie viele neue Bots hinzufuegen" "1" 1 16)"
+      for ((i=1; i<=add_count; i++)); do
+        idx=$((existing_bots + i))
+        echo ""
+        echo -e "${YELLOW}--- Neuer Bot $idx ---${NC}"
+        name="$(prompt_default "Name" "Radio Bot $idx")"
+        while true; do
+          token="$(prompt_nonempty "Token")"
+          if validate_token "$token"; then break; fi
+          echo -e "  ${RED}Token sieht ungueltig aus (mind. 50 Zeichen mit Punkt). Bitte pruefen.${NC}"
+        done
+        while true; do
+          client_id="$(prompt_nonempty "Client ID")"
+          if validate_client_id "$client_id"; then break; fi
+          echo -e "  ${RED}Client ID muss 17-22 Ziffern sein. Bitte pruefen.${NC}"
+        done
+        perms="$(prompt_default "Permissions" "3145728")"
+        write_env_line "BOT_${idx}_NAME" "$name"
+        write_env_line "BOT_${idx}_TOKEN" "$token"
+        write_env_line "BOT_${idx}_CLIENT_ID" "$client_id"
+        write_env_line "BOT_${idx}_PERMISSIONS" "${perms:-3145728}"
+        ok "Bot $idx konfiguriert."
+      done
+    fi
+    echo ""
+    # Skip to stations
+  else
+    info "Erstelle neue Konfiguration..."
+    cp .env ".env.backup-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+    # Fall through to full config
+    existing_bots=0
+  fi
+fi
 
-for ((i=1; i<=bot_count; i++)); do
-  echo ""
-  echo "--- Bot $i von $bot_count ---"
-  name="$(prompt_default "BOT_${i}_NAME" "Radio Bot $i")"
-  token="$(prompt_nonempty "BOT_${i}_TOKEN")"
-  client_id="$(prompt_nonempty "BOT_${i}_CLIENT_ID")"
-  perms="$(prompt_default "BOT_${i}_PERMISSIONS (leer = 3145728)" "")"
+if [[ $existing_bots -eq 0 ]]; then
+  bot_count="$(prompt_int_range "Wie viele Bot-Accounts konfigurieren" "4" 1 20)"
+  web_port="$(prompt_int_range "Web-Port" "8081" 1 65535)"
+  public_url="$(prompt_default "Oeffentliche URL (optional)" "")"
 
-  write_env_line "BOT_${i}_NAME" "$name"
-  write_env_line "BOT_${i}_TOKEN" "$token"
-  write_env_line "BOT_${i}_CLIENT_ID" "$client_id"
-  write_env_line "BOT_${i}_PERMISSIONS" "${perms:-3145728}"
-done
+  if [[ -n "$public_url" ]]; then
+    public_url="${public_url%%/}"
+  fi
 
-# Step 3: Stations
+  : > .env
+  write_env_line "REGISTER_COMMANDS_ON_BOOT" "1"
+  write_env_line "CLEAN_GUILD_COMMANDS_ON_BOOT" "1"
+  write_env_line "WEB_PORT" "$web_port"
+  write_env_line "WEB_INTERNAL_PORT" "8080"
+  write_env_line "WEB_BIND" "0.0.0.0"
+  write_env_line "PUBLIC_WEB_URL" "$public_url"
+
+  for ((i=1; i<=bot_count; i++)); do
+    echo ""
+    echo -e "${YELLOW}--- Bot $i von $bot_count ---${NC}"
+    echo -e "${DIM}Erstelle einen Bot unter https://discord.com/developers/applications${NC}"
+    echo ""
+    name="$(prompt_default "Name" "Radio Bot $i")"
+
+    while true; do
+      token="$(prompt_nonempty "Token (aus Bot-Sektion im Dev-Portal)")"
+      if validate_token "$token"; then
+        ok "Token Format ok."
+        break
+      fi
+      warn "Token sieht ungueltig aus (mind. 50 Zeichen mit Punkt). Nochmal versuchen."
+    done
+
+    while true; do
+      client_id="$(prompt_nonempty "Client ID (Application ID)")"
+      if validate_client_id "$client_id"; then
+        ok "Client ID Format ok."
+        break
+      fi
+      warn "Client ID muss 17-22 Ziffern sein. Nochmal versuchen."
+    done
+
+    perms="$(prompt_default "Permissions (Standard: 3145728)" "3145728")"
+
+    write_env_line "BOT_${i}_NAME" "$name"
+    write_env_line "BOT_${i}_TOKEN" "$token"
+    write_env_line "BOT_${i}_CLIENT_ID" "$client_id"
+    write_env_line "BOT_${i}_PERMISSIONS" "${perms}"
+    ok "Bot $i konfiguriert."
+  done
+fi
+
 echo ""
-echo "[3/4] Stations-Setup"
+
+# ====================================
+# Step 3: Stations
+# ====================================
+echo -e "${BOLD}Schritt 3/5: Radio-Stationen${NC}"
+echo "─────────────────────────────────────"
 
 if [[ ! -f stations.json ]]; then
-  echo "  Erstelle stations.json mit Standard-Stationen..."
+  info "Erstelle stations.json mit Standard-Stationen..."
   cat > stations.json <<'STATIONS_EOF'
 {
   "defaultStationKey": "oneworldradio",
@@ -173,79 +306,164 @@ if [[ ! -f stations.json ]]; then
   "stations": {
     "oneworldradio": {
       "name": "Tomorrowland - One World Radio",
-      "url": "https://tomorrowland.my105.ch/oneworldradio.mp3"
+      "url": "https://tomorrowland.my105.ch/oneworldradio.mp3",
+      "genre": "Electronic / Festival"
     },
     "lofi": {
       "name": "Lofi Hip Hop Radio",
-      "url": "https://streams.ilovemusic.de/iloveradio17.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio17.mp3",
+      "genre": "Lo-Fi / Chill"
     },
     "classicrock": {
       "name": "Classic Rock Radio",
-      "url": "https://streams.ilovemusic.de/iloveradio21.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio21.mp3",
+      "genre": "Rock / Classic"
     },
     "chillout": {
       "name": "Chillout Lounge",
-      "url": "https://streams.ilovemusic.de/iloveradio7.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio7.mp3",
+      "genre": "Chill / Ambient"
     },
     "dance": {
       "name": "Dance Radio",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "genre": "Dance / EDM"
     },
     "hiphop": {
       "name": "Hip Hop Channel",
-      "url": "https://streams.ilovemusic.de/iloveradio3.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio3.mp3",
+      "genre": "Hip Hop / Rap"
     },
     "techno": {
       "name": "Techno Bunker",
-      "url": "https://streams.ilovemusic.de/iloveradio12.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio12.mp3",
+      "genre": "Techno / House"
     },
     "pop": {
       "name": "Pop Hits",
-      "url": "https://streams.ilovemusic.de/iloveradio.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio.mp3",
+      "genre": "Pop / Charts"
     },
     "rock": {
       "name": "Rock Nation",
-      "url": "https://streams.ilovemusic.de/iloveradio4.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio4.mp3",
+      "genre": "Rock / Alternative"
     },
     "bass": {
       "name": "Bass Boost FM",
-      "url": "https://streams.ilovemusic.de/iloveradio16.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio16.mp3",
+      "genre": "Bass / Dubstep"
     },
     "deutschrap": {
       "name": "Deutsch Rap",
-      "url": "https://streams.ilovemusic.de/iloveradio6.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio6.mp3",
+      "genre": "Deutsch Rap"
     }
   }
 }
 STATIONS_EOF
-  echo "  11 Standard-Stationen erstellt."
+  ok "11 Standard-Stationen erstellt."
 else
-  echo "  stations.json existiert bereits (wird beibehalten)."
+  ok "stations.json vorhanden (wird beibehalten)."
+  local count
+  count=$(python3 -c "import json;d=json.load(open('stations.json'));print(len(d.get('stations',{})))" 2>/dev/null || echo "?")
+  info "Stationen: $count"
 fi
 
 mkdir -p logs
 
-# Step 4: Docker starten
 echo ""
-echo "[4/4] Starte Docker Compose..."
+
+# ====================================
+# Step 4: Audio-Qualitaet
+# ====================================
+echo -e "${BOLD}Schritt 4/5: Audio-Qualitaet${NC}"
+echo "─────────────────────────────────────"
+
+if ! grep -q "^TRANSCODE=" .env 2>/dev/null; then
+  if prompt_yes_no "Opus-Transcoding aktivieren? (Bessere Qualitaet, braucht mehr CPU)" "j"; then
+    write_env_line "TRANSCODE" "1"
+    write_env_line "TRANSCODE_MODE" "opus"
+    echo ""
+    echo -e "  ${CYAN}Qualitaets-Stufen:${NC}"
+    echo -e "    ${GREEN}1${NC}) Low    (96k)  - Wenig CPU"
+    echo -e "    ${YELLOW}2${NC}) Medium (128k) - Ausgewogen"
+    echo -e "    ${CYAN}3${NC}) High   (192k) - Empfohlen"
+    echo -e "    ${BOLD}4${NC}) Ultra  (320k) - Maximum"
+    echo ""
+    quality_choice="$(prompt_default "Qualitaet waehlen" "3")"
+    case "$quality_choice" in
+      1) write_env_line "OPUS_BITRATE" "96k" ;;
+      2) write_env_line "OPUS_BITRATE" "128k" ;;
+      4) write_env_line "OPUS_BITRATE" "320k" ;;
+      *) write_env_line "OPUS_BITRATE" "192k" ;;
+    esac
+    ok "Opus-Transcoding konfiguriert."
+  else
+    info "Transcoding deaktiviert (Standard-Qualitaet)."
+  fi
+else
+  ok "Audio-Einstellungen bereits konfiguriert."
+fi
+
+echo ""
+
+# ====================================
+# Step 5: Docker starten
+# ====================================
+echo -e "${BOLD}Schritt 5/5: Docker Compose starten${NC}"
+echo "─────────────────────────────────────"
+
+info "Baue und starte Container..."
 $DOCKER compose up -d --build
 
 echo ""
-echo "Installiere Autostart (systemd)..."
-$SUDO bash ./install-systemd.sh 2>/dev/null || echo "  Systemd-Setup uebersprungen (kein systemd oder Rechte fehlen)."
+info "Warte auf Health-Check (max 30 Sekunden)..."
+
+web_port="${web_port:-$(grep -E '^WEB_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2- || echo "8081")}"
+health_ok=false
+
+for attempt in 1 2 3 4 5 6; do
+  sleep 5
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsS --max-time 5 "http://127.0.0.1:${web_port}/api/health" >/dev/null 2>&1; then
+      health_ok=true
+      break
+    fi
+  fi
+  echo -e "  ${DIM}Versuch $attempt/6 - warte...${NC}"
+done
 
 echo ""
-echo "============================================"
-echo "  Installation abgeschlossen!"
-echo "============================================"
+if $health_ok; then
+  ok "Health-Check bestanden!"
+else
+  warn "Health-Check nicht bestanden. Das kann normal sein wenn Bot-Tokens noch nicht verifiziert sind."
+  echo -e "  ${DIM}Pruefe Logs:  docker compose logs --tail=100 radio-bot${NC}"
+fi
+
+# ====================================
+# Zusammenfassung
+# ====================================
 echo ""
-echo "  Webseite:  http://<server-ip>:$web_port"
-if [[ -n "$public_url" ]]; then
-  echo "  Public URL: $public_url"
+echo -e "${GREEN}${BOLD}"
+echo "  ╔═══════════════════════════════════════════╗"
+echo "  ║                                           ║"
+echo "  ║    Installation abgeschlossen!            ║"
+echo "  ║                                           ║"
+echo "  ╚═══════════════════════════════════════════╝"
+echo -e "${NC}"
+echo ""
+echo -e "  ${CYAN}Webseite:${NC}           http://<server-ip>:${web_port}"
+public_url_display="$(grep -E '^PUBLIC_WEB_URL=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+if [[ -n "$public_url_display" ]]; then
+  echo -e "  ${CYAN}Public URL:${NC}         ${public_url_display}"
 fi
 echo ""
-echo "  Stationen verwalten:  bash ./stations.sh"
-echo "  Update:               bash ./update.sh"
-echo "  Logs:                 docker compose logs -f radio-bot"
-echo "  Status:               docker compose ps"
+echo -e "  ${BOLD}Nuetzliche Befehle:${NC}"
+echo -e "    Stationen:        ${GREEN}bash ./stations.sh${NC}"
+echo -e "    Update:           ${GREEN}bash ./update.sh${NC}"
+echo -e "    Logs:             ${GREEN}docker compose logs -f radio-bot${NC}"
+echo -e "    Status:           ${GREEN}docker compose ps${NC}"
+echo -e "    Neustart:         ${GREEN}docker compose restart${NC}"
 echo ""
