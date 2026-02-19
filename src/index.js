@@ -383,7 +383,7 @@ class BotRuntime {
 
     state.streamRestartTimer = setTimeout(() => {
       state.streamRestartTimer = null;
-      this.restartCurrentStation(state).catch((err) => {
+      this.restartCurrentStation(state, guildId).catch((err) => {
         log("ERROR", `[${this.config.name}] Stream restart failed: ${err?.message || err}`);
       });
     }, delay);
