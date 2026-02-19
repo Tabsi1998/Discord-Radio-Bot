@@ -102,26 +102,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);ove
 .copy-btn{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text2);cursor:pointer;transition:color .2s}
 .copy-btn.copied{color:var(--green)}
 
-/* ===== LIVE DASHBOARD ===== */
-.dashboard-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
-.dash-card{display:flex;align-items:center;gap:14px;padding:20px;border-radius:16px;background:rgba(255,255,255,0.02);border:1px solid var(--border);transition:border-color .3s}
-.dash-card:hover{border-color:var(--border-h)}
-.dash-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.dash-info{display:flex;flex-direction:column}
-.dash-value{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:#fff}
-.dash-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em;margin-top:2px}
-.dash-live-table{border-radius:16px;background:rgba(255,255,255,0.02);border:1px solid var(--border);overflow:hidden}
-.dash-table-header{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--muted)}
-.dash-table-body{}
-.dash-table-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.03);transition:background .15s}
-.dash-table-row:last-child{border-bottom:none}
-.dash-table-row:hover{background:rgba(255,255,255,0.03)}
-.dash-bot-name{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
-.dash-status-badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600}
-.dash-status-badge.online{color:var(--green)}
-.dash-status-badge.offline{color:var(--muted)}
-.dash-stat-cell{font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--text2);display:flex;align-items:center}
-
 /* ===== FEATURES ===== */
 .features-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
 .feature-card{padding:24px;display:flex;gap:16px;align-items:flex-start;border-radius:16px;background:rgba(255,255,255,0.03);border:1px solid var(--border);transition:border-color .3s}
