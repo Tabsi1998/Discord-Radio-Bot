@@ -1,17 +1,15 @@
 .env
-node_modules
+node_modules/
 npm-debug.log
 logs/
 .update-backups/
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
+
+# Emergent Platform (nicht Teil des Bot-Repos)
+backend/
+frontend/
+design_guidelines.json
+backend_test.py
+test_reports/
+memory/
+yarn.lock
+.gitconfig
