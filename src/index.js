@@ -1356,6 +1356,122 @@ function startWebServer(runtimes) {
       return;
     }
 
+    // --- Premium API ---
+    if (requestUrl.pathname === "/api/premium/check" && req.method === "GET") {
+      const serverId = requestUrl.searchParams.get("serverId");
+      if (!serverId || !/^\d{17,22}$/.test(serverId)) {
+        sendJson(res, 400, { error: "serverId muss 17-22 Ziffern sein." });
+        return;
+      }
+      const tierConfig = getTierConfig(serverId);
+      const license = getLicense(serverId);
+      sendJson(res, 200, { serverId, ...tierConfig, license });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/premium/tiers" && req.method === "GET") {
+      sendJson(res, 200, { tiers: TIERS });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/premium/checkout" && req.method === "POST") {
+      try {
+        const body = await readBody();
+        const { tier, serverId, returnUrl } = body;
+        if (!tier || !serverId) {
+          sendJson(res, 400, { error: "tier und serverId erforderlich." });
+          return;
+        }
+        if (!/^\d{17,22}$/.test(serverId)) {
+          sendJson(res, 400, { error: "serverId muss 17-22 Ziffern sein." });
+          return;
+        }
+        if (tier !== "pro" && tier !== "ultimate") {
+          sendJson(res, 400, { error: "tier muss 'pro' oder 'ultimate' sein." });
+          return;
+        }
+
+        const stripeKey = process.env.STRIPE_SECRET_KEY;
+        if (!stripeKey) {
+          sendJson(res, 503, { error: "Stripe nicht konfiguriert. Nutze setup-stripe.sh" });
+          return;
+        }
+
+        // Stripe Checkout session creation via API
+        const priceMap = { pro: 499, ultimate: 999 };
+        const tierNames = { pro: "Radio Bot Pro", ultimate: "Radio Bot Ultimate" };
+
+        const stripe = await import("stripe");
+        const stripeClient = new stripe.default(stripeKey);
+
+        const session = await stripeClient.checkout.sessions.create({
+          payment_method_types: ["card"],
+          mode: "payment",
+          line_items: [{
+            price_data: {
+              currency: "eur",
+              product_data: {
+                name: tierNames[tier],
+                description: `Premium ${TIERS[tier].name} fuer Server ${serverId}`,
+              },
+              unit_amount: priceMap[tier],
+            },
+            quantity: 1,
+          }],
+          metadata: { serverId, tier },
+          success_url: (returnUrl || publicUrl || "http://localhost") + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
+          cancel_url: (returnUrl || publicUrl || "http://localhost") + "?payment=cancelled",
+        });
+
+        sendJson(res, 200, { sessionId: session.id, url: session.url });
+      } catch (err) {
+        log("ERROR", `Stripe checkout error: ${err.message}`);
+        sendJson(res, 500, { error: "Checkout fehlgeschlagen: " + err.message });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/premium/verify" && req.method === "POST") {
+      try {
+        const body = await readBody();
+        const { sessionId } = body;
+        if (!sessionId) {
+          sendJson(res, 400, { error: "sessionId erforderlich." });
+          return;
+        }
+
+        const stripeKey = process.env.STRIPE_SECRET_KEY;
+        if (!stripeKey) {
+          sendJson(res, 503, { error: "Stripe nicht konfiguriert." });
+          return;
+        }
+
+        const stripe = await import("stripe");
+        const stripeClient = new stripe.default(stripeKey);
+        const session = await stripeClient.checkout.sessions.retrieve(sessionId);
+
+        if (session.payment_status === "paid" && session.metadata) {
+          const { serverId, tier } = session.metadata;
+          if (serverId && tier) {
+            addLicense(serverId, tier, "stripe", `Session: ${sessionId}`);
+            sendJson(res, 200, {
+              success: true,
+              serverId,
+              tier,
+              message: `Server ${serverId} auf ${TIERS[tier].name} aktiviert!`
+            });
+            return;
+          }
+        }
+
+        sendJson(res, 400, { success: false, message: "Zahlung nicht abgeschlossen oder ungueltig." });
+      } catch (err) {
+        log("ERROR", `Stripe verify error: ${err.message}`);
+        sendJson(res, 500, { error: "Verifizierung fehlgeschlagen: " + err.message });
+      }
+      return;
+    }
+
     // --- Static file serving from web/ ---
     const safePath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
     const filePath = path.join(webDir, safePath);
