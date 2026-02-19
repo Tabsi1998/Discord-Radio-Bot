@@ -435,10 +435,23 @@ class BotRuntime {
     }
 
     try {
+      this.clearCurrentProcess(state);
       await this.playStation(state, stations, key);
+      log("INFO", `[${this.config.name}] Stream restarted: ${key}`);
     } catch (err) {
       state.lastStreamErrorAt = new Date().toISOString();
-      log("ERROR", `[${this.config.name}] Auto-restart error: ${err.message}`);
+      log("ERROR", `[${this.config.name}] Auto-restart error for ${key}: ${err.message}`);
+
+      // Try fallback station
+      const fallbackKey = getFallbackKey(stations, key);
+      if (fallbackKey && stations.stations[fallbackKey]) {
+        try {
+          await this.playStation(state, stations, fallbackKey);
+          log("INFO", `[${this.config.name}] Fallback to ${fallbackKey} after restart failure`);
+        } catch (fallbackErr) {
+          log("ERROR", `[${this.config.name}] Fallback restart also failed: ${fallbackErr.message}`);
+        }
+      }
     }
   }
 
