@@ -24,6 +24,7 @@ BRANCH="${UPDATE_BRANCH:-main}"
 PRESERVE_FILES=(
   ".env"
   "stations.json"
+  "premium.json"
   "docker-compose.override.yml"
 )
 
