@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$APP_DIR"
+
+if command -v node >/dev/null 2>&1; then
+  exec node --no-warnings "$APP_DIR/src/premium-cli.js" "$@"
+fi
+
+if command -v docker >/dev/null 2>&1 && docker compose ps --format json 2>/dev/null | grep -q radio-bot; then
+  exec docker compose exec -it --no-deps radio-bot node /app/src/premium-cli.js "$@"
+fi
+
+if command -v docker >/dev/null 2>&1; then
+  exec docker compose run --rm --no-deps --build radio-bot node /app/src/premium-cli.js "$@"
+fi
+
+echo "Weder node noch docker gefunden."
+exit 1
