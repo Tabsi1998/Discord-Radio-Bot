@@ -1,7 +1,5 @@
 {
   "defaultStationKey": "oneworldradio",
-  "qualityPreset": "high",
-  "fallbackKeys": ["lofi", "pop"],
   "stations": {
     "oneworldradio": {
       "name": "Tomorrowland - One World Radio",
