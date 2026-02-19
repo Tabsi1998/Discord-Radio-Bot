@@ -787,7 +787,8 @@ function sendFile(res, filename, contentType) {
 }
 
 function startWebServer(runtimes) {
-  const webPort = Number(process.env.WEB_PORT || "8080");
+  const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
+  const webPort = Number(process.env.WEB_PORT || webInternalPort);
   const webBind = process.env.WEB_BIND || "0.0.0.0";
   const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
 
@@ -846,8 +847,9 @@ function startWebServer(runtimes) {
     res.end("Not found");
   });
 
-  server.listen(webPort, webBind, () => {
-    log("INFO", `Webseite aktiv auf http://${webBind}:${webPort}`);
+  server.listen(webInternalPort, webBind, () => {
+    log("INFO", `Webseite aktiv (container) auf http://${webBind}:${webInternalPort}`);
+    log("INFO", `Webseite Host-Port: ${webPort}`);
     if (publicUrl) {
       log("INFO", `Public URL: ${publicUrl}`);
     }
