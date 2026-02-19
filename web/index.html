@@ -206,7 +206,7 @@
               <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Custom Stationen</li>
               <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFB800" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> E-Mail Support</li>
             </ul>
-            <a href="#" class="premium-btn pro-btn" onclick="alert('Kontaktiere uns auf Discord!');return false">Upgrade auf Pro</a>
+            <button class="premium-btn pro-btn" onclick="startCheckout('pro')">Upgrade auf Pro</button>
           </div>
           <div class="premium-card">
             <div class="premium-badge ultimate">Ultimate</div>
@@ -219,11 +219,33 @@
               <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Eigene Station-URLs</li>
               <li class="included"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Priority Discord Support</li>
             </ul>
-            <a href="#" class="premium-btn ultimate-btn" onclick="alert('Kontaktiere uns auf Discord!');return false">Upgrade auf Ultimate</a>
+            <button class="premium-btn ultimate-btn" onclick="startCheckout('ultimate')">Upgrade auf Ultimate</button>
           </div>
+        </div>
+
+        <!-- Status Check -->
+        <div style="max-width:500px;margin:40px auto 0;text-align:center">
+          <h3 style="font-family:Orbitron,sans-serif;font-size:14px;font-weight:700;margin-bottom:12px;color:#A1A1AA">Premium-Status pr&uuml;fen</h3>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="premiumCheckInput" placeholder="Discord Server ID eingeben..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#fff;padding:10px 14px;font-size:14px;outline:none;font-family:JetBrains Mono,monospace" />
+            <button onclick="checkPremiumStatus()" style="background:#00F0FF;color:#050505;border:none;border-radius:10px;padding:10px 18px;font-weight:700;font-size:13px;cursor:pointer">Pr&uuml;fen</button>
+          </div>
+          <p id="premiumCheckResult" style="margin-top:10px;font-size:13px;color:#52525B;font-family:JetBrains Mono,monospace"></p>
         </div>
       </div>
     </section>
+
+    <!-- Premium Checkout Modal -->
+    <div id="premiumModal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);align-items:center;justify-content:center">
+      <div style="background:#121212;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:32px;max-width:420px;width:90%;text-align:center">
+        <h3 style="font-family:Orbitron,sans-serif;font-size:18px;font-weight:800;margin-bottom:8px">Premium aktivieren</h3>
+        <p style="color:#A1A1AA;font-size:14px;margin-bottom:24px">Gib die Server-ID ein, fuer die du Premium kaufen moechtest.<br><span style="font-size:12px;color:#52525B">Server ID findest du in Discord: Rechtsklick auf Server &rarr; Server-ID kopieren</span></p>
+        <input type="text" id="premiumServerId" placeholder="Discord Server ID (z.B. 123456789012345678)" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:12px;color:#fff;padding:14px 16px;font-size:15px;outline:none;font-family:JetBrains Mono,monospace;margin-bottom:16px;text-align:center" />
+        <button id="premiumSubmit" onclick="submitPremiumCheckout()" style="width:100%;background:#FFB800;color:#050505;border:none;border-radius:12px;padding:14px;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:12px">Jetzt bezahlen</button>
+        <button onclick="closePremiumModal()" style="background:none;border:none;color:#52525B;cursor:pointer;font-size:13px">Abbrechen</button>
+        <p id="premiumStatus" style="margin-top:12px;font-size:13px"></p>
+      </div>
+    </div>
 
     <!-- Footer -->
     <footer class="footer">
