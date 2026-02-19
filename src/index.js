@@ -387,11 +387,28 @@ class BotRuntime {
     });
   }
 
-  async connectToVoice(interaction) {
+  async connectToVoice(interaction, targetChannel = null) {
     const member = interaction.member;
-    const channel = member?.voice?.channel;
+    const channel = targetChannel || member?.voice?.channel;
     if (!channel) {
-      await interaction.reply({ content: "Du musst in einem Voice-Channel sein.", ephemeral: true });
+      await interaction.reply({
+        content: "Waehle einen Voice-Channel im Command oder trete selbst einem Voice-Channel bei.",
+        ephemeral: true
+      });
+      return null;
+    }
+    if (!channel.isVoiceBased()) {
+      await interaction.reply({ content: "Bitte waehle einen Voice- oder Stage-Channel.", ephemeral: true });
+      return null;
+    }
+    if (channel.guildId !== interaction.guildId) {
+      await interaction.reply({ content: "Der ausgewaehlte Channel ist nicht in diesem Server.", ephemeral: true });
+      return null;
+    }
+
+    const guild = interaction.guild;
+    if (!guild) {
+      await interaction.reply({ content: "Guild konnte nicht ermittelt werden.", ephemeral: true });
       return null;
     }
 
@@ -413,8 +430,8 @@ class BotRuntime {
 
     const connection = joinVoiceChannel({
       channelId: channel.id,
-      guildId: channel.guild.id,
-      adapterCreator: channel.guild.voiceAdapterCreator
+      guildId: guild.id,
+      adapterCreator: guild.voiceAdapterCreator
     });
 
     try {
@@ -668,6 +685,7 @@ class BotRuntime {
 
     if (interaction.commandName === "play") {
       const requested = interaction.options.getString("station");
+      const requestedChannel = interaction.options.getChannel("channel");
       const key = resolveStation(stations, requested);
       if (!key) {
         await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
@@ -675,7 +693,7 @@ class BotRuntime {
       }
 
       const selectedStation = stations.stations[key];
-      const connection = await this.connectToVoice(interaction);
+      const connection = await this.connectToVoice(interaction, requestedChannel);
       if (!connection) return;
 
       state.shouldReconnect = true;

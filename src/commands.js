@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from "discord.js";
+import { ChannelType, SlashCommandBuilder } from "discord.js";
 
 export function buildCommandBuilders() {
   return [
@@ -11,6 +11,13 @@ export function buildCommandBuilders() {
           .setDescription("Welche Station?")
           .setRequired(false)
           .setAutocomplete(true)
+      )
+      .addChannelOption((option) =>
+        option
+          .setName("channel")
+          .setDescription("Voice- oder Stage-Channel (optional)")
+          .setRequired(false)
+          .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)
       ),
     new SlashCommandBuilder().setName("pause").setDescription("Pausiert die Wiedergabe"),
     new SlashCommandBuilder().setName("resume").setDescription("Setzt die Wiedergabe fort"),

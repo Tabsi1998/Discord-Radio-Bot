@@ -87,7 +87,7 @@ npm run stations -- wizard
 ```
 
 ## Discord Commands (Playback only)
-- `/play [station]`
+- `/play [station] [channel]`
 - `/pause`
 - `/resume`
 - `/stop`
