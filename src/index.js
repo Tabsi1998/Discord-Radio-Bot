@@ -614,6 +614,7 @@ class BotRuntime {
     state.lastChannelId = null;
     state.reconnectAttempts = 0;
     this.updatePresence();
+    this.persistState();
   }
 
   attachConnectionHandlers(guildId, connection) {
