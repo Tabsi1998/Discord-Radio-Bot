@@ -1,42 +1,41 @@
-# Discord Radio Bot - PRD v11
+# Discord Radio Bot - PRD v12 (FINAL)
 
 ## Architektur
 - Node.js Bot Backend, React + FastAPI Preview, Stripe Payments, JSON-Datenbank
 
-## Alle Implementierten Features
+## Alle Features Implementiert
 
-### Kritische Bug-Fixes
-- resolveStation/getFallbackKey Duplikat → SyntaxError
-- http.createServer async → await in non-async
-- install.sh local-outside-function
-
-### Premium Bot Access System (NEU)
-- BOT_{i}_TIER in .env: free/pro/ultimate
-- Premium-Bots: Invite-Link VERSTECKT, Lock-Icon + "Pro/Ultimate erforderlich"
-- Free-Bots: Invite-Link öffentlich sichtbar
-- API /api/premium/invite-links: Gibt Invite-Links nur fuer berechtigte Server
-- Crown-Badge auf Premium-Bot-Cards
-- install.sh & update.sh: Tier-Auswahl beim Bot-Setup
-
-### Discord Community
-- https://discord.gg/UeRkfGS43R überall: Navbar, Hero, Premium Support-Banner, Footer, Mobile Menu, Bot /premium Command
-- Production /web synchron
-
-### Audio Zero-Lag v2
-- probesize=16384, analyzeduration=0, avioflags=direct, application=lowdelay
+### Audio Zero-Lag v3
+- probesize=8192, thread_queue_size=512, analyzeduration=0
+- compression_level=5 (statt 10, weniger CPU = weniger Latenz)
+- OggOpus Format (-f ogg, StreamType.OggOpus) statt raw Opus
+- avioflags=direct, flush_packets=1, max_delay=0
+- application=lowdelay, packet_loss=3, cutoff=20000
 - Tier-basierte Bitrates: Free=128k, Pro=192k, Ultimate=320k
 
+### Auto-Reconnect nach Restart
+- bot-state.js: Speichert Guild/Channel/Station/Volume pro Bot
+- Shutdown: persistState() vor stop() fuer alle Bots
+- Startup: restoreState() nach Bot-Login, joined automatisch Voice Channels
+- docker-compose.yml: bot-state.json als Volume gemountet
+- update.sh: bot-state.json in Backup-Liste
+
+### Premium Bot Access
+- BOT_{i}_TIER: free/pro/ultimate in .env
+- Premium-Bots: Lock-Icon + "Pro/Ultimate erforderlich" statt Invite
+- /api/premium/invite-links: Gibt Links nur fuer berechtigte Server
+- Crown-Badge auf Premium-Bot-Cards
+- install.sh + update.sh: Tier-Auswahl beim Bot-Setup
+
+### Discord Community
+- https://discord.gg/UeRkfGS43R: Navbar, Hero, Premium Support-Banner, Footer, Mobile, Bot /premium Command
+
 ### Premium System
-- 3 Tiers mit Stripe Checkout, License Management, Discord Command
-- Checkout-Modal, Status-Checker, Discord Support
+- 3 Tiers, Stripe Checkout, License Management, CLI, Discord Command
 
-### Server-Spezifische Anzeige
-- guildDetails pro Bot, "AKTIVE SERVER" Section, Presence "X Server | /now"
+### Bug-Fixes
+- resolveStation Duplikat (SyntaxError)
+- http.createServer async (await in non-async)
+- install.sh local-outside-function
 
-### Management
-- Premium CLI (wizard, invite, tiers)
-- update.sh Menu (Update/Bot/Bots/Premium)
-- install.sh v4.0 mit Stripe + Tier Setup
-
-## Testing: Iteration 12, 100% Backend + Frontend
-## User muss: BOT_5_TIER=pro in .env setzen und deployen
+## Testing: Iteration 13, 100% Backend + Frontend, Code Review bestanden
