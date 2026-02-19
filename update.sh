@@ -143,9 +143,21 @@ if [[ "$MODE" == "--show-bots" ]]; then
   for i in $(seq 1 "$bot_count"); do
     name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
     cid=$(grep "^BOT_${i}_CLIENT_ID=" .env 2>/dev/null | cut -d= -f2- || echo "?")
-    echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC}"
+    tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+    if [[ "$tier" == "pro" ]]; then
+      tier_badge="${YELLOW}[PRO]${NC}"
+    elif [[ "$tier" == "ultimate" ]]; then
+      tier_badge="${CYAN}[ULTIMATE]${NC}"
+    else
+      tier_badge="${GREEN}[FREE]${NC}"
+    fi
+    echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC} ${tier_badge}"
     echo -e "       Client ID: ${DIM}${cid}${NC}"
-    echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
+    if [[ "$tier" == "free" ]]; then
+      echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
+    else
+      echo -e "       Invite:    ${DIM}Nur fuer ${tier}-Abonnenten sichtbar${NC}"
+    fi
     echo ""
   done
   exit 0
