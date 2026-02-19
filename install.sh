@@ -111,6 +111,7 @@ fi
 
 : > .env
 write_env_line "REGISTER_COMMANDS_ON_BOOT" "1"
+write_env_line "CLEAN_GUILD_COMMANDS_ON_BOOT" "1"
 write_env_line "WEB_PORT" "$web_port"
 write_env_line "WEB_INTERNAL_PORT" "8080"
 write_env_line "WEB_BIND" "0.0.0.0"

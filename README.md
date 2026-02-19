@@ -41,6 +41,7 @@ Compose published standardmaessig:
 Beispiel:
 ```env
 REGISTER_COMMANDS_ON_BOOT=1
+CLEAN_GUILD_COMMANDS_ON_BOOT=1
 WEB_PORT=8081
 WEB_INTERNAL_PORT=8080
 WEB_BIND=0.0.0.0
@@ -128,3 +129,4 @@ bash ./update.sh
 - FFmpeg ist im Docker-Image enthalten.
 - Jeder Bot nutzt eine eigene Voice-Connection-Gruppe (mehrere Bots koennen im selben Server parallel in unterschiedlichen Channels laufen).
 - Wird ein Bot manuell aus dem Voice-Channel gekickt, deaktiviert er Auto-Reconnect. Starte ihn dann gezielt neu mit `/play`.
+- `CLEAN_GUILD_COMMANDS_ON_BOOT=1` entfernt veraltete Guild-Commands beim Start (verhindert doppelte `/play`-Eintraege).

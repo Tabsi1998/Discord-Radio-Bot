@@ -5,7 +5,8 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { spawn } from "node:child_process";
-import { Client, GatewayIntentBits } from "discord.js";
+import { REST } from "@discordjs/rest";
+import { ChannelType, Client, GatewayIntentBits, PermissionFlagsBits, Routes } from "discord.js";
 import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
@@ -233,6 +234,7 @@ class BotRuntime {
   constructor(config) {
     this.config = config;
     this.voiceGroup = `bot-${this.config.clientId}`;
+    this.rest = new REST({ version: "10" }).setToken(this.config.token);
     this.client = new Client({
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
     });
@@ -244,6 +246,9 @@ class BotRuntime {
     this.client.once("clientReady", () => {
       this.readyAt = Date.now();
       log("INFO", `[${this.config.name}] Eingeloggt als ${this.client.user.tag}`);
+      this.cleanupGuildCommands().catch((err) => {
+        log("ERROR", `[${this.config.name}] Guild-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
+      });
     });
 
     this.client.on("interactionCreate", (interaction) => {
@@ -365,6 +370,41 @@ class BotRuntime {
     }
   }
 
+  async cleanupGuildCommands() {
+    const enabled = String(process.env.CLEAN_GUILD_COMMANDS_ON_BOOT ?? "1") !== "0";
+    if (!enabled) return;
+
+    const guildIds = [...this.client.guilds.cache.keys()];
+    if (!guildIds.length) return;
+
+    let cleaned = 0;
+    let failed = 0;
+    log("INFO", `[${this.config.name}] Bereinige Guild-Commands in ${guildIds.length} Servern...`);
+
+    for (const guildId of guildIds) {
+      try {
+        await this.rest.put(Routes.applicationGuildCommands(this.config.clientId, guildId), { body: [] });
+        cleaned += 1;
+      } catch (err) {
+        failed += 1;
+        log(
+          "ERROR",
+          `[${this.config.name}] Guild-Command-Cleanup fehlgeschlagen (guild=${guildId}): ${err?.message || err}`
+        );
+      }
+    }
+
+    log(
+      "INFO",
+      `[${this.config.name}] Guild-Command-Cleanup fertig: ok=${cleaned}, failed=${failed}, global commands bleiben aktiv.`
+    );
+  }
+
+  async resolveBotMember(guild) {
+    if (guild.members.me) return guild.members.me;
+    return guild.members.fetchMe().catch(() => null);
+  }
+
   handleBotVoiceStateUpdate(oldState, newState) {
     if (!this.client.user) return;
     if (newState.id !== this.client.user.id) return;
@@ -453,6 +493,28 @@ class BotRuntime {
     const guild = interaction.guild;
     if (!guild) {
       await interaction.reply({ content: "Guild konnte nicht ermittelt werden.", ephemeral: true });
+      return null;
+    }
+
+    const me = await this.resolveBotMember(guild);
+    if (!me) {
+      await interaction.reply({ content: "Bot-Mitglied im Server konnte nicht geladen werden.", ephemeral: true });
+      return null;
+    }
+
+    const perms = channel.permissionsFor(me);
+    if (!perms?.has(PermissionFlagsBits.Connect)) {
+      await interaction.reply({
+        content: `Ich habe keine Berechtigung fuer ${channel.toString()} (Connect fehlt).`,
+        ephemeral: true
+      });
+      return null;
+    }
+    if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
+      await interaction.reply({
+        content: `Ich habe keine Berechtigung fuer ${channel.toString()} (Speak fehlt).`,
+        ephemeral: true
+      });
       return null;
     }
 
@@ -739,6 +801,14 @@ class BotRuntime {
         await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
         return;
       }
+
+      const memberChannelId = interaction.member?.voice?.channel?.id || null;
+      log(
+        "INFO",
+        `[${this.config.name}] /play guild=${interaction.guildId} station=${key} optionChannel=${
+          requestedChannel?.id || "-"
+        } memberChannel=${memberChannelId || "-"}`
+      );
 
       const selectedStation = stations.stations[key];
       const connection = await this.connectToVoice(interaction, requestedChannel);
