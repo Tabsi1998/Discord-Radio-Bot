@@ -176,13 +176,17 @@ if [[ "$MODE" == "--add-bot" ]]; then
   bot_token="$(prompt_nonempty "Token")"
   bot_client_id="$(prompt_nonempty "Client ID")"
   bot_perms="$(prompt_default "Permissions" "3145728")"
+  echo ""
+  echo -e "  ${DIM}Bot-Tier (free/pro/ultimate):${NC}"
+  bot_tier="$(prompt_default "Tier" "free")"
 
   write_env_line "BOT_${new_index}_NAME" "$bot_name"
   write_env_line "BOT_${new_index}_TOKEN" "$bot_token"
   write_env_line "BOT_${new_index}_CLIENT_ID" "$bot_client_id"
   write_env_line "BOT_${new_index}_PERMISSIONS" "$bot_perms"
+  write_env_line "BOT_${new_index}_TIER" "${bot_tier:-free}"
 
-  ok "Bot ${new_index} konfiguriert: ${bot_name}"
+  ok "Bot ${new_index} konfiguriert: ${bot_name} (Tier: ${bot_tier:-free})"
   echo ""
   echo -e "  ${GREEN}Invite-Link:${NC}"
   echo -e "  https://discord.com/oauth2/authorize?client_id=${bot_client_id}&scope=bot%20applications.commands&permissions=${bot_perms}"
