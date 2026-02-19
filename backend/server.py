@@ -55,38 +55,38 @@ def load_bots_from_env():
         img = BOT_IMAGES[(i - 1) % len(BOT_IMAGES)] if i <= len(BOT_IMAGES) else ""
 
         bots.append({
-            "bot_id": f"bot-{i}",
+            "botId": f"bot-{i}",
             "index": i,
             "name": name,
-            "client_id": cid or f"0000000000000000{i:02d}",
+            "clientId": cid or f"0000000000000000{i:02d}",
             "color": color,
-            "avatar_url": img,
+            "avatarUrl": img,
             "servers": 0,
             "users": 0,
             "connections": 0,
             "listeners": 0,
             "ready": False,
-            "user_tag": None,
-            "uptime_sec": 0,
+            "userTag": None,
+            "uptimeSec": 0,
         })
 
     # Wenn keine Bots in .env konfiguriert, Platzhalter-Bots zeigen
     if not bots:
         for i in range(1, 5):
             bots.append({
-                "bot_id": f"bot-{i}",
+                "botId": f"bot-{i}",
                 "index": i,
                 "name": f"Radio Bot {i}",
-                "client_id": f"0000000000000000{i:02d}",
+                "clientId": f"0000000000000000{i:02d}",
                 "color": BOT_COLORS[(i - 1) % len(BOT_COLORS)],
-                "avatar_url": BOT_IMAGES[(i - 1) % len(BOT_IMAGES)],
+                "avatarUrl": BOT_IMAGES[(i - 1) % len(BOT_IMAGES)],
                 "servers": 0,
                 "users": 0,
                 "connections": 0,
                 "listeners": 0,
                 "ready": False,
-                "user_tag": None,
-                "uptime_sec": 0,
+                "userTag": None,
+                "uptimeSec": 0,
             })
 
     return bots
