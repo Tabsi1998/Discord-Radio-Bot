@@ -102,6 +102,39 @@ function BotCard({ bot, index }) {
         </div>
       </div>
 
+      {/* Server-spezifische Stationen */}
+      {bot.guildDetails && bot.guildDetails.length > 0 && (
+        <div style={{
+          padding: '12px 0', marginBottom: 12,
+          borderTop: `1px solid ${colors.accent}15`,
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: colors.accent, marginBottom: 8, fontFamily: "'Orbitron', sans-serif" }}>
+            AKTIVE SERVER
+          </div>
+          {bot.guildDetails.filter(g => g.playing).map((g, i) => (
+            <div key={g.guildId || i} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+              borderBottom: i < bot.guildDetails.filter(x => x.playing).length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+            }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#39FF14', boxShadow: '0 0 6px rgba(57,255,20,0.4)', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {g.guildName}
+                </div>
+                <div style={{ fontSize: 11, color: '#A1A1AA', fontFamily: "'JetBrains Mono', monospace" }}>
+                  {g.stationName || '-'}
+                </div>
+              </div>
+            </div>
+          ))}
+          {bot.guildDetails.filter(g => !g.playing).length > 0 && (
+            <div style={{ fontSize: 11, color: '#52525B', marginTop: 6 }}>
+              +{bot.guildDetails.filter(g => !g.playing).length} weitere Server (idle)
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Actions */}
       <div style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
         <a
