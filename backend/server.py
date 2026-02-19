@@ -113,42 +113,30 @@ def seed_stations_if_empty():
         stations_list = []
         file_stations = file_data.get("stations", {})
         for key, val in file_stations.items():
+            genre_map = {
+                "oneworldradio": "Electronic / Festival",
+                "lofi": "Lo-Fi / Chill",
+                "classicrock": "Rock / Classic",
+                "chillout": "Chill / Ambient",
+                "dance": "Dance / EDM",
+                "hiphop": "Hip Hop / Rap",
+                "techno": "Techno / House",
+                "pop": "Pop / Charts",
+                "rock": "Rock / Alternative",
+                "bass": "Bass / Dubstep",
+                "deutschrap": "Deutsch Rap",
+            }
             stations_list.append({
                 "key": key,
                 "name": val.get("name", key),
                 "url": val.get("url", ""),
-                "genre": "Radio",
+                "genre": genre_map.get(key, "Radio"),
                 "is_default": key == file_data.get("defaultStationKey"),
                 "created_at": datetime.now(timezone.utc).isoformat()
             })
 
-        extra_stations = [
-            {"key": "lofi", "name": "Lofi Hip Hop Radio", "url": "https://streams.ilovemusic.de/iloveradio17.mp3", "genre": "Lo-Fi / Chill", "is_default": False},
-            {"key": "classicrock", "name": "Classic Rock Radio", "url": "https://streams.ilovemusic.de/iloveradio21.mp3", "genre": "Rock / Classic", "is_default": False},
-            {"key": "chillout", "name": "Chillout Lounge", "url": "https://streams.ilovemusic.de/iloveradio7.mp3", "genre": "Chill / Ambient", "is_default": False},
-            {"key": "dance", "name": "Dance Radio", "url": "https://streams.ilovemusic.de/iloveradio2.mp3", "genre": "Dance / EDM", "is_default": False},
-            {"key": "hiphop", "name": "Hip Hop Channel", "url": "https://streams.ilovemusic.de/iloveradio3.mp3", "genre": "Hip Hop / Rap", "is_default": False},
-            {"key": "techno", "name": "Techno Bunker", "url": "https://streams.ilovemusic.de/iloveradio12.mp3", "genre": "Techno / House", "is_default": False},
-            {"key": "pop", "name": "Pop Hits", "url": "https://streams.ilovemusic.de/iloveradio.mp3", "genre": "Pop / Charts", "is_default": False},
-            {"key": "rock", "name": "Rock Nation", "url": "https://streams.ilovemusic.de/iloveradio4.mp3", "genre": "Rock / Alternative", "is_default": False},
-            {"key": "bass", "name": "Bass Boost FM", "url": "https://streams.ilovemusic.de/iloveradio16.mp3", "genre": "Bass / Dubstep", "is_default": False},
-            {"key": "deutschrap", "name": "Deutsch Rap", "url": "https://streams.ilovemusic.de/iloveradio6.mp3", "genre": "Deutsch Rap", "is_default": False},
-        ]
-
-        for s in extra_stations:
-            if not any(st["key"] == s["key"] for st in stations_list):
-                s["created_at"] = datetime.now(timezone.utc).isoformat()
-                stations_list.append(s)
-
         if stations_list:
             db.stations.insert_many(stations_list)
-
-        # Also update the stations.json file
-        updated_data = {"defaultStationKey": file_data.get("defaultStationKey", "oneworldradio"), "stations": {}}
-        for s in stations_list:
-            updated_data["stations"][s["key"]] = {"name": s["name"], "url": s["url"]}
-        with open(STATIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(updated_data, f, indent=2, ensure_ascii=False)
 
 
 seed_bots_if_empty()
