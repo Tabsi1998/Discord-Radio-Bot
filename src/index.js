@@ -1291,12 +1291,25 @@ function startWebServer(runtimes) {
 
     // CORS
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
       return;
+    }
+
+    // --- Helper to read POST body ---
+    function readBody() {
+      return new Promise((resolve, reject) => {
+        let data = "";
+        req.on("data", (chunk) => { data += chunk; });
+        req.on("end", () => {
+          try { resolve(JSON.parse(data)); }
+          catch { reject(new Error("Invalid JSON")); }
+        });
+        req.on("error", reject);
+      });
     }
 
     // --- API routes ---
