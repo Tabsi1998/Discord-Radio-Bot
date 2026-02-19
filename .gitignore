@@ -1,8 +1,11 @@
 .env
+*.env.*
 node_modules/
 npm-debug.log
 logs/
 .update-backups/
+bot-state.json
+premium.json
 
 # Emergent Platform (nicht Teil des Bot-Repos)
 backend/
@@ -13,39 +16,3 @@ test_reports/
 memory/
 yarn.lock
 .gitconfig
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
