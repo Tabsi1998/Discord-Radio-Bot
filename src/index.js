@@ -958,7 +958,13 @@ class BotRuntime {
     if (interaction.commandName === "play") {
       const requested = interaction.options.getString("station");
       const requestedChannelInput = interaction.options.getString("channel");
-      let requestedChannel = interaction.options.getChannel("channel");
+      let requestedChannel = null;
+
+      // Channel ist ein String-Autocomplete-Feld (ID), nicht getChannel()
+      if (requestedChannelInput) {
+        requestedChannel = await this.resolveVoiceChannelFromInput(interaction.guild, requestedChannelInput);
+      }
+
       const key = resolveStation(stations, requested);
       if (!key) {
         await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
