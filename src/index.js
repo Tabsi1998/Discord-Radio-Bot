@@ -547,7 +547,7 @@ class BotRuntime {
     if (activeStations.length === 0) {
       return {
         type: ActivityType.Listening,
-        name: publicUrl ? `Bereit für /play | ${publicUrl}` : "Bereit für /play"
+        name: publicUrl ? `/play | ${publicUrl}` : "/play zum Starten"
       };
     }
 
@@ -558,9 +558,10 @@ class BotRuntime {
       };
     }
 
+    // Multiple guilds: show count + hint to use /now for server-specific info
     return {
       type: ActivityType.Listening,
-      name: `${activeStations[0]} (+${activeStations.length - 1})`
+      name: `${activeStations.length} Server | /now`
     };
   }
 
