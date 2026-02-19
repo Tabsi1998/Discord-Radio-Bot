@@ -177,10 +177,10 @@ if [[ "$MODE" == "--add-bot" ]]; then
   bot_client_id="$(prompt_nonempty "Client ID")"
   bot_perms="$(prompt_default "Permissions" "3145728")"
 
-  write_env_line "BOT_NAME_${new_index}" "$bot_name"
-  write_env_line "BOT_TOKEN_${new_index}" "$bot_token"
-  write_env_line "BOT_APP_ID_${new_index}" "$bot_client_id"
-  write_env_line "BOT_PERMISSIONS_${new_index}" "$bot_perms"
+  write_env_line "BOT_${new_index}_NAME" "$bot_name"
+  write_env_line "BOT_${new_index}_TOKEN" "$bot_token"
+  write_env_line "BOT_${new_index}_CLIENT_ID" "$bot_client_id"
+  write_env_line "BOT_${new_index}_PERMISSIONS" "$bot_perms"
 
   ok "Bot ${new_index} konfiguriert: ${bot_name}"
   echo ""
