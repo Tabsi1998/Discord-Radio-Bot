@@ -1,73 +1,103 @@
-# Discord Radio Bot - PRD
+# Discord Radio Bot - PRD v2
 
 ## Original Problem Statement
-Optimize the complete web interface for public users who want to add radio bots to their Discord servers. Design inspired by jockiemusic.com structure/layout but with own unique style. Fix station loading issue in Discord autocomplete. Add more default stations. Open for general improvements.
+Komplette Überprüfung und Optimierung des gesamten Discord Radio Bot Repositories. Alles muss zusammen funktionieren: One-Command Installation (install.sh), Auto-Updates von Git (update.sh), CLI Stationsverwaltung (stations.sh), Docker-Deployment, Bot-Code, Web-Interface. Modernes Design inspiriert von jockiemusic.com.
 
 ## Architecture
-- **Discord Bot**: Node.js (discord.js v14) - Multi-bot system (up to 20 bots)
-- **Web Frontend**: React.js with custom CSS (Cyber-Analog dark theme)
-- **Web Backend**: FastAPI (Python) serving bot/station data from MongoDB
-- **Database**: MongoDB for bots and stations
-- **Station Config**: stations.json (shared between bot and web backend)
+- **Discord Bot**: Node.js v20 (discord.js v14) - Multi-Bot System (1-20 Bots)
+- **Web Interface (Prod)**: Vanilla HTML/CSS/JS in `web/` - served by Bot's HTTP Server
+- **Web Interface (Preview)**: React.js in `frontend/` - served by React Dev Server
+- **Preview Backend**: FastAPI in `backend/` - serves same API structure
+- **Database (Preview)**: MongoDB for bot/station data
+- **Deployment**: Docker + Docker Compose + Systemd
 
 ## User Personas
-1. **Discord Server Owner**: Wants to add radio bots to their server
-2. **End User/Listener**: Wants to browse available stations
-3. **Bot Administrator**: Manages bot configs and stations via CLI
+1. **Server Owner**: Will Radio-Bots auf Discord-Server einladen
+2. **Listener**: Hört Radio über den Bot, browst Stationen
+3. **Bot Admin**: Installiert, konfiguriert und verwaltet Bots
+4. **Self-Hoster**: Betreibt eigene Bot-Instanz auf eigenem Server
 
-## Core Requirements
-- [x] Modern, dark-themed landing page (Cyber-Analog aesthetic)
-- [x] Bot invite cards with color-coded multi-bot system
-- [x] Station directory with search and genre filtering
-- [x] Slash commands reference section
-- [x] Live statistics footer
-- [x] Navigation with smooth scrolling
-- [x] Responsive design
+## Core Requirements (Status)
+- [x] One-Command Installation via `bash ./install.sh`
+- [x] Auto-Update von Git via `bash ./update.sh`
+- [x] CLI Stationsverwaltung via `bash ./stations.sh`
+- [x] Docker-Deployment mit Systemd-Autostart
+- [x] Modernes Web-Interface (Dark Cyber-Analog Theme)
+- [x] Multi-Bot Invite Cards mit farbcodierten Buttons
+- [x] Station Directory mit Suche und Genre-Filter
+- [x] Slash-Commands Referenz im Terminal-Style
+- [x] Live-Statistiken
+- [x] Discord Autocomplete Fix für Stationen
+- [x] 11 Standard-Stationen vorinstalliert
+- [x] Responsive Design
 
 ## What's Been Implemented (Feb 2026)
-1. **Complete Web Interface Redesign**
-   - Hero section with animated equalizer and CTAs
-   - 4 Bot cards (Cyan, Green, Pink, Amber) with invite buttons
-   - Station browser with search + genre filters (11 stations)
-   - Commands terminal-style reference section
-   - Stats footer with live numbers
-   - Fixed sticky navigation
 
-2. **Backend API** (FastAPI)
-   - `/api/health` - Health check
-   - `/api/bots` - Bot list with stats
-   - `/api/stations` - Station directory
-   - `/api/stats` - Aggregated statistics
-   - `/api/commands` - Slash commands reference
+### Session 1 - Web Interface
+- React + FastAPI preview interface
+- Hero, Bot Cards, Features, Station Browser, Commands, Footer sections
+- Seeded 4 default bots + 11 stations with genres
 
-3. **Station Fix**
-   - Added 10 new default radio stations (ilovemusic streams)
-   - Improved autocomplete handler with logging + error handling
-   - Fresh channel fetch before autocomplete response
-
-4. **Bot Code Improvements**
-   - Enhanced autocomplete error handling (try/catch wrapper)
-   - Added debug logging for autocomplete interactions
-   - Force channel refresh to fix stale cache issue
+### Session 2 - Complete Repository Optimization
+- **web/ folder completely rebuilt** - Same modern design as React, but standalone HTML/CSS/JS
+  - Responsive, dark themed, Orbitron + DM Sans + JetBrains Mono fonts
+  - Animated equalizer bars, glow effects, noise overlay
+  - Bot cards with colored accent bars, invite buttons, copy functionality
+  - Station list with real-time search filtering
+  - Commands terminal view
+  - Footer with live stats
+- **src/index.js web server improved**
+  - Generic static file serving (supports any file type from web/)
+  - MIME type detection for CSS, JS, HTML, images, fonts
+  - CORS headers for cross-origin API access
+  - OPTIONS preflight handling
+- **install.sh v2.1** - Interactive installer with:
+  - Docker auto-install
+  - Bot configuration wizard (1-20 bots)
+  - 11 default stations auto-created in stations.json
+  - Systemd autostart setup
+  - Clear progress steps [1/4] .. [4/4]
+- **update.sh v2.1** - Self-updating update script with:
+  - Automatic backup of .env + stations.json
+  - Git sync with preserved runtime files
+  - Docker rebuild
+  - Health check after restart
+  - Clear progress steps [1/5] .. [5/5]
+- **stations.json** - 11 default stations with genres
+- **Station autocomplete fix** - try/catch wrapper, debug logging, fresh channel fetch
+- **package.json** version bump to 2.1.0
+- **README.md** completely rewritten with:
+  - Feature list, installation guide, CLI commands
+  - File structure documentation
+  - Environment variables table
+  - Troubleshooting section
+- **.gitignore** cleaned up
 
 ## Testing Status
-- Backend: 100% (5/5 endpoints)
-- Frontend: 100% (all components and interactions)
+- Backend: 100% (5/5 API endpoints, both iterations)
+- Frontend: 100% (all components, interactions, search/filter)
+- web/ standalone interface: Design matches React preview
+- install.sh: Syntax verified, logic reviewed
+- update.sh: Syntax verified, self-update bootstrap tested
+- stations.sh: Existing functionality preserved
+- stations-cli.js: All commands functional
 
 ## Backlog (P0/P1/P2)
-### P0 - Next Session
-- Connect real Discord bot tokens for live invite URLs
-- Set up actual bot CLIENT_IDs in .env
+
+### P0 - Setup für Produktion
+- Echte Discord Bot Tokens in .env eintragen
+- deploy-commands.js ausführen nach Token-Setup
+- stations.json anpassen nach Wunsch
 
 ### P1 - Near Term
-- Premium bot tier (Stripe integration for premium features)
-- User dashboard (manage their bot settings per server)
-- Station request form (users can suggest new stations)
-- Real-time listener count via WebSocket
+- Premium Bot Tier (Stripe für zahlende Nutzer)
+- User Dashboard (Bot-Einstellungen pro Server)
+- Station Request Formular (Community-Vorschläge)
+- Real-time Listener Count via WebSocket
 
 ### P2 - Future
-- Custom station URL support per server
-- Analytics dashboard for bot usage
-- Discord OAuth2 login for personalized experience
-- Multilingual support (currently German-only)
-- Mobile app companion
+- Custom Station URLs pro Server
+- Analytics Dashboard
+- Discord OAuth2 Login
+- Multilingual Support
+- Mobile App Companion
