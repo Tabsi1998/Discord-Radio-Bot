@@ -219,11 +219,18 @@ if [[ $existing_bots -gt 0 ]]; then
           echo -e "  ${RED}Client ID muss 17-22 Ziffern sein. Bitte pruefen.${NC}"
         done
         perms="$(prompt_default "Permissions" "3145728")"
+        echo ""
+        echo -e "  ${DIM}Bot-Tier bestimmt ob dieser Bot frei oder Premium ist:${NC}"
+        echo -e "    ${DIM}free${NC}     = Jeder kann einladen (Standard)"
+        echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten"
+        echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten"
+        bot_tier="$(prompt_default "Tier (free/pro/ultimate)" "free")"
         write_env_line "BOT_${idx}_NAME" "$name"
         write_env_line "BOT_${idx}_TOKEN" "$token"
         write_env_line "BOT_${idx}_CLIENT_ID" "$client_id"
         write_env_line "BOT_${idx}_PERMISSIONS" "${perms:-3145728}"
-        ok "Bot $idx konfiguriert."
+        write_env_line "BOT_${idx}_TIER" "${bot_tier:-free}"
+        ok "Bot $idx konfiguriert (Tier: ${bot_tier:-free})."
       done
     fi
     echo ""
