@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useRef } from 'react';
-import { Search, Radio, Music, Play, Pause, Volume2 } from 'lucide-react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
+import { Search, Radio, Music, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 
 const STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '#FF2A2A'];
 
@@ -18,10 +18,10 @@ function StationCard({ station, index, isPlaying, onPlay, onStop }) {
         background: isPlaying ? `${color}10` : (hovered ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)'),
         border: `1px solid ${isPlaying ? `${color}30` : (hovered ? 'rgba(255,255,255,0.1)' : 'transparent')}`,
         cursor: 'pointer', transition: 'background 0.2s, border-color 0.2s',
+        WebkitTapHighlightColor: 'transparent',
       }}
       onClick={() => isPlaying ? onStop() : onPlay(station)}
     >
-      {/* Play/Pause Button */}
       <div style={{
         width: 42, height: 42, borderRadius: 10,
         background: isPlaying ? color : `${color}12`,
@@ -35,8 +35,6 @@ function StationCard({ station, index, isPlaying, onPlay, onStop }) {
           hovered ? <Play size={18} color={color} fill={color} /> : <Radio size={18} color={color} />
         )}
       </div>
-
-      {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {station.name}
@@ -45,21 +43,13 @@ function StationCard({ station, index, isPlaying, onPlay, onStop }) {
           {station.key}
         </div>
       </div>
-
-      {/* Genre tag */}
-      {station.genre && (
-        <span className="genre-tag">{station.genre}</span>
-      )}
-
-      {/* Playing indicator */}
+      {station.genre && <span className="genre-tag">{station.genre}</span>}
       {isPlaying && (
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 16 }}>
           {[0.6, 1, 0.7, 0.9].map((h, i) => (
             <div key={i} className="eq-bar" style={{
-              width: 3, borderRadius: 1, height: `${h * 100}%`,
-              background: color,
-              animationDuration: `${0.4 + Math.random() * 0.6}s`,
-              animationDelay: `${i * 0.1}s`,
+              width: 3, borderRadius: 1, height: `${h * 100}%`, background: color,
+              animationDuration: `${0.4 + Math.random() * 0.6}s`, animationDelay: `${i * 0.1}s`,
             }} />
           ))}
         </div>
@@ -72,6 +62,8 @@ function StationBrowser({ stations, loading }) {
   const [search, setSearch] = useState('');
   const [activeGenre, setActiveGenre] = useState(null);
   const [playingKey, setPlayingKey] = useState(null);
+  const [volume, setVolume] = useState(80);
+  const [muted, setMuted] = useState(false);
   const audioRef = useRef(null);
 
   const genres = useMemo(() => {
@@ -89,28 +81,39 @@ function StationBrowser({ stations, loading }) {
     });
   }, [stations, search, activeGenre]);
 
-  const handlePlay = (station) => {
+  const getAudio = useCallback(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
-      audioRef.current.addEventListener('error', () => {
-        setPlayingKey(null);
-      });
+      audioRef.current.volume = volume / 100;
+      audioRef.current.addEventListener('error', () => setPlayingKey(null));
     }
-    audioRef.current.src = station.url;
-    audioRef.current.play().then(() => {
-      setPlayingKey(station.key);
-    }).catch(() => {
-      setPlayingKey(null);
-    });
-  };
+    return audioRef.current;
+  }, [volume]);
 
-  const handleStop = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = '';
-    }
+  const handlePlay = useCallback((station) => {
+    const audio = getAudio();
+    audio.src = station.url;
+    audio.volume = muted ? 0 : volume / 100;
+    audio.play().then(() => setPlayingKey(station.key)).catch(() => setPlayingKey(null));
+  }, [getAudio, volume, muted]);
+
+  const handleStop = useCallback(() => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; }
     setPlayingKey(null);
-  };
+  }, []);
+
+  const handleVolume = useCallback((e) => {
+    const v = Number(e.target.value);
+    setVolume(v);
+    setMuted(v === 0);
+    if (audioRef.current) audioRef.current.volume = v / 100;
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    const next = !muted;
+    setMuted(next);
+    if (audioRef.current) audioRef.current.volume = next ? 0 : volume / 100;
+  }, [muted, volume]);
 
   const playingStation = stations.find(s => s.key === playingKey);
 
@@ -129,38 +132,69 @@ function StationBrowser({ stations, loading }) {
           </p>
         </div>
 
-        {/* Now Playing Bar */}
+        {/* Now Playing Bar mit Lautstärke */}
         {playingStation && (
           <div
             data-testid="now-playing-bar"
             style={{
-              display: 'flex', alignItems: 'center', gap: 14,
-              padding: '12px 20px', borderRadius: 14, marginBottom: 20,
+              display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+              padding: '14px 20px', borderRadius: 14, marginBottom: 20,
               background: 'rgba(0, 240, 255, 0.06)', border: '1px solid rgba(0, 240, 255, 0.15)',
             }}
           >
-            <Volume2 size={18} color="#00F0FF" />
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 18 }}>
+            {/* EQ Animation */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 20, flexShrink: 0 }}>
               {[0.5, 0.8, 0.6, 1, 0.7].map((h, i) => (
                 <div key={i} className="eq-bar" style={{
-                  width: 3, borderRadius: 1, height: `${h * 100}%`,
-                  background: '#00F0FF',
-                  animationDuration: `${0.4 + Math.random() * 0.6}s`,
-                  animationDelay: `${i * 0.08}s`,
+                  width: 3, borderRadius: 1, height: `${h * 100}%`, background: '#00F0FF',
+                  animationDuration: `${0.4 + Math.random() * 0.6}s`, animationDelay: `${i * 0.08}s`,
                 }} />
               ))}
             </div>
-            <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>
+
+            {/* Station Name */}
+            <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {playingStation.name}
             </span>
+
+            {/* Volume Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <button
+                data-testid="mute-btn"
+                onClick={toggleMute}
+                style={{
+                  background: 'none', border: 'none', color: muted ? '#FF2A2A' : '#A1A1AA',
+                  cursor: 'pointer', padding: 4, lineHeight: 0,
+                }}
+              >
+                {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              </button>
+              <input
+                type="range"
+                data-testid="volume-slider"
+                min="0"
+                max="100"
+                value={muted ? 0 : volume}
+                onChange={handleVolume}
+                style={{
+                  width: 100, height: 4, appearance: 'none', WebkitAppearance: 'none',
+                  background: `linear-gradient(to right, #00F0FF ${muted ? 0 : volume}%, rgba(255,255,255,0.1) ${muted ? 0 : volume}%)`,
+                  borderRadius: 2, outline: 'none', cursor: 'pointer',
+                }}
+              />
+              <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: '#52525B', width: 28, textAlign: 'right' }}>
+                {muted ? 0 : volume}
+              </span>
+            </div>
+
+            {/* Stop Button */}
             <button
               data-testid="stop-playing-btn"
               onClick={handleStop}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 32, height: 32, borderRadius: 8,
-                background: 'rgba(255,255,255,0.1)', border: 'none',
-                color: '#fff', cursor: 'pointer',
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', cursor: 'pointer',
               }}
             >
               <Pause size={14} />
@@ -172,42 +206,21 @@ function StationBrowser({ stations, loading }) {
         <div style={{ marginBottom: 24 }}>
           <div style={{ position: 'relative', maxWidth: 400, marginBottom: 16 }}>
             <Search size={18} color="#52525B" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            <input
-              type="text"
-              data-testid="station-search"
-              className="station-search"
-              placeholder="Station suchen..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <input type="text" data-testid="station-search" className="station-search" placeholder="Station suchen..."
+              value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-
           {genres.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <button
-                data-testid="genre-filter-all"
-                onClick={() => setActiveGenre(null)}
-                style={{
-                  fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: !activeGenre ? 'rgba(0,240,255,0.15)' : 'rgba(255,255,255,0.05)',
-                  color: !activeGenre ? '#00F0FF' : '#A1A1AA',
-                  transition: 'background 0.2s, color 0.2s',
-                }}
-              >
+              <button data-testid="genre-filter-all" onClick={() => setActiveGenre(null)}
+                style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: !activeGenre ? 'rgba(0,240,255,0.15)' : 'rgba(255,255,255,0.05)', color: !activeGenre ? '#00F0FF' : '#A1A1AA' }}>
                 Alle
               </button>
               {genres.map((g) => (
-                <button
-                  key={g}
-                  data-testid={`genre-filter-${g.replace(/\s+/g, '-').toLowerCase()}`}
+                <button key={g} data-testid={`genre-filter-${g.replace(/\s+/g, '-').toLowerCase()}`}
                   onClick={() => setActiveGenre(activeGenre === g ? null : g)}
-                  style={{
-                    fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: activeGenre === g ? 'rgba(0,240,255,0.15)' : 'rgba(255,255,255,0.05)',
-                    color: activeGenre === g ? '#00F0FF' : '#A1A1AA',
-                    transition: 'background 0.2s, color 0.2s',
-                  }}
-                >
+                  style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    background: activeGenre === g ? 'rgba(0,240,255,0.15)' : 'rgba(255,255,255,0.05)', color: activeGenre === g ? '#00F0FF' : '#A1A1AA' }}>
                   {g}
                 </button>
               ))}
@@ -226,14 +239,7 @@ function StationBrowser({ stations, loading }) {
         ) : (
           <div data-testid="station-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 8, maxHeight: 520, overflowY: 'auto', padding: '4px 0' }}>
             {filtered.map((s, i) => (
-              <StationCard
-                key={s.key}
-                station={s}
-                index={i}
-                isPlaying={playingKey === s.key}
-                onPlay={handlePlay}
-                onStop={handleStop}
-              />
+              <StationCard key={s.key} station={s} index={i} isPlaying={playingKey === s.key} onPlay={handlePlay} onStop={handleStop} />
             ))}
           </div>
         )}
