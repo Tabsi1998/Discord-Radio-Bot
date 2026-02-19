@@ -35,13 +35,13 @@ Mit Reverse-Proxy (z. B. Nginx/Caddy) kannst du sie auf eine Domain legen,
 z. B. `https://bot.deinedomain.tld`.
 
 Compose published standardmaessig:
-- `${WEB_PORT:-8080}:${WEB_INTERNAL_PORT:-8080}`
+- `${WEB_PORT:-8081}:${WEB_INTERNAL_PORT:-8080}`
 
 ## Bot-Konfiguration (.env)
 Beispiel:
 ```env
 REGISTER_COMMANDS_ON_BOOT=1
-WEB_PORT=8080
+WEB_PORT=8081
 WEB_INTERNAL_PORT=8080
 WEB_BIND=0.0.0.0
 

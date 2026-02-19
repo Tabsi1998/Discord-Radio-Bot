@@ -102,7 +102,7 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 bot_count="$(prompt_int_range "Wie viele Bot-Accounts willst du konfigurieren" "4" 1 8)"
-web_port="$(prompt_int_range "Web-Port fuer Invite-Seite" "8080" 1 65535)"
+web_port="$(prompt_int_range "Web-Port fuer Invite-Seite" "8081" 1 65535)"
 public_url="$(prompt_default "Oeffentliche URL (optional, z.B. https://bot.deinedomain.tld)" "")"
 
 if [[ -n "$public_url" ]]; then

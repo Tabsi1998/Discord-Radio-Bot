@@ -788,7 +788,7 @@ function sendFile(res, filename, contentType) {
 
 function startWebServer(runtimes) {
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
-  const webPort = Number(process.env.WEB_PORT || webInternalPort);
+  const webPort = Number(process.env.WEB_PORT || "8081");
   const webBind = process.env.WEB_BIND || "0.0.0.0";
   const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
 

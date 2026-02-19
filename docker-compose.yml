@@ -5,7 +5,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${WEB_PORT:-8080}:${WEB_INTERNAL_PORT:-8080}"
+      - "${WEB_PORT:-8081}:${WEB_INTERNAL_PORT:-8080}"
     volumes:
       - ./stations.json:/app/stations.json
       - ./logs:/app/logs
