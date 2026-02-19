@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { spawn } from "node:child_process";
 import { REST } from "@discordjs/rest";
-import { ChannelType, Client, GatewayIntentBits, PermissionFlagsBits, Routes } from "discord.js";
+import { ActivityType, ChannelType, Client, GatewayIntentBits, PermissionFlagsBits, Routes } from "discord.js";
 import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
@@ -70,6 +70,12 @@ function log(level, message) {
 
 function clampVolume(value) {
   return Math.max(0, Math.min(1, value / 100));
+}
+
+function clipText(value, max = 100) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 1))}...` : text;
 }
 
 function formatStationPage(stations, pageInput, perPage = 10) {
@@ -246,6 +252,7 @@ class BotRuntime {
     this.client.once("clientReady", () => {
       this.readyAt = Date.now();
       log("INFO", `[${this.config.name}] Eingeloggt als ${this.client.user.tag}`);
+      this.updatePresence();
       this.cleanupGuildCommands().catch((err) => {
         log("ERROR", `[${this.config.name}] Guild-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
       });
@@ -269,6 +276,7 @@ class BotRuntime {
         player,
         connection: null,
         currentStationKey: null,
+        currentStationName: null,
         currentMeta: null,
         lastChannelId: null,
         volume: 100,
@@ -338,7 +346,9 @@ class BotRuntime {
 
     state.player.play(resource);
     state.currentStationKey = key;
+    state.currentStationName = station.name || key;
     state.currentMeta = null;
+    this.updatePresence();
 
     fetchStreamInfo(station.url)
       .then((meta) => {
@@ -358,7 +368,9 @@ class BotRuntime {
     const key = state.currentStationKey;
     if (!stations.stations[key]) {
       state.currentStationKey = null;
+      state.currentStationName = null;
       state.currentMeta = null;
+      this.updatePresence();
       return;
     }
 
@@ -405,6 +417,46 @@ class BotRuntime {
     return guild.members.fetchMe().catch(() => null);
   }
 
+  buildPresenceActivity() {
+    const activeStations = [];
+    for (const state of this.guildState.values()) {
+      if (!state.currentStationKey) continue;
+      activeStations.push(clipText(state.currentStationName || state.currentStationKey, 96));
+    }
+
+    if (activeStations.length === 0) {
+      return {
+        type: ActivityType.Watching,
+        name: "Bereit fuer /play"
+      };
+    }
+
+    if (activeStations.length === 1) {
+      return {
+        type: ActivityType.Listening,
+        name: activeStations[0]
+      };
+    }
+
+    return {
+      type: ActivityType.Listening,
+      name: `${activeStations[0]} (+${activeStations.length - 1})`
+    };
+  }
+
+  updatePresence() {
+    if (!this.client.user) return;
+    const activity = this.buildPresenceActivity();
+    try {
+      this.client.user.setPresence({
+        status: "online",
+        activities: [activity]
+      });
+    } catch (err) {
+      log("ERROR", `[${this.config.name}] Presence update fehlgeschlagen: ${err?.message || err}`);
+    }
+  }
+
   handleBotVoiceStateUpdate(oldState, newState) {
     if (!this.client.user) return;
     if (newState.id !== this.client.user.id) return;
@@ -435,9 +487,11 @@ class BotRuntime {
       state.connection = null;
     }
     state.currentStationKey = null;
+    state.currentStationName = null;
     state.currentMeta = null;
     state.lastChannelId = null;
     state.reconnectAttempts = 0;
+    this.updatePresence();
   }
 
   attachConnectionHandlers(guildId, connection) {
@@ -732,8 +786,10 @@ class BotRuntime {
       }
 
       state.currentStationKey = null;
+      state.currentStationName = null;
       state.currentMeta = null;
       state.reconnectAttempts = 0;
+      this.updatePresence();
 
       await interaction.reply({ content: "Gestoppt und Channel verlassen.", ephemeral: false });
       return;
@@ -846,6 +902,8 @@ class BotRuntime {
           state.connection = null;
         }
         state.currentStationKey = null;
+        state.currentStationName = null;
+        this.updatePresence();
         await interaction.editReply(`Fehler beim Starten: ${err.message}`);
       }
     }
@@ -906,6 +964,9 @@ class BotRuntime {
         state.connection.destroy();
         state.connection = null;
       }
+      state.currentStationKey = null;
+      state.currentStationName = null;
+      state.currentMeta = null;
     }
 
     try {
