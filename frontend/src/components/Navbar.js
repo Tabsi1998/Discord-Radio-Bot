@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Radio, Menu, X } from 'lucide-react';
 
+const DISCORD_URL = 'https://discord.gg/UeRkfGS43R';
+
 const navLinks = [
   { label: 'Bots', href: '#bots' },
   { label: 'Features', href: '#features' },
