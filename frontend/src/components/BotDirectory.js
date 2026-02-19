@@ -63,9 +63,24 @@ function BotCard({ bot, index }) {
             onError={(e) => { e.target.style.display = 'none'; }} />
         </div>
         <div>
-          <h3 style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 16, fontWeight: 700, letterSpacing: '0.02em', margin: 0 }}>
-            {bot.name}
-          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h3 style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 16, fontWeight: 700, letterSpacing: '0.02em', margin: 0 }}>
+              {bot.name}
+            </h3>
+            {isPremiumBot && (
+              <span data-testid={`bot-tier-badge-${index}`} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800,
+                fontFamily: "'Orbitron', sans-serif", letterSpacing: '0.1em',
+                background: `${tierBadgeColors[bot.requiredTier] || '#FFB800'}15`,
+                color: tierBadgeColors[bot.requiredTier] || '#FFB800',
+                border: `1px solid ${tierBadgeColors[bot.requiredTier] || '#FFB800'}30`,
+              }}>
+                <Crown size={10} />
+                {bot.requiredTier === 'ultimate' ? 'ULTIMATE' : 'PRO'}
+              </span>
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
             <div style={{
               width: 8, height: 8, borderRadius: '50%',
