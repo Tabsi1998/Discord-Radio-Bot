@@ -6,22 +6,53 @@ prompt_nonempty() {
   local val=""
   while [[ -z "$val" ]]; do
     read -r -p "$label: " val
-    val="${val//[$'\t\r\n']}"
+    val="${val//$'\r'/}"
+    val="${val//$'\n'/}"
+    val="${val//$'\t'/}"
   done
   printf "%s" "$val"
 }
 
-prompt_yesno() {
+prompt_default() {
   local label="$1"
+  local def="$2"
+  local val
+  read -r -p "$label [$def]: " val
+  val="${val//$'\r'/}"
+  val="${val//$'\n'/}"
+  val="${val//$'\t'/}"
+  if [[ -z "$val" ]]; then
+    printf "%s" "$def"
+  else
+    printf "%s" "$val"
+  fi
+}
+
+prompt_int_range() {
+  local label="$1"
+  local def="$2"
+  local min="$3"
+  local max="$4"
+  local val
   while true; do
-    read -r -p "$label (y/n): " ans
-    ans="${ans,,}"
-    if [[ "$ans" == "y" || "$ans" == "yes" ]]; then return 0; fi
-    if [[ "$ans" == "n" || "$ans" == "no" ]]; then return 1; fi
+    val="$(prompt_default "$label" "$def")"
+    if [[ "$val" =~ ^[0-9]+$ ]] && (( val >= min && val <= max )); then
+      printf "%s" "$val"
+      return
+    fi
+    echo "Bitte Zahl zwischen $min und $max eingeben."
   done
 }
 
-echo "== Discord Radio Bot Installer (Ubuntu) =="
+write_env_line() {
+  local key="$1"
+  local value="$2"
+  value="${value//$'\r'/}"
+  value="${value//$'\n'/}"
+  printf '%s=%s\n' "$key" "$value" >> .env
+}
+
+echo "== Discord Radio Bot Installer (Ubuntu/Linux) =="
 
 ensure_sudo() {
   if [[ $EUID -eq 0 ]]; then
@@ -31,7 +62,7 @@ ensure_sudo() {
   if command -v sudo >/dev/null 2>&1; then
     SUDO="sudo"
   else
-    echo "sudo fehlt. Bitte als root ausführen." >&2
+    echo "sudo fehlt. Bitte als root ausfuehren." >&2
     exit 1
   fi
 }
@@ -46,7 +77,7 @@ install_docker() {
 
   local arch
   arch="$(dpkg --print-architecture)"
-  echo "deb [arch=$arch signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  echo "deb [arch=$arch signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" | \
     $SUDO tee /etc/apt/sources.list.d/docker.list >/dev/null
 
   $SUDO apt-get update
@@ -70,52 +101,48 @@ if ! docker info >/dev/null 2>&1; then
   DOCKER="$SUDO docker"
 fi
 
-token=$(prompt_nonempty "DISCORD_TOKEN")
-client_id=$(prompt_nonempty "CLIENT_ID")
-guild_id=$(prompt_nonempty "GUILD_ID")
+bot_count="$(prompt_int_range "Wie viele Bot-Accounts willst du konfigurieren" "4" 1 8)"
+web_port="$(prompt_int_range "Web-Port fuer Invite-Seite" "8080" 1 65535)"
+public_url="$(prompt_default "Oeffentliche URL (optional, z.B. https://bot.deinedomain.tld)" "")"
 
-cat > .env <<EOF
-DISCORD_TOKEN=$token
-CLIENT_ID=$client_id
-GUILD_ID=$guild_id
-EOF
+if [[ -n "$public_url" ]]; then
+  public_url="${public_url%%/}"
+fi
 
-stations_file="stations.json"
+: > .env
+write_env_line "REGISTER_COMMANDS_ON_BOOT" "1"
+write_env_line "WEB_PORT" "$web_port"
+write_env_line "WEB_BIND" "0.0.0.0"
+write_env_line "PUBLIC_WEB_URL" "$public_url"
 
-stations_json=""
+for ((i=1; i<=bot_count; i++)); do
+  echo ""
+  echo "--- Bot $i ---"
+  name="$(prompt_default "BOT_${i}_NAME" "Radio Bot $i")"
+  token="$(prompt_nonempty "BOT_${i}_TOKEN")"
+  client_id="$(prompt_nonempty "BOT_${i}_CLIENT_ID")"
+  perms="$(prompt_default "BOT_${i}_PERMISSIONS (leer = Discord Standard)" "")"
 
-default_key=""
-idx=1
-
-while true; do
-  name=$(prompt_nonempty "Station $idx - Name")
-  url=$(prompt_nonempty "Station $idx - URL")
-  key=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g')
-  if [[ -z "$key" ]]; then key="station$idx"; fi
-
-  if [[ -z "$default_key" ]]; then default_key="$key"; fi
-
-  stations_json+="    \"$key\": { \"name\": \"$name\", \"url\": \"$url\" },\n"
-
-  if ! prompt_yesno "Weitere Station hinzufügen"; then
-    break
-  fi
-  idx=$((idx+1))
+  write_env_line "BOT_${i}_NAME" "$name"
+  write_env_line "BOT_${i}_TOKEN" "$token"
+  write_env_line "BOT_${i}_CLIENT_ID" "$client_id"
+  write_env_line "BOT_${i}_PERMISSIONS" "$perms"
 
 done
 
-stations_json=$(printf "%b" "$stations_json")
-# remove trailing comma
-stations_json=$(echo "$stations_json" | sed '$s/},/}/')
-
-cat > "$stations_file" <<EOF
+if [[ ! -f stations.json ]]; then
+  cat > stations.json <<'EOF'
 {
-  "defaultStationKey": "$default_key",
-  "stations": {
-$stations_json
-  }
+  "defaultStationKey": null,
+  "stations": {},
+  "qualityPreset": "custom",
+  "locked": false,
+  "fallbackKeys": []
 }
 EOF
+fi
+
+mkdir -p logs
 
 echo "Starte Docker Compose..."
 $DOCKER compose up -d --build
@@ -123,4 +150,14 @@ $DOCKER compose up -d --build
 echo "Installiere Autostart (systemd)..."
 $SUDO bash ./install-systemd.sh
 
-echo "Fertig. Bot läuft in Docker und startet automatisch mit dem System."
+echo ""
+echo "Fertig."
+echo "Webseite: http://<server-ip>:$web_port"
+if [[ -n "$public_url" ]]; then
+  echo "Public URL (gesetzt): $public_url"
+fi
+echo ""
+echo "Stationsverwaltung (gefuhrt):"
+echo "  bash ./stations.sh"
+echo "Oder direkt:"
+echo "  bash ./stations.sh wizard"

@@ -1,51 +1,91 @@
 # radio-bot
 
-Discord 24/7 Radio Bot (Webstreams) mit Slash Commands.
+Discord Radio Bot fuer Ubuntu/Linux mit:
+- Multi-Bot Backend (z. B. 4 Bots in einem Prozess)
+- Invite-Webseite (`/`) fuer alle konfigurierten Bots
+- Stationsverwaltung nur ueber CLI (inkl. gefuehrtem Wizard)
 
-## One-Command Installation (Ubuntu Docker)
+## Architektur
+- 1 gemeinsames Backend (`src/index.js`)
+- N Bot-Accounts (`BOT_1_*`, `BOT_2_*`, ...)
+- 1 gemeinsame Webseite (`web/`) mit Invite-Links
+- 1 gemeinsame Stationsdatei (`stations.json`)
+
+Damit kannst du in einem Discord-Server mehrere deiner Bots parallel einladen.
+
+## Schnellstart (Ubuntu/Linux)
 ```bash
 bash ./install.sh
 ```
-Das Script fragt nach `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` sowie deinen Stationen (Name + URL) und startet danach automatisch:
 
-```
-docker compose up -d --build
+Das Setup fragt dich u. a. nach:
+- Anzahl Bot-Accounts
+- pro Bot: Name, Token, Client ID
+- Web-Port
+
+Danach:
+- startet Docker Compose
+- registriert globale Slash-Commands fuer alle Bots
+- installiert den Systemd-Autostart
+
+## Domain / Webseite
+Die Invite-Seite liegt auf `http://<server-ip>:<WEB_PORT>`.
+
+Mit Reverse-Proxy (z. B. Nginx/Caddy) kannst du sie auf eine Domain legen,
+z. B. `https://bot.deinedomain.tld`.
+
+Compose published standardmaessig:
+- `${WEB_PORT:-8080}:8080`
+
+## Bot-Konfiguration (.env)
+Beispiel:
+```env
+REGISTER_COMMANDS_ON_BOOT=1
+WEB_PORT=8080
+WEB_BIND=0.0.0.0
+
+BOT_1_NAME=Radio Bot 1
+BOT_1_TOKEN=...
+BOT_1_CLIENT_ID=...
+BOT_1_PERMISSIONS=
+
+BOT_2_NAME=Radio Bot 2
+BOT_2_TOKEN=...
+BOT_2_CLIENT_ID=...
+BOT_2_PERMISSIONS=
 ```
 
-## Update (Ubuntu)
+Legacy (Single-Bot) wird weiterhin unterstuetzt:
+- `DISCORD_TOKEN`
+- `CLIENT_ID`
+- optional `BOT_NAME`
+
+## Stationsverwaltung (CLI)
+Einfachster Weg (Docker-Wrapper):
 ```bash
-bash ./update.sh
+bash ./stations.sh
 ```
-Das Script holt Updates aus Git, bewahrt lokale Änderungen (z. B. `stations.json`) und baut den Container neu.
+Ohne Argument startet automatisch ein Wizard.
 
-## Autostart nach Server-Neustart (Ubuntu)
+Direkt:
 ```bash
-sudo bash ./install-systemd.sh
+bash ./stations.sh wizard
+bash ./stations.sh list
+bash ./stations.sh add "One World Radio" "https://tomorrowland.my105.ch/oneworldradio.mp3" oneworldradio
+bash ./stations.sh remove oneworldradio
+bash ./stations.sh rename oneworldradio "OWR"
+bash ./stations.sh set-default oneworldradio
+bash ./stations.sh quality high
+bash ./stations.sh fallback oneworldradio,lofi
+bash ./stations.sh fallback clear
 ```
-Das installiert einen Systemd-Service, der den Bot beim Boot startet.
 
-## One-Command Installation (Windows Docker)
-```powershell
-.\install.ps1
-```
-
-## Manuelle Docker-Installation
-1. `.env` befüllen (Token/IDs)
-2. `stations.json` anpassen
-3. Starten:
-
+Alternative ohne Docker-Wrapper:
 ```bash
-docker compose up -d --build
+npm run stations -- wizard
 ```
 
-## Lokaler Start (ohne Docker)
-1. `npm install`
-2. `.env` befüllen
-3. `stations.json` anpassen
-4. Slash Commands registrieren: `npm run deploy`
-5. Starten: `npm start`
-
-## Commands
+## Discord Commands (Playback only)
 - `/play [station]`
 - `/pause`
 - `/resume`
@@ -53,44 +93,27 @@ docker compose up -d --build
 - `/stations`
 - `/list [page]`
 - `/now`
-- `/addstation name url [key]`
-- `/removestation key`
-- `/setdefault key`
-- `/renamestation key name`
 - `/setvolume value`
 - `/status`
 - `/health`
-- `/backupstations`
-- `/importstations file`
-- `/quality preset`
-- `/lock on|off`
-- `/audit`
+
+## Multi-Bot Invite Workflow
+1. Erstelle mehrere Discord Applications (eine pro Bot).
+2. Trage jede Kombination aus Token + Client ID in `.env` ein.
+3. Starte den Stack neu: `docker compose up -d --build`.
+4. Oeffne die Webseite und nutze pro Bot den Invite-Button.
+
+## Docker
+```bash
+docker compose up -d --build
+```
+
+## Update
+```bash
+bash ./update.sh
+```
 
 ## Hinweise
-- Slash-Commands werden beim Container-Start automatisch registriert (wenn ENV gesetzt).
-- Manche Streams benötigen FFmpeg. Im Docker-Image ist FFmpeg enthalten.
-- Für beste Audioqualität wird nativer Opus genutzt (Dockerfile installiert Build-Dependencies).
-- `stations.json` wird bei `/addstation` und `/removestation` geschrieben (im Docker-Setup als RW Volume gemountet).
-- Logs liegen unter `./logs` (Docker Volume ist gemountet).
-
-## Audio-Qualität (optional)
-Standard: Der Stream wird direkt an Discord gegeben. Optional kannst du **FFmpeg-Transcoding** aktivieren:
-
-```env
-TRANSCODE=1
-TRANSCODE_MODE=opus   # opus oder pcm
-OPUS_BITRATE=192k
-OPUS_VBR=on
-OPUS_COMPRESSION=10
-OPUS_FRAME=20
-```
-
-Empfohlen: `TRANSCODE_MODE=opus` mit 48 kHz, Stereo, SOXR-Resampling.
-
-## Admin-Rechte (optional)
-In `.env` kannst du Admins festlegen:
-```
-ADMIN_USER_IDS=123,456
-ADMIN_ROLE_IDS=789,012
-```
-Wenn `ADMIN_ROLE_IDS` leer ist, dürfen alle Admin-Commands nutzen.
+- `stations.json` und `logs/` sind als Volumes gemountet.
+- Globale Slash-Commands koennen bis zu ~1 Stunde brauchen, bis sie ueberall sichtbar sind.
+- FFmpeg ist im Docker-Image enthalten.

@@ -11,6 +11,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
 COPY src ./src
+COPY web ./web
 COPY stations.json ./stations.json
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 

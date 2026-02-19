@@ -22,7 +22,7 @@ if ! command -v docker compose >/dev/null 2>&1; then
 fi
 
 echo "Hole Updates..."
-git pull
+git pull --rebase --autostash
 
 echo "Starte Docker Compose (Rebuild)..."
 docker compose up -d --build

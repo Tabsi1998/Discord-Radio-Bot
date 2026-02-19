@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Radio Bot Control</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-shape shape-a"></div>
+    <div class="bg-shape shape-b"></div>
+
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">Discord Radio Bot</p>
+        <h1>Invite Dashboard</h1>
+        <p class="subline">
+          Fuege einen oder mehrere Bot-Worker in deinen Server ein. Jeder Button ist ein eigener Bot.
+        </p>
+      </header>
+
+      <section class="health" id="healthBox">
+        <span class="dot"></span>
+        <span id="healthText">Lade Backend-Status...</span>
+      </section>
+
+      <section>
+        <h2>Bots</h2>
+        <div id="botGrid" class="bot-grid"></div>
+      </section>
+
+      <section>
+        <h2>Stations</h2>
+        <div id="stationsBox" class="stations-box">Lade Stations...</div>
+      </section>
+    </main>
+
+    <template id="botCardTemplate">
+      <article class="bot-card">
+        <div class="card-top">
+          <h3 class="bot-name"></h3>
+          <span class="badge">Invite</span>
+        </div>
+        <p class="bot-id"></p>
+        <ul class="stats">
+          <li><strong>Status:</strong> <span class="ready"></span></li>
+          <li><strong>Guilds:</strong> <span class="guilds"></span></li>
+          <li><strong>Uptime:</strong> <span class="uptime"></span></li>
+          <li><strong>User:</strong> <span class="user"></span></li>
+        </ul>
+        <div class="card-actions">
+          <a class="invite-btn" target="_blank" rel="noopener noreferrer">Bot einladen</a>
+          <button class="copy-btn" type="button">Link kopieren</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

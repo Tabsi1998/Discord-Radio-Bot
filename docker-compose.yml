@@ -4,6 +4,8 @@ services:
     container_name: radio-bot
     env_file:
       - .env
+    ports:
+      - "${WEB_PORT:-8080}:8080"
     volumes:
       - ./stations.json:/app/stations.json
       - ./logs:/app/logs

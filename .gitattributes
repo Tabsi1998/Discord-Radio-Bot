@@ -1,0 +1,9 @@
+*.sh text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.yml text eol=lf
+*.service text eol=lf
+Dockerfile text eol=lf
+README.md text eol=lf

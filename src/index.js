@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { spawn } from "node:child_process";
-import { AttachmentBuilder, Client, GatewayIntentBits } from "discord.js";
+import { Client, GatewayIntentBits } from "discord.js";
 import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
@@ -16,16 +17,18 @@ import {
   StreamType
 } from "@discordjs/voice";
 import dotenv from "dotenv";
+import { loadStations } from "./stations-store.js";
+import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const stationsPath = path.resolve(__dirname, "..", "stations.json");
-const logsDir = path.resolve(__dirname, "..", "logs");
+const rootDir = path.resolve(__dirname, "..");
+const webDir = path.join(rootDir, "web");
+const logsDir = path.join(rootDir, "logs");
 const logFile = path.join(logsDir, "bot.log");
 const maxLogSizeBytes = Number(process.env.LOG_MAX_MB || "5") * 1024 * 1024;
-const auditFile = path.join(logsDir, "audit.log");
-const startTime = Date.now();
+const appStartTime = Date.now();
 
 function ensureLogsDir() {
   if (!fs.existsSync(logsDir)) {
@@ -42,7 +45,7 @@ function rotateLogIfNeeded() {
     const rotated = path.join(logsDir, `bot-${stamp}.log`);
     fs.renameSync(logFile, rotated);
   } catch {
-    // ignore log rotation errors
+    // ignore
   }
 }
 
@@ -54,106 +57,63 @@ function log(level, message) {
   } else {
     console.log(line);
   }
+
   try {
     ensureLogsDir();
     rotateLogIfNeeded();
     fs.appendFileSync(logFile, `${line}\n`);
   } catch {
-    // ignore logging errors
+    // ignore
   }
 }
 
-const auditBuffer = [];
-function audit(message) {
-  const ts = new Date().toISOString();
-  const line = `[${ts}] ${message}`;
-  auditBuffer.push(line);
-  if (auditBuffer.length > 200) auditBuffer.shift();
-  try {
-    ensureLogsDir();
-    fs.appendFileSync(auditFile, `${line}\n`);
-  } catch {
-    // ignore audit errors
-  }
+function clampVolume(value) {
+  return Math.max(0, Math.min(1, value / 100));
 }
 
-function loadStations() {
-  if (!fs.existsSync(stationsPath)) {
-    return { defaultStationKey: null, stations: {}, locked: false, qualityPreset: "custom" };
+function formatStationPage(stations, pageInput, perPage = 10) {
+  const entries = Object.entries(stations.stations);
+  if (entries.length === 0) {
+    return { page: 1, totalPages: 1, content: "Keine Stationen konfiguriert." };
   }
-  const data = JSON.parse(fs.readFileSync(stationsPath, "utf8"));
-  if (!data || typeof data !== "object" || !data.stations || typeof data.stations !== "object") {
-    return { defaultStationKey: null, stations: {}, locked: false, qualityPreset: "custom" };
-  }
-  if (typeof data.locked !== "boolean") data.locked = false;
-  if (!data.qualityPreset) data.qualityPreset = "custom";
-  return data;
+
+  const totalPages = Math.max(1, Math.ceil(entries.length / perPage));
+  let page = Number(pageInput) || 1;
+  if (page < 1) page = 1;
+  if (page > totalPages) page = totalPages;
+
+  const start = (page - 1) * perPage;
+  const slice = entries.slice(start, start + perPage);
+  const lines = slice.map(([key, value]) => `- ${value.name} (key: ${key})`);
+
+  return {
+    page,
+    totalPages,
+    content: `Seite ${page}/${totalPages}\n${lines.join("\n")}`
+  };
 }
 
-function saveStations(data) {
-  fs.writeFileSync(stationsPath, JSON.stringify(data, null, 2));
-}
-
-let stations = loadStations();
-
-const { DISCORD_TOKEN } = process.env;
-if (!DISCORD_TOKEN) {
-  log("ERROR", "Fehlende ENV Variable: DISCORD_TOKEN");
-  process.exit(1);
-}
-
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
-});
-
-const guildState = new Map();
-
-function getState(guildId) {
-  if (!guildState.has(guildId)) {
-    const player = createAudioPlayer();
-    const state = {
-      player,
-      connection: null,
-      currentStationKey: null,
-      currentMeta: null,
-      lastChannelId: null,
-      volume: 100,
-      currentProcess: null,
-      lastStreamErrorAt: null,
-      reconnectCount: 0,
-      lastReconnectAt: null,
-      reconnectAttempts: 0,
-      reconnectTimer: null
-    };
-    player.on(AudioPlayerStatus.Idle, async () => {
-      if (!state.currentStationKey) return;
-      const current = stations.stations[state.currentStationKey];
-      if (!current) return;
-      try {
-        if (state.currentProcess) {
-          state.currentProcess.kill("SIGKILL");
-          state.currentProcess = null;
-        }
-        const { resource, process } = await createResource(current.url, state.volume);
-        state.currentProcess = process;
-        if (process) {
-          process.on("close", () => {
-            if (state.currentProcess === process) {
-              state.currentProcess = null;
-            }
-          });
-        }
-        player.play(resource);
-      } catch {
-        // ignore; next /play will retry
-      }
-    });
-    player.on("error", () => {
-      // keep running; next idle handler will retry if possible
-    });
-    guildState.set(guildId, state);
+function resolveStation(stations, key) {
+  if (!key) {
+    return stations.stations[stations.defaultStationKey]
+      ? stations.defaultStationKey
+      : Object.keys(stations.stations)[0] || null;
   }
-  return guildState.get(guildId);
+  return stations.stations[key] ? key : null;
+}
+
+function getFallbackKey(stations, currentKey) {
+  if (Array.isArray(stations.fallbackKeys) && stations.fallbackKeys.length) {
+    const next = stations.fallbackKeys.find((k) => stations.stations[k] && k !== currentKey);
+    if (next) return next;
+  }
+
+  if (stations.defaultStationKey && stations.defaultStationKey !== currentKey) {
+    return stations.defaultStationKey;
+  }
+
+  const keys = Object.keys(stations.stations);
+  return keys.find((k) => k !== currentKey) || null;
 }
 
 async function fetchStreamInfo(url) {
@@ -166,8 +126,10 @@ async function fetchStreamInfo(url) {
       },
       redirect: "follow"
     });
+
     const icyName = res.headers.get("icy-name");
     const icyDesc = res.headers.get("icy-description");
+
     if (res.body) {
       try {
         await res.body.cancel();
@@ -175,44 +137,38 @@ async function fetchStreamInfo(url) {
         // ignore
       }
     }
+
     return { name: icyName || null, description: icyDesc || null };
   } catch {
     return { name: null, description: null };
   }
 }
 
-function resolveStation(key) {
-  if (!key) return stations.stations[stations.defaultStationKey] ? stations.defaultStationKey : Object.keys(stations.stations)[0];
-  return stations.stations[key] ? key : null;
-}
+async function createResource(url, volume, qualityPreset, botName) {
+  const preset = qualityPreset || "custom";
+  const presetBitrate =
+    preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
 
-function getFallbackKey(currentKey) {
-  if (stations.fallbackKeys && Array.isArray(stations.fallbackKeys)) {
-    const next = stations.fallbackKeys.find((k) => stations.stations[k] && k !== currentKey);
-    if (next) return next;
-  }
-  if (stations.defaultStationKey && stations.defaultStationKey !== currentKey) {
-    return stations.defaultStationKey;
-  }
-  const keys = Object.keys(stations.stations);
-  return keys.find((k) => k !== currentKey) || null;
-}
-
-async function createResource(url, volume) {
-  const preset = stations.qualityPreset || "custom";
-  const presetBitrate = preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
   const transcode = String(process.env.TRANSCODE || "0") === "1" || preset !== "custom";
   if (transcode) {
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
-      "-loglevel", "warning",
-      "-reconnect", "1",
-      "-reconnect_streamed", "1",
-      "-reconnect_delay_max", "5",
-      "-i", url,
-      "-ar", "48000",
-      "-ac", "2",
-      "-af", "aresample=resampler=soxr"
+      "-loglevel",
+      "warning",
+      "-reconnect",
+      "1",
+      "-reconnect_streamed",
+      "1",
+      "-reconnect_delay_max",
+      "5",
+      "-i",
+      url,
+      "-ar",
+      "48000",
+      "-ac",
+      "2",
+      "-af",
+      "aresample=resampler=soxr"
     ];
 
     let inputType = StreamType.Raw;
@@ -221,35 +177,40 @@ async function createResource(url, volume) {
       const vbr = String(process.env.OPUS_VBR || "on");
       const compression = String(process.env.OPUS_COMPRESSION || "10");
       const frame = String(process.env.OPUS_FRAME || "20");
+
       args.push(
-        "-c:a", "libopus",
-        "-b:a", bitrate,
-        "-vbr", vbr,
-        "-compression_level", compression,
-        "-frame_duration", frame,
-        "-f", "opus",
+        "-c:a",
+        "libopus",
+        "-b:a",
+        bitrate,
+        "-vbr",
+        vbr,
+        "-compression_level",
+        compression,
+        "-frame_duration",
+        frame,
+        "-f",
+        "opus",
         "pipe:1"
       );
       inputType = StreamType.Opus;
     } else {
-      args.push(
-        "-f", "s16le",
-        "-acodec", "pcm_s16le",
-        "pipe:1"
-      );
+      args.push("-f", "s16le", "-acodec", "pcm_s16le", "pipe:1");
       inputType = StreamType.Raw;
     }
 
-    log("INFO", `ffmpeg ${args.join(" ")}`);
+    log("INFO", `[${botName}] ffmpeg ${args.join(" ")}`);
     const ffmpeg = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
     ffmpeg.stderr.on("data", (chunk) => {
       const line = chunk.toString().trim();
-      if (line) log("INFO", `ffmpeg: ${line}`);
+      if (line) log("INFO", `[${botName}] ffmpeg: ${line}`);
     });
+
     const resource = createAudioResource(ffmpeg.stdout, { inputType, inlineVolume: true });
     if (resource.volume) {
-      resource.volume.setVolume(Math.max(0, Math.min(1, volume / 100)));
+      resource.volume.setVolume(clampVolume(volume));
     }
+
     return { resource, process: ffmpeg };
   }
 
@@ -257,474 +218,676 @@ async function createResource(url, volume) {
   if (!res.ok || !res.body) {
     throw new Error(`Stream konnte nicht geladen werden: ${res.status}`);
   }
+
   const stream = Readable.fromWeb(res.body);
   const probe = await demuxProbe(stream);
   const resource = createAudioResource(probe.stream, { inputType: probe.type, inlineVolume: true });
   if (resource.volume) {
-    resource.volume.setVolume(Math.max(0, Math.min(1, volume / 100)));
+    resource.volume.setVolume(clampVolume(volume));
   }
+
   return { resource, process: null };
 }
 
-async function connectToVoice(interaction) {
-  const member = interaction.member;
-  const channel = member?.voice?.channel;
-  if (!channel) {
-    await interaction.reply({ content: "Du musst in einem Voice-Channel sein.", ephemeral: true });
-    return null;
+class BotRuntime {
+  constructor(config) {
+    this.config = config;
+    this.client = new Client({
+      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
+    });
+    this.guildState = new Map();
+    this.startedAt = Date.now();
+    this.readyAt = null;
+    this.startError = null;
+
+    this.client.once("ready", () => {
+      this.readyAt = Date.now();
+      log("INFO", `[${this.config.name}] Eingeloggt als ${this.client.user.tag}`);
+    });
+
+    this.client.on("interactionCreate", (interaction) => {
+      this.handleInteraction(interaction).catch((err) => {
+        log("ERROR", `[${this.config.name}] interaction error: ${err?.stack || err}`);
+      });
+    });
   }
 
-  const state = getState(interaction.guildId);
-  state.lastChannelId = channel.id;
+  getState(guildId) {
+    if (!this.guildState.has(guildId)) {
+      const player = createAudioPlayer();
+      const state = {
+        player,
+        connection: null,
+        currentStationKey: null,
+        currentMeta: null,
+        lastChannelId: null,
+        volume: 100,
+        currentProcess: null,
+        lastStreamErrorAt: null,
+        reconnectCount: 0,
+        lastReconnectAt: null,
+        reconnectAttempts: 0,
+        reconnectTimer: null,
+        shouldReconnect: false
+      };
 
-  if (state.connection) {
-    return state.connection;
-  }
+      player.on(AudioPlayerStatus.Idle, () => {
+        this.restartCurrentStation(state).catch(() => {
+          // ignore idle retry errors
+        });
+      });
 
-  const connection = joinVoiceChannel({
-    channelId: channel.id,
-    guildId: channel.guild.id,
-    adapterCreator: channel.guild.voiceAdapterCreator
-  });
+      player.on("error", (err) => {
+        state.lastStreamErrorAt = new Date().toISOString();
+        log("ERROR", `[${this.config.name}] AudioPlayer error: ${err?.message || err}`);
+      });
 
-  try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
-  } catch {
-    connection.destroy();
-    await interaction.reply({ content: "Konnte dem Voice-Channel nicht beitreten.", ephemeral: true });
-    return null;
-  }
-
-  connection.subscribe(state.player);
-  state.connection = connection;
-  state.reconnectAttempts = 0;
-  if (state.reconnectTimer) {
-    clearTimeout(state.reconnectTimer);
-    state.reconnectTimer = null;
-  }
-  state.lastReconnectAt = new Date().toISOString();
-
-  connection.on(VoiceConnectionStatus.Disconnected, async () => {
-    scheduleReconnect(interaction.guildId);
-  });
-  connection.on("error", (err) => {
-    log("ERROR", `VoiceConnection error: ${err?.message || err}`);
-    scheduleReconnect(interaction.guildId);
-  });
-
-  return connection;
-}
-
-async function tryReconnect(guildId) {
-  const state = getState(guildId);
-  if (!state.lastChannelId) return;
-  const guild = client.guilds.cache.get(guildId);
-  if (!guild) return;
-  const channel = await guild.channels.fetch(state.lastChannelId).catch(() => null);
-  if (!channel || !channel.isVoiceBased()) return;
-
-  const connection = joinVoiceChannel({
-    channelId: channel.id,
-    guildId: guild.id,
-    adapterCreator: guild.voiceAdapterCreator
-  });
-
-  try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
-  } catch {
-    connection.destroy();
-    return;
-  }
-
-  connection.subscribe(state.player);
-  state.connection = connection;
-  state.reconnectAttempts = 0;
-  state.reconnectTimer = null;
-  connection.on("error", (err) => {
-    log("ERROR", `VoiceConnection error: ${err?.message || err}`);
-    scheduleReconnect(guildId);
-  });
-}
-
-function scheduleReconnect(guildId) {
-  const state = getState(guildId);
-  if (state.reconnectTimer) return;
-  const attempt = state.reconnectAttempts + 1;
-  state.reconnectAttempts = attempt;
-  const delay = Math.min(30_000, 1_000 * Math.pow(2, attempt));
-  log("INFO", `Reconnecting in ${delay}ms (attempt ${attempt})`);
-  state.reconnectTimer = setTimeout(async () => {
-    state.reconnectTimer = null;
-    await tryReconnect(guildId);
-    if (!state.connection) {
-      scheduleReconnect(guildId);
+      this.guildState.set(guildId, state);
     }
-  }, delay);
-  state.reconnectCount += 1;
-  state.lastReconnectAt = new Date().toISOString();
-}
 
-client.once("ready", () => {
-  log("INFO", `Eingeloggt als ${client.user.tag}`);
-});
+    return this.guildState.get(guildId);
+  }
 
-client.on("interactionCreate", async (interaction) => {
-  if (interaction.isAutocomplete()) {
-    const focused = interaction.options.getFocused(true);
-    if (focused.name === "station" || focused.name === "key") {
-      const query = String(focused.value || "").toLowerCase();
-      const items = Object.entries(stations.stations)
-        .map(([key, value]) => ({ key, name: value.name }))
-        .filter((item) => item.key.toLowerCase().includes(query) || item.name.toLowerCase().includes(query))
-        .slice(0, 25)
-        .map((item) => ({ name: `${item.name} (${item.key})`, value: item.key }));
-      await interaction.respond(items);
-      return;
+  clearReconnectTimer(state) {
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
     }
   }
 
-  if (!interaction.isChatInputCommand()) return;
-
-  const state = getState(interaction.guildId);
-
-  function isAdmin() {
-    const adminUsers = (process.env.ADMIN_USER_IDS || "").split(",").map((v) => v.trim()).filter(Boolean);
-    const adminRoles = (process.env.ADMIN_ROLE_IDS || "").split(",").map((v) => v.trim()).filter(Boolean);
-    if (adminUsers.includes(interaction.user.id)) return true;
-    if (!adminRoles.length) return true;
-    const roles = interaction.member?.roles;
-    const roleIds = roles?.cache ? Array.from(roles.cache.keys()) : roles?.ids || [];
-    return adminRoles.some((id) => roleIds.includes(id));
-  }
-
-  function requireAdmin() {
-    if (isAdmin()) return true;
-    interaction.reply({ content: "Keine Rechte für diesen Command.", ephemeral: true });
-    return false;
-  }
-
-  if (interaction.commandName === "stations") {
-    const list = Object.entries(stations.stations)
-      .map(([key, value]) => `• ${value.name} (key: ${key})`)
-      .join("\n");
-    await interaction.reply({ content: list || "Keine Stationen konfiguriert.", ephemeral: true });
-    return;
-  }
-
-  if (interaction.commandName === "list") {
-    const perPage = 10;
-    const entries = Object.entries(stations.stations);
-    if (entries.length === 0) {
-      await interaction.reply({ content: "Keine Stationen konfiguriert.", ephemeral: true });
-      return;
-    }
-    const totalPages = Math.max(1, Math.ceil(entries.length / perPage));
-    let page = interaction.options.getInteger("page") || 1;
-    if (page < 1) page = 1;
-    if (page > totalPages) page = totalPages;
-    const start = (page - 1) * perPage;
-    const slice = entries.slice(start, start + perPage);
-    const list = slice.map(([key, value]) => `• ${value.name} (key: ${key})`).join("\n");
-    await interaction.reply({ content: `Seite ${page}/${totalPages}\n${list}`, ephemeral: true });
-    return;
-  }
-
-  if (interaction.commandName === "now") {
-    if (!state.currentStationKey) {
-      await interaction.reply({ content: "Gerade läuft nichts.", ephemeral: true });
-      return;
-    }
-    const current = stations.stations[state.currentStationKey];
-    const meta = state.currentMeta;
-    const metaLine = meta && (meta.name || meta.description)
-      ? `\nMeta: ${meta.name || "-"}${meta.description ? ` | ${meta.description}` : ""}`
-      : "";
-    await interaction.reply({ content: `Aktuell: ${current.name}\nURL: ${current.url}${metaLine}`, ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "pause") {
-    state.player.pause(true);
-    await interaction.reply({ content: "Pausiert.", ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "resume") {
-    state.player.unpause();
-    await interaction.reply({ content: "Weiter geht's.", ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "stop") {
-    state.player.stop();
+  clearCurrentProcess(state) {
     if (state.currentProcess) {
       state.currentProcess.kill("SIGKILL");
       state.currentProcess = null;
     }
+  }
+
+  trackProcessLifecycle(state, process) {
+    if (!process) return;
+    process.on("close", () => {
+      if (state.currentProcess === process) {
+        state.currentProcess = null;
+      }
+    });
+  }
+
+  async playStation(state, stations, key) {
+    const station = stations.stations[key];
+    if (!station) throw new Error("Station nicht gefunden.");
+
+    this.clearCurrentProcess(state);
+    const { resource, process } = await createResource(
+      station.url,
+      state.volume,
+      stations.qualityPreset,
+      this.config.name
+    );
+
+    state.currentProcess = process;
+    this.trackProcessLifecycle(state, process);
+
+    state.player.play(resource);
+    state.currentStationKey = key;
+    state.currentMeta = null;
+
+    fetchStreamInfo(station.url)
+      .then((meta) => {
+        if (state.currentStationKey === key) {
+          state.currentMeta = meta;
+        }
+      })
+      .catch(() => {
+        // ignore metadata lookup errors
+      });
+  }
+
+  async restartCurrentStation(state) {
+    if (!state.shouldReconnect || !state.currentStationKey) return;
+
+    const stations = loadStations();
+    const key = state.currentStationKey;
+    if (!stations.stations[key]) {
+      state.currentStationKey = null;
+      state.currentMeta = null;
+      return;
+    }
+
+    try {
+      await this.playStation(state, stations, key);
+    } catch (err) {
+      state.lastStreamErrorAt = new Date().toISOString();
+      log("ERROR", `[${this.config.name}] Auto-restart error: ${err.message}`);
+    }
+  }
+
+  attachConnectionHandlers(guildId, connection) {
+    const state = this.getState(guildId);
+
+    const markDisconnected = () => {
+      if (state.connection === connection) {
+        state.connection = null;
+      }
+    };
+
+    connection.on(VoiceConnectionStatus.Disconnected, () => {
+      markDisconnected();
+      if (!state.shouldReconnect) return;
+      this.scheduleReconnect(guildId);
+    });
+
+    connection.on(VoiceConnectionStatus.Destroyed, () => {
+      markDisconnected();
+    });
+
+    connection.on("error", (err) => {
+      log("ERROR", `[${this.config.name}] VoiceConnection error: ${err?.message || err}`);
+      markDisconnected();
+      if (!state.shouldReconnect) return;
+      this.scheduleReconnect(guildId);
+    });
+  }
+
+  async connectToVoice(interaction) {
+    const member = interaction.member;
+    const channel = member?.voice?.channel;
+    if (!channel) {
+      await interaction.reply({ content: "Du musst in einem Voice-Channel sein.", ephemeral: true });
+      return null;
+    }
+
+    const guildId = interaction.guildId;
+    const state = this.getState(guildId);
+    state.lastChannelId = channel.id;
+
+    if (state.connection) {
+      const currentChannelId = state.connection.joinConfig?.channelId;
+      if (currentChannelId === channel.id) {
+        return state.connection;
+      }
+
+      state.shouldReconnect = false;
+      this.clearReconnectTimer(state);
+      state.connection.destroy();
+      state.connection = null;
+    }
+
+    const connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId: channel.guild.id,
+      adapterCreator: channel.guild.voiceAdapterCreator
+    });
+
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    } catch {
+      connection.destroy();
+      await interaction.reply({ content: "Konnte dem Voice-Channel nicht beitreten.", ephemeral: true });
+      return null;
+    }
+
+    connection.subscribe(state.player);
+    state.connection = connection;
+    state.reconnectAttempts = 0;
+    state.lastReconnectAt = new Date().toISOString();
+    this.clearReconnectTimer(state);
+
+    this.attachConnectionHandlers(guildId, connection);
+    return connection;
+  }
+
+  async tryReconnect(guildId) {
+    const state = this.getState(guildId);
+    if (!state.shouldReconnect || !state.lastChannelId) return;
+
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return;
+
+    const channel = await guild.channels.fetch(state.lastChannelId).catch(() => null);
+    if (!channel || !channel.isVoiceBased()) return;
+
     if (state.connection) {
       state.connection.destroy();
       state.connection = null;
     }
-    state.currentStationKey = null;
-    await interaction.reply({ content: "Gestoppt und Channel verlassen.", ephemeral: false });
-    return;
-  }
 
-  if (interaction.commandName === "addstation") {
-    if (stations.locked) {
-      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
-      return;
-    }
-    if (!requireAdmin()) return;
-    const name = interaction.options.getString("name", true).trim();
-    const url = interaction.options.getString("url", true).trim();
-    let key = interaction.options.getString("key", false);
-    if (key) {
-      key = key.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-    } else {
-      key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-    }
-    if (!key) {
-      await interaction.reply({ content: "Ungültiger Key.", ephemeral: true });
-      return;
-    }
-    if (stations.stations[key]) {
-      await interaction.reply({ content: "Key existiert bereits.", ephemeral: true });
-      return;
-    }
-    stations.stations[key] = { name, url };
-    if (!stations.defaultStationKey) {
-      stations.defaultStationKey = key;
-    }
-    saveStations(stations);
-    audit(`addstation by ${interaction.user.tag}: ${key} (${url})`);
-    await interaction.reply({ content: `Station hinzugefügt: ${name} (key: ${key})`, ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "setdefault") {
-    if (stations.locked) {
-      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
-      return;
-    }
-    if (!requireAdmin()) return;
-    const key = interaction.options.getString("key", true);
-    if (!stations.stations[key]) {
-      await interaction.reply({ content: "Station nicht gefunden.", ephemeral: true });
-      return;
-    }
-    stations.defaultStationKey = key;
-    saveStations(stations);
-    audit(`setdefault by ${interaction.user.tag}: ${key}`);
-    await interaction.reply({ content: `Default gesetzt: ${key}`, ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "renamestation") {
-    if (stations.locked) {
-      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
-      return;
-    }
-    if (!requireAdmin()) return;
-    const key = interaction.options.getString("key", true);
-    const name = interaction.options.getString("name", true).trim();
-    if (!stations.stations[key]) {
-      await interaction.reply({ content: "Station nicht gefunden.", ephemeral: true });
-      return;
-    }
-    stations.stations[key].name = name;
-    saveStations(stations);
-    audit(`renamestation by ${interaction.user.tag}: ${key} -> ${name}`);
-    await interaction.reply({ content: `Station umbenannt: ${key} -> ${name}`, ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "removestation") {
-    if (stations.locked) {
-      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
-      return;
-    }
-    if (!requireAdmin()) return;
-    const key = interaction.options.getString("key", true);
-    if (!stations.stations[key]) {
-      await interaction.reply({ content: "Station nicht gefunden.", ephemeral: true });
-      return;
-    }
-    delete stations.stations[key];
-    if (stations.defaultStationKey === key) {
-      stations.defaultStationKey = Object.keys(stations.stations)[0] || null;
-    }
-    if (state.currentStationKey === key) {
-      state.player.stop();
-      state.currentStationKey = null;
-    }
-    saveStations(stations);
-    audit(`removestation by ${interaction.user.tag}: ${key}`);
-    await interaction.reply({ content: `Station entfernt: ${key}`, ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "setvolume") {
-    const value = interaction.options.getInteger("value", true);
-    if (value < 0 || value > 100) {
-      await interaction.reply({ content: "Wert muss zwischen 0 und 100 liegen.", ephemeral: true });
-      return;
-    }
-    state.volume = value;
-    const resource = state.player.state.resource;
-    if (resource && resource.volume) {
-      resource.volume.setVolume(Math.max(0, Math.min(1, value / 100)));
-    }
-    await interaction.reply({ content: `Lautstärke gesetzt: ${value}`, ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "quality") {
-    if (!requireAdmin()) return;
-    const preset = interaction.options.getString("preset", true);
-    stations.qualityPreset = preset;
-    saveStations(stations);
-    audit(`quality by ${interaction.user.tag}: ${preset}`);
-    await interaction.reply({ content: `Quality preset gesetzt: ${preset}`, ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "lock") {
-    if (!requireAdmin()) return;
-    const mode = interaction.options.getString("mode", true);
-    stations.locked = mode === "on";
-    saveStations(stations);
-    audit(`lock by ${interaction.user.tag}: ${mode}`);
-    await interaction.reply({ content: `Lock: ${mode}`, ephemeral: false });
-    return;
-  }
-
-  if (interaction.commandName === "audit") {
-    const lines = auditBuffer.slice(-10).join("\n") || "Keine Einträge.";
-    await interaction.reply({ content: lines, ephemeral: true });
-    return;
-  }
-
-  if (interaction.commandName === "health") {
-    const content = [
-      `Letzter Stream-Fehler: ${state.lastStreamErrorAt || "-"}`,
-      `Reconnects: ${state.reconnectCount}`,
-      `Letzter Reconnect: ${state.lastReconnectAt || "-"}`
-    ].join("\n");
-    await interaction.reply({ content, ephemeral: true });
-    return;
-  }
-
-  if (interaction.commandName === "backupstations") {
-    if (!requireAdmin()) return;
-    const data = fs.readFileSync(stationsPath);
-    const attachment = new AttachmentBuilder(data, { name: "stations.json" });
-    await interaction.reply({ content: "Backup:", files: [attachment], ephemeral: true });
-    return;
-  }
-
-  if (interaction.commandName === "importstations") {
-    if (stations.locked) {
-      await interaction.reply({ content: "Stations sind gesperrt.", ephemeral: true });
-      return;
-    }
-    if (!requireAdmin()) return;
-    const file = interaction.options.getAttachment("file", true);
-    try {
-      const res = await fetch(file.url);
-      const json = await res.json();
-      if (!json || typeof json !== "object" || !json.stations || typeof json.stations !== "object") {
-        throw new Error("Ungültiges JSON");
-      }
-      stations = {
-        defaultStationKey: json.defaultStationKey || Object.keys(json.stations)[0] || null,
-        stations: json.stations,
-        locked: Boolean(json.locked),
-        qualityPreset: json.qualityPreset || "custom"
-      };
-      saveStations(stations);
-      audit(`importstations by ${interaction.user.tag}`);
-      await interaction.reply({ content: "Stations importiert.", ephemeral: false });
-    } catch (err) {
-      await interaction.reply({ content: `Import fehlgeschlagen: ${err.message}`, ephemeral: true });
-    }
-    return;
-  }
-
-  if (interaction.commandName === "status") {
-    const connected = state.connection ? "ja" : "nein";
-    const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || "-";
-    const uptimeSec = Math.floor((Date.now() - startTime) / 1000);
-    const load = os.loadavg().map((v) => v.toFixed(2)).join(", ");
-    const mem = `${Math.round(process.memoryUsage().rss / (1024 * 1024))}MB`;
-    const station = state.currentStationKey ? `${state.currentStationKey}` : "-";
-    const content = [
-      `Verbunden: ${connected}`,
-      `Channel: ${channelId}`,
-      `Station: ${station}`,
-      `Uptime: ${uptimeSec}s`,
-      `Load: ${load}`,
-      `RAM: ${mem}`
-    ].join("\n");
-    await interaction.reply({ content, ephemeral: true });
-    return;
-  }
-
-  if (interaction.commandName === "play") {
-    const key = resolveStation(interaction.options.getString("station"));
-    if (!key) {
-      await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
-      return;
-    }
-
-    const station = stations.stations[key];
-    const connection = await connectToVoice(interaction);
-    if (!connection) return;
-
-    await interaction.deferReply();
+    const connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId: guild.id,
+      adapterCreator: guild.voiceAdapterCreator
+    });
 
     try {
-      if (state.currentProcess) {
-        state.currentProcess.kill("SIGKILL");
-        state.currentProcess = null;
+      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    } catch {
+      connection.destroy();
+      return;
+    }
+
+    connection.subscribe(state.player);
+    state.connection = connection;
+    state.reconnectAttempts = 0;
+    state.lastReconnectAt = new Date().toISOString();
+    this.clearReconnectTimer(state);
+    this.attachConnectionHandlers(guildId, connection);
+
+    if (state.player.state.status === AudioPlayerStatus.Idle) {
+      await this.restartCurrentStation(state);
+    }
+  }
+
+  scheduleReconnect(guildId) {
+    const state = this.getState(guildId);
+    if (!state.shouldReconnect || !state.lastChannelId) return;
+    if (state.reconnectTimer) return;
+
+    const attempt = state.reconnectAttempts + 1;
+    state.reconnectAttempts = attempt;
+    const delay = Math.min(30_000, 1_000 * Math.pow(2, attempt));
+
+    log("INFO", `[${this.config.name}] Reconnecting in ${delay}ms (attempt ${attempt})`);
+    state.reconnectTimer = setTimeout(async () => {
+      state.reconnectTimer = null;
+      if (!state.shouldReconnect) return;
+
+      await this.tryReconnect(guildId);
+      if (state.shouldReconnect && !state.connection) {
+        this.scheduleReconnect(guildId);
       }
-      const { resource, process } = await createResource(station.url, state.volume);
-      state.currentProcess = process;
-      if (process) {
-        process.on("close", () => {
-          if (state.currentProcess === process) {
-            state.currentProcess = null;
-          }
-        });
+    }, delay);
+
+    state.reconnectCount += 1;
+    state.lastReconnectAt = new Date().toISOString();
+  }
+
+  async handleAutocomplete(interaction) {
+    const stations = loadStations();
+    const focused = interaction.options.getFocused(true);
+
+    if (focused.name !== "station") {
+      await interaction.respond([]);
+      return;
+    }
+
+    const query = String(focused.value || "").toLowerCase();
+    const items = Object.entries(stations.stations)
+      .map(([key, value]) => ({ key, name: value.name }))
+      .filter((item) => item.key.toLowerCase().includes(query) || item.name.toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((item) => ({ name: `${item.name} (${item.key})`, value: item.key }));
+
+    await interaction.respond(items);
+  }
+
+  async handleInteraction(interaction) {
+    if (interaction.isAutocomplete()) {
+      await this.handleAutocomplete(interaction);
+      return;
+    }
+
+    if (!interaction.isChatInputCommand()) return;
+
+    if (!interaction.guildId) {
+      await interaction.reply({ content: "Dieser Bot funktioniert nur auf Servern.", ephemeral: true });
+      return;
+    }
+
+    const stations = loadStations();
+    const state = this.getState(interaction.guildId);
+
+    if (interaction.commandName === "stations") {
+      const result = formatStationPage(stations, 1, 15);
+      await interaction.reply({ content: result.content, ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "list") {
+      const result = formatStationPage(stations, interaction.options.getInteger("page") || 1, 10);
+      await interaction.reply({ content: result.content, ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "now") {
+      if (!state.currentStationKey) {
+        await interaction.reply({ content: "Gerade laeuft nichts.", ephemeral: true });
+        return;
       }
-      state.player.play(resource);
-      state.currentStationKey = key;
-      state.currentMeta = null;
-      fetchStreamInfo(station.url).then((meta) => {
-        state.currentMeta = meta;
+
+      const current = stations.stations[state.currentStationKey];
+      if (!current) {
+        await interaction.reply({ content: "Aktuelle Station wurde entfernt.", ephemeral: true });
+        return;
+      }
+
+      const meta = state.currentMeta;
+      const metaLine =
+        meta && (meta.name || meta.description)
+          ? `\nMeta: ${meta.name || "-"}${meta.description ? ` | ${meta.description}` : ""}`
+          : "";
+
+      await interaction.reply({
+        content: `Aktuell: ${current.name}\nURL: ${current.url}${metaLine}`,
+        ephemeral: false
       });
-      await interaction.editReply(`Starte: ${station.name}`);
-    } catch (err) {
-      log("ERROR", `Play error: ${err.message}`);
-      state.lastStreamErrorAt = new Date().toISOString();
-      const fallbackKey = getFallbackKey(key);
-      if (fallbackKey && fallbackKey !== key) {
-        try {
-          const fallback = stations.stations[fallbackKey];
-          const { resource, process } = await createResource(fallback.url, state.volume);
-          state.currentProcess = process;
-          state.player.play(resource);
-          state.currentStationKey = fallbackKey;
-          await interaction.editReply(`Fehler bei ${station.name}. Fallback: ${fallback.name}`);
-          return;
-        } catch (fallbackErr) {
-          log("ERROR", `Fallback error: ${fallbackErr.message}`);
-          state.lastStreamErrorAt = new Date().toISOString();
-        }
+      return;
+    }
+
+    if (interaction.commandName === "pause") {
+      if (!state.currentStationKey) {
+        await interaction.reply({ content: "Es laeuft nichts.", ephemeral: true });
+        return;
       }
-      await interaction.editReply(`Fehler beim Starten: ${err.message}`);
+
+      state.player.pause(true);
+      await interaction.reply({ content: "Pausiert.", ephemeral: false });
+      return;
+    }
+
+    if (interaction.commandName === "resume") {
+      if (!state.currentStationKey) {
+        await interaction.reply({ content: "Es laeuft nichts.", ephemeral: true });
+        return;
+      }
+
+      state.player.unpause();
+      await interaction.reply({ content: "Weiter gehts.", ephemeral: false });
+      return;
+    }
+
+    if (interaction.commandName === "stop") {
+      state.shouldReconnect = false;
+      this.clearReconnectTimer(state);
+      state.player.stop();
+      this.clearCurrentProcess(state);
+
+      if (state.connection) {
+        state.connection.destroy();
+        state.connection = null;
+      }
+
+      state.currentStationKey = null;
+      state.currentMeta = null;
+      state.reconnectAttempts = 0;
+
+      await interaction.reply({ content: "Gestoppt und Channel verlassen.", ephemeral: false });
+      return;
+    }
+
+    if (interaction.commandName === "setvolume") {
+      const value = interaction.options.getInteger("value", true);
+      if (value < 0 || value > 100) {
+        await interaction.reply({ content: "Wert muss zwischen 0 und 100 liegen.", ephemeral: true });
+        return;
+      }
+
+      state.volume = value;
+      const resource = state.player.state.resource;
+      if (resource?.volume) {
+        resource.volume.setVolume(clampVolume(value));
+      }
+
+      await interaction.reply({ content: `Lautstaerke gesetzt: ${value}`, ephemeral: false });
+      return;
+    }
+
+    if (interaction.commandName === "health") {
+      const content = [
+        `Bot: ${this.config.name}`,
+        `Ready: ${this.client.isReady() ? "ja" : "nein"}`,
+        `Letzter Stream-Fehler: ${state.lastStreamErrorAt || "-"}`,
+        `Reconnects: ${state.reconnectCount}`,
+        `Letzter Reconnect: ${state.lastReconnectAt || "-"}`,
+        `Auto-Reconnect aktiv: ${state.shouldReconnect ? "ja" : "nein"}`
+      ].join("\n");
+
+      await interaction.reply({ content, ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "status") {
+      const connected = state.connection ? "ja" : "nein";
+      const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || "-";
+      const uptimeSec = Math.floor((Date.now() - this.startedAt) / 1000);
+      const load = os.loadavg().map((v) => v.toFixed(2)).join(", ");
+      const mem = `${Math.round(process.memoryUsage().rss / (1024 * 1024))}MB`;
+      const station = state.currentStationKey || "-";
+
+      const content = [
+        `Bot: ${this.config.name}`,
+        `Guilds (dieser Bot): ${this.client.guilds.cache.size}`,
+        `Verbunden: ${connected}`,
+        `Channel: ${channelId}`,
+        `Station: ${station}`,
+        `Uptime: ${uptimeSec}s`,
+        `Load: ${load}`,
+        `RAM: ${mem}`
+      ].join("\n");
+
+      await interaction.reply({ content, ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "play") {
+      const requested = interaction.options.getString("station");
+      const key = resolveStation(stations, requested);
+      if (!key) {
+        await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
+        return;
+      }
+
+      const selectedStation = stations.stations[key];
+      const connection = await this.connectToVoice(interaction);
+      if (!connection) return;
+
+      state.shouldReconnect = true;
+      await interaction.deferReply();
+
+      try {
+        await this.playStation(state, stations, key);
+        await interaction.editReply(`Starte: ${selectedStation?.name || key}`);
+      } catch (err) {
+        log("ERROR", `[${this.config.name}] Play error: ${err.message}`);
+        state.lastStreamErrorAt = new Date().toISOString();
+
+        const fallbackKey = getFallbackKey(stations, key);
+        if (fallbackKey && fallbackKey !== key && stations.stations[fallbackKey]) {
+          try {
+            await this.playStation(state, stations, fallbackKey);
+            await interaction.editReply(
+              `Fehler bei ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`
+            );
+            return;
+          } catch (fallbackErr) {
+            log("ERROR", `[${this.config.name}] Fallback error: ${fallbackErr.message}`);
+            state.lastStreamErrorAt = new Date().toISOString();
+          }
+        }
+
+        state.shouldReconnect = false;
+        state.player.stop();
+        this.clearCurrentProcess(state);
+        if (state.connection) {
+          state.connection.destroy();
+          state.connection = null;
+        }
+        state.currentStationKey = null;
+        await interaction.editReply(`Fehler beim Starten: ${err.message}`);
+      }
     }
   }
-});
 
-client.login(DISCORD_TOKEN);
+  async start() {
+    try {
+      await this.client.login(this.config.token);
+      return true;
+    } catch (err) {
+      this.startError = err;
+      log("ERROR", `[${this.config.name}] Login fehlgeschlagen: ${err?.message || err}`);
+      return false;
+    }
+  }
+
+  getPublicStatus() {
+    return {
+      id: this.config.id,
+      name: this.config.name,
+      clientId: this.config.clientId,
+      inviteUrl: buildInviteUrl(this.config),
+      ready: this.client.isReady(),
+      userTag: this.client.user?.tag || null,
+      guilds: this.client.guilds.cache.size,
+      uptimeSec: Math.floor((Date.now() - this.startedAt) / 1000),
+      error: this.startError ? String(this.startError.message || this.startError) : null
+    };
+  }
+
+  async stop() {
+    for (const state of this.guildState.values()) {
+      state.shouldReconnect = false;
+      this.clearReconnectTimer(state);
+      state.player.stop();
+      this.clearCurrentProcess(state);
+      if (state.connection) {
+        state.connection.destroy();
+        state.connection = null;
+      }
+    }
+
+    try {
+      this.client.destroy();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function sendJson(res, status, payload) {
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+  res.end(JSON.stringify(payload));
+}
+
+function sendFile(res, filename, contentType) {
+  const filePath = path.join(webDir, filename);
+  if (!filePath.startsWith(webDir)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
+
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  res.writeHead(200, { "Content-Type": contentType });
+  fs.createReadStream(filePath).pipe(res);
+}
+
+function startWebServer(runtimes) {
+  const webPort = Number(process.env.WEB_PORT || "8080");
+  const webBind = process.env.WEB_BIND || "0.0.0.0";
+  const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
+
+  const server = http.createServer((req, res) => {
+    const requestUrl = new URL(req.url || "/", "http://localhost");
+
+    if (requestUrl.pathname === "/api/bots") {
+      sendJson(res, 200, {
+        bots: runtimes.map((runtime) => runtime.getPublicStatus())
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/stations") {
+      const stations = loadStations();
+      sendJson(res, 200, {
+        defaultStationKey: stations.defaultStationKey,
+        qualityPreset: stations.qualityPreset,
+        total: Object.keys(stations.stations).length,
+        stations: Object.entries(stations.stations).map(([key, value]) => ({
+          key,
+          name: value.name,
+          url: value.url
+        }))
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/health") {
+      const readyBots = runtimes.filter((runtime) => runtime.client.isReady()).length;
+      sendJson(res, 200, {
+        ok: true,
+        uptimeSec: Math.floor((Date.now() - appStartTime) / 1000),
+        bots: runtimes.length,
+        readyBots
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/") {
+      sendFile(res, "index.html", "text/html; charset=utf-8");
+      return;
+    }
+
+    if (requestUrl.pathname === "/app.js") {
+      sendFile(res, "app.js", "text/javascript; charset=utf-8");
+      return;
+    }
+
+    if (requestUrl.pathname === "/styles.css") {
+      sendFile(res, "styles.css", "text/css; charset=utf-8");
+      return;
+    }
+
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Not found");
+  });
+
+  server.listen(webPort, webBind, () => {
+    log("INFO", `Webseite aktiv auf http://${webBind}:${webPort}`);
+    if (publicUrl) {
+      log("INFO", `Public URL: ${publicUrl}`);
+    }
+  });
+
+  return server;
+}
+
+let botConfigs;
+try {
+  botConfigs = loadBotConfigs(process.env);
+} catch (err) {
+  log("ERROR", err.message || String(err));
+  process.exit(1);
+}
+
+const runtimes = botConfigs.map((config) => new BotRuntime(config));
+const startResults = await Promise.all(runtimes.map((runtime) => runtime.start()));
+
+if (!startResults.some(Boolean)) {
+  log("ERROR", "Kein Bot konnte gestartet werden. Backend wird beendet.");
+  process.exit(1);
+}
+
+const webServer = startWebServer(runtimes);
+
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log("INFO", `Shutdown via ${signal}...`);
+
+  webServer.close();
+  await Promise.all(runtimes.map((runtime) => runtime.stop()));
+  process.exit(0);
+}
+
+process.on("SIGINT", () => {
+  shutdown("SIGINT").catch(() => process.exit(1));
+});
+process.on("SIGTERM", () => {
+  shutdown("SIGTERM").catch(() => process.exit(1));
+});
