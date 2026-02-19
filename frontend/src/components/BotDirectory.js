@@ -2,13 +2,15 @@ import React from 'react';
 import { ExternalLink, Copy, Check } from 'lucide-react';
 
 const BOT_COLORS = {
-  cyan: { accent: '#00F0FF', glow: 'rgba(0, 240, 255, 0.15)', border: 'rgba(0, 240, 255, 0.25)' },
-  green: { accent: '#39FF14', glow: 'rgba(57, 255, 20, 0.15)', border: 'rgba(57, 255, 20, 0.25)' },
-  pink: { accent: '#EC4899', glow: 'rgba(236, 72, 153, 0.15)', border: 'rgba(236, 72, 153, 0.25)' },
-  amber: { accent: '#FFB800', glow: 'rgba(255, 184, 0, 0.15)', border: 'rgba(255, 184, 0, 0.25)' },
-  purple: { accent: '#BD00FF', glow: 'rgba(189, 0, 255, 0.15)', border: 'rgba(189, 0, 255, 0.25)' },
-  red: { accent: '#FF2A2A', glow: 'rgba(255, 42, 42, 0.15)', border: 'rgba(255, 42, 42, 0.25)' },
+  cyan: { accent: '#00F0FF', bg: 'rgba(0, 240, 255, 0.08)', glow: 'rgba(0, 240, 255, 0.15)', border: 'rgba(0, 240, 255, 0.25)' },
+  green: { accent: '#39FF14', bg: 'rgba(57, 255, 20, 0.08)', glow: 'rgba(57, 255, 20, 0.15)', border: 'rgba(57, 255, 20, 0.25)' },
+  pink: { accent: '#EC4899', bg: 'rgba(236, 72, 153, 0.08)', glow: 'rgba(236, 72, 153, 0.15)', border: 'rgba(236, 72, 153, 0.25)' },
+  amber: { accent: '#FFB800', bg: 'rgba(255, 184, 0, 0.08)', glow: 'rgba(255, 184, 0, 0.15)', border: 'rgba(255, 184, 0, 0.25)' },
+  purple: { accent: '#BD00FF', bg: 'rgba(189, 0, 255, 0.08)', glow: 'rgba(189, 0, 255, 0.15)', border: 'rgba(189, 0, 255, 0.25)' },
+  red: { accent: '#FF2A2A', bg: 'rgba(255, 42, 42, 0.08)', glow: 'rgba(255, 42, 42, 0.15)', border: 'rgba(255, 42, 42, 0.25)' },
 };
+
+const fmt = new Intl.NumberFormat('de-DE');
 
 function BotCard({ bot, index }) {
   const [copied, setCopied] = React.useState(false);
@@ -17,6 +19,7 @@ function BotCard({ bot, index }) {
   const colorKey = bot.color || Object.keys(BOT_COLORS)[index % Object.keys(BOT_COLORS).length];
   const colors = BOT_COLORS[colorKey] || BOT_COLORS.cyan;
   const inviteUrl = bot.invite_url || `https://discord.com/oauth2/authorize?client_id=${bot.client_id}&scope=bot%20applications.commands&permissions=3145728`;
+  const botImage = bot.avatar_url || `/img/bot-${(index % 4) + 1}.png`;
 
   const handleCopy = async () => {
     try {
@@ -26,19 +29,15 @@ function BotCard({ bot, index }) {
     } catch {}
   };
 
-  // Bot-Bild: avatar_url vom Backend oder Fallback
-  const botImage = bot.avatar_url || `/img/bot-${(index % 4) + 1}.png`;
-
   return (
     <div
       data-testid={`bot-card-${index}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        position: 'relative', display: 'flex', flexDirection: 'column', padding: 28,
-        borderRadius: 20,
+        position: 'relative', display: 'flex', flexDirection: 'column', padding: 28, borderRadius: 20,
         background: hovered
-          ? 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 100%), rgba(0,0,0,0.5)'
+          ? `linear-gradient(180deg, ${colors.bg} 0%, rgba(0,0,0,0.5) 100%)`
           : 'rgba(255, 255, 255, 0.02)',
         backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
         border: `1px solid ${hovered ? colors.border : 'rgba(255,255,255,0.06)'}`,
@@ -47,47 +46,60 @@ function BotCard({ bot, index }) {
         overflow: 'hidden',
       }}
     >
-      {/* Farbiger Akzent-Balken oben */}
+      {/* Farbiger Akzent-Balken */}
       <div style={{ position: 'absolute', top: 0, left: 28, right: 28, height: 2, background: colors.accent, opacity: hovered ? 1 : 0.3, transition: 'opacity 0.3s' }} />
 
       {/* Bot-Avatar + Name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
         <div style={{
           width: 56, height: 56, borderRadius: 14, overflow: 'hidden', flexShrink: 0,
           background: `linear-gradient(135deg, ${colors.accent}22, ${colors.accent}08)`,
           border: `1px solid ${colors.accent}33`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <img
-            src={botImage}
-            alt={bot.name}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={(e) => { e.target.style.display = 'none'; }}
-          />
+          <img src={botImage} alt={bot.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={(e) => { e.target.style.display = 'none'; }} />
         </div>
         <div>
           <h3 style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 16, fontWeight: 700, letterSpacing: '0.02em', margin: 0 }}>
             {bot.name}
           </h3>
-          <span style={{ fontSize: 12, color: '#52525B', fontFamily: "'JetBrains Mono', monospace" }}>
-            {bot.user_tag || 'Bereit'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: bot.ready ? '#39FF14' : '#52525B',
+              boxShadow: bot.ready ? '0 0 8px rgba(57,255,20,0.5)' : 'none',
+            }} />
+            <span style={{ fontSize: 12, color: bot.ready ? '#39FF14' : '#52525B', fontWeight: 600 }}>
+              {bot.ready ? 'Online' : 'Konfigurierbar'}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20, fontSize: 12, color: '#52525B' }}>
-        <div style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: bot.ready ? '#39FF14' : '#52525B',
-          boxShadow: bot.ready ? '0 0 8px rgba(57,255,20,0.5)' : 'none',
-        }} />
-        <span>{bot.ready ? 'Online' : 'Konfigurierbar'}</span>
-        {bot.servers > 0 && (
-          <span style={{ marginLeft: 8, color: '#A1A1AA' }}>
-            {bot.servers} Server
-          </span>
-        )}
+      {/* Bot Statistics - wie Jockie Music */}
+      <div style={{
+        padding: '14px 0', marginBottom: 16,
+        borderTop: `1px solid ${colors.accent}15`,
+        borderBottom: `1px solid ${colors.accent}15`,
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: colors.accent, marginBottom: 10, fontFamily: "'Orbitron', sans-serif" }}>
+          BOT STATISTIKEN
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
+          {[
+            { label: 'Server', value: bot.servers || 0 },
+            { label: 'Nutzer', value: bot.users || 0 },
+            { label: 'Verbindungen', value: bot.connections || 0 },
+            { label: 'Zuhörer', value: bot.listeners || 0 },
+          ].map((s) => (
+            <div key={s.label}>
+              <div style={{ fontSize: 11, color: '#52525B', fontWeight: 600, letterSpacing: '0.05em' }}>{s.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: '#fff' }}>
+                {fmt.format(s.value)}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Actions */}
