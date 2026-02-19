@@ -405,6 +405,7 @@ class BotRuntime {
     state.currentStationName = station.name || key;
     state.currentMeta = null;
     this.updatePresence();
+    this.persistState();
 
     fetchStreamInfo(station.url)
       .then((meta) => {
