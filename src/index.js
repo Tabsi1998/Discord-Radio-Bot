@@ -315,14 +315,13 @@ class BotRuntime {
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
-        this.restartCurrentStation(state).catch(() => {
-          // ignore idle retry errors
-        });
+        this.handleStreamEnd(guildId, state, "idle");
       });
 
       player.on("error", (err) => {
         state.lastStreamErrorAt = new Date().toISOString();
         log("ERROR", `[${this.config.name}] AudioPlayer error: ${err?.message || err}`);
+        this.handleStreamEnd(guildId, state, "error");
       });
 
       this.guildState.set(guildId, state);
