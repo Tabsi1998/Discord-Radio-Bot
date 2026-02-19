@@ -1028,6 +1028,9 @@ class BotRuntime {
       }
       if (tierConfig.tier === "free") {
         lines.push("", "Upgrade auf Pro/Ultimate fuer hoehere Qualitaet!");
+        lines.push("Infos & Support: https://discord.gg/UeRkfGS43R");
+      } else {
+        lines.push("", "Support: https://discord.gg/UeRkfGS43R");
       }
       await interaction.reply({ content: lines.join("\n"), ephemeral: true });
       return;
