@@ -6,6 +6,7 @@ const navLinks = [
   { label: 'Features', href: '#features' },
   { label: 'Stations', href: '#stations' },
   { label: 'Commands', href: '#commands' },
+  { label: 'Premium', href: '#premium' },
 ];
 
 function Navbar() {
