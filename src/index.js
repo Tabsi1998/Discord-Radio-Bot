@@ -1611,6 +1611,23 @@ if (!startResults.some(Boolean)) {
   process.exit(1);
 }
 
+// Auto-Restore: Vorherigen Zustand wiederherstellen (Voice Channels + Stationen)
+const stations = loadStations();
+for (const runtime of runtimes) {
+  if (runtime.client.isReady()) {
+    runtime.restoreState(stations).catch((err) => {
+      log("ERROR", `[${runtime.config.name}] Auto-Restore fehlgeschlagen: ${err?.message || err}`);
+    });
+  } else {
+    // Warte auf Ready-Event und restore dann
+    runtime.client.once("ready", () => {
+      runtime.restoreState(stations).catch((err) => {
+        log("ERROR", `[${runtime.config.name}] Auto-Restore fehlgeschlagen: ${err?.message || err}`);
+      });
+    });
+  }
+}
+
 const webServer = startWebServer(runtimes);
 
 let shuttingDown = false;
@@ -1618,6 +1635,13 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   log("INFO", `Shutdown via ${signal}...`);
+
+  // State speichern BEVOR alles gestoppt wird
+  log("INFO", "Speichere Bot-State fuer Auto-Reconnect...");
+  for (const runtime of runtimes) {
+    runtime.persistState();
+  }
+  log("INFO", "Bot-State gespeichert.");
 
   webServer.close();
   await Promise.all(runtimes.map((runtime) => runtime.stop()));
