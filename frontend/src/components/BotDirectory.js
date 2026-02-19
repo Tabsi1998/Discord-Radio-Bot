@@ -140,35 +140,58 @@ function BotCard({ bot, index }) {
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
-        <a
-          href={inviteUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid={`invite-btn-${index}`}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            padding: '12px 20px', borderRadius: 12, background: colors.accent, color: '#050505',
-            fontWeight: 700, fontSize: 13, textDecoration: 'none', textTransform: 'uppercase',
-            letterSpacing: '0.05em', cursor: 'pointer', transition: 'transform 0.15s, opacity 0.15s',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(1.02)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; }}
-        >
-          <ExternalLink size={14} />
-          Einladen
-        </a>
-        <button
-          onClick={handleCopy}
-          data-testid={`copy-btn-${index}`}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 44, height: 44, borderRadius: 12,
-            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-            color: copied ? '#39FF14' : '#A1A1AA', cursor: 'pointer', transition: 'color 0.2s',
-          }}
-        >
-          {copied ? <Check size={16} /> : <Copy size={16} />}
-        </button>
+        {isPremiumBot ? (
+          <a
+            href="#premium"
+            data-testid={`invite-btn-${index}`}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              padding: '12px 20px', borderRadius: 12,
+              background: `${tierBadgeColors[bot.requiredTier] || '#FFB800'}15`,
+              border: `1px solid ${tierBadgeColors[bot.requiredTier] || '#FFB800'}30`,
+              color: tierBadgeColors[bot.requiredTier] || '#FFB800',
+              fontWeight: 700, fontSize: 13, textDecoration: 'none', textTransform: 'uppercase',
+              letterSpacing: '0.05em', cursor: 'pointer', transition: 'transform 0.15s, background 0.2s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.background = `${tierBadgeColors[bot.requiredTier] || '#FFB800'}25`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.background = `${tierBadgeColors[bot.requiredTier] || '#FFB800'}15`; }}
+          >
+            <Lock size={14} />
+            {bot.requiredTier === 'ultimate' ? 'Ultimate' : 'Pro'} erforderlich
+          </a>
+        ) : (
+          <>
+            <a
+              href={inviteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid={`invite-btn-${index}`}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                padding: '12px 20px', borderRadius: 12, background: colors.accent, color: '#050505',
+                fontWeight: 700, fontSize: 13, textDecoration: 'none', textTransform: 'uppercase',
+                letterSpacing: '0.05em', cursor: 'pointer', transition: 'transform 0.15s, opacity 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(1.02)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; }}
+            >
+              <ExternalLink size={14} />
+              Einladen
+            </a>
+            <button
+              onClick={handleCopy}
+              data-testid={`copy-btn-${index}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 44, height: 44, borderRadius: 12,
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                color: copied ? '#39FF14' : '#A1A1AA', cursor: 'pointer', transition: 'color 0.2s',
+              }}
+            >
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
