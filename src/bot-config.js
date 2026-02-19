@@ -26,7 +26,8 @@ function loadNumberedBots(env) {
       name: sanitizeName(env[`BOT_${i}_NAME`], `Radio Bot ${i}`),
       token,
       clientId,
-      permissions: sanitizeNumberString(env[`BOT_${i}_PERMISSIONS`]) || null
+      permissions: sanitizeNumberString(env[`BOT_${i}_PERMISSIONS`]) || null,
+      requiredTier: String(env[`BOT_${i}_TIER`] || "free").toLowerCase().trim()
     });
   }
 
