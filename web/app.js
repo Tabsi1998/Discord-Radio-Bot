@@ -246,13 +246,16 @@ function renderBots(bots) {
   });
 }
 
-// --- Audio Player ---
+// --- Audio Player mit Lautstärke ---
 var currentAudio = null;
 var currentPlayingKey = null;
+var currentVolume = 80;
+var currentMuted = false;
 
 function playStation(station) {
   stopStation();
   currentAudio = new Audio(station.url);
+  currentAudio.volume = currentMuted ? 0 : currentVolume / 100;
   currentAudio.play().then(function() {
     currentPlayingKey = station.key;
     updateNowPlaying(station);
@@ -279,6 +282,20 @@ function stopStation() {
   filterStations(document.getElementById('stationSearch').value);
 }
 
+function setVolume(val) {
+  currentVolume = val;
+  currentMuted = val === 0;
+  if (currentAudio) currentAudio.volume = val / 100;
+}
+
+function toggleMute() {
+  currentMuted = !currentMuted;
+  if (currentAudio) currentAudio.volume = currentMuted ? 0 : currentVolume / 100;
+  // Re-render now playing to update mute icon
+  var station = allStations.find(function(s) { return s.key === currentPlayingKey; });
+  if (station) updateNowPlaying(station);
+}
+
 function updateNowPlaying(station) {
   var container = document.getElementById('nowPlaying');
   if (!station) {
@@ -288,9 +305,9 @@ function updateNowPlaying(station) {
   container.style.display = 'flex';
   container.innerHTML = '';
 
-  // EQ icon
+  // EQ Animation
   var eqWrap = document.createElement('div');
-  eqWrap.style.cssText = 'display:flex;align-items:flex-end;gap:2px;height:18px';
+  eqWrap.style.cssText = 'display:flex;align-items:flex-end;gap:2px;height:20px;flex-shrink:0';
   [0.5, 0.8, 0.6, 1, 0.7].forEach(function(h, i) {
     var b = document.createElement('div');
     b.className = 'eq-bar';
@@ -299,13 +316,55 @@ function updateNowPlaying(station) {
   });
   container.appendChild(eqWrap);
 
+  // Station Name
   var name = document.createElement('span');
-  name.style.cssText = 'font-size:14px;font-weight:600;flex:1';
+  name.style.cssText = 'font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
   name.textContent = station.name;
   container.appendChild(name);
 
+  // Volume Controls
+  var volWrap = document.createElement('div');
+  volWrap.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0';
+
+  // Mute Button
+  var muteBtn = document.createElement('button');
+  muteBtn.style.cssText = 'background:none;border:none;color:' + (currentMuted ? '#FF2A2A' : '#A1A1AA') + ';cursor:pointer;padding:4px;line-height:0';
+  muteBtn.innerHTML = currentMuted
+    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>'
+    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+  muteBtn.onclick = toggleMute;
+  volWrap.appendChild(muteBtn);
+
+  // Volume Slider
+  var slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.value = currentMuted ? '0' : String(currentVolume);
+  slider.className = 'vol-slider';
+  slider.oninput = function() {
+    var v = Number(this.value);
+    setVolume(v);
+    this.style.background = 'linear-gradient(to right, #00F0FF ' + v + '%, rgba(255,255,255,0.1) ' + v + '%)';
+    volNum.textContent = v;
+    // Update mute icon
+    muteBtn.style.color = v === 0 ? '#FF2A2A' : '#A1A1AA';
+  };
+  var pct = currentMuted ? 0 : currentVolume;
+  slider.style.background = 'linear-gradient(to right, #00F0FF ' + pct + '%, rgba(255,255,255,0.1) ' + pct + '%)';
+  volWrap.appendChild(slider);
+
+  // Volume Number
+  var volNum = document.createElement('span');
+  volNum.style.cssText = 'font-size:11px;font-family:JetBrains Mono,monospace;color:#52525B;width:28px;text-align:right';
+  volNum.textContent = currentMuted ? '0' : String(currentVolume);
+  volWrap.appendChild(volNum);
+
+  container.appendChild(volWrap);
+
+  // Stop Button
   var stopBtn = document.createElement('button');
-  stopBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:#fff;cursor:pointer';
+  stopBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:#fff;cursor:pointer;flex-shrink:0';
   stopBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
   stopBtn.onclick = stopStation;
   container.appendChild(stopBtn);
