@@ -32,6 +32,7 @@ function StatsFooter({ stats }) {
             { label: 'Nutzer', value: stats.users || 0, color: '#39FF14' },
             { label: 'Verbindungen', value: stats.connections || 0, color: '#EC4899' },
             { label: 'Zuhörer', value: stats.listeners || 0, color: '#FFB800' },
+            { label: 'Bots', value: stats.bots || 0, color: '#BD00FF' },
             { label: 'Stationen', value: stats.stations || 0, color: '#BD00FF' },
           ].map((s) => (
             <div key={s.label} style={{ textAlign: 'center' }}>
