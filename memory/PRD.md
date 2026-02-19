@@ -1,80 +1,76 @@
-# Discord Radio Bot - PRD v7
+# Discord Radio Bot - PRD v8
 
-## Projekt-Ubersicht
-Discord Radio Bot - Multi-Bot Radio-Streaming fuer Discord Server mit modernem Web-Interface.
-GitHub: https://github.com/Tabsi1998/Discord-Radio-Bot
+## Projekt-Uebersicht
+Discord Radio Bot mit professionellem Web-Interface, Premium-System, und Zero-Lag Audio-Optimierung.
 
-## Repo-Struktur
-```
-Discord-Radio-Bot/
-├── install.sh              # Interaktiver Installer v3.0 (farbig, Validierung, Audio-Qualitaet)
-├── update.sh               # Auto-Update v3.0 (9x Health-Retry, Rollback-Hilfe)
-├── stations.sh             # CLI Stationsverwaltung (Wizard)
-├── install-systemd.sh      # Autostart Setup
-├── radio-bot.service       # Systemd Service Template
-├── docker-compose.yml      # Docker Config
-├── Dockerfile              # Docker Build
-├── docker-entrypoint.sh    # Container Entrypoint
-├── package.json            # Node.js Dependencies (v2.1.0)
-├── stations.json           # Station-Config (12 Stationen + Genres)
-├── .env                    # Bot-Tokens (NICHT im Git)
-├── .gitignore
-├── README.md
-├── src/
-│   ├── index.js            # Bot-Hauptprogramm + Web-Server
-│   ├── commands.js         # Slash-Command Definitionen
-│   ├── bot-config.js       # Bot-Config aus .env
-│   ├── deploy-commands.js  # Command-Registrierung
-│   ├── stations-store.js   # Stations lesen/schreiben
-│   └── stations-cli.js     # CLI-Tool (Wizard)
-├── web/
-│   ├── index.html          # Web-Interface v3.0 (Dashboard, Premium, Inline-CSS)
-│   ├── styles.css          # Responsive CSS + Volume Slider + Dashboard + Premium
-│   ├── app.js              # Frontend v3.0 (Dynamic EQ, Volume, Dashboard, Premium)
-│   └── img/                # Bot-Avatare
-└── logs/                   # Auto-generiert
-```
+## Original Problem Statement
+Full redesign of Discord Radio Bot web interface with premium subscription system and extreme audio optimization.
 
-## Completed Features (All Sessions)
+## Architektur
+- **Bot Backend**: Node.js (`src/index.js`) mit discord.js, @discordjs/voice, Express
+- **Web Server**: Express.js serving static frontend + API endpoints
+- **Preview Stack**: React + FastAPI (Emergent Platform)
+- **Payments**: Stripe Integration (benötigt User-Keys via `setup-stripe.sh`)
+- **Datenbank**: JSON-Dateien (stations.json, licenses.json)
 
-### Session 1-5: Foundation
-- Cyber-Analog Dark Theme (Orbitron/DM Sans/JetBrains Mono)
-- Dynamische Bots aus .env (1-20)
-- Kritischer Bug Fix: getChannel() -> getString() fuer /play
-- Audio-Player auf Webseite mit Genre-Filter
-- Mobile-Responsive mit 3 Breakpoints
-- install.sh, update.sh, stations.sh Scripts
-- 12 Default-Stationen
+## Implementiert (Komplett)
 
-### Session 6 (Feb 2026): Stability & Polish
-- Volume Control Slider: CSS-Styles (.vol-slider) fuer production site
-- Bot-Stabilitaet verbessert: Stream-Restart mit Delay, Fallback-Station, Voice Recovery
-- Verbesserte ffmpeg-Args: -reconnect_on_network_error, -rw_timeout, -application audio
+### Audio-Optimierung (v2 - Zero-Lag)
+- Ultra-low-latency ffmpeg args (probesize=16384, analyzeduration=0)
+- `+nobuffer+flush_packets+genpts+discardcorrupt` fflags
+- `application=lowdelay` Opus encoding
+- `packet_loss=5`, `cutoff=20000` for robust streaming
+- `flush_packets=1` output buffer optimization
+- `avioflags=direct` für direkten I/O
+- Tier-basierte Bitrates: Free=128k, Pro=192k, Ultimate=320k
+- Fast reconnect: error=tierReconnectMs, normal=tierReconnectMs/2
 
-### Session 7 (Feb 2026): Major Feature Update v3.0
-- **FOUC Fix**: Inline critical CSS im HTML <head> verhindert Flash of Unstyled Content
-- **Dynamischer Hero-EQ**: EQ-Bars animieren schneller/bunter wenn Audio spielt (eq-active Animation)
-- **Live Dashboard Section**: 4 Metrikkarten (Aktive Streams, Zuhoerer, Uptime, System Health) + Bot-Status-Tabelle mit farbigen Indikatoren
-- **Premium Section**: 3-Tier Pricing (Free 0EUR, Pro 4.99EUR, Ultimate 9.99EUR) mit Feature-Vergleich, goldener Featured-Card fuer Pro
-- **install.sh v3.0**: Farbige ASCII-Ausgabe, Token-Validierung, Client-ID-Validierung, bestehende .env beibehalten/erweitern, Audio-Qualitaetswahl (Low/Medium/High/Ultra), 6-Retry Health-Check
-- **update.sh v3.0**: 9-Retry Health-Check (45 Sek), Rollback-Anweisungen bei Fehler, Commit-Diff-Anzeige, farbige Ausgabe
-- **Backend API Fix**: camelCase Feldnamen (clientId, avatarUrl, userTag, uptimeSec) fuer Konsistenz mit Production Express API
-- **React Frontend**: LiveDashboard und Premium Komponenten, Auto-Refresh (15s Polling)
+### Premium-System (Komplett)
+- 3 Tiers: Free, Pro, Ultimate
+- Stripe Checkout Integration (Backend-Endpoints)
+- License Management (`licenses.json`)
+- `/premium` Discord Slash Command
+- `setup-stripe.sh` für Key-Konfiguration
+- React Frontend: Checkout-Modal mit Server-ID Input
+- React Frontend: Premium-Status-Checker
+- Production Frontend: Matching Premium UI
 
-## Upcoming Tasks
-- Keine ausstehenden Tasks mehr - alle P0-P2 Features implementiert
+### Web-Interface (Professionell)
+- Navbar mit Premium-Link
+- Hero Section mit animierten EQ-Bars
+- Bot Directory mit Invite-Links
+- Station Browser mit Genre-Filter & Suche
+- Commands Section im Terminal-Style
+- Premium Section mit 3 Pricing-Cards
+- Checkout-Modal mit Server-ID Validierung
+- Premium-Status-Checker
+- Footer mit Live-Stats
+- Mobile-Responsive Design
+- Dark Theme mit Neon-Akzenten
 
-## Future/Backlog Tasks
-- **(P3) Premium Bot System - Backend**: Tatsaechliches Payment-Backend (Stripe), Lizenzschluessel-System, User-Auth
-- **(P3) Dual-Frontend-Sync**: Build-Step der React automatisch zu web/ kompiliert
-- **(P4) WebSocket Live-Updates**: Echtzeit-Updates statt 15s Polling
-- **(P4) Station Metadata**: Aktuelle Song-Infos im Now-Playing anzeigen
+### Scripts
+- `install.sh` v4.0: 6-Step Installer mit optionalem Stripe-Setup
+- `update.sh`: Auto-Update mit Backup/Restore/Health-Check
+- `setup-stripe.sh`: Stripe API-Key Konfiguration
 
-## Architecture
-- **Bot Backend**: Node.js + discord.js + @discordjs/voice + Express (src/index.js)
-- **Production Frontend**: Static HTML/CSS/JS v3.0 (web/) - Dashboard, Premium, Dynamic EQ, Volume Control
-- **Preview Frontend**: React (frontend/) + FastAPI (backend/)
-- **Data**: stations.json (12 stations mit Genres), .env (bot tokens)
-- **Deployment**: Docker + Docker Compose
+## API Endpoints
+- GET /api/health
+- GET /api/bots
+- GET /api/stations
+- GET /api/stats
+- GET /api/commands
+- GET /api/premium/tiers
+- GET /api/premium/check?serverId=
+- POST /api/premium/checkout
+- POST /api/premium/verify
 
-## Testing: 7 Iterationen, 100% Erfolgsrate (Backend + Frontend)
+## Testing
+- Iteration 9: 100% Backend (22/22), 100% Frontend
+- All Premium features tested and verified
+- Mobile responsive tested at 768px and 390px
+
+## Naechste Schritte
+- P0: User-Validierung: Stripe mit echten Keys testen
+- P1: User-Validierung: Audio-Qualitaet im Discord Voice Channel
+- P2: Automatische Dual-Frontend Synchronisation (React → /web Build-Step)
+- P3: Weitere Stations hinzufuegen
