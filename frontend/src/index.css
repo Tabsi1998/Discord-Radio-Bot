@@ -192,6 +192,7 @@ body {
   font-size: 15px;
   outline: none;
   transition: border-color 0.2s, background-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .station-search:focus {
@@ -203,16 +204,24 @@ body {
   color: var(--text-muted);
 }
 
-/* Command badge */
-.command-badge {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.2);
-  color: var(--neon-cyan);
-  padding: 6px 12px;
-  border-radius: 8px;
-  white-space: nowrap;
+/* Section container */
+.section-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Glass card */
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+}
+
+.glass-card:hover {
+  border-color: var(--border-hover);
 }
 
 /* Genre tag */
@@ -225,4 +234,22 @@ body {
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary);
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .section-container {
+    padding: 0 16px;
+  }
+
+  .genre-tag {
+    font-size: 9px;
+    padding: 3px 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .section-container {
+    padding: 0 12px;
+  }
 }
