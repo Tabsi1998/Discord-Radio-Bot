@@ -1,41 +1,48 @@
-# Discord Radio Bot - PRD v12 (FINAL)
+# Discord Radio Bot - PRD v13
 
 ## Architektur
 - Node.js Bot Backend, React + FastAPI Preview, Stripe Payments, JSON-Datenbank
 
 ## Alle Features Implementiert
 
-### Audio Zero-Lag v3
-- probesize=8192, thread_queue_size=512, analyzeduration=0
-- compression_level=5 (statt 10, weniger CPU = weniger Latenz)
-- OggOpus Format (-f ogg, StreamType.OggOpus) statt raw Opus
-- avioflags=direct, flush_packets=1, max_delay=0
-- application=lowdelay, packet_loss=3, cutoff=20000
-- Tier-basierte Bitrates: Free=128k, Pro=192k, Ultimate=320k
+### Audio Stability v4 (P1 Fix - Feb 2026)
+- Balanced Buffer statt Zero-Buffer: probesize=32768, analyzeduration=500000
+- Erhoehte Timeouts: rw_timeout=15s, timeout=15s (statt 5s)
+- Entfernt: -nobuffer, -avioflags direct, -max_delay 0 (verursachten Instabilitaet)
+- thread_queue_size=1024, reconnect_delay_max=5
+- Exponential Backoff bei Stream-Fehlern: 1s, 2s, 4s, 8s, max 15s
+- Cooldown bei 10+ konsekutiven Fehlern: 30s Pause
+- handleStreamEnd prueft state.connection vor Restart
+- streamErrorCount wird bei erfolgreichem Restart zurueckgesetzt
+
+### Auto-Reconnect v2 (P0 Fix - Feb 2026)
+- Race-Condition zwischen voiceStateUpdate und VoiceConnection behoben
+- handleBotVoiceStateUpdate: zerstoert connection VOR player.stop() (verhindert Stream-Restart waehrend Disconnect)
+- Nutzt scheduleReconnect() mit Dedup statt Inline-Reconnect
+- Disconnected-Handler: nur Recovery, kein eigener Reconnect (voiceStateUpdate uebernimmt)
+- tryReconnect: startet Station IMMER nach erfolgreichem Rejoin
+- scheduleReconnect: exponential Backoff (2^n Sekunden, max 30s)
 
 ### Auto-Reconnect nach Restart
 - bot-state.js: Speichert Guild/Channel/Station/Volume pro Bot
 - Shutdown: persistState() vor stop() fuer alle Bots
 - Startup: restoreState() nach Bot-Login, joined automatisch Voice Channels
-- docker-compose.yml: bot-state.json als Volume gemountet
-- update.sh: bot-state.json in Backup-Liste
 
 ### Premium Bot Access
 - BOT_{i}_TIER: free/pro/ultimate in .env
 - Premium-Bots: Lock-Icon + "Pro/Ultimate erforderlich" statt Invite
 - /api/premium/invite-links: Gibt Links nur fuer berechtigte Server
-- Crown-Badge auf Premium-Bot-Cards
-- install.sh + update.sh: Tier-Auswahl beim Bot-Setup
 
 ### Discord Community
-- https://discord.gg/UeRkfGS43R: Navbar, Hero, Premium Support-Banner, Footer, Mobile, Bot /premium Command
+- https://discord.gg/UeRkfGS43R: Navbar, Hero, Premium Support-Banner, Footer
 
 ### Premium System
-- 3 Tiers, Stripe Checkout, License Management, CLI, Discord Command
+- 3 Tiers (Free/Pro/Ultimate), Stripe Checkout, License Management, CLI, Discord Command
 
-### Bug-Fixes
-- resolveStation Duplikat (SyntaxError)
-- http.createServer async (await in non-async)
-- install.sh local-outside-function
+## Testing
+- Iteration 14: 100% Backend (40/40 Tests), Code Review bestanden
+- P0 + P1 Fixes verifiziert, keine Race-Conditions
 
-## Testing: Iteration 13, 100% Backend + Frontend, Code Review bestanden
+## Backlog
+- P3: Automatisierter Build-Prozess (React -> Static Web Sync)
+- P4: Refactoring src/index.js in Module (web-server, bot-lifecycle, audio-pipeline, discord-commands)
