@@ -33,7 +33,8 @@ function sanitizeStations(stationsInput) {
     const name = String(rawValue?.name || "").trim();
     const url = String(rawValue?.url || "").trim();
     if (!key || !name || !url) continue;
-    out[key] = { name, url };
+    const tier = String(rawValue?.tier || "free").toLowerCase();
+    out[key] = { name, url, tier: ["free", "pro", "ultimate"].includes(tier) ? tier : "free" };
   }
   return out;
 }
