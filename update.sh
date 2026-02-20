@@ -15,6 +15,8 @@ if [[ -z "${_UPDATE_SELF_EXEC:-}" ]]; then
   cp "$0" "$_tmpscript"
   chmod +x "$_tmpscript"
   export _UPDATE_SELF_EXEC=1
+  # APP_DIR jetzt setzen BEVOR wir in die Temp-Kopie wechseln!
+  export APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   exec bash "$_tmpscript" "$@"
 fi
 # Temp-File aufraeumen wenn Script fertig ist
