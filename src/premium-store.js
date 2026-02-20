@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const premiumFile = path.resolve(__dirname, "..", "premium.json");
+const premiumBackupFile = path.resolve(__dirname, "..", "premium.json.bak");
 
 const TIERS = {
   free:     { name: "Free",     bitrate: "128k", reconnectMs: 3000, maxBots: 4,  pricePerMonth: 0    },
@@ -17,6 +18,29 @@ const MAX_PROCESSED_ENTRIES = 5000;
 
 function emptyStore() {
   return { licenses: {}, processedSessions: {}, processedEvents: {} };
+}
+
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function looksLikeLicense(value) {
+  if (!isRecord(value)) return false;
+  const tier = String(value.tier || "").toLowerCase();
+  const hasTier = ["pro", "ultimate", "free"].includes(tier);
+  const hasExpiry = typeof value.expiresAt === "string" && value.expiresAt.trim().length > 0;
+  return hasTier || hasExpiry;
+}
+
+function extractLegacyLicenses(input) {
+  if (!isRecord(input)) return {};
+  const out = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!/^\d{17,22}$/.test(String(key))) continue;
+    if (!looksLikeLicense(value)) continue;
+    out[String(key)] = value;
+  }
+  return out;
 }
 
 function normalizeLookupMap(input) {
@@ -49,12 +73,12 @@ function trimLookupMap(mapInput) {
 
 function normalizeStore(input) {
   const base = emptyStore();
-  if (!input || typeof input !== "object" || Array.isArray(input)) return base;
+  if (!isRecord(input)) return base;
 
   const licenses =
     input.licenses && typeof input.licenses === "object" && !Array.isArray(input.licenses)
       ? input.licenses
-      : {};
+      : extractLegacyLicenses(input);
 
   return {
     licenses,
@@ -63,29 +87,65 @@ function normalizeStore(input) {
   };
 }
 
-function load() {
-  try {
-    if (!fs.existsSync(premiumFile)) return emptyStore();
-    if (fs.statSync(premiumFile).isDirectory()) {
-      console.warn(`[premium-store] ${premiumFile} ist ein Verzeichnis - nutze leeren Store.`);
-      return emptyStore();
-    }
-    return normalizeStore(JSON.parse(fs.readFileSync(premiumFile, "utf-8")));
-  } catch {
-    return emptyStore();
+function readStoreFile(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  if (fs.statSync(filePath).isDirectory()) {
+    console.warn(`[premium-store] ${filePath} ist ein Verzeichnis - ueberspringe.`);
+    return null;
   }
+
+  const raw = fs.readFileSync(filePath, "utf-8");
+  if (!raw.trim()) return emptyStore();
+  return normalizeStore(JSON.parse(raw));
+}
+
+function load() {
+  const candidates = [premiumFile, premiumBackupFile];
+  for (const filePath of candidates) {
+    try {
+      const store = readStoreFile(filePath);
+      if (store) {
+        if (filePath === premiumBackupFile) {
+          console.warn("[premium-store] Verwende Backup-Datei premium.json.bak");
+        }
+        return store;
+      }
+    } catch (err) {
+      console.error(`[premium-store] Load error (${filePath}): ${err.message}`);
+    }
+  }
+  return emptyStore();
 }
 
 function save(data) {
+  const tmpFile = `${premiumFile}.tmp-${process.pid}-${Date.now()}`;
   try {
     if (fs.existsSync(premiumFile) && fs.statSync(premiumFile).isDirectory()) {
       console.warn(`[premium-store] ${premiumFile} ist ein Verzeichnis - Speichern uebersprungen.`);
       return;
     }
+
     const normalized = normalizeStore(data);
-    fs.writeFileSync(premiumFile, JSON.stringify(normalized, null, 2) + "\n", "utf-8");
+    const payload = JSON.stringify(normalized, null, 2) + "\n";
+
+    if (fs.existsSync(premiumFile)) {
+      try {
+        fs.copyFileSync(premiumFile, premiumBackupFile);
+      } catch (copyErr) {
+        console.error(`[premium-store] Backup warnung: ${copyErr.message}`);
+      }
+    }
+
+    fs.writeFileSync(tmpFile, payload, "utf-8");
+    fs.renameSync(tmpFile, premiumFile);
   } catch (err) {
     console.error(`[premium-store] Save error: ${err.message}`);
+  } finally {
+    try {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    } catch {
+      // ignore
+    }
   }
 }
 

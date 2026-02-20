@@ -23,7 +23,7 @@ export function buildCommandBuilders() {
     new SlashCommandBuilder().setName("resume").setDescription("Setzt die Wiedergabe fort"),
     new SlashCommandBuilder().setName("stop").setDescription("Stoppt die Wiedergabe und verlaesst den Channel"),
     new SlashCommandBuilder().setName("stations").setDescription("Zeigt verfuegbare Stationen"),
-    new SlashCommandBuilder().setName("now").setDescription("Zeigt die aktuelle Station"),
+    new SlashCommandBuilder().setName("now").setDescription("Zeigt was auf diesem Server laeuft + aktive Server-Anzahl"),
     new SlashCommandBuilder()
       .setName("setvolume")
       .setDescription("Setzt die Lautstaerke (0-100)")

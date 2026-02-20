@@ -4,29 +4,64 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json");
+const CUSTOM_BACKUP_FILE = path.resolve(__dirname, "..", "custom-stations.json.bak");
 const MAX_STATIONS_PER_GUILD = 50;
 
+function readStationsFile(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  if (fs.statSync(filePath).isDirectory()) {
+    console.warn(`[custom-stations] ${filePath} ist ein Verzeichnis - ueberspringe.`);
+    return null;
+  }
+  const raw = fs.readFileSync(filePath, "utf8");
+  if (!raw.trim()) return {};
+  return JSON.parse(raw);
+}
+
 function load() {
-  try {
-    if (fs.existsSync(CUSTOM_FILE) && !fs.statSync(CUSTOM_FILE).isDirectory()) {
-      const raw = fs.readFileSync(CUSTOM_FILE, "utf8");
-      if (raw.trim()) return JSON.parse(raw);
+  const candidates = [CUSTOM_FILE, CUSTOM_BACKUP_FILE];
+  for (const filePath of candidates) {
+    try {
+      const data = readStationsFile(filePath);
+      if (data) {
+        if (filePath === CUSTOM_BACKUP_FILE) {
+          console.warn("[custom-stations] Verwende Backup-Datei custom-stations.json.bak");
+        }
+        return data;
+      }
+    } catch (err) {
+      console.error(`[custom-stations] Load error (${filePath}): ${err.message}`);
     }
-  } catch (err) {
-    console.error(`[custom-stations] Load error: ${err.message}`);
   }
   return {};
 }
 
 function save(data) {
+  const tmpFile = `${CUSTOM_FILE}.tmp-${process.pid}-${Date.now()}`;
   try {
     if (fs.existsSync(CUSTOM_FILE) && fs.statSync(CUSTOM_FILE).isDirectory()) {
       console.warn(`[custom-stations] ${CUSTOM_FILE} ist ein Verzeichnis - Speichern uebersprungen.`);
       return;
     }
-    fs.writeFileSync(CUSTOM_FILE, JSON.stringify(data, null, 2) + "\n", "utf8");
+
+    if (fs.existsSync(CUSTOM_FILE)) {
+      try {
+        fs.copyFileSync(CUSTOM_FILE, CUSTOM_BACKUP_FILE);
+      } catch (copyErr) {
+        console.error(`[custom-stations] Backup warnung: ${copyErr.message}`);
+      }
+    }
+
+    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2) + "\n", "utf8");
+    fs.renameSync(tmpFile, CUSTOM_FILE);
   } catch (err) {
     console.error(`[custom-stations] Save error: ${err.message}`);
+  } finally {
+    try {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    } catch {
+      // ignore
+    }
   }
 }
 

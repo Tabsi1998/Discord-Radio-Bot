@@ -365,8 +365,8 @@ class BotRuntime {
       this.enforcePremiumGuildScope("startup").catch((err) => {
         log("ERROR", `[${this.config.name}] Premium-Guild-Scope Pruefung fehlgeschlagen: ${err?.message || err}`);
       });
-      this.cleanupGuildCommands().catch((err) => {
-        log("ERROR", `[${this.config.name}] Guild-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
+      this.refreshGuildCommandsOnReady().catch((err) => {
+        log("ERROR", `[${this.config.name}] Guild-Command-Sync fehlgeschlagen: ${err?.message || err}`);
       });
     });
 
@@ -381,7 +381,12 @@ class BotRuntime {
     });
 
     this.client.on("guildCreate", (guild) => {
-      this.handleGuildJoin(guild).catch((err) => {
+      this.handleGuildJoin(guild).then((allowed) => {
+        if (!allowed) return;
+        this.syncGuildCommandForGuild(guild.id, "join").catch((err) => {
+          log("ERROR", `[${this.config.name}] Guild-Command-Sync (join) fehlgeschlagen: ${err?.message || err}`);
+        });
+      }).catch((err) => {
         log("ERROR", `[${this.config.name}] guildCreate handling error: ${err?.message || err}`);
       });
     });
@@ -482,7 +487,56 @@ class BotRuntime {
   }
 
   async handleGuildJoin(guild) {
-    await this.enforceGuildAccessForGuild(guild, "join");
+    return this.enforceGuildAccessForGuild(guild, "join");
+  }
+
+  async refreshGuildCommandsOnReady() {
+    await this.cleanupGuildCommands();
+    await this.syncGuildCommands("startup");
+  }
+
+  isGuildCommandSyncEnabled() {
+    return String(process.env.SYNC_GUILD_COMMANDS_ON_BOOT ?? "1") !== "0";
+  }
+
+  buildGuildCommandPayload() {
+    return buildCommandBuilders().map((builder) => builder.toJSON());
+  }
+
+  async syncGuildCommandForGuild(guildId, source = "sync", commandPayload = null) {
+    if (!this.isGuildCommandSyncEnabled()) return false;
+    if (!guildId) return false;
+    const payload = commandPayload || this.buildGuildCommandPayload();
+    await this.rest.put(Routes.applicationGuildCommands(this.config.clientId, guildId), { body: payload });
+    return true;
+  }
+
+  async syncGuildCommands(source = "sync") {
+    if (!this.isGuildCommandSyncEnabled()) return;
+
+    const guildIds = [...this.client.guilds.cache.keys()];
+    if (!guildIds.length) return;
+
+    const payload = this.buildGuildCommandPayload();
+    let synced = 0;
+    let failed = 0;
+    log("INFO", `[${this.config.name}] Synchronisiere Guild-Commands in ${guildIds.length} Servern (source=${source})...`);
+
+    for (const guildId of guildIds) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await this.syncGuildCommandForGuild(guildId, source, payload);
+        synced += 1;
+      } catch (err) {
+        failed += 1;
+        log(
+          "ERROR",
+          `[${this.config.name}] Guild-Command-Sync fehlgeschlagen (guild=${guildId}, source=${source}): ${err?.message || err}`
+        );
+      }
+    }
+
+    log("INFO", `[${this.config.name}] Guild-Command-Sync fertig: ok=${synced}, failed=${failed}`);
   }
 
   clearReconnectTimer(state) {
@@ -1267,8 +1321,12 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "now") {
+      const playingGuilds = this.getPlayingGuildCount();
       if (!state.currentStationKey) {
-        await interaction.reply({ content: "Gerade laeuft nichts.", ephemeral: true });
+        await interaction.reply({
+          content: `Hier laeuft gerade nichts.\nDieser Bot streamt aktuell auf ${playingGuilds} Server${playingGuilds === 1 ? "" : "n"}.`,
+          ephemeral: true
+        });
         return;
       }
 
@@ -1278,14 +1336,20 @@ class BotRuntime {
         return;
       }
 
+      const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
+      const lines = [
+        `Jetzt auf diesem Server: ${current.name}`,
+        `Channel: ${channelId ? `<#${channelId}>` : "unbekannt"}`,
+        `Aktiv auf ${playingGuilds} Server${playingGuilds === 1 ? "" : "n"}.`,
+      ];
+
       const meta = state.currentMeta;
-      const metaLine =
-        meta && (meta.name || meta.description)
-          ? `\nMeta: ${meta.name || "-"}${meta.description ? ` | ${meta.description}` : ""}`
-          : "";
+      if (meta && (meta.name || meta.description)) {
+        lines.push(`Meta: ${meta.name || "-"}${meta.description ? ` | ${meta.description}` : ""}`);
+      }
 
       await interaction.reply({
-        content: `Aktuell: ${current.name}\nURL: ${current.url}${metaLine}`,
+        content: lines.join("\n"),
         ephemeral: false
       });
       return;
@@ -1361,6 +1425,7 @@ class BotRuntime {
       const lines = [
         `Premium Status${tierEmoji[tierConfig.tier] || ""}`,
         `Server: ${interaction.guild?.name || gid}`,
+        `Server-ID: ${gid}`,
         `Tier: ${tierConfig.name}`,
         `Bitrate: ${tierConfig.bitrate}`,
         `Reconnect: ${tierConfig.reconnectMs}ms`,
@@ -1602,6 +1667,14 @@ class BotRuntime {
     }
 
     return { servers, users, connections, listeners };
+  }
+
+  getPlayingGuildCount() {
+    let count = 0;
+    for (const state of this.guildState.values()) {
+      if (state.currentStationKey) count += 1;
+    }
+    return count;
   }
 
   getPublicStatus() {
@@ -1977,6 +2050,21 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
         pricePaid: amountPaid,
       });
       sendMail(adminEmail, `Neuer Premium-Kauf: ${tierConfig.name}`, adminHtml).catch(() => {});
+    }
+  }
+
+  for (const runtime of runtimes) {
+    try {
+      if (!runtime.client.isReady()) continue;
+
+      // Nach Upgrade/Lizenz-Aktivierung direkte Durchsetzung + sofortige Command-Sichtbarkeit.
+      // So muss niemand auf globale Command-Propagation warten.
+      await runtime.enforcePremiumGuildScope("license-update");
+      if (runtime.client.guilds.cache.has(cleanServerId)) {
+        await runtime.syncGuildCommandForGuild(cleanServerId, "license-update");
+      }
+    } catch (err) {
+      log("ERROR", `[${runtime.config.name}] Post-license Sync fehlgeschlagen: ${err?.message || err}`);
     }
   }
 

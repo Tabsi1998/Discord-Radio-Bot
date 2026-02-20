@@ -99,6 +99,17 @@ read_env() {
   printf "%s" "${val:-$default}"
 }
 
+ensure_env_default() {
+  local key="$1" value="$2"
+  if [[ ! -f .env ]]; then
+    echo "${key}=${value}" >> .env
+    return
+  fi
+  if ! grep -q "^${key}=" .env 2>/dev/null; then
+    echo "${key}=${value}" >> .env
+  fi
+}
+
 count_bots() {
   local c=0
   while grep -q "^BOT_$((c+1))_TOKEN=" .env 2>/dev/null; do
@@ -185,6 +196,8 @@ if ! docker compose version >/dev/null 2>&1; then
   fail "docker compose fehlt."
   exit 1
 fi
+
+ensure_env_default "SYNC_GUILD_COMMANDS_ON_BOOT" "1"
 
 # ============================================================
 # Mode selection
