@@ -151,17 +151,19 @@ if [[ -z "$MODE" ]]; then
   echo -e "    ${CYAN}2${NC})  Bots verwalten    - Anzeigen, hinzufuegen, bearbeiten, entfernen"
   echo -e "    ${YELLOW}3${NC})  Stripe einrichten - Zahlungs-API konfigurieren"
   echo -e "    ${BOLD}4${NC})  Premium verwalten - Lizenzen aktivieren/entfernen"
-  echo -e "    ${DIM}5${NC})  Einstellungen     - Port, Domain und mehr"
-  echo -e "    ${DIM}6${NC})  Status & Logs     - Container-Status pruefen"
+  echo -e "    ${DIM}5${NC})  E-Mail (SMTP)     - E-Mail-Versand konfigurieren"
+  echo -e "    ${DIM}6${NC})  Einstellungen     - Port, Domain und mehr"
+  echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-6]${NC}: ")" MODE_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-7]${NC}: ")" MODE_CHOICE
   case "$MODE_CHOICE" in
     1) MODE="--update" ;;
     2) MODE="--bots" ;;
     3) MODE="--stripe" ;;
     4) MODE="--premium" ;;
-    5) MODE="--settings" ;;
-    6) MODE="--status" ;;
+    5) MODE="--email" ;;
+    6) MODE="--settings" ;;
+    7) MODE="--status" ;;
     *) MODE="--update" ;;
   esac
 fi
