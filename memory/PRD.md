@@ -1,7 +1,7 @@
-# Discord Radio Bot - PRD v17
+# Discord Radio Bot - PRD v18
 
 ## Architektur
-- Node.js Bot Backend, React + FastAPI Preview, Stripe Payments, JSON-Datenbank
+- Node.js Bot Backend (Discord, Express), FastAPI Preview Backend, React Frontend, Stripe Payments, JSON-Datenbank
 
 ## Alle Features Implementiert
 
@@ -14,32 +14,66 @@
 - docker-entrypoint.sh: erstellt bot-state.json, fixt Docker-Directory-Mount
 - bot-state.js: Robustes Laden (leere Dateien, Verzeichnisse)
 - Ausfuehrliches Logging bei jedem Restore-Schritt
+- Graceful Shutdown speichert State vor dem Beenden
 
-### Premium System v2 - Laufzeit-basiert (Feb 2026)
-- Monatliche Laufzeiten statt unbegrenzt
-- Laufzeit frei waehlbar: 1, 3, 6, 12+ Monate
+### Premium System v3 - Komplett-Ueberholung (Feb 2026)
+- 3-Tier Modell: Free, Pro (4.99 EUR/mo), Ultimate (9.99 EUR/mo)
+- Monatsauswahl: 1, 3, 6, 12 Monate
 - Jahresrabatt: 12 Monate = 10 bezahlen (2 Monate gratis)
-- Automatisches Ablaufen: isExpired(), remainingDays()
-- Verlaengerung: Neue Monate werden auf bestehende Laufzeit addiert
-- Upgrade Pro -> Ultimate: Nur Aufpreis fuer Restlaufzeit (Tages-Differenz)
-- /api/premium/pricing: Preise, aktuelle Lizenz, Upgrade-Kosten
-- /api/premium/checkout: Akzeptiert months Parameter, berechnet Preis
-- /api/premium/verify: Handelt Neukauf UND Upgrade korrekt
-- Frontend: Monats-Auswahl, Preisanzeige, Rabatt-Info, Lizenz-Pruefung
-- Discord /premium Command: Zeigt Ablaufdatum und Resttage
-- Premium CLI: Aktivieren, Verlaengern, Upgrade, Preisrechner
+- Automatisches Ablaufen mit expiresAt
+- Verlaengerung: Neue Monate auf bestehende Laufzeit addiert
+- Upgrade Pro -> Ultimate: Aufpreis fuer Restlaufzeit (Tages-Differenz)
+- Tier-basierte Stationen: Free, Pro, Ultimate Stationen
+- Audio-Qualitaet: Free=128k, Pro=192k, Ultimate=320k
+- Reconnect-Prioritaet: Free=3s, Pro=1s, Ultimate=500ms
+- Max Bots: Free=4, Pro=10, Ultimate=20
+
+### Custom Stations (Ultimate Feature)
+- /addstation <key> <name> <url> - Eigene Station hinzufuegen
+- /removestation <key> - Station entfernen
+- /mystations - Custom Stationen anzeigen
+- Max 50 Custom Stationen pro Guild
+- Gespeichert in custom-stations.json
+
+### SMTP E-Mail Integration (Feb 2026)
+- Nodemailer-basiert, konfigurierbar via update.sh
+- Kauf-E-Mail an Kunden mit Invite-Links
+- Admin-Benachrichtigung bei jedem Kauf
+- Ablauf-Warnung 7 Tage vor Ablauf
+- Ablauf-Benachrichtigung am Tag des Ablaufs
+
+### FastAPI Backend (server.py) - Vollstaendig synchronisiert (Feb 2026)
+- Identische Premium-Logik wie Node.js (premium-store.js)
+- calculatePrice mit Jahresrabatt
+- calculateUpgradePrice (Pro -> Ultimate Aufpreis)
+- addLicense mit expiresAt und Verlaengerung
+- /api/premium/pricing Endpoint mit Upgrade-Info
+- /api/premium/checkout mit months Parameter
+- /api/premium/verify mit Upgrade-Handling
+- /api/premium/check mit Lizenz-Ablauf-Info
+- /api/stations mit Tier-Feld aus stations.json
+- /api/commands mit allen 14 Commands
+
+### Frontend Premium UI (Feb 2026)
+- 3 Plan-Karten mit korrekten Features pro Tier
+- Checkout-Modal mit Monatsauswahl (1, 3, 6, 12)
+- Dynamische Preisberechnung mit Jahresrabatt-Anzeige
+- "-2 GRATIS" Badge bei 12-Monats-Option
+- Upgrade-Erkennung bei Server-ID Eingabe
+- Status-Checker zeigt Tier, Bitrate, Reconnect, Max Bots
+- Lizenz-Ablauf-Info mit Restlaufzeit in Tagen
+- Abgelaufen-Warnung in rot
 
 ### Unified Management Tool (Feb 2026)
 - update.sh: 6 Hauptoptionen (Update, Bots, Stripe, Premium, Settings, Status)
-- Stripe Fix: docker compose up -d statt restart
+- SMTP-Konfiguration via --email-settings
 
 ### Audio Stability v4 (P1 Fix)
 - Balanced Buffer, erhoehte Timeouts, Exponential Backoff
 
-### Auto-Reconnect v2 (Voice Drop Fix)
-- Race-Condition behoben, scheduleReconnect mit Dedup
-
 ## Testing
+- Iteration 20: FastAPI + Frontend Premium 100% (31/31 backend + frontend)
+- Iteration 19: Node.js Premium Modules 100% (56/56)
 - Iteration 18: Auto-Restore + Premium 97.7% (42/43)
 - Iteration 17: update.sh 100% (29/29)
 - Iteration 16: Bot Stats 100% (19/19)
