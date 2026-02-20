@@ -11,6 +11,14 @@ if [ ! -f "$STATE_FILE" ]; then
   echo '{}' > "$STATE_FILE"
 fi
 
+CUSTOM_FILE="/app/custom-stations.json"
+if [ -d "$CUSTOM_FILE" ]; then
+  rm -rf "$CUSTOM_FILE"
+fi
+if [ ! -f "$CUSTOM_FILE" ]; then
+  echo '{}' > "$CUSTOM_FILE"
+fi
+
 if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
