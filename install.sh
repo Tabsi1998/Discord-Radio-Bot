@@ -460,6 +460,9 @@ echo "────────────────────────�
 info "Baue und starte Container..."
 # Sicherstellen dass gemountete JSON-Dateien VOR Docker-Start existieren
 # Docker bind-mount erstellt sonst ein VERZEICHNIS statt einer Datei!
+for jf in premium.json bot-state.json custom-stations.json; do
+  if [[ -d "$jf" ]]; then rm -rf "$jf" 2>/dev/null || true; fi
+done
 [[ -f premium.json ]]         || echo '{"licenses":{}}' > premium.json
 [[ -f bot-state.json ]]       || echo '{}' > bot-state.json
 [[ -f custom-stations.json ]] || echo '{}' > custom-stations.json
