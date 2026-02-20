@@ -1,196 +1,260 @@
 <analysis>**original_problem_statement:**
-The user's initial goal was to redesign their Discord Radio Bot's web interface. This evolved into a full-scale project overhaul focused on professional-grade features.
+The user's goal is to create a professional, multi-tiered Discord Radio Bot service. The initial requests for bug fixes and UI changes have evolved into a complete overhaul of the premium features and core functionality.
 
-The most recent user requests are:
-1.  **Eliminate Audio Lag**: The user has repeatedly emphasized that fixing audio lag and stuttering is the absolute highest priority. The bot must provide a smooth, zero lag listening experience.
-2.  **Robust Auto-Reconnect**: After an update or restart, the bot must automatically remember which voice channel it was in, for which server, playing which station, and at what volume, and seamlessly reconnect itself without any user intervention.
-3.  **Fix Auto-Reconnect Disabling Bug**: The currently implemented auto-reconnect feature incorrectly disables itself upon temporary network drops, treating them as manual kicks.
-4.  **Server-Specific Player Status**: The web interface and bot status should not show a global player status, but rather what is specifically playing on the Discord server (guild) the user is on.
-5.  **Secure Premium Bot Invites**: Free users must not be able to invite premium-tier bots. An intelligent system is required to lock these bots until a user has purchased a premium plan for their server.
-6.  **Add Discord Support Link**: A prominent link to the user's support Discord server () must be added throughout the web interface for easy user access.
-7.  **Refine Install/Update Scripts**: The  and  scripts needed to be more robust, with bug fixes and feature enhancements like moving the add bot flow to the update script.
+The most recent and critical user requests are:
+1.  **Complete Premium System Overhaul**: Implement a three-tier subscription model (Free, Pro, Ultimate) with distinct features:
+    *   **Feature Tiers**: Different bot limits, audio quality levels (128k, 192k, 320k), station access (Free, Pro, Ultimate stations), and reconnect priorities.
+    *   **Custom Stations**: Ultimate tier users must be able to add their own private station URLs via a Discord command ().
+    *   **Subscription Management**: The system must support selectable subscription durations (e.g., 1-12 months), pro-rata upgrades (e.g., Pro to Ultimate), automatic license expiration, and extending existing subscriptions.
+    *   **SMTP Integration**: Integrate a user-configurable SMTP service to send automated emails for purchase confirmations (to the customer) and sales notifications (to the admin).
+2.  **Fix Auto-Reconnect on Restart**: The bot must reliably and automatically rejoin its last active voice channel and resume playing its last station after a container restart (e.g., from an update via 
+[0;36m[1m
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
+[0m
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren.). The user has explicitly stated this is not working.
+3.  **Unified Management Script**: Consolidate all administrative tasks (bot configuration, Stripe keys, SMTP settings, updates) into the 
+[0;36m[1m
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
+[0m
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren. script to serve as a single, interactive command center.
 
 **User's preferred language**: German. The next agent MUST respond in German.
 
 **what currently exists?**
-The project is a multi-bot Discord radio streaming application with a Node.js backend (, ), a React frontend for preview, and a static JS/HTML/CSS frontend for production. A full premium system using Stripe is implemented, along with file-based persistence for licenses () and bot session state (). The agent has implemented features for audio optimization, auto-reconnect, secure premium bot invites, and UI enhancements. However, the two most critical features—audio stability and auto-reconnect—are currently not working as intended.
+The application is a Node.js Discord bot using  with an integrated Express.js web server for the Stripe payment flow and a static production frontend. The previous agent has just completed a massive, but entirely untested, implementation of the new three-tier premium system. This includes new modules for managing tiered stations (), custom user stations (), the premium subscription logic (), and email notifications (). State is persisted in several JSON files (, , ).
 
 **Last working item**:
-- Last item agent was working: Debugging a critical flaw in the auto-reconnect logic. The user provided logs showing  after a connection drop. The agent correctly identified the bug in  (within the  event handler), where any voice channel disconnection (even temporary ones) was being incorrectly treated as a manual user action, which then permanently disabled the reconnect feature for that session.
+- Last item agent was working: The agent finished a massive implementation sprint for the complete premium system overhaul. This involved creating new backend modules for custom stations and email, adding tier logic to stations, implementing new Discord commands (, ), integrating email notifications into the Stripe webhook, and adding an SMTP configuration option to .
 - Status: IN PROGRESS
-- Agent Testing Done: N
-- Which testing method agent to use? backend testing agent. The fix requires modifying the bot's core lifecycle logic in . The test would involve starting the bot, having it join a voice channel, simulating a network interruption or forcing a temporary disconnect, and verifying from the logs that the bot attempts to reconnect instead of disabling the feature.
+- Agent Testing Done: N (The agent initiated a test run, but the job ended before the results were analyzed. The entire feature set is unverified.)
+- Which testing method agent to use? **testing agent v3 fork**. This is a large, complex feature implementation touching multiple parts of the system (Discord commands, Stripe, DB files, new integrations) and requires comprehensive E2E testing.
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
--   Issue 1: (P0) Auto-Reconnect feature is incorrectly disabled on temporary connection drops.
--   Issue 2: (P1) Audio stream is unstable, causing  errors and perceived lag.
+-   Issue 1: (P0) The newly implemented Premium Tier system is completely untested.
+-   Issue 2: (P1) Auto-reconnect after a server restart (e.g., via 
+[0;36m[1m
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
+[0m
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren.) is not working.
 
 Issues Detail:
--   **Issue 1: Auto-Reconnect incorrectly disabled**
-    -   **Attempted fixes**: None. The bug was just diagnosed.
+-   **Issue 1: New Premium System Untested**
+    -   **Attempted fixes**: The agent wrote a large amount of code for the feature across many files (, , , , , etc.) and called the testing agent.
     -   **Next debug checklist**:
-        -   Modify the  listener in  (around lines 582-618).
-        -   The logic  is too broad. It needs to differentiate between a manual disconnect (e.g., a user kicking the bot) and an automatic/network-related disconnect.
-        -   A potential fix is to only set  if the bot is moved by a user, not when the connection simply drops. A more robust reconnect attempt should be triggered on connection loss.
-    -   **Why fix this issue and what will be achieved with the fix?**: This is critical for the user's requested auto-reconnect feature. Fixing it will ensure the bot is resilient to network fluctuations and can successfully restore its session after a restart or temporary drop, as intended.
+        1.  The previous agent called  at the end of its session. **Find the corresponding test report** in .
+        2.  **Analyze the report** for any failures or skipped tests.
+        3.  Systematically debug each failed test. Pay close attention to:
+            -   Tier-based command access ( for Ultimate only).
+            -   Tier-based station filtering in  and .
+            -   The Stripe checkout and webhook flow, verifying that emails are triggered.
+            -   The new SMTP setup via 
+[0;36m[1m
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
+[0m
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren..
+    -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary requested feature. The application cannot be considered complete until this complex system is fully functional and verified.
     -   **Status**: IN PROGRESS
     -   **Is recurring issue?**: N
-    -   **Should Test backend/both after fix?**: backend
--   **Issue 2: Audio stream instability and timeouts**
-    -   **Attempted fixes**: The agent modified  arguments in  (e.g., , ) and  to .
-    -   **Why it didn't work**: The user's final logs () still show a flood of  messages, indicating the root cause of the stream instability was not addressed by tweaking  arguments alone. The  of 5 seconds might be too aggressive for unstable streams.
+    -   **Should Test backend/both after fix?**: both
+-   **Issue 2: Auto-Reconnect on Restart Fails**
+    -   **Attempted fixes**: The agent implemented several potential fixes: switching from the  event to , adding periodic state saving to  every 60 seconds, and ensuring the  file is properly created on startup.
+    -   **Why it didn't work**: The user's last report confirmed the feature is still broken. The agent's latest fixes have not been validated.
     -   **Next debug checklist**:
-        -   Review the entire audio pipeline in  again, specifically the  and  functions.
-        -   Investigate the 's  event handler. The current logic just logs and attempts a restart, which may be causing a restart loop.
-        -   Consider increasing the  input timeout () from  (5s) to a more lenient value (e.g., 15-20s) to handle slow-to-start radio streams.
-        -   Examine the resource creation: . Ensure the stream source itself is stable.
-    -   **Why fix this issue and what will be achieved with the fix?**: This directly addresses the user's #1 priority: eliminating audio lag. A stable audio stream is the core function of the application.
+        1.  Add verbose logging to the entire restore process:  (file creation),  (file read), and  ( function).
+        2.  Reproduce the issue:
+            - Start the bot and play a station in a voice channel.
+            - Wait >60s for the periodic state save to occur. Confirm  is updated.
+            - Restart the container: 
+[0;36m[1m
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
+[0m
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren. (select the update option).
+            - Monitor the logs () to see if the restore logic is triggered on  and if it attempts to rejoin the channel.
+        3.  Investigate potential race conditions between multiple bots starting and trying to read/write the state file.
+    -   **Why fix this issue and what will be achieved with the fix?**: This is a core, high-priority user requirement for a professional and resilient service.
     -   **Status**: IN PROGRESS
     -   **Is recurring issue?**: Y
     -   **Should Test backend/both after fix?**: backend
 
 **In progress Task List**:
--   No separate tasks; all current work is captured in the issue list above.
+-   Task 1: Testing and Debugging the Premium Tier System
+    -   Where to resume: Analyze the test report from the previous session.
+    -   What will be achieved with this?: A fully functional, multi-tier premium system as requested by the user.
+    -   Status: IN PROGRESS
+    -   Should Test frontend/backend/both after fix?: both
 
 **Upcoming and Future Tasks**
 Upcoming Tasks:
--   **(P0) Implement Auto-Reconnect Fix**: Apply the fix for the auto-reconnect bug (Issue 1).
--   **(P1) Resolve Audio Timeouts**: Re-investigate and fix the audio player timeout errors (Issue 2).
--   **(P2) User Validation**: After fixing both P0 and P1, guide the user to test both audio quality and the auto-reconnect functionality thoroughly.
+-   (P0) Verify and fix the Premium Tier System (Issue 1).
+-   (P1) Verify and fix the Auto-Reconnect on Restart functionality (Issue 2).
 
 Future Tasks:
--   **(P3) Automate Dual-Frontend Sync**: Implement a build step (e.g., yarn run v1.22.22
-info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. in the root) that automatically compiles the React app in  and outputs the static files to the  directory, eliminating manual synchronization.
--   **(P4) Refactor **: Break down the massive  file into smaller, more manageable modules (e.g., , , , ).
+-   (P2) Refactor : Break down the monolithic file into smaller, single-responsibility modules (e.g., , ).
+-   (P3) Automate Frontend Build: Create a build script to compile the React app in  and output the static files to , eliminating manual sync.
 
 **Completed work in this session**
-- **Feature: Auto-Reconnect State Persistence**:
-    - Created  and  to save and load bot sessions (guild, channel, station).
-    - Implemented  and  logic within the bot's lifecycle.
-    - Configured Docker () and scripts (, ) to handle the new state file.
-- **Feature: Secure Premium Bot Invites**:
-    - Added a  environment variable to define bot access levels (               total        used        free      shared  buff/cache   available
-Mem:        16358508     8785176     2186752       45820     5689228     7573332
-Swap:              0           0           0, , ).
-    - Updated the frontend (, ) to show a lock icon instead of an invite button for inaccessible premium bots.
-    - Added a secure  endpoint to provide invite links only to guilds with a valid subscription.
-    - Updated  and  to configure the  for new bots.
-- **Feature: Discord Support Link Integration**:
-    - Added the user's Discord server link () to the web UI's Navbar, Hero section, Premium section, and Footer on both the React and static frontends.
-    - Included the support link in the  Discord command's response.
-- **Critical Bug Fixes**:
-    - Fixed a  by removing a duplicate function definition in  and adding the correct exports in .
-    - Fixed a  crash by making the  callback in  an  function.
-    - Fixed a shell script error () in .
-- **Script and CLI Enhancements**:
-    - Created a new CLI tool  to manage premium licenses (, , , , ).
-    - Overhauled  to support adding/removing bots and to be more robust.
-- **Feature: Server-Specific Data Display**:
-    - Enhanced the  endpoint to include , showing per-server activity.
-    - Updated the web UI () to display this guild-specific information.
+- **Feature: Complete Premium System (Implementation Only)**:
+    - Implemented a 3-tier system (Free, Pro, Ultimate) with corresponding features (station access, audio quality).
+    - Created a system for guild-specific custom stations for Ultimate users, with , , and  commands.
+    - Integrated a -based SMTP system for sending purchase/renewal emails to customers and admins.
+    - Added a scheduled job to check for and send warnings about expiring licenses.
+- **Refactoring: Unified Management Script**:
+    - Overhauled 
+[0;36m[1m
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
+[0m
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren. to become the central, interactive tool for all management tasks, including bot management, updates, Stripe key setup, and the new SMTP configuration.
+- **Bug Fix: Stripe Configuration**:
+    - Fixed a bug where Stripe keys weren't loading by changing the container restart command from  to .
+- **Bug Fix: Bot Tier Assignment**:
+    - Fixed issues where bots were incorrectly assigned the 'FREE' tier by adding tier selection to  and an 'edit bot' function to .
+- **UI Fix: Bot Statistics**:
+    - Re-implemented the display of bot statistics (server count, user count) on the web UI, which had been lost.
 
 **Earlier issues found/mentioned but not fixed**
-- The core issue of audio lag and player timeouts () persists despite attempts to fix it. This is now the highest priority technical debt.
+- The two core issues (Premium System functionality and Auto-Reconnect) are captured in the All Pending/In progress Issue list.
 
 **Known issue recurrence from previous fork**
-- **Issue recurrence in previous fork**: Audio lag and performance issues.
-- **Recurrence count**: 2+
+- **Issue recurrence in previous fork**: Auto-Reconnect functionality.
+- **Recurrence count**: 3+
 - **Status**: IN PROGRESS
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- **Bot Backend**: Node.js with  and .
-- **Web Server**: Express.js server integrated into .
-- **Payment Processing**: Stripe for subscriptions.
-- **License System**: File-based () system for premium guilds.
-- **State Persistence**: A  file stores active sessions (guild, channel, station, volume) to enable auto-reconnect after restarts, managed by .
-- **Development Stack**: Dual frontend with React/FastAPI for preview and a static Node.js/HTML/JS app for production.
+- **Backend**: Node.js, , , Express.js.
+- **State Persistence**: Flat-file database using , , .
+- **Payments**: Stripe for tiered subscriptions and upgrades.
+- **Email**:  for transactional emails via a user-provided SMTP server.
+- **Management**: A master  bash script orchestrating Docker Compose and Node scripts.
 
 **key DB schema**
-- **premium.json**: 
-- **bot-state.json**: 
+-   ****: 
+-   ****: 
+-   ****: 
+-   ****: 
 
 **changes in tech stack**
-- No new technologies were added. The architecture was extended with a new state management file ().
+-   Added  for SMTP integration.
 
 **All files of reference**
-- : The central file for both pending issues. Contains the flawed  handler and the audio pipeline that is causing timeouts.
-- : Helper module for the auto-reconnect feature.
-- : The data file for the auto-reconnect feature.
-- , 
+-   : Heavily modified to include new command handlers, scheduled jobs, and integration of new modules. **(CRITICAL)**
+-   : New file containing the entire logic for the tiered subscription system. **(CRITICAL)**
+-   : New file for the Ultimate-tier custom station feature. **(CRITICAL)**
+-   : New file for SMTP email functionality. **(CRITICAL)**
+-   
 [0;36m[1m
-  ╔═══════════════════════════════════════════╗
-  ║                                           ║
-  ║   Discord Radio Bot - Update & Manage     ║
-  ║                                           ║
-  ╚═══════════════════════════════════════════╝
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
 [0m
-
-[0;31m[FAIL][0m docker fehlt. Bitte installieren.: Core operational scripts, updated multiple times.
-- : Updated to include persistent volumes for state.
-- : Contains the frontend logic for locking premium bot invites.
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren.: Overhauled to be the single entry point for all management. **(CRITICAL)**
+-   : Core file for the broken auto-reconnect feature.
+-   : Modified to handle creation of new JSON files.
 
 **Areas that need refactoring**:
-- The manual synchronization between  and  is inefficient. An automated build process is needed.
--  has grown excessively large and complex. It should be broken down into smaller, single-responsibility modules to improve maintainability.
+-    remains a monolith. The recent additions of command handlers and a scheduled job have made it even more complex. It needs to be broken down into smaller files.
 
 **key api endpoints**
-- : Creates a Stripe checkout session.
-- : Handles Stripe payment events.
-- : Checks a guild's premium status.
-- : **New endpoint** to securely provide invite links for premium bots to authorized guilds.
+-   : Updated to handle tiers, durations, and upgrades.
+-   : Updated to use the new  logic and trigger emails.
+-   : Returns detailed license information, including expiry dates.
+-   **New Discord Commands**: , , .
 
 **Critical Info for New Agent**
-1.  **PRIORITY 1: FIX AUTO-RECONNECT**: The immediate task is to fix the bug in the  handler in . The bot must not disable auto-reconnect on temporary network drops. It should only do so on a confirmed manual action (like a user kicking it).
-2.  **PRIORITY 2: FIX AUDIO LAG/TIMEOUTS**: After fixing the reconnect logic, you must address the  errors. This is the user's biggest pain point. Simply tweaking  args was not enough. A deeper investigation into the audio pipeline and error handling is required.
-3.  **The user is at the end of their patience**. The next response must acknowledge the two critical bugs and deliver a working solution for both. Finish the task completely after fixing and verifying these two issues.
+1.  **PRIORITY 0: TEST AND FIX THE PREMIUM SYSTEM**. Your first action must be to locate and analyze the test report from the previous agent's final action. The entire premium feature set is coded but unverified. Fix all bugs found in the report to deliver the user's main requested feature.
+2.  **PRIORITY 1: FIX AUTO-RECONNECT ON RESTART**. This is a recurring, high-priority user complaint. The bot does not rejoin its channel after a restart. You must reproduce the issue, diagnose why the previous agent's fixes were insufficient, and implement a robust solution.
+3.  **DO NOT DEVIATE**. The user has approved a clear, two-step plan: 1. Fix auto-reconnect. 2. Finalize the premium system. Address both of these, in order, starting with an  to confirm priorities.
+4.  **Communicate exclusively in German.**
 
 **documents and test reports created in this job**
-- /app/memory/PRD.md
-- Multiple test reports in , with the last one being .
+-   /app/memory/PRD.md
+-   Multiple test reports in . The most recent one is crucial for debugging Issue #1.
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Asks why auto-reconnect is disabled and provides logs showing both the reconnect failure and persistent audio player timeouts. **(CURRENT BLOCKER)**
-2.  **User**: Demands a final, stable version, emphasizing that audio lag and auto-reconnect are the last two things to fix before finishing. **(PENDING)**
-3.  **User**: Reports a major logic flaw: premium bots can be invited by anyone. **(COMPLETED)**
-4.  **User**: Expresses frustration with update errors and requests the addition of a Discord support link. **(COMPLETED)**
-5.  **Agent**: Declares the task finished after passing automated tests. **(Incorrect, user found more bugs)**
-6.  **User**: Reports a critical bot crash (). **(COMPLETED)**
-7.  **User**: Reports a critical bot crash () and several new feature requests/bug reports related to server-specific info and install scripts. **(COMPLETED)**
-8.  **Agent**: Declares the task finished after passing automated tests. **(Incorrect, user found more bugs)**
-9.  **User**: Gives broad approval to make everything really professional, mentioning audio quality as the most important thing. **(Acknowledged)**
-10. **Agent**: Proposes an initial plan to implement the premium system and audio optimizations. **(Superseded)**
+1.  **User (273)**: Approves the agent's detailed plan for the premium overhaul, specifying requirements like own SMTP, ~50 stations, and dual email notifications (admin/customer).
+2.  **User (271)**: Lays out the full product requirements for the Free/Pro/Ultimate tiers, including features, pricing, and the need for SMTP integration for invites and receipts.
+3.  **User (179)**: Confirms subscription logic details, including discounts for annual plans and extending existing subscriptions.
+4.  **User (177)**: Agrees with the plan to first fix auto-reconnect, then build the new premium system.
+5.  **User (176)**: **(CRITICAL PENDING MESSAGE)** Reports that auto-reconnect on restart is completely broken and simultaneously requests the massive premium system overhaul.
+6.  **User (141)**: Requests consolidating all settings into 
+[0;36m[1m
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
+[0m
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren. and reports a bug where Stripe appears not configured. **(Completed)**
+7.  **User (112)**: Clarifies UI requirements: bot stats (server count) on the website, but now-playing info only on Discord. **(Completed)**
+8.  **User (105)**: Sends a screenshot of a broken UI element. **(Completed)**
+9.  **User (92)**: Asks for the now-playing status to be server-specific. **(Completed)**
+10. **User (51)**: Expresses major frustration about multiple bugs in the scripts and premium logic. **(Completed)**
 
 **Project Health Check:**
-- **Broken**: The auto-reconnect feature is critically flawed. The audio streaming pipeline is unstable and prone to timeouts, failing the user's primary requirement.
+-   **Broken**: The auto-reconnect-on-restart feature, a critical user requirement, is non-functional.
+-   **Mocked**: The entire new premium tier system is coded but completely unverified and likely contains numerous bugs.
 
 **3rd Party Integrations**
-- **Discord**: . Requires User API Keys ( file).
-- **Stripe**: . Requires User API Keys (configured via ).
+-   **Discord**:  - Requires User API Keys ().
+-   **Stripe**:  - Requires User API Keys (configured via ).
+-   **Nodemailer**: For SMTP - Requires User SMTP credentials (configured via ).
 
 **Testing status**
-- Testing agent used after significant changes: YES. However, the automated tests failed to catch the critical runtime issues (reconnect logic bug, audio timeouts), proving that real-world scenario testing is required for these problems.
-- Troubleshoot agent used after agent stuck in loop: NO
-- Test files created: None.
-- Known regressions: The auto-reconnect feature is a regression from its intended functionality due to the bug.
+-   Testing agent used after significant changes: YES, but the final and most critical run was not analyzed.
+-   Troubleshoot agent used after agent stuck in loop: NO
+-   Test files created: None.
+-   Known regressions: The auto-reconnect feature is a persistent regression.
 
 **Credentials to test flow:**
-- Bot credentials must be in the  file (, , etc.).
-- Stripe functionality requires the user to run 
+-   Bot credentials must be set in the  file.
+-   Stripe API keys must be configured via 
 [0;36m[1m
-  ╔═══════════════════════════════════════╗
-  ║   Stripe API Key - Einrichtung        ║
-  ╚═══════════════════════════════════════╝
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
 [0m
-
-  Fuer Stripe-Zahlungen brauchst du einen API-Key.
-  Hol dir deinen unter: [0;36mhttps://dashboard.stripe.com/apikeys[0m
-
-  [0;33mHinweis:[0m Nutze erst den [1mTest-Key[0m (sk_test_...) zum Testen! and provide their own Stripe Secret Key and Public Key.
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren..
+-   SMTP credentials must be configured via 
+[0;36m[1m
+  ╔══════════════════════════════════════════════╗
+  ║                                              ║
+  ║   Discord Radio Bot - Management & Settings  ║
+  ║                                              ║
+  ╚══════════════════════════════════════════════╝
+[0m
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren..
 
 **What agent forgot to execute**
-- The agent failed to fully resolve the user's primary complaint about audio lag; the implemented fixes were insufficient.
-- The agent introduced a critical bug into the new auto-reconnect feature, making it non-functional in real-world conditions.</analysis>
+-   The agent failed to analyze the test results of its largest and most critical implementation (the premium system), leaving it in an unknown and unstable state.
+-   The agent did not definitively verify its fixes for the auto-reconnect issue, which the user continues to report as broken.</analysis>
