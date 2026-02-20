@@ -57,10 +57,11 @@ echo ""
 info "Starte Container neu damit der Key aktiv wird..."
 
 if command -v docker >/dev/null 2>&1; then
-  docker compose restart radio-bot 2>/dev/null || true
+  # WICHTIG: up -d statt restart - restart liest .env NICHT neu ein!
+  docker compose up -d --build --remove-orphans 2>/dev/null || docker compose restart radio-bot 2>/dev/null || true
   ok "Container neugestartet."
 else
-  echo -e "  ${YELLOW}Docker nicht gefunden. Bitte manuell neustarten.${NC}"
+  echo -e "  ${YELLOW}Docker nicht gefunden. Bitte manuell neustarten: docker compose up -d --build${NC}"
 fi
 
 echo ""
