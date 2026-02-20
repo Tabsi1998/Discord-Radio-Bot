@@ -20,6 +20,10 @@ function loadState() {
 
 function saveState(state) {
   try {
+    // Sicherstellen dass die Datei existiert und kein Verzeichnis ist
+    if (fs.existsSync(STATE_FILE) && fs.statSync(STATE_FILE).isDirectory()) {
+      fs.rmSync(STATE_FILE, { recursive: true });
+    }
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
   } catch (err) {
     console.error(`[bot-state] Fehler beim Speichern: ${err.message}`);
