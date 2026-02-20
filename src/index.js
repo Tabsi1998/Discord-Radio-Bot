@@ -1117,6 +1117,60 @@ class BotRuntime {
       return;
     }
 
+    if (interaction.commandName === "addstation") {
+      const guildId = interaction.guildId;
+      const guildTier = getTier(guildId);
+      if (guildTier !== "ultimate") {
+        await interaction.reply({ content: "Custom Stationen sind ein ULTIMATE Feature. Upgrade auf: https://discord.gg/UeRkfGS43R", ephemeral: true });
+        return;
+      }
+      const key = interaction.options.getString("key");
+      const name = interaction.options.getString("name");
+      const url = interaction.options.getString("url");
+      const result = addGuildStation(guildId, key, name, url);
+      if (result.error) {
+        await interaction.reply({ content: result.error, ephemeral: true });
+      } else {
+        const count = countGuildStations(guildId);
+        await interaction.reply({ content: `Custom Station hinzugefuegt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`, ephemeral: true });
+      }
+      return;
+    }
+
+    if (interaction.commandName === "removestation") {
+      const guildId = interaction.guildId;
+      const guildTier = getTier(guildId);
+      if (guildTier !== "ultimate") {
+        await interaction.reply({ content: "Custom Stationen sind ein ULTIMATE Feature.", ephemeral: true });
+        return;
+      }
+      const key = interaction.options.getString("key");
+      if (removeGuildStation(guildId, key)) {
+        await interaction.reply({ content: `Station \`${key}\` entfernt.`, ephemeral: true });
+      } else {
+        await interaction.reply({ content: `Station \`${key}\` nicht gefunden.`, ephemeral: true });
+      }
+      return;
+    }
+
+    if (interaction.commandName === "mystations") {
+      const guildId = interaction.guildId;
+      const guildTier = getTier(guildId);
+      if (guildTier !== "ultimate") {
+        await interaction.reply({ content: "Custom Stationen sind ein ULTIMATE Feature.", ephemeral: true });
+        return;
+      }
+      const custom = getGuildStations(guildId);
+      const keys = Object.keys(custom);
+      if (keys.length === 0) {
+        await interaction.reply({ content: "Keine Custom Stationen. Nutze `/addstation` um eine hinzuzufuegen.", ephemeral: true });
+      } else {
+        const list = keys.map(k => `\`${k}\` - ${custom[k].name}`).join("\n");
+        await interaction.reply({ content: `**Custom Stationen (${keys.length}/${MAX_STATIONS_PER_GUILD}):**\n${list}`, ephemeral: true });
+      }
+      return;
+    }
+
     if (interaction.commandName === "play") {
       const requested = interaction.options.getString("station");
       const requestedChannelInput = interaction.options.getString("channel");
