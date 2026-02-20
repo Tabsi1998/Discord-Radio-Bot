@@ -952,14 +952,40 @@ class BotRuntime {
     const state = this.getState(interaction.guildId);
 
     if (interaction.commandName === "stations") {
-      const result = formatStationPage(stations, 1, 15);
-      await interaction.reply({ content: result.content, ephemeral: true });
+      const guildTier = getTier(interaction.guildId);
+      const available = filterStationsByTier(stations.stations, guildTier);
+      const tierLabel = guildTier !== "free" ? ` [${guildTier.toUpperCase()}]` : "";
+      const list = Object.entries(available).map(([k, v]) => {
+        const badge = v.tier && v.tier !== "free" ? ` [${v.tier.toUpperCase()}]` : "";
+        return `\`${k}\` - ${v.name}${badge}`;
+      }).join("\n");
+      const custom = guildTier === "ultimate" ? getGuildStations(interaction.guildId) : {};
+      const customList = Object.entries(custom).map(([k, v]) => `\`${k}\` - ${v.name} [CUSTOM]`).join("\n");
+      let content = `**Verfuegbare Stationen${tierLabel} (${Object.keys(available).length}):**\n${list}`;
+      if (customList) content += `\n\n**Custom Stationen (${Object.keys(custom).length}):**\n${customList}`;
+      await interaction.reply({ content, ephemeral: true });
       return;
     }
 
     if (interaction.commandName === "list") {
-      const result = formatStationPage(stations, interaction.options.getInteger("page") || 1, 10);
-      await interaction.reply({ content: result.content, ephemeral: true });
+      const guildTier = getTier(interaction.guildId);
+      const available = filterStationsByTier(stations.stations, guildTier);
+      const keys = Object.keys(available);
+      const page = Math.max(1, interaction.options.getInteger("page") || 1);
+      const perPage = 10;
+      const start = (page - 1) * perPage;
+      const end = start + perPage;
+      const pageKeys = keys.slice(start, end);
+      const totalPages = Math.ceil(keys.length / perPage);
+      if (pageKeys.length === 0) {
+        await interaction.reply({ content: `Seite ${page} hat keine Eintraege (${totalPages} Seiten).`, ephemeral: true });
+        return;
+      }
+      const list = pageKeys.map(k => {
+        const badge = available[k].tier !== "free" ? ` [${available[k].tier.toUpperCase()}]` : "";
+        return `\`${k}\` - ${available[k].name}${badge}`;
+      }).join("\n");
+      await interaction.reply({ content: `**Stationen (Seite ${page}/${totalPages}):**\n${list}`, ephemeral: true });
       return;
     }
 
