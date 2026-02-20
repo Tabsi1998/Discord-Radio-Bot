@@ -662,14 +662,14 @@ function submitPremiumCheckout() {
       statusEl.textContent = data.error || 'Fehler beim Erstellen der Zahlung.';
       statusEl.style.color = '#FF2A2A';
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Jetzt bezahlen';
+      updatePriceDisplay();
     }
   })
   .catch(function(err) {
     statusEl.textContent = 'Verbindungsfehler: ' + err.message;
     statusEl.style.color = '#FF2A2A';
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Jetzt bezahlen';
+    updatePriceDisplay();
   });
 }
 
