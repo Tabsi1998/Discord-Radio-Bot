@@ -8,9 +8,13 @@ const STATE_FILE = path.join(rootDir, "bot-state.json");
 function loadState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
-      return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+      const raw = fs.readFileSync(STATE_FILE, "utf8");
+      if (!raw || raw.trim().length === 0) return {};
+      return JSON.parse(raw);
     }
-  } catch {}
+  } catch (err) {
+    console.error(`[bot-state] Fehler beim Laden von ${STATE_FILE}: ${err.message}`);
+  }
   return {};
 }
 
