@@ -671,11 +671,23 @@ fi
 # Container rebuild
 echo ""
 # Sicherstellen dass gemountete JSON-Dateien VOR Docker-Start existieren
-# Docker bind-mount erstellt sonst ein VERZEICHNIS statt einer Datei!
-[[ -f premium.json ]]         || echo '{"licenses":{}}' > premium.json
-[[ -f bot-state.json ]]       || echo '{}' > bot-state.json
-[[ -f custom-stations.json ]] || echo '{}' > custom-stations.json
-[[ -f stations.json ]]        || echo '{"defaultStationKey":null,"stations":{},"qualityPreset":"custom"}' > stations.json
+# Docker bind-mount erstellt ein VERZEICHNIS wenn die Datei auf dem Host fehlt!
+# Auf dem Host koennen wir das Verzeichnis loeschen und als Datei neu erstellen.
+ensure_json_file() {
+  local fp="$1" content="$2"
+  if [[ -d "$fp" ]]; then
+    info "Korrigiere $fp (war Verzeichnis statt Datei)..."
+    rm -rf "$fp" 2>/dev/null || true
+  fi
+  if [[ ! -f "$fp" ]]; then
+    echo "$content" > "$fp"
+    ok "$fp erstellt."
+  fi
+}
+ensure_json_file "premium.json"         '{"licenses":{}}'
+ensure_json_file "bot-state.json"       '{}'
+ensure_json_file "custom-stations.json" '{}'
+ensure_json_file "stations.json"        '{"defaultStationKey":null,"stations":{},"qualityPreset":"custom"}'
 
 info "Baue Container neu..."
 docker compose build --no-cache 2>&1 | tail -5
