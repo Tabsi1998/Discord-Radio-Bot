@@ -269,6 +269,76 @@ if [[ "$MODE" == "--stripe" ]]; then
 fi
 
 # ============================================================
+# MODE: E-Mail (SMTP) einrichten
+# ============================================================
+if [[ "$MODE" == "--email" ]]; then
+  echo ""
+  echo -e "  ${BOLD}E-Mail (SMTP) Konfiguration${NC}"
+  echo "  ────────────────────────────────────"
+  echo ""
+
+  cur_host=$(grep "^SMTP_HOST=" .env 2>/dev/null | cut -d= -f2- || echo "")
+  cur_port=$(grep "^SMTP_PORT=" .env 2>/dev/null | cut -d= -f2- || echo "587")
+  cur_user=$(grep "^SMTP_USER=" .env 2>/dev/null | cut -d= -f2- || echo "")
+  cur_from=$(grep "^SMTP_FROM=" .env 2>/dev/null | cut -d= -f2- || echo "")
+  cur_admin=$(grep "^ADMIN_EMAIL=" .env 2>/dev/null | cut -d= -f2- || echo "")
+
+  if [[ -n "$cur_host" ]]; then
+    echo -e "  SMTP Host:     ${GREEN}${cur_host}${NC}"
+    echo -e "  SMTP Port:     ${DIM}${cur_port}${NC}"
+    echo -e "  SMTP User:     ${GREEN}${cur_user}${NC}"
+    echo -e "  Absender:      ${DIM}${cur_from:-$cur_user}${NC}"
+    echo -e "  Admin-Email:   ${CYAN}${cur_admin:-nicht gesetzt}${NC}"
+    echo ""
+    echo -e "  Status:        ${GREEN}konfiguriert${NC}"
+  else
+    echo -e "  Status:        ${RED}nicht konfiguriert${NC}"
+  fi
+  echo ""
+
+  echo -e "  ${BOLD}Was tun?${NC}"
+  echo -e "    ${GREEN}1${NC}) SMTP komplett einrichten"
+  echo -e "    ${CYAN}2${NC}) Nur Admin-Email aendern"
+  echo -e "    ${DIM}3${NC}) Zurueck"
+  echo ""
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-3]${NC}: ")" EMAIL_CHOICE
+
+  case "$EMAIL_CHOICE" in
+    1)
+      smtp_host="$(prompt_nonempty "SMTP Host (z.B. mail.example.com)")"
+      smtp_port="$(prompt_default "SMTP Port" "587")"
+      smtp_user="$(prompt_nonempty "SMTP Benutzername (oft die E-Mail)")"
+      read -rsp "$(echo -e "  ${CYAN}?${NC} SMTP Passwort: ")" smtp_pass
+      echo ""
+      if [[ -z "$smtp_pass" ]]; then fail "Passwort darf nicht leer sein."; exit 1; fi
+      smtp_from="$(prompt_default "Absender-Adresse" "$smtp_user")"
+      admin_email="$(prompt_optional "Admin-Email (fuer Kauf-Benachrichtigungen)")"
+
+      write_env_line "SMTP_HOST" "$smtp_host"
+      write_env_line "SMTP_PORT" "$smtp_port"
+      write_env_line "SMTP_USER" "$smtp_user"
+      write_env_line "SMTP_PASS" "$smtp_pass"
+      write_env_line "SMTP_FROM" "$smtp_from"
+      if [[ -n "$admin_email" ]]; then
+        write_env_line "ADMIN_EMAIL" "$admin_email"
+      fi
+      ok "SMTP konfiguriert."
+      ;;
+    2)
+      admin_email="$(prompt_nonempty "Admin-Email")"
+      write_env_line "ADMIN_EMAIL" "$admin_email"
+      ok "Admin-Email gespeichert: ${admin_email}"
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
+
+  restart_container
+  exit 0
+fi
+
+# ============================================================
 # MODE: Einstellungen
 # ============================================================
 if [[ "$MODE" == "--settings" ]]; then
