@@ -1652,16 +1652,21 @@ if (!startResults.some(Boolean)) {
 // Auto-Restore: Vorherigen Zustand wiederherstellen (Voice Channels + Stationen)
 const stations = loadStations();
 for (const runtime of runtimes) {
-  if (runtime.client.isReady()) {
+  // Use clientReady (not deprecated "ready") and handle both cases
+  const doRestore = () => {
+    log("INFO", `[${runtime.config.name}] Starte Auto-Restore...`);
     runtime.restoreState(stations).catch((err) => {
       log("ERROR", `[${runtime.config.name}] Auto-Restore fehlgeschlagen: ${err?.message || err}`);
     });
+  };
+
+  if (runtime.client.isReady()) {
+    doRestore();
   } else {
-    // Warte auf Ready-Event und restore dann
-    runtime.client.once("ready", () => {
-      runtime.restoreState(stations).catch((err) => {
-        log("ERROR", `[${runtime.config.name}] Auto-Restore fehlgeschlagen: ${err?.message || err}`);
-      });
+    // Wait for bot to be fully ready before restoring
+    runtime.client.once("clientReady", () => {
+      // Small delay to ensure guild cache is populated
+      setTimeout(doRestore, 2000);
     });
   }
 }
