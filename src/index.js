@@ -1337,6 +1337,7 @@ class BotRuntime {
       state.currentStationKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
+      state.streamErrorCount = 0;
     }
 
     try {
