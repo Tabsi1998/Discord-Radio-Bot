@@ -453,12 +453,122 @@ function startCheckout(tier) {
   submitBtn.disabled = false;
   submitBtn.textContent = 'Jetzt bezahlen';
 
-  // Store tier for submit
   modal.dataset.tier = tier;
+  modal.dataset.months = '1';
+  modal.dataset.isUpgrade = 'false';
+
+  // Set up month selector
+  var monthSelect = document.getElementById('premiumMonths');
+  if (monthSelect) monthSelect.value = '1';
+  updatePriceDisplay();
+
+  // Check if server already has a license (for upgrade/extend)
+  var checkBtn = document.getElementById('premiumCheckExisting');
+  if (checkBtn) checkBtn.style.display = 'inline-block';
+}
+
+function updatePriceDisplay() {
+  var modal = document.getElementById('premiumModal');
+  var tier = modal.dataset.tier;
+  var monthSelect = document.getElementById('premiumMonths');
+  var months = parseInt(monthSelect ? monthSelect.value : '1') || 1;
+  var priceEl = document.getElementById('premiumPrice');
+  var discountEl = document.getElementById('premiumDiscount');
+
+  modal.dataset.months = String(months);
+
+  var pricePerMonth = tier === 'ultimate' ? 999 : 499;
+  var totalCents;
+  var hasDiscount = false;
+
+  if (months >= 12) {
+    var fullYears = Math.floor(months / 12);
+    var remaining = months % 12;
+    totalCents = (fullYears * 10 * pricePerMonth) + (remaining * pricePerMonth);
+    hasDiscount = true;
+  } else {
+    totalCents = months * pricePerMonth;
+  }
+
+  if (priceEl) {
+    priceEl.textContent = (totalCents / 100).toFixed(2).replace('.', ',') + ' EUR';
+  }
+  if (discountEl) {
+    if (hasDiscount) {
+      var savedCents = (months * pricePerMonth) - totalCents;
+      discountEl.textContent = 'Jahresrabatt: ' + (savedCents / 100).toFixed(2).replace('.', ',') + ' EUR gespart!';
+      discountEl.style.display = 'block';
+    } else if (months >= 6) {
+      discountEl.textContent = 'Tipp: Bei 12 Monaten zahlst du nur 10!';
+      discountEl.style.display = 'block';
+    } else {
+      discountEl.style.display = 'none';
+    }
+  }
+}
+
+function checkExistingLicense() {
+  var input = document.getElementById('premiumServerId');
+  var statusEl = document.getElementById('premiumStatus');
+  var modal = document.getElementById('premiumModal');
+  var serverId = input.value.trim();
+  var tier = modal.dataset.tier;
+
+  if (!/^\d{17,22}$/.test(serverId)) {
+    statusEl.textContent = 'Gib zuerst eine gueltige Server ID ein!';
+    statusEl.style.color = '#FF2A2A';
+    return;
+  }
+
+  statusEl.textContent = 'Pruefe...';
+  statusEl.style.color = '#A1A1AA';
+
+  fetch('/api/premium/pricing?serverId=' + serverId)
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.currentLicense) {
+      var lic = data.currentLicense;
+      if (data.upgrade && tier === 'ultimate' && lic.tier === 'pro') {
+        // Upgrade moeglich
+        modal.dataset.isUpgrade = 'true';
+        var cost = (data.upgrade.cost / 100).toFixed(2).replace('.', ',');
+        statusEl.innerHTML = '<span style="color:#FFB800">Aktiv: Pro (' + lic.remainingDays + ' Tage uebrig)</span><br>' +
+          '<span style="color:#BD00FF">Upgrade auf Ultimate: nur ' + cost + ' EUR (Aufpreis fuer Restlaufzeit)</span>';
+        var priceEl = document.getElementById('premiumPrice');
+        if (priceEl) priceEl.textContent = cost + ' EUR';
+        var discountEl = document.getElementById('premiumDiscount');
+        if (discountEl) { discountEl.textContent = 'Upgrade-Preis (nur Differenz)'; discountEl.style.display = 'block'; }
+        var monthsEl = document.getElementById('premiumMonthsRow');
+        if (monthsEl) monthsEl.style.display = 'none';
+      } else if (lic.tier === tier) {
+        // Verlaengerung
+        statusEl.innerHTML = '<span style="color:#39FF14">Aktiv: ' + lic.tier.charAt(0).toUpperCase() + lic.tier.slice(1) +
+          ' (' + lic.remainingDays + ' Tage uebrig)</span><br>' +
+          '<span style="color:#A1A1AA">Neue Laufzeit wird addiert!</span>';
+        modal.dataset.isUpgrade = 'false';
+        var monthsEl2 = document.getElementById('premiumMonthsRow');
+        if (monthsEl2) monthsEl2.style.display = 'flex';
+      } else {
+        statusEl.textContent = '';
+        modal.dataset.isUpgrade = 'false';
+      }
+    } else {
+      statusEl.textContent = 'Kein aktives Abo - Neukauf.';
+      statusEl.style.color = '#A1A1AA';
+      modal.dataset.isUpgrade = 'false';
+      var monthsEl3 = document.getElementById('premiumMonthsRow');
+      if (monthsEl3) monthsEl3.style.display = 'flex';
+    }
+  })
+  .catch(function() {
+    statusEl.textContent = '';
+  });
 }
 
 function closePremiumModal() {
   document.getElementById('premiumModal').style.display = 'none';
+  var monthsEl = document.getElementById('premiumMonthsRow');
+  if (monthsEl) monthsEl.style.display = 'flex';
 }
 
 function submitPremiumCheckout() {
@@ -467,6 +577,7 @@ function submitPremiumCheckout() {
   var submitBtn = document.getElementById('premiumSubmit');
   var statusEl = document.getElementById('premiumStatus');
   var tier = modal.dataset.tier;
+  var months = parseInt(modal.dataset.months) || 1;
   var serverId = input.value.trim();
 
   if (!/^\d{17,22}$/.test(serverId)) {
@@ -477,12 +588,11 @@ function submitPremiumCheckout() {
 
   submitBtn.disabled = true;
   submitBtn.textContent = 'Wird geladen...';
-  statusEl.textContent = '';
 
   fetch('/api/premium/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tier: tier, serverId: serverId, returnUrl: window.location.origin })
+    body: JSON.stringify({ tier: tier, serverId: serverId, months: months, returnUrl: window.location.origin })
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
