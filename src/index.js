@@ -616,85 +616,36 @@ class BotRuntime {
     // Bot hat Voice verlassen
     if (!oldChannelId) return;
 
-    // Pruefen: Wurde der Bot von einem Admin/User gekickt oder durch Netzwerk getrennt?
-    // Wenn der Bot selbst die Trennung ausgeloest hat (z.B. /stop), ist shouldReconnect bereits false.
-    // Wenn shouldReconnect noch true ist, war es ungewollt -> Auto-Reconnect starten!
-    if (state.shouldReconnect && state.currentStationKey && state.lastChannelId) {
-      log("INFO",
-        `[${this.config.name}] Voice-Verbindung verloren (Guild ${guildId}, Channel ${oldChannelId}). Auto-Reconnect in 3s...`
-      );
-
-      // Alten State merken
-      const savedStationKey = state.currentStationKey;
-      const savedChannelId = state.lastChannelId;
-      const savedVolume = state.volume;
-
-      // Aktuellen Stream aufräumen
-      this.clearReconnectTimer(state);
-      state.player.stop();
-      this.clearCurrentProcess(state);
-      if (state.connection) {
-        try { state.connection.destroy(); } catch {}
-        state.connection = null;
-      }
-
-      // Auto-Reconnect nach kurzer Pause
-      state.streamRestartTimer = setTimeout(async () => {
-        state.streamRestartTimer = null;
-        try {
-          const guild = this.client.guilds.cache.get(guildId);
-          if (!guild) { log("INFO", `[${this.config.name}] Guild ${guildId} nicht mehr erreichbar.`); return; }
-
-          const channel = guild.channels.cache.get(savedChannelId);
-          if (!channel || !channel.isVoiceBased()) { log("INFO", `[${this.config.name}] Channel ${savedChannelId} nicht mehr vorhanden.`); return; }
-
-          log("INFO", `[${this.config.name}] Auto-Reconnect: ${guild.name} / #${channel.name}`);
-
-          const connection = joinVoiceChannel({
-            channelId: channel.id,
-            guildId,
-            adapterCreator: guild.voiceAdapterCreator,
-            selfDeaf: true,
-            selfMute: false,
-            group: this.voiceGroup,
-          });
-
-          state.connection = connection;
-          state.lastChannelId = savedChannelId;
-          state.volume = savedVolume;
-          connection.subscribe(state.player);
-          this.attachConnectionHandlers(guildId, connection);
-
-          const stations = loadStations();
-          const key = resolveStation(stations, savedStationKey);
-          if (key) {
-            await this.playStation(state, stations, key, guildId);
-            log("INFO", `[${this.config.name}] Auto-Reconnect erfolgreich: ${stations.stations[key].name}`);
-          }
-        } catch (err) {
-          log("ERROR", `[${this.config.name}] Auto-Reconnect fehlgeschlagen: ${err?.message || err}`);
-        }
-      }, 3000);
-
-      return;
-    }
-
-    // Bot wurde absichtlich getrennt (shouldReconnect=false oder kein aktiver Stream)
-    log("INFO",
-      `[${this.config.name}] Voice verlassen (Guild ${guildId}, Channel ${oldChannelId}).`
-    );
-    this.clearReconnectTimer(state);
-    state.player.stop();
-    this.clearCurrentProcess(state);
+    // Destroy connection FIRST (so handleStreamEnd triggered by player.stop sees connection=null and skips)
     if (state.connection) {
       try { state.connection.destroy(); } catch {}
       state.connection = null;
     }
+    // Now safe to stop player - Idle event fires, handleStreamEnd checks connection (null) and returns
+    state.player.stop();
+    this.clearCurrentProcess(state);
+
+    // Auto-reconnect: schedule if we should reconnect and had an active station
+    if (state.shouldReconnect && state.currentStationKey && state.lastChannelId) {
+      log("INFO",
+        `[${this.config.name}] Voice lost (Guild ${guildId}, Channel ${oldChannelId}). Scheduling auto-reconnect...`
+      );
+      // scheduleReconnect has built-in dedup (checks reconnectTimer)
+      this.scheduleReconnect(guildId);
+      return;
+    }
+
+    // Intentional disconnect (/stop or shouldReconnect=false) - clean up fully
+    log("INFO",
+      `[${this.config.name}] Voice left (Guild ${guildId}, Channel ${oldChannelId}). No reconnect.`
+    );
+    this.clearReconnectTimer(state);
     state.currentStationKey = null;
     state.currentStationName = null;
     state.currentMeta = null;
     state.lastChannelId = null;
     state.reconnectAttempts = 0;
+    state.streamErrorCount = 0;
     this.updatePresence();
     this.persistState();
   }
