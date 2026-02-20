@@ -1267,7 +1267,10 @@ class BotRuntime {
 
   async restoreState(stations) {
     const saved = getBotState(this.config.id);
-    if (!saved || Object.keys(saved).length === 0) return;
+    if (!saved || Object.keys(saved).length === 0) {
+      log("INFO", `[${this.config.name}] Kein gespeicherter State gefunden (bot-id: ${this.config.id}).`);
+      return;
+    }
 
     log("INFO", `[${this.config.name}] Stelle ${Object.keys(saved).length} Verbindung(en) wieder her...`);
 
@@ -1275,12 +1278,16 @@ class BotRuntime {
       try {
         const guild = this.client.guilds.cache.get(guildId);
         if (!guild) {
-          log("INFO", `[${this.config.name}] Guild ${guildId} nicht gefunden, ueberspringe.`);
+          log("INFO", `[${this.config.name}] Guild ${guildId} nicht gefunden (${this.client.guilds.cache.size} Guilds im Cache), ueberspringe.`);
           clearBotGuild(this.config.id, guildId);
           continue;
         }
 
-        const channel = guild.channels.cache.get(data.channelId);
+        // Fetch channel from API if not in cache
+        let channel = guild.channels.cache.get(data.channelId);
+        if (!channel) {
+          channel = await guild.channels.fetch(data.channelId).catch(() => null);
+        }
         if (!channel || !channel.isVoiceBased()) {
           log("INFO", `[${this.config.name}] Channel ${data.channelId} in ${guild.name} nicht gefunden.`);
           clearBotGuild(this.config.id, guildId);
@@ -1310,6 +1317,14 @@ class BotRuntime {
           group: this.voiceGroup,
         });
 
+        try {
+          await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+        } catch {
+          log("ERROR", `[${this.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen (Timeout).`);
+          try { connection.destroy(); } catch {}
+          continue;
+        }
+
         state.connection = connection;
         connection.subscribe(state.player);
         this.attachConnectionHandlers(guildId, connection);
@@ -1318,7 +1333,7 @@ class BotRuntime {
         log("INFO", `[${this.config.name}] Wiederhergestellt: ${guild.name} -> ${stations.stations[stationKey].name}`);
 
         // Kurze Pause zwischen Reconnects um Rate-Limits zu vermeiden
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 2000));
       } catch (err) {
         log("ERROR", `[${this.config.name}] Restore fehlgeschlagen fuer Guild ${guildId}: ${err?.message || err}`);
       }
