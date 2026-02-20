@@ -141,28 +141,25 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
       "-loglevel", "warning",
-      // === ZERO-LAG v3: minimale Buffer, sofortiger Start ===
-      "-fflags", "+nobuffer+flush_packets+genpts+discardcorrupt",
+      // === Stable streaming: small buffer for resilience, low latency ===
+      "-fflags", "+flush_packets+genpts+discardcorrupt",
       "-flags", "+low_delay",
-      "-probesize", "8192",
-      "-analyzeduration", "0",
-      "-thread_queue_size", "512",
-      "-max_delay", "0",
-      "-avioflags", "direct",
+      "-probesize", "32768",
+      "-analyzeduration", "500000",
+      "-thread_queue_size", "1024",
       // === Reconnect bei Stream-Abbruch ===
       "-reconnect", "1",
       "-reconnect_streamed", "1",
-      "-reconnect_delay_max", "2",
+      "-reconnect_delay_max", "5",
       "-reconnect_on_network_error", "1",
       "-reconnect_on_http_error", "4xx,5xx",
-      "-rw_timeout", "5000000",
-      "-timeout", "5000000",
+      "-rw_timeout", "15000000",
+      "-timeout", "15000000",
       // === Input ===
       "-i", url,
       "-ar", "48000",
       "-ac", "2",
       "-vn",
-      // === Sofort flushen ===
       "-flush_packets", "1",
     ];
 
@@ -296,7 +293,8 @@ class BotRuntime {
         reconnectAttempts: 0,
         reconnectTimer: null,
         streamRestartTimer: null,
-        shouldReconnect: false
+        shouldReconnect: false,
+        streamErrorCount: 0
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
