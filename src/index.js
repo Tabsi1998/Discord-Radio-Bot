@@ -1122,15 +1122,42 @@ class BotRuntime {
       const requestedChannelInput = interaction.options.getString("channel");
       let requestedChannel = null;
 
-      // Channel ist ein String-Autocomplete-Feld (ID), nicht getChannel()
       if (requestedChannelInput) {
         requestedChannel = await this.resolveVoiceChannelFromInput(interaction.guild, requestedChannelInput);
       }
 
-      const key = resolveStation(stations, requested);
-      if (!key) {
-        await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
-        return;
+      const guildId = interaction.guildId;
+      const guildTier = getTier(guildId);
+
+      // Check standard stations first, then custom stations (Ultimate only)
+      let key = resolveStation(stations, requested);
+      let isCustom = false;
+      let customUrl = null;
+
+      if (key) {
+        // Check tier access
+        const stationTier = stations.stations[key]?.tier || "free";
+        const tierRank = { free: 0, pro: 1, ultimate: 2 };
+        if ((tierRank[stationTier] || 0) > (tierRank[guildTier] || 0)) {
+          await interaction.reply({ content: `Station "${stations.stations[key].name}" erfordert ${stationTier.toUpperCase()}. Dein Server: ${guildTier.toUpperCase()}.`, ephemeral: true });
+          return;
+        }
+      } else {
+        // Check custom stations (Ultimate feature)
+        const customStations = getGuildStations(guildId);
+        const customKey = Object.keys(customStations).find(k => k === requested || customStations[k].name.toLowerCase() === (requested || "").toLowerCase());
+        if (customKey && guildTier === "ultimate") {
+          key = `custom:${customKey}`;
+          isCustom = true;
+          customUrl = customStations[customKey].url;
+          stations.stations[key] = { name: customStations[customKey].name, url: customUrl, tier: "ultimate" };
+        } else if (customKey) {
+          await interaction.reply({ content: "Custom Stationen erfordern ULTIMATE.", ephemeral: true });
+          return;
+        } else {
+          await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
+          return;
+        }
       }
 
       const guild = interaction.guild;
@@ -1141,19 +1168,14 @@ class BotRuntime {
 
       if (!requestedChannel && requestedChannelInput) {
         await interaction.reply({
-          content: "Voice-Channel nicht gefunden. Nutze die Vorschläge in `channel` oder gib eine gültige Channel-ID an.",
+          content: "Voice-Channel nicht gefunden.",
           ephemeral: true
         });
         return;
       }
 
       const memberChannelId = interaction.member?.voice?.channel?.id || null;
-      log(
-        "INFO",
-        `[${this.config.name}] /play guild=${interaction.guildId} station=${key} optionChannelInput=${
-          requestedChannelInput || "-"
-        } resolvedChannel=${requestedChannel?.id || "-"} memberChannel=${memberChannelId || "-"}`
-      );
+      log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} custom=${isCustom} tier=${guildTier}`);
 
       const selectedStation = stations.stations[key];
       const connection = await this.connectToVoice(interaction, requestedChannel);
@@ -1163,8 +1185,8 @@ class BotRuntime {
       await interaction.deferReply();
 
       try {
-        await this.playStation(state, stations, key, interaction.guildId);
-        const tierConfig = getTierConfig(interaction.guildId);
+        await this.playStation(state, stations, key, guildId);
+        const tierConfig = getTierConfig(guildId);
         const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
         await interaction.editReply(`Starte: ${selectedStation?.name || key}${tierLabel}`);
       } catch (err) {
@@ -1174,7 +1196,7 @@ class BotRuntime {
         const fallbackKey = getFallbackKey(stations, key);
         if (fallbackKey && fallbackKey !== key && stations.stations[fallbackKey]) {
           try {
-            await this.playStation(state, stations, fallbackKey, interaction.guildId);
+            await this.playStation(state, stations, fallbackKey, guildId);
             await interaction.editReply(
               `Fehler bei ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`
             );
