@@ -491,6 +491,7 @@ class BotRuntime {
   }
 
   async refreshGuildCommandsOnReady() {
+    await this.cleanupGlobalCommands();
     await this.cleanupGuildCommands();
     await this.syncGuildCommands("startup");
   }
@@ -501,6 +502,11 @@ class BotRuntime {
 
   buildGuildCommandPayload() {
     return buildCommandBuilders().map((builder) => builder.toJSON());
+  }
+
+  isGlobalCommandCleanupEnabled() {
+    if (!this.isGuildCommandSyncEnabled()) return false;
+    return String(process.env.CLEAN_GLOBAL_COMMANDS_ON_BOOT ?? "1") !== "0";
   }
 
   async syncGuildCommandForGuild(guildId, source = "sync", commandPayload = null) {
@@ -537,6 +543,17 @@ class BotRuntime {
     }
 
     log("INFO", `[${this.config.name}] Guild-Command-Sync fertig: ok=${synced}, failed=${failed}`);
+  }
+
+  async cleanupGlobalCommands() {
+    if (!this.isGlobalCommandCleanupEnabled()) return;
+
+    try {
+      await this.rest.put(Routes.applicationCommands(this.config.clientId), { body: [] });
+      log("INFO", `[${this.config.name}] Globale Commands bereinigt (Vermeidung doppelter Commands).`);
+    } catch (err) {
+      log("ERROR", `[${this.config.name}] Global-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
+    }
   }
 
   clearReconnectTimer(state) {
@@ -723,7 +740,7 @@ class BotRuntime {
 
     log(
       "INFO",
-      `[${this.config.name}] Guild-Command-Cleanup fertig: ok=${cleaned}, failed=${failed}, global commands bleiben aktiv.`
+      `[${this.config.name}] Guild-Command-Cleanup fertig: ok=${cleaned}, failed=${failed}.`
     );
   }
 
@@ -1916,7 +1933,10 @@ function getBotInviteBucket(botConfig) {
   return "free";
 }
 
-function buildInviteOverviewForTier(runtimes, tierConfig) {
+function buildInviteOverviewForTier(runtimes, tier) {
+  const normalizedTier = String(tier || "free").toLowerCase();
+  const hasPro = normalizedTier === "pro" || normalizedTier === "ultimate";
+  const hasUltimate = normalizedTier === "ultimate";
   const overview = {
     freeWebsiteUrl: resolvePublicWebsiteUrl(),
     freeInfo: "Radio Bot #1 bis #4 kannst du jederzeit ueber die Webseite einladen.",
@@ -1925,14 +1945,38 @@ function buildInviteOverviewForTier(runtimes, tierConfig) {
   };
 
   const sorted = [...runtimes].sort((a, b) => Number(a.config.index || 0) - Number(b.config.index || 0));
+  const seenPro = new Set();
+  const seenUltimate = new Set();
+
   for (const runtime of sorted) {
-    const access = getBotAccessForTier(runtime.config, tierConfig);
-    if (!access.hasAccess) continue;
+    const index = Number(runtime.config.index || 0);
+    if (hasPro && index >= 5 && index <= 10 && !seenPro.has(index)) {
+      seenPro.add(index);
+      overview.proBots.push({
+        index,
+        name: runtime.config.name,
+        url: buildInviteUrl(runtime.config),
+      });
+      continue;
+    }
+
+    if (hasUltimate && index >= 11 && index <= 20 && !seenUltimate.has(index)) {
+      seenUltimate.add(index);
+      overview.ultimateBots.push({
+        index,
+        name: runtime.config.name,
+        url: buildInviteUrl(runtime.config),
+      });
+      continue;
+    }
 
     const bucket = getBotInviteBucket(runtime.config);
-    const target = bucket === "ultimate" ? overview.ultimateBots : bucket === "pro" ? overview.proBots : null;
-    if (!target) continue; // free bots are intentionally website-only in purchase mails
-
+    if (bucket !== "pro" && bucket !== "ultimate") continue;
+    const target = bucket === "ultimate" ? overview.ultimateBots : overview.proBots;
+    if ((bucket === "pro" && !hasPro) || (bucket === "ultimate" && !hasUltimate)) continue;
+    const seen = bucket === "ultimate" ? seenUltimate : seenPro;
+    if (seen.has(index)) continue;
+    seen.add(index);
     target.push({
       index: Number(runtime.config.index || 0),
       name: runtime.config.name,
@@ -2003,7 +2047,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
 
   if (isEmailConfigured() && customerEmail) {
     const tierConfig = TIERS[cleanTier];
-    const inviteOverview = buildInviteOverviewForTier(runtimes, getTierConfig(cleanServerId));
+    const inviteOverview = buildInviteOverviewForTier(runtimes, cleanTier);
     const normalizedMonths = Math.max(0, parseInt(months, 10) || 0);
     const amountPaid = Number(session.amount_total || 0);
 

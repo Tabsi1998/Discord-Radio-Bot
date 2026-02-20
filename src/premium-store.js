@@ -137,7 +137,17 @@ function save(data) {
     }
 
     fs.writeFileSync(tmpFile, payload, "utf-8");
-    fs.renameSync(tmpFile, premiumFile);
+    try {
+      fs.renameSync(tmpFile, premiumFile);
+    } catch (renameErr) {
+      const code = String(renameErr?.code || "");
+      if (["EBUSY", "EPERM", "EACCES", "EXDEV"].includes(code)) {
+        fs.writeFileSync(premiumFile, payload, "utf-8");
+        console.warn(`[premium-store] Atomic rename nicht moeglich (${code}), nutze direkten Write-Fallback.`);
+      } else {
+        throw renameErr;
+      }
+    }
   } catch (err) {
     console.error(`[premium-store] Save error: ${err.message}`);
   } finally {

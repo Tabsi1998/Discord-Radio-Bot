@@ -115,6 +115,8 @@ function buildPurchaseEmail(data) {
   const freeInfo = inviteOverview?.freeInfo || "Free Bots #1-#4 sind immer verfuegbar.";
   const proBots = Array.isArray(inviteOverview?.proBots) ? inviteOverview.proBots : [];
   const ultimateBots = Array.isArray(inviteOverview?.ultimateBots) ? inviteOverview.ultimateBots : [];
+  const includesPro = tier === "pro" || tier === "ultimate";
+  const includesUltimate = tier === "ultimate";
 
   function renderInviteButtons(items) {
     return items
@@ -148,21 +150,40 @@ function buildPurchaseEmail(data) {
       <h3 style="color:${tierColor};margin:0 0 8px">Free Bots (#1-#4)</h3>
       <p style="margin:0 0 10px;color:#A1A1AA;font-size:13px">${freeInfo}</p>
       <a href="${freeWebsiteUrl}" style="color:#050505;text-decoration:none;background:#00F0FF;padding:8px 14px;border-radius:8px;display:inline-block;font-weight:700">Zur Bot-Webseite</a>
+      <p style="margin:10px 0 0;color:#777;font-size:12px">Premium-Features gueltig bis ${expDate}.</p>
     </div>`;
 
-  if (proBots.length > 0) {
-    inviteHtml += `
-      <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
-        <h3 style="color:${tierColor};margin:0 0 12px">Pro Bots (#5-#10)</h3>
-        ${renderInviteButtons(proBots)}
-      </div>`;
+  if (includesPro) {
+    if (proBots.length > 0) {
+      inviteHtml += `
+        <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
+          <h3 style="color:${tierColor};margin:0 0 12px">Pro Bots (#5-#10)</h3>
+          ${renderInviteButtons(proBots)}
+          <p style="margin:10px 0 0;color:#777;font-size:12px">Links gueltig bis ${expDate} (Lizenzlaufzeit).</p>
+        </div>`;
+    } else {
+      inviteHtml += `
+        <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
+          <h3 style="color:${tierColor};margin:0 0 12px">Pro Bots (#5-#10)</h3>
+          <p style="margin:0;color:#FFB800;font-size:13px">Keine Pro-Bot-Links gefunden. Bitte BOT_5 bis BOT_10 in der .env pruefen (TOKEN + CLIENT_ID).</p>
+        </div>`;
+    }
   }
-  if (ultimateBots.length > 0) {
-    inviteHtml += `
-      <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
-        <h3 style="color:${tierColor};margin:0 0 12px">Ultimate Bots (#11-#20)</h3>
-        ${renderInviteButtons(ultimateBots)}
-      </div>`;
+  if (includesUltimate) {
+    if (ultimateBots.length > 0) {
+      inviteHtml += `
+        <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
+          <h3 style="color:${tierColor};margin:0 0 12px">Ultimate Bots (#11-#20)</h3>
+          ${renderInviteButtons(ultimateBots)}
+          <p style="margin:10px 0 0;color:#777;font-size:12px">Links gueltig bis ${expDate} (Lizenzlaufzeit).</p>
+        </div>`;
+    } else {
+      inviteHtml += `
+        <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
+          <h3 style="color:${tierColor};margin:0 0 12px">Ultimate Bots (#11-#20)</h3>
+          <p style="margin:0;color:#FFB800;font-size:13px">Keine Ultimate-Bot-Links gefunden. Bitte BOT_11 bis BOT_20 in der .env pruefen (TOKEN + CLIENT_ID).</p>
+        </div>`;
+    }
   }
   inviteHtml += `<p style="color:#666;font-size:12px;margin:12px 0 0">Premium-Bots sind servergebunden und nur fuer den lizenzierten Server ${serverId} gueltig.</p>`;
 

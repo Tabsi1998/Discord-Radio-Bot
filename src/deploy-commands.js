@@ -7,6 +7,7 @@ import { buildCommandsJson } from "./commands.js";
 dotenv.config();
 
 const commands = buildCommandsJson();
+const syncGuildCommands = String(process.env.SYNC_GUILD_COMMANDS_ON_BOOT ?? "1") !== "0";
 let bots;
 
 try {
@@ -18,9 +19,14 @@ try {
 
 for (const bot of bots) {
   try {
-    console.log(`Registriere globale Slash-Commands fuer ${bot.name} (${bot.clientId})...`);
     const rest = new REST({ version: "10" }).setToken(bot.token);
-    await rest.put(Routes.applicationCommands(bot.clientId), { body: commands });
+    if (syncGuildCommands) {
+      console.log(`Loesche globale Slash-Commands fuer ${bot.name} (${bot.clientId}) (Guild-Sync aktiv)...`);
+      await rest.put(Routes.applicationCommands(bot.clientId), { body: [] });
+    } else {
+      console.log(`Registriere globale Slash-Commands fuer ${bot.name} (${bot.clientId})...`);
+      await rest.put(Routes.applicationCommands(bot.clientId), { body: commands });
+    }
     console.log("Fertig.");
   } catch (err) {
     console.error(`Fehler bei ${bot.name}:`, err);
@@ -28,4 +34,8 @@ for (const bot of bots) {
   }
 }
 
-console.log("Alle Bot-Commands registriert (globale Commands koennen bis zu 1h fuer volle Sichtbarkeit brauchen).");
+if (syncGuildCommands) {
+  console.log("Globale Commands wurden geloescht. Guild-Commands werden beim Bot-Start synchronisiert.");
+} else {
+  console.log("Alle Bot-Commands registriert (globale Commands koennen bis zu 1h fuer volle Sichtbarkeit brauchen).");
+}

@@ -53,7 +53,17 @@ function save(data) {
     }
 
     fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2) + "\n", "utf8");
-    fs.renameSync(tmpFile, CUSTOM_FILE);
+    try {
+      fs.renameSync(tmpFile, CUSTOM_FILE);
+    } catch (renameErr) {
+      const code = String(renameErr?.code || "");
+      if (["EBUSY", "EPERM", "EACCES", "EXDEV"].includes(code)) {
+        fs.writeFileSync(CUSTOM_FILE, JSON.stringify(data, null, 2) + "\n", "utf8");
+        console.warn(`[custom-stations] Atomic rename nicht moeglich (${code}), nutze direkten Write-Fallback.`);
+      } else {
+        throw renameErr;
+      }
+    }
   } catch (err) {
     console.error(`[custom-stations] Save error: ${err.message}`);
   } finally {

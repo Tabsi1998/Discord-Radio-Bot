@@ -198,6 +198,7 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 ensure_env_default "SYNC_GUILD_COMMANDS_ON_BOOT" "1"
+ensure_env_default "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1"
 
 # ============================================================
 # Mode selection
