@@ -458,9 +458,11 @@ echo -e "${BOLD}Schritt 6/6: Docker Compose starten${NC}"
 echo "─────────────────────────────────────"
 
 info "Baue und starte Container..."
-# Sicherstellen dass gemountete Dateien existieren
-[[ -f premium.json ]] || echo '{"pro":[],"ultimate":[]}' > premium.json
-[[ -f bot-state.json ]] || echo '{}' > bot-state.json
+# Sicherstellen dass gemountete JSON-Dateien VOR Docker-Start existieren
+# Docker bind-mount erstellt sonst ein VERZEICHNIS statt einer Datei!
+[[ -f premium.json ]]         || echo '{"licenses":{}}' > premium.json
+[[ -f bot-state.json ]]       || echo '{}' > bot-state.json
+[[ -f custom-stations.json ]] || echo '{}' > custom-stations.json
 
 $DOCKER compose up -d --build
 
