@@ -181,6 +181,98 @@ if [[ "$MODE" == "--premium" ]]; then
 fi
 
 # ====================================
+# MODE: Edit Bot
+# ====================================
+if [[ "$MODE" == "--edit-bot" ]]; then
+  bot_count=$(count_bots)
+  if [[ "$bot_count" -eq 0 ]]; then
+    fail "Keine Bots konfiguriert."
+    exit 1
+  fi
+
+  echo -e "  ${BOLD}Konfigurierte Bots:${NC}"
+  echo ""
+  for i in $(seq 1 "$bot_count"); do
+    name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
+    tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+    if [[ "$tier" == "pro" ]]; then
+      tier_badge="${YELLOW}[PRO]${NC}"
+    elif [[ "$tier" == "ultimate" ]]; then
+      tier_badge="${CYAN}[ULTIMATE]${NC}"
+    else
+      tier_badge="${GREEN}[FREE]${NC}"
+    fi
+    echo -e "    ${CYAN}${i}.${NC} ${name} ${tier_badge}"
+  done
+  echo ""
+
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Welchen Bot bearbeiten? [1-${bot_count}]${NC}: ")" EDIT_INDEX
+  if [[ ! "$EDIT_INDEX" =~ ^[0-9]+$ ]] || (( EDIT_INDEX < 1 || EDIT_INDEX > bot_count )); then
+    fail "Ungueltige Auswahl."
+    exit 1
+  fi
+
+  cur_name=$(grep "^BOT_${EDIT_INDEX}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${EDIT_INDEX}")
+  cur_tier=$(grep "^BOT_${EDIT_INDEX}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+
+  echo ""
+  echo -e "  ${BOLD}Bot ${EDIT_INDEX} bearbeiten: ${cur_name}${NC}"
+  echo "  ─────────────────────────────────────"
+  echo ""
+  echo -e "  ${BOLD}Was aendern?${NC}"
+  echo -e "    ${GREEN}1${NC}) Name          (aktuell: ${cur_name})"
+  echo -e "    ${YELLOW}2${NC}) Tier          (aktuell: ${cur_tier})"
+  echo -e "    ${CYAN}3${NC}) Beides"
+  echo -e "    ${DIM}4${NC}) Token & Client ID"
+  echo ""
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" EDIT_CHOICE
+
+  case "$EDIT_CHOICE" in
+    1|3)
+      new_name="$(prompt_default "Neuer Name" "$cur_name")"
+      write_env_line "BOT_${EDIT_INDEX}_NAME" "$new_name"
+      ok "Name geaendert: ${new_name}"
+      ;;&
+    2|3)
+      echo ""
+      echo -e "  ${DIM}Tier-Optionen:${NC}"
+      echo -e "    ${DIM}free${NC}     = Jeder kann einladen"
+      echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten"
+      echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten"
+      new_tier="$(prompt_default "Neues Tier" "$cur_tier")"
+      case "$new_tier" in
+        pro|ultimate|free) ;;
+        *) new_tier="free" ;;
+      esac
+      write_env_line "BOT_${EDIT_INDEX}_TIER" "$new_tier"
+      ok "Tier geaendert: ${new_tier}"
+      ;;
+    4)
+      new_token="$(prompt_nonempty "Neuer Token")"
+      new_cid="$(prompt_nonempty "Neue Client ID")"
+      write_env_line "BOT_${EDIT_INDEX}_TOKEN" "$new_token"
+      write_env_line "BOT_${EDIT_INDEX}_CLIENT_ID" "$new_cid"
+      ok "Token & Client ID geaendert."
+      ;;
+    *)
+      fail "Ungueltige Auswahl."
+      exit 1
+      ;;
+  esac
+
+  echo ""
+  if prompt_yes_no "Container jetzt neu starten?" "j"; then
+    info "Starte Container neu..."
+    docker compose up -d --build --remove-orphans
+    ok "Container neu gestartet."
+  else
+    warn "Neustart uebersprungen. Fuehre 'docker compose up -d --build' manuell aus."
+  fi
+
+  exit 0
+fi
+
+# ====================================
 # MODE: Add Bot
 # ====================================
 if [[ "$MODE" == "--add-bot" ]]; then
