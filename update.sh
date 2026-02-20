@@ -1,9 +1,24 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# ============================================================
+# Discord Radio Bot - Unified Management Tool v4
+# ============================================================
 
-# ============================================================
-# Discord Radio Bot - Unified Management Tool
-# ============================================================
+# KEIN set -e! Interaktive Scripts brechen sonst bei jedem grep-Miss ab.
+set -uo pipefail
+
+# --- Self-Exec Trick ---
+# Wenn update.sh sich selbst via git reset ersetzt,
+# liest bash Muell weil der File-Descriptor auf die alte Datei zeigt.
+# Loesung: Script in tmp kopieren und von dort ausfuehren.
+if [[ -z "${_UPDATE_SELF_EXEC:-}" ]]; then
+  _tmpscript=$(mktemp /tmp/update-sh-XXXXXX.sh)
+  cp "$0" "$_tmpscript"
+  chmod +x "$_tmpscript"
+  export _UPDATE_SELF_EXEC=1
+  exec bash "$_tmpscript" "$@"
+fi
+# Temp-File aufraeumen wenn Script fertig ist
+trap 'rm -f "${BASH_SOURCE[0]}" 2>/dev/null' EXIT
 
 # Colors
 RED='\033[0;31m'
@@ -24,8 +39,6 @@ cd "$APP_DIR"
 
 REMOTE="${UPDATE_REMOTE:-origin}"
 BRANCH="${UPDATE_BRANCH:-main}"
-
-PRESERVE_FILES=( ".env" "stations.json" "premium.json" "bot-state.json" "docker-compose.override.yml" )
 
 # ============================================================
 # Helper functions
@@ -76,6 +89,14 @@ write_env_line() {
   fi
 }
 
+read_env() {
+  # Sicher einen Wert aus .env lesen (kein Fehler wenn nicht vorhanden)
+  local key="$1" default="${2:-}"
+  local val
+  val=$(grep "^${key}=" .env 2>/dev/null | head -1 | cut -d= -f2- || true)
+  printf "%s" "${val:-$default}"
+}
+
 count_bots() {
   local c=0
   while grep -q "^BOT_$((c+1))_TOKEN=" .env 2>/dev/null; do
@@ -107,14 +128,34 @@ tier_badge() {
   esac
 }
 
+ensure_json_file() {
+  local fp="$1" content="${2:-{}}"
+  if [[ -d "$fp" ]]; then
+    info "Korrigiere $fp (war Verzeichnis statt Datei)..."
+    rm -rf "$fp" 2>/dev/null || true
+  fi
+  if [[ ! -f "$fp" ]]; then
+    echo "$content" > "$fp"
+  fi
+}
+
+ensure_all_json_files() {
+  ensure_json_file "premium.json"         '{"licenses":{}}'
+  ensure_json_file "bot-state.json"       '{}'
+  ensure_json_file "custom-stations.json" '{}'
+  # stations.json nur erstellen wenn komplett fehlend
+  if [[ -d "stations.json" ]]; then
+    rm -rf "stations.json" 2>/dev/null || true
+  fi
+  if [[ ! -f "stations.json" ]]; then
+    echo '{"defaultStationKey":null,"stations":{},"qualityPreset":"custom"}' > stations.json
+  fi
+}
+
 restart_container() {
   echo ""
   if prompt_yes_no "Container jetzt neu starten (noetig fuer Aenderungen)?" "j"; then
-    # JSON-Dateien sicherstellen VOR Docker-Start
-    for jf in premium.json bot-state.json custom-stations.json; do
-      if [[ -d "$jf" ]]; then rm -rf "$jf" 2>/dev/null || true; fi
-      [[ -f "$jf" ]] || echo '{}' > "$jf"
-    done
+    ensure_all_json_files
     info "Starte Container neu..."
     docker compose up -d --build --remove-orphans 2>&1 | tail -3
     ok "Container neu gestartet."
@@ -138,7 +179,7 @@ echo -e "${NC}"
 
 require_cmd git
 require_cmd docker
-if ! command -v docker compose >/dev/null 2>&1; then
+if ! docker compose version >/dev/null 2>&1; then
   fail "docker compose fehlt."
   exit 1
 fi
@@ -161,7 +202,7 @@ if [[ -z "$MODE" ]]; then
   echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"
   echo ""
   read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-7]${NC}: ")" MODE_CHOICE
-  case "$MODE_CHOICE" in
+  case "${MODE_CHOICE:-}" in
     1) MODE="--update" ;;
     2) MODE="--bots" ;;
     3) MODE="--stripe" ;;
@@ -199,9 +240,8 @@ if [[ "$MODE" == "--stripe" ]]; then
   echo "  ────────────────────────────────────"
   echo ""
 
-  # Aktuellen Status anzeigen
-  cur_key=$(grep "^STRIPE_SECRET_KEY=" .env 2>/dev/null | cut -d= -f2- || echo "")
-  cur_pub=$(grep "^STRIPE_PUBLIC_KEY=" .env 2>/dev/null | cut -d= -f2- || echo "")
+  cur_key=$(read_env "STRIPE_SECRET_KEY")
+  cur_pub=$(read_env "STRIPE_PUBLIC_KEY")
   if [[ -n "$cur_key" ]]; then
     masked="${cur_key:0:12}...${cur_key: -4}"
     echo -e "  Aktueller Secret Key: ${GREEN}${masked}${NC}"
@@ -228,7 +268,7 @@ if [[ "$MODE" == "--stripe" ]]; then
   echo ""
   read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" STRIPE_CHOICE
 
-  case "$STRIPE_CHOICE" in
+  case "${STRIPE_CHOICE:-}" in
     1)
       read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Stripe Secret Key${NC}: ")" new_sk
       if [[ -z "$new_sk" ]]; then fail "Kein Key eingegeben."; exit 1; fi
@@ -259,16 +299,11 @@ if [[ "$MODE" == "--stripe" ]]; then
         ok "Public Key gespeichert."
       fi
       ;;
-    4)
-      exit 0
-      ;;
     *)
-      fail "Ungueltige Auswahl."
-      exit 1
+      exit 0
       ;;
   esac
 
-  # WICHTIG: docker compose up -d (NICHT restart!) damit .env neu geladen wird
   restart_container
   exit 0
 fi
@@ -282,11 +317,11 @@ if [[ "$MODE" == "--email" ]]; then
   echo "  ────────────────────────────────────"
   echo ""
 
-  cur_host=$(grep "^SMTP_HOST=" .env 2>/dev/null | cut -d= -f2- || echo "")
-  cur_port=$(grep "^SMTP_PORT=" .env 2>/dev/null | cut -d= -f2- || echo "587")
-  cur_user=$(grep "^SMTP_USER=" .env 2>/dev/null | cut -d= -f2- || echo "")
-  cur_from=$(grep "^SMTP_FROM=" .env 2>/dev/null | cut -d= -f2- || echo "")
-  cur_admin=$(grep "^ADMIN_EMAIL=" .env 2>/dev/null | cut -d= -f2- || echo "")
+  cur_host=$(read_env "SMTP_HOST")
+  cur_port=$(read_env "SMTP_PORT" "587")
+  cur_user=$(read_env "SMTP_USER")
+  cur_from=$(read_env "SMTP_FROM")
+  cur_admin=$(read_env "ADMIN_EMAIL")
 
   if [[ -n "$cur_host" ]]; then
     echo -e "  SMTP Host:     ${GREEN}${cur_host}${NC}"
@@ -309,7 +344,7 @@ if [[ "$MODE" == "--email" ]]; then
   echo ""
   read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" EMAIL_CHOICE
 
-  case "$EMAIL_CHOICE" in
+  case "${EMAIL_CHOICE:-}" in
     1)
       smtp_host="$(prompt_nonempty "SMTP Host (z.B. mail.example.com)")"
       smtp_port="$(prompt_default "SMTP Port" "587")"
@@ -329,64 +364,72 @@ if [[ "$MODE" == "--email" ]]; then
         write_env_line "ADMIN_EMAIL" "$admin_email"
       fi
       ok "SMTP konfiguriert."
+      restart_container
       ;;
     2)
       admin_email="$(prompt_nonempty "Admin-Email")"
       write_env_line "ADMIN_EMAIL" "$admin_email"
       ok "Admin-Email gespeichert: ${admin_email}"
+      restart_container
       ;;
     3)
-      # Test-Email senden
       if [[ -z "$cur_host" ]]; then
         fail "SMTP nicht konfiguriert! Bitte zuerst Option 1 ausfuehren."
         exit 1
       fi
+
+      # Pruefen ob Container laeuft
+      if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "radio-bot"; then
+        fail "Container nicht aktiv. Bitte zuerst starten: docker compose up -d"
+        exit 1
+      fi
+
       test_to="$(prompt_nonempty "An welche E-Mail soll die Test-Mail gesendet werden?")"
       echo ""
       info "Sende Test-Email an ${test_to}..."
 
-      docker compose exec -T radio-bot node -e "
-        import('nodemailer').then(async (nm) => {
-          const t = nm.default.createTransport({
-            host: process.env.SMTP_HOST,
-            port: Number(process.env.SMTP_PORT) || 587,
-            secure: (Number(process.env.SMTP_PORT) || 587) === 465,
-            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-          });
-          try {
-            const info = await t.sendMail({
-              from: process.env.SMTP_FROM || process.env.SMTP_USER,
-              to: '${test_to}',
-              subject: 'Discord Radio Bot - SMTP Test',
-              html: '<div style=\"font-family:sans-serif;padding:20px;background:#121212;color:#fff;border-radius:12px;max-width:400px\">' +
-                '<h2 style=\"color:#00F0FF;margin:0 0 12px\">SMTP Test erfolgreich!</h2>' +
-                '<p style=\"color:#A1A1AA\">Diese E-Mail bestaetigt dass dein SMTP korrekt konfiguriert ist.</p>' +
-                '<hr style=\"border:1px solid #333;margin:16px 0\">' +
-                '<p style=\"font-size:12px;color:#52525B\">Host: ' + (process.env.SMTP_HOST || '') + '<br>User: ' + (process.env.SMTP_USER || '') + '</p>' +
-                '</div>'
-            });
-            console.log('OK:' + info.messageId);
-          } catch (err) {
-            console.error('FAIL:' + err.message);
-            process.exit(1);
-          }
+      # Test-Email via Node.js im Container senden
+      RESULT=$(docker compose exec -T radio-bot node -e "
+        const nm = require('nodemailer');
+        const t = nm.createTransport({
+          host: process.env.SMTP_HOST,
+          port: Number(process.env.SMTP_PORT) || 587,
+          secure: (Number(process.env.SMTP_PORT) || 587) === 465,
+          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
         });
-      " 2>&1 | while IFS= read -r line; do
-        if [[ "$line" == OK:* ]]; then
-          echo -e "  ${GREEN}[OK]${NC} Test-Email gesendet! Message-ID: ${line#OK:}"
-        elif [[ "$line" == FAIL:* ]]; then
-          echo -e "  ${RED}[FEHLER]${NC} ${line#FAIL:}"
-        else
-          echo "  $line"
-        fi
-      done
+        t.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: '${test_to}',
+          subject: 'Discord Radio Bot - SMTP Test',
+          html: '<div style=\"font-family:sans-serif;padding:24px;background:#121212;color:#fff;border-radius:16px;max-width:440px\">' +
+            '<h2 style=\"color:#00F0FF;margin:0 0 12px\">SMTP Test erfolgreich!</h2>' +
+            '<p style=\"color:#A1A1AA\">Dein SMTP-Server ist korrekt konfiguriert. E-Mails fuer Premium-Kaeufe und Benachrichtigungen funktionieren.</p>' +
+            '<hr style=\"border:1px solid #333;margin:16px 0\">' +
+            '<p style=\"font-size:12px;color:#52525B\">Host: ' + (process.env.SMTP_HOST || '') + '</p></div>'
+        }).then(function(info) {
+          console.log('OK:' + info.messageId);
+        }).catch(function(err) {
+          console.log('FAIL:' + err.message);
+        });
+      " 2>&1)
+
+      if [[ "$RESULT" == OK:* ]]; then
+        ok "Test-Email gesendet! Message-ID: ${RESULT#OK:}"
+      elif [[ "$RESULT" == FAIL:* ]]; then
+        fail "E-Mail fehlgeschlagen: ${RESULT#FAIL:}"
+        echo ""
+        echo -e "  ${DIM}Haeufige Ursachen:${NC}"
+        echo -e "    - Falsches Passwort oder Benutzername"
+        echo -e "    - Port falsch (587=STARTTLS, 465=SSL)"
+        echo -e "    - SMTP-Server erfordert App-Passwort (z.B. Gmail)"
+      else
+        warn "Unerwartete Antwort: ${RESULT}"
+      fi
       ;;
     *)
       exit 0
       ;;
   esac
-
-  restart_container
   exit 0
 fi
 
@@ -399,11 +442,11 @@ if [[ "$MODE" == "--settings" ]]; then
   echo "  ────────────────────────────────────"
   echo ""
 
-  cur_port=$(grep "^WEB_PORT=" .env 2>/dev/null | cut -d= -f2- || echo "8081")
-  cur_iport=$(grep "^WEB_INTERNAL_PORT=" .env 2>/dev/null | cut -d= -f2- || echo "8080")
-  cur_domain=$(grep "^WEB_DOMAIN=" .env 2>/dev/null | cut -d= -f2- || echo "nicht gesetzt")
+  cur_port=$(read_env "WEB_PORT" "8081")
+  cur_iport=$(read_env "WEB_INTERNAL_PORT" "8080")
+  cur_domain=$(read_env "WEB_DOMAIN" "nicht gesetzt")
   bot_count=$(count_bots)
-  cur_stripe=$(grep "^STRIPE_SECRET_KEY=" .env 2>/dev/null | cut -d= -f2- || echo "")
+  cur_stripe=$(read_env "STRIPE_SECRET_KEY")
 
   echo -e "  Web-Port (extern):     ${CYAN}${cur_port}${NC}"
   echo -e "  Web-Port (intern):     ${DIM}${cur_iport}${NC}"
@@ -423,7 +466,7 @@ if [[ "$MODE" == "--settings" ]]; then
   echo ""
   read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-3]${NC}: ")" SET_CHOICE
 
-  case "$SET_CHOICE" in
+  case "${SET_CHOICE:-}" in
     1)
       new_port="$(prompt_default "Neuer externer Port" "$cur_port")"
       write_env_line "WEB_PORT" "$new_port"
@@ -454,6 +497,7 @@ if [[ "$MODE" == "--premium" ]]; then
     warn "Container nicht aktiv."
     echo ""
     if prompt_yes_no "Container jetzt starten?" "j"; then
+      ensure_all_json_files
       docker compose up -d --build --remove-orphans
       sleep 3
       docker compose exec radio-bot node src/premium-cli.js wizard
@@ -461,15 +505,14 @@ if [[ "$MODE" == "--premium" ]]; then
       echo -e "  ${DIM}Starte manuell: docker compose up -d${NC}"
     fi
   fi
-  exit $?
+  exit 0
 fi
 
 # ============================================================
 # MODE: Bots verwalten (Submenu)
 # ============================================================
-if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" || "$MODE" == "--edit-bot" ]]; then
+if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" || "$MODE" == "--edit-bot" || "$MODE" == "--remove-bot" ]]; then
 
-  # Sub-menu wenn kein spezifischer Modus
   if [[ "$MODE" == "--bots" ]]; then
     bot_count=$(count_bots)
     echo ""
@@ -483,7 +526,7 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     echo -e "    ${DIM}5${NC}) Zurueck"
     echo ""
     read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" BOT_CHOICE
-    case "$BOT_CHOICE" in
+    case "${BOT_CHOICE:-}" in
       1) MODE="--show-bots" ;;
       2) MODE="--add-bot" ;;
       3) MODE="--edit-bot" ;;
@@ -498,19 +541,23 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     echo ""
     echo -e "  ${BOLD}Konfigurierte Bots (${bot_count}):${NC}"
     echo ""
-    for i in $(seq 1 "$bot_count"); do
-      name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
-      cid=$(grep "^BOT_${i}_CLIENT_ID=" .env 2>/dev/null | cut -d= -f2- || echo "?")
-      tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
-      echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC} $(tier_badge "$tier")"
-      echo -e "       Client ID: ${DIM}${cid}${NC}"
-      if [[ "$tier" == "free" ]]; then
-        echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
-      else
-        echo -e "       Invite:    ${DIM}Nur fuer ${tier}-Abonnenten${NC}"
-      fi
-      echo ""
-    done
+    if [[ "$bot_count" -eq 0 ]]; then
+      warn "Keine Bots konfiguriert. Fuege einen hinzu: ./update.sh --add-bot"
+    else
+      for i in $(seq 1 "$bot_count"); do
+        name=$(read_env "BOT_${i}_NAME" "Bot ${i}")
+        cid=$(read_env "BOT_${i}_CLIENT_ID" "?")
+        tier=$(read_env "BOT_${i}_TIER" "free")
+        echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC} $(tier_badge "$tier")"
+        echo -e "       Client ID: ${DIM}${cid}${NC}"
+        if [[ "$tier" == "free" ]]; then
+          echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
+        else
+          echo -e "       Invite:    ${DIM}Nur fuer ${tier}-Abonnenten${NC}"
+        fi
+        echo ""
+      done
+    fi
     exit 0
   fi
 
@@ -555,20 +602,20 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     echo "  ────────────────────────────────────"
     echo ""
     for i in $(seq 1 "$bot_count"); do
-      name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
-      tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+      name=$(read_env "BOT_${i}_NAME" "Bot ${i}")
+      tier=$(read_env "BOT_${i}_TIER" "free")
       echo -e "    ${CYAN}${i}.${NC} ${name} $(tier_badge "$tier")"
     done
     echo ""
 
     read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Welchen Bot bearbeiten? [1-${bot_count}]${NC}: ")" EDIT_INDEX
-    if [[ ! "$EDIT_INDEX" =~ ^[0-9]+$ ]] || (( EDIT_INDEX < 1 || EDIT_INDEX > bot_count )); then
+    if [[ ! "${EDIT_INDEX:-}" =~ ^[0-9]+$ ]] || (( EDIT_INDEX < 1 || EDIT_INDEX > bot_count )); then
       fail "Ungueltige Auswahl."
       exit 1
     fi
 
-    cur_name=$(grep "^BOT_${EDIT_INDEX}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${EDIT_INDEX}")
-    cur_tier=$(grep "^BOT_${EDIT_INDEX}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+    cur_name=$(read_env "BOT_${EDIT_INDEX}_NAME" "Bot ${EDIT_INDEX}")
+    cur_tier=$(read_env "BOT_${EDIT_INDEX}_TIER" "free")
 
     echo ""
     echo -e "  ${BOLD}${cur_name}${NC} $(tier_badge "$cur_tier")"
@@ -581,7 +628,7 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     echo ""
     read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" EDIT_CHOICE
 
-    case "$EDIT_CHOICE" in
+    case "${EDIT_CHOICE:-}" in
       1)
         new_name="$(prompt_default "Neuer Name" "$cur_name")"
         write_env_line "BOT_${EDIT_INDEX}_NAME" "$new_name"
@@ -629,19 +676,19 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     echo "  ────────────────────────────────────"
     echo ""
     for i in $(seq 1 "$bot_count"); do
-      name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
-      tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+      name=$(read_env "BOT_${i}_NAME" "Bot ${i}")
+      tier=$(read_env "BOT_${i}_TIER" "free")
       echo -e "    ${CYAN}${i}.${NC} ${name} $(tier_badge "$tier")"
     done
     echo ""
 
     read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Welchen Bot entfernen? [1-${bot_count}]${NC}: ")" RM_INDEX
-    if [[ ! "$RM_INDEX" =~ ^[0-9]+$ ]] || (( RM_INDEX < 1 || RM_INDEX > bot_count )); then
+    if [[ ! "${RM_INDEX:-}" =~ ^[0-9]+$ ]] || (( RM_INDEX < 1 || RM_INDEX > bot_count )); then
       fail "Ungueltige Auswahl."
       exit 1
     fi
 
-    rm_name=$(grep "^BOT_${RM_INDEX}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${RM_INDEX}")
+    rm_name=$(read_env "BOT_${RM_INDEX}_NAME" "Bot ${RM_INDEX}")
     echo ""
     warn "Bot ${RM_INDEX} (${rm_name}) wird aus der .env entfernt."
     if ! prompt_yes_no "Sicher?" "n"; then
@@ -649,17 +696,15 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
       exit 0
     fi
 
-    # Entferne alle Zeilen fuer diesen Bot
     for field in NAME TOKEN CLIENT_ID PERMISSIONS TIER; do
       sed -i "/^BOT_${RM_INDEX}_${field}=/d" .env 2>/dev/null || true
     done
 
-    # Wenn nicht der letzte Bot: Alle nachfolgenden Bots um eins nach vorne ruecken
     if (( RM_INDEX < bot_count )); then
       for i in $(seq $((RM_INDEX + 1)) "$bot_count"); do
         prev=$((i - 1))
         for field in NAME TOKEN CLIENT_ID PERMISSIONS TIER; do
-          val=$(grep "^BOT_${i}_${field}=" .env 2>/dev/null | cut -d= -f2- || echo "")
+          val=$(read_env "BOT_${i}_${field}")
           if [[ -n "$val" ]]; then
             write_env_line "BOT_${prev}_${field}" "$val"
           fi
@@ -668,7 +713,6 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
       done
     fi
 
-    # BOT_COUNT aktualisieren
     new_count=$((bot_count - 1))
     write_env_line "BOT_COUNT" "$new_count"
 
@@ -708,7 +752,7 @@ git clean -fd \
   -e premium.json \
   -e bot-state.json \
   -e custom-stations.json \
-  -e docker-compose.override.yml
+  -e docker-compose.override.yml 2>/dev/null || true
 
 if [[ "$old_head" == "$new_head" ]]; then
   info "Keine neuen Commits."
@@ -716,27 +760,11 @@ else
   ok "Code aktualisiert: ${old_head:0:8} -> ${new_head:0:8}"
 fi
 
-# Container rebuild
+# JSON-Dateien sicherstellen
 echo ""
-# Sicherstellen dass gemountete JSON-Dateien VOR Docker-Start existieren
-# Docker bind-mount erstellt ein VERZEICHNIS wenn die Datei auf dem Host fehlt!
-# Auf dem Host koennen wir das Verzeichnis loeschen und als Datei neu erstellen.
-ensure_json_file() {
-  local fp="$1" content="$2"
-  if [[ -d "$fp" ]]; then
-    info "Korrigiere $fp (war Verzeichnis statt Datei)..."
-    rm -rf "$fp" 2>/dev/null || true
-  fi
-  if [[ ! -f "$fp" ]]; then
-    echo "$content" > "$fp"
-    ok "$fp erstellt."
-  fi
-}
-ensure_json_file "premium.json"         '{"licenses":{}}'
-ensure_json_file "bot-state.json"       '{}'
-ensure_json_file "custom-stations.json" '{}'
-ensure_json_file "stations.json"        '{"defaultStationKey":null,"stations":{},"qualityPreset":"custom"}'
+ensure_all_json_files
 
+# Container rebuild
 info "Baue Container neu..."
 docker compose build --no-cache 2>&1 | tail -5
 docker compose up -d --remove-orphans 2>&1 | tail -3
@@ -745,10 +773,10 @@ echo ""
 ok "Update abgeschlossen!"
 echo ""
 
-# Status anzeigen
+# Zusammenfassung
 bot_count=$(count_bots)
-cur_stripe=$(grep "^STRIPE_SECRET_KEY=" .env 2>/dev/null | cut -d= -f2- || echo "")
-web_port=$(grep "^WEB_PORT=" .env 2>/dev/null | cut -d= -f2- || echo "8081")
+cur_stripe=$(read_env "STRIPE_SECRET_KEY")
+web_port=$(read_env "WEB_PORT" "8081")
 
 echo -e "  ${BOLD}Zusammenfassung:${NC}"
 echo -e "    Bots:      ${CYAN}${bot_count}${NC}"
@@ -759,6 +787,7 @@ echo -e "  ${BOLD}Befehle:${NC}"
 echo -e "    Bots verwalten:   ${GREEN}./update.sh --bots${NC}"
 echo -e "    Stripe Setup:     ${GREEN}./update.sh --stripe${NC}"
 echo -e "    Premium:          ${GREEN}./update.sh --premium${NC}"
+echo -e "    E-Mail Setup:     ${GREEN}./update.sh --email${NC}"
 echo -e "    Einstellungen:    ${GREEN}./update.sh --settings${NC}"
 echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
 echo -e "    Dieses Menue:     ${GREEN}./update.sh${NC}"
