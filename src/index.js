@@ -1079,6 +1079,7 @@ class BotRuntime {
         `Bot: ${this.config.name}`,
         `Ready: ${this.client.isReady() ? "ja" : "nein"}`,
         `Letzter Stream-Fehler: ${state.lastStreamErrorAt || "-"}`,
+        `Stream-Fehler (Reihe): ${state.streamErrorCount || 0}`,
         `Reconnects: ${state.reconnectCount}`,
         `Letzter Reconnect: ${state.lastReconnectAt || "-"}`,
         `Auto-Reconnect aktiv: ${state.shouldReconnect ? "ja" : "nein"}`
