@@ -228,12 +228,29 @@ if [[ "$MODE" == "--edit-bot" ]]; then
   read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" EDIT_CHOICE
 
   case "$EDIT_CHOICE" in
-    1|3)
+    1)
       new_name="$(prompt_default "Neuer Name" "$cur_name")"
       write_env_line "BOT_${EDIT_INDEX}_NAME" "$new_name"
       ok "Name geaendert: ${new_name}"
-      ;;&
-    2|3)
+      ;;
+    2)
+      echo ""
+      echo -e "  ${DIM}Tier-Optionen:${NC}"
+      echo -e "    ${DIM}free${NC}     = Jeder kann einladen"
+      echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten"
+      echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten"
+      new_tier="$(prompt_default "Neues Tier" "$cur_tier")"
+      case "$new_tier" in
+        pro|ultimate|free) ;;
+        *) new_tier="free" ;;
+      esac
+      write_env_line "BOT_${EDIT_INDEX}_TIER" "$new_tier"
+      ok "Tier geaendert: ${new_tier}"
+      ;;
+    3)
+      new_name="$(prompt_default "Neuer Name" "$cur_name")"
+      write_env_line "BOT_${EDIT_INDEX}_NAME" "$new_name"
+      ok "Name geaendert: ${new_name}"
       echo ""
       echo -e "  ${DIM}Tier-Optionen:${NC}"
       echo -e "    ${DIM}free${NC}     = Jeder kann einladen"
