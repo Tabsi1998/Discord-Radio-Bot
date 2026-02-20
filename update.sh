@@ -666,6 +666,13 @@ fi
 
 # Container rebuild
 echo ""
+# Sicherstellen dass gemountete JSON-Dateien VOR Docker-Start existieren
+# Docker bind-mount erstellt sonst ein VERZEICHNIS statt einer Datei!
+[[ -f premium.json ]]         || echo '{"licenses":{}}' > premium.json
+[[ -f bot-state.json ]]       || echo '{}' > bot-state.json
+[[ -f custom-stations.json ]] || echo '{}' > custom-stations.json
+[[ -f stations.json ]]        || echo '{"defaultStationKey":null,"stations":{},"qualityPreset":"custom"}' > stations.json
+
 info "Baue Container neu..."
 docker compose build --no-cache 2>&1 | tail -5
 docker compose up -d --remove-orphans 2>&1 | tail -3
