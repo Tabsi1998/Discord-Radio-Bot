@@ -260,6 +260,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);ove
   .station-name{font-size:13px}
   .bot-icon{width:48px;height:48px}
   .bot-name{font-size:14px}
+  .stat-value{font-size:14px}
   .invite-btn{font-size:12px;padding:10px 16px}
   .copy-btn{width:40px;height:40px}
   .vol-slider{width:70px}
