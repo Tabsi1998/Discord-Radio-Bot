@@ -6,6 +6,7 @@ logs/
 .update-backups/
 bot-state.json
 premium.json
+custom-stations.json
 
 # Emergent Platform (nicht Teil des Bot-Repos)
 backend/
@@ -16,27 +17,3 @@ test_reports/
 memory/
 yarn.lock
 .gitconfig
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
