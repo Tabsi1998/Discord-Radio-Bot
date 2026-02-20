@@ -120,64 +120,6 @@ function BotCard({ bot, index }) {
         </div>
       </div>
 
-      {/* Server-spezifische Stationen */}
-      {bot.guildDetails && bot.guildDetails.length > 0 ? (
-        <div style={{
-          padding: '10px 12px', marginBottom: 12, borderRadius: 10,
-          background: 'rgba(255,255,255,0.025)',
-          border: '1px solid rgba(255,255,255,0.05)',
-        }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: colors.accent, marginBottom: 8, fontFamily: "'Orbitron', sans-serif" }}>
-            AKTIVE SERVER
-          </div>
-          {bot.guildDetails.map((g, i) => (
-            <div key={g.guildId || i} data-testid={`guild-row-${index}-${i}`} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', gap: 12,
-              borderBottom: i < bot.guildDetails.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-              fontSize: 12,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#A1A1AA', minWidth: 0, flexShrink: 1 }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-                <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.guildName}>
-                  {g.guildName}
-                </span>
-              </div>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 5, fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 11, fontWeight: 600, minWidth: 0, flexShrink: 1,
-                color: g.playing ? colors.accent : '#52525B',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}>
-                {g.playing && g.stationName ? (
-                  <>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
-                      <polygon points="5 3 19 12 5 21 5 3"/>
-                    </svg>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.stationName}>
-                      {g.stationName}
-                    </span>
-                    {g.channelName && (
-                      <span style={{ fontSize: 10, color: '#52525B', fontWeight: 400 }}>#{g.channelName}</span>
-                    )}
-                  </>
-                ) : (
-                  <span>Idle</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : bot.ready ? (
-        <div style={{
-          display: 'flex', justifyContent: 'center', padding: 8, marginBottom: 12, borderRadius: 10,
-          background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.05)',
-        }}>
-          <span style={{ fontSize: 11, color: '#52525B' }}>Kein Server aktiv</span>
-        </div>
-      ) : null}
-
       {/* Actions */}
       <div style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
         {isPremiumBot ? (
