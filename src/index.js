@@ -1061,8 +1061,11 @@ class BotRuntime {
         `Reconnect: ${tierConfig.reconnectMs}ms`,
         `Max Bots: ${tierConfig.maxBots}`,
       ];
-      if (license) {
-        lines.push(`Aktiviert: ${license.activatedAt || "-"}`);
+      if (license && !license.expired) {
+        const expDate = new Date(license.expiresAt).toLocaleDateString("de-DE");
+        lines.push(`Laeuft ab: ${expDate} (${license.remainingDays} Tage uebrig)`);
+      } else if (license && license.expired) {
+        lines.push(`Status: ABGELAUFEN`);
       }
       if (tierConfig.tier === "free") {
         lines.push("", "Upgrade auf Pro/Ultimate fuer hoehere Qualitaet!");
