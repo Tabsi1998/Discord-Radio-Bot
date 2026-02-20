@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================================================
+# Discord Radio Bot - Unified Management Tool
+# ============================================================
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -10,10 +14,10 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
-info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
-ok()    { echo -e "${GREEN}[OK]${NC}   $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
-fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
+info()  { echo -e "  ${CYAN}[INFO]${NC} $*"; }
+ok()    { echo -e "  ${GREEN}[OK]${NC}   $*"; }
+warn()  { echo -e "  ${YELLOW}[WARN]${NC} $*"; }
+fail()  { echo -e "  ${RED}[FAIL]${NC} $*"; }
 
 APP_DIR="${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$APP_DIR"
@@ -21,45 +25,28 @@ cd "$APP_DIR"
 REMOTE="${UPDATE_REMOTE:-origin}"
 BRANCH="${UPDATE_BRANCH:-main}"
 
-PRESERVE_FILES=(
-  ".env"
-  "stations.json"
-  "premium.json"
-  "bot-state.json"
-  "docker-compose.override.yml"
-)
+PRESERVE_FILES=( ".env" "stations.json" "premium.json" "bot-state.json" "docker-compose.override.yml" )
+
+# ============================================================
+# Helper functions
+# ============================================================
 
 require_cmd() {
-  local cmd="$1"
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    fail "$cmd fehlt. Bitte installieren."
+  if ! command -v "$1" >/dev/null 2>&1; then
+    fail "$1 fehlt. Bitte installieren."
     exit 1
   fi
 }
 
-read_web_port() {
-  local value="${WEB_PORT:-}"
-  if [[ -z "$value" && -f .env ]]; then
-    value="$(grep -E '^WEB_PORT=' .env | tail -n1 | cut -d= -f2- || true)"
-  fi
-  if [[ -z "$value" ]]; then
-    value="8081"
-  fi
-  printf "%s" "$value"
-}
-
 prompt_yes_no() {
-  local label="$1"
-  local def="${2:-j}"
-  local val
+  local label="$1" def="${2:-j}" val
   read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}${label}${NC} [${def}]: ")" val
   val="${val:-$def}"
   [[ "$val" == "j" || "$val" == "J" || "$val" == "y" || "$val" == "Y" ]]
 }
 
 prompt_nonempty() {
-  local label="$1"
-  local val=""
+  local label="$1" val=""
   while [[ -z "$val" ]]; do
     read -rp "$(echo -e "  ${CYAN}?${NC} ${label}: ")" val
     val=$(echo "$val" | xargs)
@@ -69,16 +56,19 @@ prompt_nonempty() {
 }
 
 prompt_default() {
-  local label="$1"
-  local def="$2"
-  local val
+  local label="$1" def="$2" val
   read -rp "$(echo -e "  ${CYAN}?${NC} ${label} [${def}]: ")" val
   printf "%s" "${val:-$def}"
 }
 
+prompt_optional() {
+  local label="$1" val
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${label}: ")" val
+  printf "%s" "$(echo "$val" | xargs)"
+}
+
 write_env_line() {
-  local key="$1"
-  local value="$2"
+  local key="$1" value="$2"
   if grep -q "^${key}=" .env 2>/dev/null; then
     sed -i "s|^${key}=.*|${key}=${value}|" .env
   else
@@ -94,182 +84,176 @@ count_bots() {
   echo "$c"
 }
 
+prompt_tier() {
+  echo ""
+  echo -e "  ${DIM}Tier-Optionen:${NC}"
+  echo -e "    ${GREEN}free${NC}     = Jeder kann einladen (Standard)"
+  echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten"
+  echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten"
+  local tier
+  tier="$(prompt_default "Tier (free/pro/ultimate)" "${1:-free}")"
+  case "$tier" in
+    pro|ultimate|free) ;;
+    *) tier="free" ;;
+  esac
+  printf "%s" "$tier"
+}
+
+tier_badge() {
+  case "$1" in
+    pro)      echo -e "${YELLOW}[PRO]${NC}" ;;
+    ultimate) echo -e "${CYAN}[ULTIMATE]${NC}" ;;
+    *)        echo -e "${GREEN}[FREE]${NC}" ;;
+  esac
+}
+
+restart_container() {
+  echo ""
+  if prompt_yes_no "Container jetzt neu starten (noetig fuer Aenderungen)?" "j"; then
+    info "Starte Container neu..."
+    docker compose up -d --build --remove-orphans 2>&1 | tail -3
+    ok "Container neu gestartet."
+  else
+    warn "Nicht vergessen: ${BOLD}docker compose up -d --build${NC} ausfuehren!"
+  fi
+}
+
+# ============================================================
+# Header
+# ============================================================
+
 echo ""
 echo -e "${CYAN}${BOLD}"
-echo "  ╔═══════════════════════════════════════════╗"
-echo "  ║                                           ║"
-echo "  ║   Discord Radio Bot - Update & Manage     ║"
-echo "  ║                                           ║"
-echo "  ╚═══════════════════════════════════════════╝"
+echo "  ╔══════════════════════════════════════════════╗"
+echo "  ║                                              ║"
+echo "  ║   Discord Radio Bot - Management & Settings  ║"
+echo "  ║                                              ║"
+echo "  ╚══════════════════════════════════════════════╝"
 echo -e "${NC}"
-echo ""
 
 require_cmd git
 require_cmd docker
 if ! command -v docker compose >/dev/null 2>&1; then
-  fail "docker compose fehlt. Bitte Docker Compose Plugin installieren."
+  fail "docker compose fehlt."
   exit 1
 fi
 
-# ====================================
-# Parse mode: --update, --add-bot, --manage, or interactive
-# ====================================
+# ============================================================
+# Mode selection
+# ============================================================
+
 MODE="${1:-}"
 
 if [[ -z "$MODE" ]]; then
   echo -e "  ${BOLD}Was moechtest du tun?${NC}"
   echo ""
-  echo -e "    ${GREEN}1${NC}) Update         - Code aktualisieren & Container rebuild"
-  echo -e "    ${YELLOW}2${NC}) Bot hinzufuegen  - Neuen Bot konfigurieren"
-  echo -e "    ${CYAN}3${NC}) Bots anzeigen    - Konfigurierte Bots zeigen"
-  echo -e "    ${BOLD}4${NC}) Bot bearbeiten   - Bestehenden Bot aendern (Tier, Name)"
-  echo -e "    ${DIM}5${NC}) Premium CLI    - Premium-Lizenzen verwalten"
+  echo -e "    ${GREEN}1${NC})  Update           - Code aktualisieren & Container rebuild"
+  echo -e "    ${CYAN}2${NC})  Bots verwalten    - Anzeigen, hinzufuegen, bearbeiten, entfernen"
+  echo -e "    ${YELLOW}3${NC})  Stripe einrichten - Zahlungs-API konfigurieren"
+  echo -e "    ${BOLD}4${NC})  Premium verwalten - Lizenzen aktivieren/entfernen"
+  echo -e "    ${DIM}5${NC})  Einstellungen     - Port, Domain und mehr"
+  echo -e "    ${DIM}6${NC})  Status & Logs     - Container-Status pruefen"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" MODE_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-6]${NC}: ")" MODE_CHOICE
   case "$MODE_CHOICE" in
     1) MODE="--update" ;;
-    2) MODE="--add-bot" ;;
-    3) MODE="--show-bots" ;;
-    4) MODE="--edit-bot" ;;
-    5) MODE="--premium" ;;
+    2) MODE="--bots" ;;
+    3) MODE="--stripe" ;;
+    4) MODE="--premium" ;;
+    5) MODE="--settings" ;;
+    6) MODE="--status" ;;
     *) MODE="--update" ;;
   esac
 fi
 
-# ====================================
-# MODE: Show bots
-# ====================================
-if [[ "$MODE" == "--show-bots" ]]; then
-  bot_count=$(count_bots)
-  echo -e "  ${BOLD}Konfigurierte Bots (${bot_count}):${NC}"
+# ============================================================
+# MODE: Status & Logs
+# ============================================================
+if [[ "$MODE" == "--status" ]]; then
   echo ""
-  for i in $(seq 1 "$bot_count"); do
-    name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
-    cid=$(grep "^BOT_${i}_CLIENT_ID=" .env 2>/dev/null | cut -d= -f2- || echo "?")
-    tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
-    if [[ "$tier" == "pro" ]]; then
-      tier_badge="${YELLOW}[PRO]${NC}"
-    elif [[ "$tier" == "ultimate" ]]; then
-      tier_badge="${CYAN}[ULTIMATE]${NC}"
-    else
-      tier_badge="${GREEN}[FREE]${NC}"
-    fi
-    echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC} ${tier_badge}"
-    echo -e "       Client ID: ${DIM}${cid}${NC}"
-    if [[ "$tier" == "free" ]]; then
-      echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
-    else
-      echo -e "       Invite:    ${DIM}Nur fuer ${tier}-Abonnenten sichtbar${NC}"
-    fi
-    echo ""
-  done
+  echo -e "  ${BOLD}Container-Status:${NC}"
+  echo ""
+  docker compose ps 2>/dev/null || warn "Kein Container aktiv."
+  echo ""
+  echo -e "  ${BOLD}Letzte 20 Log-Zeilen:${NC}"
+  echo ""
+  docker compose logs --tail=20 radio-bot 2>/dev/null || warn "Keine Logs verfuegbar."
+  echo ""
+  echo -e "  ${DIM}Tipp: Fuer Live-Logs: docker compose logs -f radio-bot${NC}"
   exit 0
 fi
 
-# ====================================
-# MODE: Premium CLI (via Docker)
-# ====================================
-if [[ "$MODE" == "--premium" ]]; then
-  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "radio-bot"; then
-    docker compose exec radio-bot node src/premium-cli.js wizard
+# ============================================================
+# MODE: Stripe einrichten
+# ============================================================
+if [[ "$MODE" == "--stripe" ]]; then
+  echo ""
+  echo -e "  ${BOLD}Stripe API-Key Einrichtung${NC}"
+  echo "  ────────────────────────────────────"
+  echo ""
+
+  # Aktuellen Status anzeigen
+  cur_key=$(grep "^STRIPE_SECRET_KEY=" .env 2>/dev/null | cut -d= -f2- || echo "")
+  cur_pub=$(grep "^STRIPE_PUBLIC_KEY=" .env 2>/dev/null | cut -d= -f2- || echo "")
+  if [[ -n "$cur_key" ]]; then
+    masked="${cur_key:0:12}...${cur_key: -4}"
+    echo -e "  Aktueller Secret Key: ${GREEN}${masked}${NC}"
   else
-    warn "Container nicht aktiv. Starte mit: docker compose up -d"
-    echo -e "  ${DIM}Alternativ: docker compose run --rm radio-bot node src/premium-cli.js wizard${NC}"
-    exit 1
+    echo -e "  Aktueller Secret Key: ${RED}nicht gesetzt${NC}"
   fi
-  exit $?
-fi
-
-# ====================================
-# MODE: Edit Bot
-# ====================================
-if [[ "$MODE" == "--edit-bot" ]]; then
-  bot_count=$(count_bots)
-  if [[ "$bot_count" -eq 0 ]]; then
-    fail "Keine Bots konfiguriert."
-    exit 1
+  if [[ -n "$cur_pub" ]]; then
+    masked_pub="${cur_pub:0:12}...${cur_pub: -4}"
+    echo -e "  Aktueller Public Key: ${GREEN}${masked_pub}${NC}"
+  else
+    echo -e "  Aktueller Public Key: ${RED}nicht gesetzt${NC}"
   fi
-
-  echo -e "  ${BOLD}Konfigurierte Bots:${NC}"
-  echo ""
-  for i in $(seq 1 "$bot_count"); do
-    name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
-    tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
-    if [[ "$tier" == "pro" ]]; then
-      tier_badge="${YELLOW}[PRO]${NC}"
-    elif [[ "$tier" == "ultimate" ]]; then
-      tier_badge="${CYAN}[ULTIMATE]${NC}"
-    else
-      tier_badge="${GREEN}[FREE]${NC}"
-    fi
-    echo -e "    ${CYAN}${i}.${NC} ${name} ${tier_badge}"
-  done
   echo ""
 
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Welchen Bot bearbeiten? [1-${bot_count}]${NC}: ")" EDIT_INDEX
-  if [[ ! "$EDIT_INDEX" =~ ^[0-9]+$ ]] || (( EDIT_INDEX < 1 || EDIT_INDEX > bot_count )); then
-    fail "Ungueltige Auswahl."
-    exit 1
-  fi
-
-  cur_name=$(grep "^BOT_${EDIT_INDEX}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${EDIT_INDEX}")
-  cur_tier=$(grep "^BOT_${EDIT_INDEX}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
-
+  echo -e "  Hol dir deine Keys unter: ${CYAN}https://dashboard.stripe.com/apikeys${NC}"
+  echo -e "  ${YELLOW}Tipp:${NC} Nutze erst ${BOLD}Test-Keys${NC} (sk_test_... / pk_test_...) zum Testen!"
   echo ""
-  echo -e "  ${BOLD}Bot ${EDIT_INDEX} bearbeiten: ${cur_name}${NC}"
-  echo "  ─────────────────────────────────────"
-  echo ""
-  echo -e "  ${BOLD}Was aendern?${NC}"
-  echo -e "    ${GREEN}1${NC}) Name          (aktuell: ${cur_name})"
-  echo -e "    ${YELLOW}2${NC}) Tier          (aktuell: ${cur_tier})"
-  echo -e "    ${CYAN}3${NC}) Beides"
-  echo -e "    ${DIM}4${NC}) Token & Client ID"
-  echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" EDIT_CHOICE
 
-  case "$EDIT_CHOICE" in
+  echo -e "  ${BOLD}Was tun?${NC}"
+  echo -e "    ${GREEN}1${NC}) Secret Key setzen/aendern"
+  echo -e "    ${CYAN}2${NC}) Public Key setzen/aendern"
+  echo -e "    ${YELLOW}3${NC}) Beide Keys setzen"
+  echo -e "    ${DIM}4${NC}) Zurueck"
+  echo ""
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" STRIPE_CHOICE
+
+  case "$STRIPE_CHOICE" in
     1)
-      new_name="$(prompt_default "Neuer Name" "$cur_name")"
-      write_env_line "BOT_${EDIT_INDEX}_NAME" "$new_name"
-      ok "Name geaendert: ${new_name}"
+      read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Stripe Secret Key${NC}: ")" new_sk
+      if [[ -z "$new_sk" ]]; then fail "Kein Key eingegeben."; exit 1; fi
+      if [[ ! "$new_sk" =~ ^sk_(test|live)_ ]]; then
+        warn "Key sieht ungewoehnlich aus. Erwartet: sk_test_... oder sk_live_..."
+      fi
+      write_env_line "STRIPE_SECRET_KEY" "$new_sk"
+      ok "Secret Key gespeichert."
       ;;
     2)
-      echo ""
-      echo -e "  ${DIM}Tier-Optionen:${NC}"
-      echo -e "    ${DIM}free${NC}     = Jeder kann einladen"
-      echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten"
-      echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten"
-      new_tier="$(prompt_default "Neues Tier" "$cur_tier")"
-      case "$new_tier" in
-        pro|ultimate|free) ;;
-        *) new_tier="free" ;;
-      esac
-      write_env_line "BOT_${EDIT_INDEX}_TIER" "$new_tier"
-      ok "Tier geaendert: ${new_tier}"
+      read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Stripe Public Key${NC}: ")" new_pk
+      if [[ -z "$new_pk" ]]; then fail "Kein Key eingegeben."; exit 1; fi
+      write_env_line "STRIPE_PUBLIC_KEY" "$new_pk"
+      ok "Public Key gespeichert."
       ;;
     3)
-      new_name="$(prompt_default "Neuer Name" "$cur_name")"
-      write_env_line "BOT_${EDIT_INDEX}_NAME" "$new_name"
-      ok "Name geaendert: ${new_name}"
-      echo ""
-      echo -e "  ${DIM}Tier-Optionen:${NC}"
-      echo -e "    ${DIM}free${NC}     = Jeder kann einladen"
-      echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten"
-      echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten"
-      new_tier="$(prompt_default "Neues Tier" "$cur_tier")"
-      case "$new_tier" in
-        pro|ultimate|free) ;;
-        *) new_tier="free" ;;
-      esac
-      write_env_line "BOT_${EDIT_INDEX}_TIER" "$new_tier"
-      ok "Tier geaendert: ${new_tier}"
+      read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Stripe Secret Key${NC}: ")" new_sk
+      if [[ -z "$new_sk" ]]; then fail "Kein Key eingegeben."; exit 1; fi
+      if [[ ! "$new_sk" =~ ^sk_(test|live)_ ]]; then
+        warn "Key sieht ungewoehnlich aus."
+      fi
+      write_env_line "STRIPE_SECRET_KEY" "$new_sk"
+      ok "Secret Key gespeichert."
+
+      read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Stripe Public Key${NC}: ")" new_pk
+      if [[ -n "$new_pk" ]]; then
+        write_env_line "STRIPE_PUBLIC_KEY" "$new_pk"
+        ok "Public Key gespeichert."
+      fi
       ;;
     4)
-      new_token="$(prompt_nonempty "Neuer Token")"
-      new_cid="$(prompt_nonempty "Neue Client ID")"
-      write_env_line "BOT_${EDIT_INDEX}_TOKEN" "$new_token"
-      write_env_line "BOT_${EDIT_INDEX}_CLIENT_ID" "$new_cid"
-      ok "Token & Client ID geaendert."
+      exit 0
       ;;
     *)
       fail "Ungueltige Auswahl."
@@ -277,122 +261,317 @@ if [[ "$MODE" == "--edit-bot" ]]; then
       ;;
   esac
 
-  echo ""
-  if prompt_yes_no "Container jetzt neu starten?" "j"; then
-    info "Starte Container neu..."
-    docker compose up -d --build --remove-orphans
-    ok "Container neu gestartet."
-  else
-    warn "Neustart uebersprungen. Fuehre 'docker compose up -d --build' manuell aus."
-  fi
-
+  # WICHTIG: docker compose up -d (NICHT restart!) damit .env neu geladen wird
+  restart_container
   exit 0
 fi
 
-# ====================================
-# MODE: Add Bot
-# ====================================
-if [[ "$MODE" == "--add-bot" ]]; then
-  echo -e "${BOLD}Bot hinzufuegen${NC}"
-  echo "─────────────────────────────────────"
+# ============================================================
+# MODE: Einstellungen
+# ============================================================
+if [[ "$MODE" == "--settings" ]]; then
+  echo ""
+  echo -e "  ${BOLD}Aktuelle Einstellungen${NC}"
+  echo "  ────────────────────────────────────"
+  echo ""
 
+  cur_port=$(grep "^WEB_PORT=" .env 2>/dev/null | cut -d= -f2- || echo "8081")
+  cur_iport=$(grep "^WEB_INTERNAL_PORT=" .env 2>/dev/null | cut -d= -f2- || echo "8080")
+  cur_domain=$(grep "^WEB_DOMAIN=" .env 2>/dev/null | cut -d= -f2- || echo "nicht gesetzt")
   bot_count=$(count_bots)
-  new_index=$((bot_count + 1))
+  cur_stripe=$(grep "^STRIPE_SECRET_KEY=" .env 2>/dev/null | cut -d= -f2- || echo "")
 
-  echo -e "  ${DIM}Aktuell: ${bot_count} Bot(s) konfiguriert${NC}"
-  echo ""
-
-  bot_name="$(prompt_default "Name" "Radio Bot ${new_index}")"
-  bot_token="$(prompt_nonempty "Token")"
-  bot_client_id="$(prompt_nonempty "Client ID")"
-  bot_perms="$(prompt_default "Permissions" "3145728")"
-  echo ""
-  echo -e "  ${DIM}Bot-Tier (free/pro/ultimate):${NC}"
-  bot_tier="$(prompt_default "Tier" "free")"
-
-  write_env_line "BOT_${new_index}_NAME" "$bot_name"
-  write_env_line "BOT_${new_index}_TOKEN" "$bot_token"
-  write_env_line "BOT_${new_index}_CLIENT_ID" "$bot_client_id"
-  write_env_line "BOT_${new_index}_PERMISSIONS" "$bot_perms"
-  write_env_line "BOT_${new_index}_TIER" "${bot_tier:-free}"
-
-  ok "Bot ${new_index} konfiguriert: ${bot_name} (Tier: ${bot_tier:-free})"
-  echo ""
-  echo -e "  ${GREEN}Invite-Link:${NC}"
-  echo -e "  https://discord.com/oauth2/authorize?client_id=${bot_client_id}&scope=bot%20applications.commands&permissions=${bot_perms}"
-  echo ""
-
-  if prompt_yes_no "Container jetzt neu starten?" "j"; then
-    info "Starte Container neu..."
-    docker compose up -d --build --remove-orphans
-    ok "Container neu gestartet."
+  echo -e "  Web-Port (extern):     ${CYAN}${cur_port}${NC}"
+  echo -e "  Web-Port (intern):     ${DIM}${cur_iport}${NC}"
+  echo -e "  Domain:                ${CYAN}${cur_domain}${NC}"
+  echo -e "  Bots konfiguriert:     ${CYAN}${bot_count}${NC}"
+  if [[ -n "$cur_stripe" ]]; then
+    echo -e "  Stripe:                ${GREEN}konfiguriert${NC}"
   else
-    warn "Neustart uebersprungen. Fuehre 'docker compose up -d --build' manuell aus."
+    echo -e "  Stripe:                ${RED}nicht konfiguriert${NC}"
   fi
+  echo ""
 
+  echo -e "  ${BOLD}Was aendern?${NC}"
+  echo -e "    ${GREEN}1${NC}) Web-Port (extern)"
+  echo -e "    ${CYAN}2${NC}) Domain"
+  echo -e "    ${DIM}3${NC}) Zurueck"
+  echo ""
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-3]${NC}: ")" SET_CHOICE
+
+  case "$SET_CHOICE" in
+    1)
+      new_port="$(prompt_default "Neuer externer Port" "$cur_port")"
+      write_env_line "WEB_PORT" "$new_port"
+      ok "Port geaendert: ${new_port}"
+      restart_container
+      ;;
+    2)
+      new_domain="$(prompt_optional "Domain (z.B. radiobot.example.com)")"
+      if [[ -n "$new_domain" ]]; then
+        write_env_line "WEB_DOMAIN" "$new_domain"
+        ok "Domain gespeichert: ${new_domain}"
+      fi
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
   exit 0
 fi
 
-# ====================================
+# ============================================================
+# MODE: Premium verwalten (via Docker)
+# ============================================================
+if [[ "$MODE" == "--premium" ]]; then
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "radio-bot"; then
+    docker compose exec radio-bot node src/premium-cli.js wizard
+  else
+    warn "Container nicht aktiv."
+    echo ""
+    if prompt_yes_no "Container jetzt starten?" "j"; then
+      docker compose up -d --build --remove-orphans
+      sleep 3
+      docker compose exec radio-bot node src/premium-cli.js wizard
+    else
+      echo -e "  ${DIM}Starte manuell: docker compose up -d${NC}"
+    fi
+  fi
+  exit $?
+fi
+
+# ============================================================
+# MODE: Bots verwalten (Submenu)
+# ============================================================
+if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" || "$MODE" == "--edit-bot" ]]; then
+
+  # Sub-menu wenn kein spezifischer Modus
+  if [[ "$MODE" == "--bots" ]]; then
+    bot_count=$(count_bots)
+    echo ""
+    echo -e "  ${BOLD}Bot-Verwaltung${NC} (${bot_count} Bots konfiguriert)"
+    echo "  ────────────────────────────────────"
+    echo ""
+    echo -e "    ${CYAN}1${NC}) Bots anzeigen"
+    echo -e "    ${GREEN}2${NC}) Bot hinzufuegen"
+    echo -e "    ${YELLOW}3${NC}) Bot bearbeiten (Name, Tier, Token)"
+    echo -e "    ${RED}4${NC}) Bot entfernen"
+    echo -e "    ${DIM}5${NC}) Zurueck"
+    echo ""
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" BOT_CHOICE
+    case "$BOT_CHOICE" in
+      1) MODE="--show-bots" ;;
+      2) MODE="--add-bot" ;;
+      3) MODE="--edit-bot" ;;
+      4) MODE="--remove-bot" ;;
+      *) exit 0 ;;
+    esac
+  fi
+
+  # --- Show Bots ---
+  if [[ "$MODE" == "--show-bots" ]]; then
+    bot_count=$(count_bots)
+    echo ""
+    echo -e "  ${BOLD}Konfigurierte Bots (${bot_count}):${NC}"
+    echo ""
+    for i in $(seq 1 "$bot_count"); do
+      name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
+      cid=$(grep "^BOT_${i}_CLIENT_ID=" .env 2>/dev/null | cut -d= -f2- || echo "?")
+      tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+      echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC} $(tier_badge "$tier")"
+      echo -e "       Client ID: ${DIM}${cid}${NC}"
+      if [[ "$tier" == "free" ]]; then
+        echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
+      else
+        echo -e "       Invite:    ${DIM}Nur fuer ${tier}-Abonnenten${NC}"
+      fi
+      echo ""
+    done
+    exit 0
+  fi
+
+  # --- Add Bot ---
+  if [[ "$MODE" == "--add-bot" ]]; then
+    bot_count=$(count_bots)
+    new_index=$((bot_count + 1))
+
+    echo ""
+    echo -e "  ${BOLD}Neuen Bot hinzufuegen (Bot #${new_index})${NC}"
+    echo "  ────────────────────────────────────"
+    echo ""
+
+    bot_name="$(prompt_default "Bot Name" "Radio Bot ${new_index}")"
+    bot_token="$(prompt_nonempty "Token")"
+    bot_client_id="$(prompt_nonempty "Client ID")"
+    bot_perms="$(prompt_default "Permissions" "3145728")"
+    bot_tier="$(prompt_tier "free")"
+
+    write_env_line "BOT_${new_index}_NAME" "$bot_name"
+    write_env_line "BOT_${new_index}_TOKEN" "$bot_token"
+    write_env_line "BOT_${new_index}_CLIENT_ID" "$bot_client_id"
+    write_env_line "BOT_${new_index}_PERMISSIONS" "$bot_perms"
+    write_env_line "BOT_${new_index}_TIER" "$bot_tier"
+    write_env_line "BOT_COUNT" "$new_index"
+
+    ok "Bot ${new_index} konfiguriert: ${bot_name} (${bot_tier})"
+    restart_container
+    exit 0
+  fi
+
+  # --- Edit Bot ---
+  if [[ "$MODE" == "--edit-bot" ]]; then
+    bot_count=$(count_bots)
+    if [[ "$bot_count" -eq 0 ]]; then
+      fail "Keine Bots konfiguriert."
+      exit 1
+    fi
+
+    echo ""
+    echo -e "  ${BOLD}Bot bearbeiten${NC}"
+    echo "  ────────────────────────────────────"
+    echo ""
+    for i in $(seq 1 "$bot_count"); do
+      name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
+      tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+      echo -e "    ${CYAN}${i}.${NC} ${name} $(tier_badge "$tier")"
+    done
+    echo ""
+
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Welchen Bot bearbeiten? [1-${bot_count}]${NC}: ")" EDIT_INDEX
+    if [[ ! "$EDIT_INDEX" =~ ^[0-9]+$ ]] || (( EDIT_INDEX < 1 || EDIT_INDEX > bot_count )); then
+      fail "Ungueltige Auswahl."
+      exit 1
+    fi
+
+    cur_name=$(grep "^BOT_${EDIT_INDEX}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${EDIT_INDEX}")
+    cur_tier=$(grep "^BOT_${EDIT_INDEX}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+
+    echo ""
+    echo -e "  ${BOLD}${cur_name}${NC} $(tier_badge "$cur_tier")"
+    echo ""
+    echo -e "    ${GREEN}1${NC}) Name aendern      (aktuell: ${cur_name})"
+    echo -e "    ${YELLOW}2${NC}) Tier aendern       (aktuell: ${cur_tier})"
+    echo -e "    ${CYAN}3${NC}) Beides aendern"
+    echo -e "    ${RED}4${NC}) Token & Client ID"
+    echo -e "    ${DIM}5${NC}) Zurueck"
+    echo ""
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" EDIT_CHOICE
+
+    case "$EDIT_CHOICE" in
+      1)
+        new_name="$(prompt_default "Neuer Name" "$cur_name")"
+        write_env_line "BOT_${EDIT_INDEX}_NAME" "$new_name"
+        ok "Name geaendert: ${new_name}"
+        ;;
+      2)
+        new_tier="$(prompt_tier "$cur_tier")"
+        write_env_line "BOT_${EDIT_INDEX}_TIER" "$new_tier"
+        ok "Tier geaendert: ${new_tier}"
+        ;;
+      3)
+        new_name="$(prompt_default "Neuer Name" "$cur_name")"
+        write_env_line "BOT_${EDIT_INDEX}_NAME" "$new_name"
+        ok "Name geaendert: ${new_name}"
+        new_tier="$(prompt_tier "$cur_tier")"
+        write_env_line "BOT_${EDIT_INDEX}_TIER" "$new_tier"
+        ok "Tier geaendert: ${new_tier}"
+        ;;
+      4)
+        new_token="$(prompt_nonempty "Neuer Token")"
+        new_cid="$(prompt_nonempty "Neue Client ID")"
+        write_env_line "BOT_${EDIT_INDEX}_TOKEN" "$new_token"
+        write_env_line "BOT_${EDIT_INDEX}_CLIENT_ID" "$new_cid"
+        ok "Token & Client ID geaendert."
+        ;;
+      *)
+        exit 0
+        ;;
+    esac
+
+    restart_container
+    exit 0
+  fi
+
+  # --- Remove Bot ---
+  if [[ "$MODE" == "--remove-bot" ]]; then
+    bot_count=$(count_bots)
+    if [[ "$bot_count" -eq 0 ]]; then
+      fail "Keine Bots konfiguriert."
+      exit 1
+    fi
+
+    echo ""
+    echo -e "  ${BOLD}Bot entfernen${NC}"
+    echo "  ────────────────────────────────────"
+    echo ""
+    for i in $(seq 1 "$bot_count"); do
+      name=$(grep "^BOT_${i}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${i}")
+      tier=$(grep "^BOT_${i}_TIER=" .env 2>/dev/null | cut -d= -f2- || echo "free")
+      echo -e "    ${CYAN}${i}.${NC} ${name} $(tier_badge "$tier")"
+    done
+    echo ""
+
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Welchen Bot entfernen? [1-${bot_count}]${NC}: ")" RM_INDEX
+    if [[ ! "$RM_INDEX" =~ ^[0-9]+$ ]] || (( RM_INDEX < 1 || RM_INDEX > bot_count )); then
+      fail "Ungueltige Auswahl."
+      exit 1
+    fi
+
+    rm_name=$(grep "^BOT_${RM_INDEX}_NAME=" .env 2>/dev/null | cut -d= -f2- || echo "Bot ${RM_INDEX}")
+    echo ""
+    warn "Bot ${RM_INDEX} (${rm_name}) wird aus der .env entfernt."
+    if ! prompt_yes_no "Sicher?" "n"; then
+      info "Abgebrochen."
+      exit 0
+    fi
+
+    # Entferne alle Zeilen fuer diesen Bot
+    for field in NAME TOKEN CLIENT_ID PERMISSIONS TIER; do
+      sed -i "/^BOT_${RM_INDEX}_${field}=/d" .env 2>/dev/null || true
+    done
+
+    # Wenn nicht der letzte Bot: Alle nachfolgenden Bots um eins nach vorne ruecken
+    if (( RM_INDEX < bot_count )); then
+      for i in $(seq $((RM_INDEX + 1)) "$bot_count"); do
+        prev=$((i - 1))
+        for field in NAME TOKEN CLIENT_ID PERMISSIONS TIER; do
+          val=$(grep "^BOT_${i}_${field}=" .env 2>/dev/null | cut -d= -f2- || echo "")
+          if [[ -n "$val" ]]; then
+            write_env_line "BOT_${prev}_${field}" "$val"
+          fi
+          sed -i "/^BOT_${i}_${field}=/d" .env 2>/dev/null || true
+        done
+      done
+    fi
+
+    # BOT_COUNT aktualisieren
+    new_count=$((bot_count - 1))
+    write_env_line "BOT_COUNT" "$new_count"
+
+    ok "Bot ${rm_name} entfernt. Verbleibend: ${new_count} Bot(s)."
+    restart_container
+    exit 0
+  fi
+fi
+
+# ============================================================
 # MODE: Update (default)
-# ====================================
+# ============================================================
 
-# Step 1: Self-update bootstrap
-if [[ "${RADIO_BOT_UPDATE_BOOTSTRAP:-0}" != "1" ]]; then
-  echo -e "${BOLD}Schritt 1/5: Neueste Update-Logik laden${NC}"
-  echo "─────────────────────────────────────────"
-  info "Lade Update-Script von $REMOTE/$BRANCH ..."
-  git fetch --prune "$REMOTE" "$BRANCH"
+echo ""
+echo -e "  ${BOLD}Code-Update & Container Rebuild${NC}"
+echo "  ────────────────────────────────────"
+echo ""
 
-  if git cat-file -e "$REMOTE/$BRANCH:update.sh" 2>/dev/null; then
-    tmp_script="$(mktemp)"
-    git show "$REMOTE/$BRANCH:update.sh" > "$tmp_script"
-    chmod +x "$tmp_script"
-
-    RADIO_BOT_UPDATE_BOOTSTRAP=1 \
-    APP_DIR="$APP_DIR" \
-    UPDATE_REMOTE="$REMOTE" \
-    UPDATE_BRANCH="$BRANCH" \
-    "$tmp_script" --update "$@"
-
-    rc=$?
-    rm -f "$tmp_script"
-    exit "$rc"
-  fi
-  ok "Update-Script geladen."
+# Backup .env
+if [[ -f .env ]]; then
+  mkdir -p .update-backups
+  cp .env ".update-backups/.env.$(date +%Y%m%d%H%M%S)"
 fi
 
-# Step 2: Backup
-echo ""
-echo -e "${BOLD}Schritt 2/5: Backup erstellen${NC}"
-echo "─────────────────────────────────────────"
-
-ts="$(date +%Y%m%d-%H%M%S)"
-backup_root="$APP_DIR/.update-backups"
-backup_dir="$backup_root/$ts"
-mkdir -p "$backup_dir"
-
-for file in "${PRESERVE_FILES[@]}"; do
-  if [[ -e "$file" ]]; then
-    mkdir -p "$backup_dir/$(dirname "$file")"
-    cp -a "$file" "$backup_dir/$file"
-    ok "Gesichert: $file"
-  fi
-done
-
-# Step 3: Git sync
-echo ""
-echo -e "${BOLD}Schritt 3/5: Code synchronisieren${NC}"
-echo "─────────────────────────────────────────"
-
-info "Synchronisiere mit $REMOTE/$BRANCH ..."
-git fetch --prune "$REMOTE" "$BRANCH"
-
-if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-  git checkout -f "$BRANCH"
-else
-  git checkout -B "$BRANCH" "$REMOTE/$BRANCH"
-fi
+# Pull latest code
+info "Hole neuesten Code von ${REMOTE}/${BRANCH}..."
+git fetch "$REMOTE" "$BRANCH" 2>&1 | tail -3
 
 old_head="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
 git reset --hard "$REMOTE/$BRANCH"
@@ -412,87 +591,31 @@ else
   ok "Code aktualisiert: ${old_head:0:8} -> ${new_head:0:8}"
 fi
 
-# Step 4: Restore
+# Container rebuild
 echo ""
-echo -e "${BOLD}Schritt 4/5: Runtime-Dateien wiederherstellen${NC}"
-echo "─────────────────────────────────────────"
-
-for file in "${PRESERVE_FILES[@]}"; do
-  if [[ -e "$backup_dir/$file" ]]; then
-    mkdir -p "$(dirname "$file")"
-    cp -a "$backup_dir/$file" "$file"
-    ok "Wiederhergestellt: $file"
-  fi
-done
-
-chmod +x docker-entrypoint.sh install.sh update.sh setup-stripe.sh 2>/dev/null || true
-
-# Step 5: Rebuild & Health
-echo ""
-echo -e "${BOLD}Schritt 5/5: Docker Compose rebuild${NC}"
-echo "─────────────────────────────────────────"
-
-info "Baue und starte Container..."
-docker compose up -d --build --remove-orphans
-
-web_port="$(read_web_port)"
+info "Baue Container neu..."
+docker compose build --no-cache 2>&1 | tail -5
+docker compose up -d --remove-orphans 2>&1 | tail -3
 
 echo ""
-info "Health-Check (max 45 Sekunden, 9 Versuche)..."
-
-health_ok=false
-for attempt in 1 2 3 4 5 6 7 8 9; do
-  sleep 5
-  if command -v curl >/dev/null 2>&1; then
-    http_code="$(curl -so /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:${web_port}/api/health" 2>/dev/null || echo "000")"
-    if [[ "$http_code" == "200" ]]; then
-      health_ok=true
-      break
-    fi
-    echo -e "  ${DIM}Versuch $attempt/9 (HTTP $http_code) - warte...${NC}"
-  else
-    sleep 5
-  fi
-done
-
+ok "Update abgeschlossen!"
 echo ""
-if $health_ok; then
-  ok "Health-Check bestanden!"
-else
-  warn "Health-Check fehlgeschlagen nach 45 Sekunden."
-  echo ""
-  echo -e "  ${YELLOW}Moegliche Ursachen:${NC}"
-  echo -e "    1. Bot-Tokens ungueltig oder abgelaufen"
-  echo -e "    2. Container braucht mehr Zeit zum Starten"
-  echo -e "    3. Port ${web_port} ist blockiert"
-  echo ""
-  echo -e "  ${BOLD}Diagnose:${NC}"
-  echo -e "    ${CYAN}docker compose logs --tail=50 radio-bot${NC}"
-  echo -e "    ${CYAN}docker compose ps${NC}"
-  echo ""
-  echo -e "  ${BOLD}Rollback zum Backup:${NC}"
-  echo -e "    ${YELLOW}cp ${backup_dir}/.env .env && docker compose up -d --build${NC}"
-fi
 
-# Summary
+# Status anzeigen
 bot_count=$(count_bots)
+cur_stripe=$(grep "^STRIPE_SECRET_KEY=" .env 2>/dev/null | cut -d= -f2- || echo "")
+web_port=$(grep "^WEB_PORT=" .env 2>/dev/null | cut -d= -f2- || echo "8081")
+
+echo -e "  ${BOLD}Zusammenfassung:${NC}"
+echo -e "    Bots:      ${CYAN}${bot_count}${NC}"
+echo -e "    Stripe:    $(if [[ -n "$cur_stripe" ]]; then echo -e "${GREEN}konfiguriert${NC}"; else echo -e "${RED}nicht gesetzt${NC}"; fi)"
+echo -e "    Web:       ${CYAN}http://localhost:${web_port}${NC}"
 echo ""
-echo -e "${GREEN}${BOLD}"
-echo "  ╔═══════════════════════════════════════════╗"
-echo "  ║                                           ║"
-echo "  ║          Update abgeschlossen!            ║"
-echo "  ║                                           ║"
-echo "  ╚═══════════════════════════════════════════╝"
-echo -e "${NC}"
-echo ""
-echo -e "  ${CYAN}Bots:${NC}      ${bot_count} konfiguriert"
-echo -e "  ${CYAN}Backup:${NC}    ${backup_dir}"
-echo -e "  ${CYAN}Webseite:${NC}  http://<server-ip>:${web_port}"
-echo ""
-echo -e "  ${BOLD}Weitere Befehle:${NC}"
-echo -e "    Bot hinzufuegen:  ${GREEN}./update.sh --add-bot${NC}"
-echo -e "    Bot bearbeiten:   ${GREEN}./update.sh --edit-bot${NC}"
-echo -e "    Bots anzeigen:    ${GREEN}./update.sh --show-bots${NC}"
+echo -e "  ${BOLD}Befehle:${NC}"
+echo -e "    Bots verwalten:   ${GREEN}./update.sh --bots${NC}"
+echo -e "    Stripe Setup:     ${GREEN}./update.sh --stripe${NC}"
 echo -e "    Premium:          ${GREEN}./update.sh --premium${NC}"
-echo -e "    Logs:             ${GREEN}docker compose logs -f radio-bot${NC}"
+echo -e "    Einstellungen:    ${GREEN}./update.sh --settings${NC}"
+echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
+echo -e "    Dieses Menue:     ${GREEN}./update.sh${NC}"
 echo ""
