@@ -1537,7 +1537,7 @@ function startWebServer(runtimes) {
 
         const stripeKey = process.env.STRIPE_SECRET_KEY;
         if (!stripeKey) {
-          sendJson(res, 503, { error: "Stripe nicht konfiguriert. Nutze setup-stripe.sh" });
+          sendJson(res, 503, { error: "Stripe nicht konfiguriert. Nutze: ./update.sh --stripe" });
           return;
         }
 
