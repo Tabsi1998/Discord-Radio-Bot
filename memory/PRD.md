@@ -1,4 +1,4 @@
-# Discord Radio Bot - PRD v18
+# Discord Radio Bot - PRD v19
 
 ## Architektur
 - Node.js Bot Backend (Discord, Express), FastAPI Preview Backend, React Frontend, Stripe Payments, JSON-Datenbank
@@ -11,10 +11,12 @@
 - Channel wird per API geholt wenn nicht im Cache (guild.channels.fetch)
 - Wartet auf VoiceConnectionStatus.Ready vor Wiedergabe
 - Periodisches State-Speichern alle 60 Sekunden (Backup)
-- docker-entrypoint.sh: erstellt bot-state.json, fixt Docker-Directory-Mount
-- bot-state.js: Robustes Laden (leere Dateien, Verzeichnisse)
-- Ausfuehrliches Logging bei jedem Restore-Schritt
-- Graceful Shutdown speichert State vor dem Beenden
+- **FIX v2**: docker-entrypoint.sh komplett ueberarbeitet:
+  - `set -e` entfernt - Script crashed nicht mehr bei Mount-Problemen
+  - Kein `rm -rf` auf Docker-Volume-Mounts (verursachte "Device or resource busy" Crash-Loop)
+  - Graceful Handling: Warnung statt Crash wenn Datei ein Verzeichnis ist
+- **FIX v2**: install.sh + update.sh erstellen JSON-Dateien VOR docker compose up
+- **FIX v2**: Alle JSON-Module (bot-state.js, premium-store.js, custom-stations.js, stations-store.js) pruefen auf Directory-Mounts und crashen nicht
 
 ### Premium System v3 - Komplett-Ueberholung (Feb 2026)
 - 3-Tier Modell: Free, Pro (4.99 EUR/mo), Ultimate (9.99 EUR/mo)
@@ -40,7 +42,6 @@
 - Kauf-E-Mail an Kunden mit Invite-Links
 - Admin-Benachrichtigung bei jedem Kauf
 - Ablauf-Warnung 7 Tage vor Ablauf
-- Ablauf-Benachrichtigung am Tag des Ablaufs
 
 ### FastAPI Backend (server.py) - Vollstaendig synchronisiert (Feb 2026)
 - Identische Premium-Logik wie Node.js (premium-store.js)
@@ -64,36 +65,9 @@
 - Lizenz-Ablauf-Info mit Restlaufzeit in Tagen
 - Abgelaufen-Warnung in rot
 
-### Unified Management Tool (Feb 2026)
-- update.sh: 6 Hauptoptionen (Update, Bots, Stripe, Premium, Settings, Status)
-- SMTP-Konfiguration via --email-settings
-
-### Audio Stability v4 (P1 Fix)
-- Balanced Buffer, erhoehte Timeouts, Exponential Backoff
-
 ## Testing
 - Iteration 20: FastAPI + Frontend Premium 100% (31/31 backend + frontend)
 - Iteration 19: Node.js Premium Modules 100% (56/56)
-- Iteration 18: Auto-Restore + Premium 97.7% (42/43)
-- Iteration 17: update.sh 100% (29/29)
-- Iteration 16: Bot Stats 100% (19/19)
-- Iteration 14: P0/P1 100% (40/40)
-
-## Datenmodell premium.json
-```json
-{
-  "licenses": {
-    "GUILD_ID": {
-      "tier": "pro|ultimate",
-      "activatedAt": "ISO",
-      "expiresAt": "ISO",
-      "durationMonths": 3,
-      "activatedBy": "stripe|admin-cli",
-      "note": ""
-    }
-  }
-}
-```
 
 ## Backlog
 - P3: Automatisierter Build (React -> Static Web)
