@@ -250,34 +250,54 @@
     </section>
 
     <!-- Premium Checkout Modal -->
-    <div id="premiumModal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);align-items:center;justify-content:center">
-      <div style="background:#121212;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:32px;max-width:440px;width:90%;text-align:center">
-        <h3 style="font-family:Orbitron,sans-serif;font-size:18px;font-weight:800;margin-bottom:8px">Premium aktivieren</h3>
-        <p style="color:#A1A1AA;font-size:13px;margin-bottom:20px">Gib die Server-ID ein, fuer die du Premium kaufen moechtest.<br><span style="font-size:11px;color:#52525B">Rechtsklick auf Server &rarr; Server-ID kopieren</span></p>
-
-        <input type="text" id="premiumServerId" placeholder="Discord Server ID" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:12px;color:#fff;padding:14px 16px;font-size:14px;outline:none;font-family:JetBrains Mono,monospace;margin-bottom:8px;text-align:center" />
-
-        <button id="premiumCheckExisting" onclick="checkExistingLicense()" style="background:none;border:1px solid rgba(255,255,255,0.1);color:#A1A1AA;cursor:pointer;font-size:11px;border-radius:8px;padding:6px 12px;margin-bottom:16px">Bestehende Lizenz pruefen</button>
-
-        <div id="premiumMonthsRow" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
-          <label for="premiumMonths" style="font-size:13px;color:#A1A1AA;white-space:nowrap">Laufzeit:</label>
-          <select id="premiumMonths" onchange="updatePriceDisplay()" style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:8px;padding:8px 12px;font-size:14px;font-family:JetBrains Mono,monospace;cursor:pointer">
-            <option value="1">1 Monat</option>
-            <option value="3">3 Monate</option>
-            <option value="6">6 Monate</option>
-            <option value="12">12 Monate (2 gratis!)</option>
-          </select>
+    <div id="premiumModal" onclick="if(event.target===this)closePremiumModal()" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);align-items:center;justify-content:center;padding:16px">
+      <div style="background:#0A0A0A;border:1px solid rgba(255,255,255,0.1);border-radius:24px;padding:36px;max-width:480px;width:100%">
+        <div style="text-align:center;margin-bottom:20px">
+          <div id="premiumModalIcon" style="width:56px;height:56px;border-radius:16px;margin:0 auto 16px;display:flex;align-items:center;justify-content:center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2 4l3 12h14l3-12-5 4-5-6-5 6z"/><path d="M5 16l-1 4h16l-1-4"/></svg>
+          </div>
+          <h3 id="premiumModalTitle" style="font-family:Orbitron,sans-serif;font-size:20px;font-weight:800;margin-bottom:8px"></h3>
         </div>
 
-        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px;margin-bottom:16px">
-          <div style="font-size:11px;color:#52525B;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">PREIS</div>
-          <div id="premiumPrice" style="font-size:24px;font-weight:800;font-family:JetBrains Mono,monospace;color:#FFB800">4,99 EUR</div>
-          <div id="premiumDiscount" style="display:none;font-size:11px;color:#39FF14;margin-top:4px"></div>
+        <!-- Server ID -->
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#A1A1AA;margin-bottom:8px">SERVER ID</div>
+          <input type="text" id="premiumServerId" placeholder="z.B. 123456789012345678" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;color:#fff;padding:14px 16px;font-size:14px;outline:none;font-family:'JetBrains Mono',monospace" onchange="checkExistingLicense()" />
+          <p style="color:#52525B;font-size:11px;margin-top:6px">Rechtsklick auf Server in Discord &rarr; Server-ID kopieren</p>
         </div>
 
-        <button id="premiumSubmit" onclick="submitPremiumCheckout()" style="width:100%;background:#FFB800;color:#050505;border:none;border-radius:12px;padding:14px;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:12px">Jetzt bezahlen</button>
-        <button onclick="closePremiumModal()" style="background:none;border:none;color:#52525B;cursor:pointer;font-size:13px">Abbrechen</button>
-        <p id="premiumStatus" style="margin-top:12px;font-size:13px"></p>
+        <!-- Upgrade Badge -->
+        <div id="premiumUpgradeBadge" style="display:none;align-items:center;gap:8px;padding:12px 16px;border-radius:12px;margin-bottom:16px;background:rgba(189,0,255,0.08);border:1px solid rgba(189,0,255,0.2)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#BD00FF" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#BD00FF">Upgrade erkannt</div>
+            <div id="premiumUpgradeText" style="font-size:11px;color:#A1A1AA"></div>
+          </div>
+        </div>
+
+        <!-- Monats-Auswahl (Button-Style) -->
+        <div id="premiumMonthsRow" style="margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#A1A1AA;margin-bottom:10px">LAUFZEIT WAEHLEN</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px" id="monthButtons"></div>
+        </div>
+
+        <!-- Preis-Box -->
+        <div style="padding:16px;border-radius:12px;margin-bottom:20px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span id="premiumPriceLabel" style="font-size:13px;color:#A1A1AA">1 Monat</span>
+            <div style="text-align:right">
+              <span id="premiumPriceOld" style="display:none;font-size:12px;color:#52525B;text-decoration:line-through;margin-right:8px"></span>
+              <span id="premiumPrice" style="font-size:20px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#FFB800">4,99&euro;</span>
+            </div>
+          </div>
+          <div id="premiumDiscount" style="display:none;margin-top:6px;font-size:11px;color:#39FF14;font-weight:600"></div>
+          <div id="premiumPerMonth" style="display:none;margin-top:4px;font-size:11px;color:#52525B"></div>
+        </div>
+
+        <!-- Submit -->
+        <button id="premiumSubmit" onclick="submitPremiumCheckout()" style="width:100%;background:#FFB800;color:#050505;border:none;border-radius:14px;padding:16px;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px">4,99&euro; bezahlen</button>
+        <button onclick="closePremiumModal()" style="width:100%;background:none;border:none;color:#52525B;cursor:pointer;font-size:13px;padding:8px">Abbrechen</button>
+        <p id="premiumStatus" style="margin-top:12px;font-size:13px;text-align:center"></p>
       </div>
     </div>
 
