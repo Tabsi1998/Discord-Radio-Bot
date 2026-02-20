@@ -13,17 +13,20 @@ var STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '#F
 var BOT_IMAGES = ['/img/bot-1.png', '/img/bot-2.png', '/img/bot-3.png', '/img/bot-4.png'];
 
 var COMMANDS = [
-  { name: '/play',      args: '[station] [channel]', desc: 'Startet einen Radio-Stream im Voice-Channel' },
-  { name: '/pause',     args: '',                     desc: 'Pausiert die aktuelle Wiedergabe' },
-  { name: '/resume',    args: '',                     desc: 'Setzt die Wiedergabe fort' },
-  { name: '/stop',      args: '',                     desc: 'Stoppt die Wiedergabe und verlässt den Channel' },
-  { name: '/stations',  args: '',                     desc: 'Zeigt alle verfügbaren Radio-Stationen' },
-  { name: '/list',      args: '[page]',               desc: 'Listet Stationen paginiert auf' },
-  { name: '/now',       args: '',                     desc: 'Zeigt die aktuelle Station und Metadaten' },
-  { name: '/setvolume', args: '<0-100>',              desc: 'Setzt die Lautstärke' },
-  { name: '/status',    args: '',                     desc: 'Zeigt Bot-Status, Uptime und Last' },
-  { name: '/health',    args: '',                     desc: 'Zeigt Stream-Health und Reconnect-Info' },
-  { name: '/premium',   args: '',                     desc: 'Zeigt den Premium-Status dieses Servers' },
+  { name: '/play',          args: '[station] [channel]', desc: 'Startet einen Radio-Stream im Voice-Channel' },
+  { name: '/pause',         args: '',                     desc: 'Pausiert die aktuelle Wiedergabe' },
+  { name: '/resume',        args: '',                     desc: 'Setzt die Wiedergabe fort' },
+  { name: '/stop',          args: '',                     desc: 'Stoppt die Wiedergabe und verlässt den Channel' },
+  { name: '/stations',      args: '',                     desc: 'Zeigt alle verfügbaren Radio-Stationen (nach Tier gefiltert)' },
+  { name: '/list',          args: '[page]',               desc: 'Listet Stationen paginiert auf' },
+  { name: '/now',           args: '',                     desc: 'Zeigt die aktuelle Station und Metadaten' },
+  { name: '/setvolume',     args: '<0-100>',              desc: 'Setzt die Lautstärke' },
+  { name: '/status',        args: '',                     desc: 'Zeigt Bot-Status, Uptime und Last' },
+  { name: '/health',        args: '',                     desc: 'Zeigt Stream-Health und Reconnect-Info' },
+  { name: '/premium',       args: '',                     desc: 'Zeigt den Premium-Status dieses Servers' },
+  { name: '/addstation',    args: '<key> <name> <url>',   desc: '[Ultimate] Eigene Station hinzufügen' },
+  { name: '/removestation', args: '<key>',                desc: '[Ultimate] Eigene Station entfernen' },
+  { name: '/mystations',    args: '',                     desc: '[Ultimate] Zeigt deine Custom Stationen' },
 ];
 
 var fmt = new Intl.NumberFormat('de-DE');
