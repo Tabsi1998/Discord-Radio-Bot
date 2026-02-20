@@ -1262,7 +1262,11 @@ class BotRuntime {
 
   // === State Persistence: Speichert aktuellen Zustand fuer Auto-Reconnect nach Restart ===
   persistState() {
+    const activeCount = [...this.guildState.entries()].filter(([_, s]) => s.currentStationKey && s.lastChannelId).length;
     saveBotState(this.config.id, this.guildState);
+    if (activeCount > 0) {
+      log("INFO", `[${this.config.name}] State gespeichert (${activeCount} aktive Verbindung(en)).`);
+    }
   }
 
   async restoreState(stations) {
