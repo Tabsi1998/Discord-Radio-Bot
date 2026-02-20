@@ -1688,6 +1688,15 @@ for (const runtime of runtimes) {
 
 const webServer = startWebServer(runtimes);
 
+// Periodisches Speichern des Bot-State (alle 60s) als Backup
+setInterval(() => {
+  for (const runtime of runtimes) {
+    if (runtime.client.isReady()) {
+      runtime.persistState();
+    }
+  }
+}, 60_000);
+
 let shuttingDown = false;
 async function shutdown(signal) {
   if (shuttingDown) return;
