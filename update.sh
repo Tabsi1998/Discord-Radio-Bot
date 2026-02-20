@@ -304,9 +304,10 @@ if [[ "$MODE" == "--email" ]]; then
   echo -e "  ${BOLD}Was tun?${NC}"
   echo -e "    ${GREEN}1${NC}) SMTP komplett einrichten"
   echo -e "    ${CYAN}2${NC}) Nur Admin-Email aendern"
-  echo -e "    ${DIM}3${NC}) Zurueck"
+  echo -e "    ${YELLOW}3${NC}) Test-Email senden"
+  echo -e "    ${DIM}4${NC}) Zurueck"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-3]${NC}: ")" EMAIL_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" EMAIL_CHOICE
 
   case "$EMAIL_CHOICE" in
     1)
@@ -333,6 +334,52 @@ if [[ "$MODE" == "--email" ]]; then
       admin_email="$(prompt_nonempty "Admin-Email")"
       write_env_line "ADMIN_EMAIL" "$admin_email"
       ok "Admin-Email gespeichert: ${admin_email}"
+      ;;
+    3)
+      # Test-Email senden
+      if [[ -z "$cur_host" ]]; then
+        fail "SMTP nicht konfiguriert! Bitte zuerst Option 1 ausfuehren."
+        exit 1
+      fi
+      test_to="$(prompt_nonempty "An welche E-Mail soll die Test-Mail gesendet werden?")"
+      echo ""
+      info "Sende Test-Email an ${test_to}..."
+
+      docker compose exec -T radio-bot node -e "
+        import('nodemailer').then(async (nm) => {
+          const t = nm.default.createTransport({
+            host: process.env.SMTP_HOST,
+            port: Number(process.env.SMTP_PORT) || 587,
+            secure: (Number(process.env.SMTP_PORT) || 587) === 465,
+            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+          });
+          try {
+            const info = await t.sendMail({
+              from: process.env.SMTP_FROM || process.env.SMTP_USER,
+              to: '${test_to}',
+              subject: 'Discord Radio Bot - SMTP Test',
+              html: '<div style=\"font-family:sans-serif;padding:20px;background:#121212;color:#fff;border-radius:12px;max-width:400px\">' +
+                '<h2 style=\"color:#00F0FF;margin:0 0 12px\">SMTP Test erfolgreich!</h2>' +
+                '<p style=\"color:#A1A1AA\">Diese E-Mail bestaetigt dass dein SMTP korrekt konfiguriert ist.</p>' +
+                '<hr style=\"border:1px solid #333;margin:16px 0\">' +
+                '<p style=\"font-size:12px;color:#52525B\">Host: ' + (process.env.SMTP_HOST || '') + '<br>User: ' + (process.env.SMTP_USER || '') + '</p>' +
+                '</div>'
+            });
+            console.log('OK:' + info.messageId);
+          } catch (err) {
+            console.error('FAIL:' + err.message);
+            process.exit(1);
+          }
+        });
+      " 2>&1 | while IFS= read -r line; do
+        if [[ "$line" == OK:* ]]; then
+          echo -e "  ${GREEN}[OK]${NC} Test-Email gesendet! Message-ID: ${line#OK:}"
+        elif [[ "$line" == FAIL:* ]]; then
+          echo -e "  ${RED}[FEHLER]${NC} ${line#FAIL:}"
+        else
+          echo "  $line"
+        fi
+      done
       ;;
     *)
       exit 0
