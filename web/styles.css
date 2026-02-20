@@ -102,7 +102,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);ove
 .bot-stats{padding:14px 0;margin-bottom:16px;border-top:1px solid;border-bottom:1px solid}
 .stats-title{font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;margin-bottom:10px;font-family:'Orbitron',sans-serif}
 .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
-.stat-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em}
+.bot-stats .stat-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em}
 .stat-value{font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#fff}
 .invite-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:12px;color:#050505;font-weight:700;font-size:13px;text-decoration:none;text-transform:uppercase;letter-spacing:.05em;transition:opacity .15s,transform .15s}
 .invite-btn:hover{opacity:.9;transform:scale(1.02)}
