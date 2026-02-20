@@ -1950,6 +1950,35 @@ setInterval(() => {
   }
 }, 60_000);
 
+// Lizenz-Ablauf pruefen (alle 6 Stunden)
+setInterval(async () => {
+  if (!isEmailConfigured()) return;
+  try {
+    const all = listLicenses();
+    for (const [serverId, lic] of Object.entries(all)) {
+      if (!lic.expiresAt) continue;
+      const daysLeft = Math.max(0, Math.ceil((new Date(lic.expiresAt) - new Date()) / 86400000));
+      const tierName = TIERS[lic.tier]?.name || lic.tier;
+
+      // Warnung bei 7 Tagen
+      if (daysLeft === 7 && lic.contactEmail) {
+        const html = buildExpiryWarningEmail({ tierName, serverId, expiresAt: lic.expiresAt, daysLeft });
+        await sendMail(lic.contactEmail, `Premium ${tierName} laeuft in 7 Tagen ab!`, html);
+        log("INFO", `[Email] Ablauf-Warnung gesendet an ${lic.contactEmail} fuer ${serverId}`);
+      }
+
+      // Abgelaufen
+      if (daysLeft === 0 && lic.contactEmail && !lic._expiredNotified) {
+        const html = buildExpiryEmail({ tierName, serverId });
+        await sendMail(lic.contactEmail, `Premium ${tierName} abgelaufen`, html);
+        log("INFO", `[Email] Ablauf-Benachrichtigung gesendet an ${lic.contactEmail} fuer ${serverId}`);
+      }
+    }
+  } catch (err) {
+    log("ERROR", `[ExpiryCheck] ${err.message}`);
+  }
+}, 6 * 60 * 60 * 1000);
+
 let shuttingDown = false;
 async function shutdown(signal) {
   if (shuttingDown) return;
