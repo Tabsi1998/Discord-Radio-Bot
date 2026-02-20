@@ -1,189 +1,181 @@
 <analysis>**original_problem_statement:**
-The user's initial goal was to redesign their Discord Radio Bot's web interface and fix a  command bug. This has evolved into a full-scale project overhaul.
+The user's initial goal was to redesign their Discord Radio Bot's web interface. This evolved into a full-scale project overhaul focused on professional-grade features.
 
 The most recent user requests are:
-1.  **Extreme Audio Optimization**: The bot's audio stream is lagging. The user wants this completely eliminated (zero lag). This requires a deep optimization of the audio processing and streaming pipeline.
-2.  **Full Premium System Implementation**: Build a complete premium subscription system. This includes:
-    *   Backend logic for different tiers (Free, Pro, Ultimate).
-    *   Integration with Stripe for payments. The user specified using a test key for now and providing a script for them to configure their own keys.
-    *   A mechanism for users to purchase a premium plan for a specific Discord server (Guild ID).
-    *   A  command in Discord for users to check their status.
-    *   The system should be fully functional from purchase to in-bot feature activation.
-3.  **Remove Live Dashboard**: The previously built Live Dashboard feature should be removed from the web interface.
-
-PRODUCT REQUIREMENTS from previous sessions still relevant:
-- The project must support multiple, dynamically configured bots from an  file.
-- It must have a mobile-responsive web interface showing bot status and a station browser.
-- Robust  and  scripts are required.
-- The user has a long-term goal to automate the synchronization of the React preview app () and the static production app ().
+1.  **Eliminate Audio Lag**: The user has repeatedly emphasized that fixing audio lag and stuttering is the absolute highest priority. The bot must provide a smooth, zero lag listening experience.
+2.  **Robust Auto-Reconnect**: After an update or restart, the bot must automatically remember which voice channel it was in, for which server, playing which station, and at what volume, and seamlessly reconnect itself without any user intervention.
+3.  **Fix Auto-Reconnect Disabling Bug**: The currently implemented auto-reconnect feature incorrectly disables itself upon temporary network drops, treating them as manual kicks.
+4.  **Server-Specific Player Status**: The web interface and bot status should not show a global player status, but rather what is specifically playing on the Discord server (guild) the user is on.
+5.  **Secure Premium Bot Invites**: Free users must not be able to invite premium-tier bots. An intelligent system is required to lock these bots until a user has purchased a premium plan for their server.
+6.  **Add Discord Support Link**: A prominent link to the user's support Discord server () must be added throughout the web interface for easy user access.
+7.  **Refine Install/Update Scripts**: The  and  scripts needed to be more robust, with bug fixes and feature enhancements like moving the add bot flow to the update script.
 
 **User's preferred language**: German. The next agent MUST respond in German.
 
 **what currently exists?**
-The agent has implemented the full premium system and the extreme audio optimizations. The Live Dashboard feature has been removed from all relevant files (, , , React components).
-
--   **Premium System**:
-    -   A complete Stripe integration has been added to the Node.js backend (), including endpoints for creating checkout sessions and handling payment success/cancellation via webhooks.
-    -   A new license management module () has been created to track premium guilds in a  file.
-    -   A  slash command () allows users to check their subscription status.
-    -   A  script has been created for the user to configure their Stripe API keys.
-    -   The frontend (both static  and React ) has been updated with Upgrade buttons that trigger the Stripe checkout flow.
-
--   **Audio Optimization**:
-    -   The core bot logic in  was heavily modified for zero lag performance. This includes aggressive  arguments, higher bitrates for premium users, and optimized voice connection settings (, ).
-
--   The project structure has been updated with all the new features and removals, maintaining sync between the preview and production frontends.
+The project is a multi-bot Discord radio streaming application with a Node.js backend (, ), a React frontend for preview, and a static JS/HTML/CSS frontend for production. A full premium system using Stripe is implemented, along with file-based persistence for licenses () and bot session state (). The agent has implemented features for audio optimization, auto-reconnect, secure premium bot invites, and UI enhancements. However, the two most critical features—audio stability and auto-reconnect—are currently not working as intended.
 
 **Last working item**:
-    - Last item agent was working: The agent was debugging the Stripe integration. It was failing with an  because the placeholder key  is not a valid, functional test key. The agent correctly concluded that this is not a bug, but the expected behavior. The code is correct, and the flow will work once the user provides their own real Stripe keys using the newly created  script. The final step was to verify the frontend UI, which looked correct.
-    - Status: USER VERIFICATION PENDING
-    - Agent Testing Done: Y
-    - Which testing method agent to use? Manual testing by user. The user needs to execute 
-[0;36m[1m
-  ╔═══════════════════════════════════════╗
-  ║   Stripe API Key - Einrichtung        ║
-  ╚═══════════════════════════════════════╝
-[0m
-
-  Fuer Stripe-Zahlungen brauchst du einen API-Key.
-  Hol dir deinen unter: [0;36mhttps://dashboard.stripe.com/apikeys[0m
-
-  [0;33mHinweis:[0m Nutze erst den [1mTest-Key[0m (sk_test_...) zum Testen!, provide their own Stripe test keys, and then test the end-to-end payment flow from the website.
-    - User Testing Done: N
+- Last item agent was working: Debugging a critical flaw in the auto-reconnect logic. The user provided logs showing  after a connection drop. The agent correctly identified the bug in  (within the  event handler), where any voice channel disconnection (even temporary ones) was being incorrectly treated as a manual user action, which then permanently disabled the reconnect feature for that session.
+- Status: IN PROGRESS
+- Agent Testing Done: N
+- Which testing method agent to use? backend testing agent. The fix requires modifying the bot's core lifecycle logic in . The test would involve starting the bot, having it join a voice channel, simulating a network interruption or forcing a temporary disconnect, and verifying from the logs that the bot attempts to reconnect instead of disabling the feature.
+- User Testing Done: N
 
 **All Pending/In progress Issue list**:
-  - There are no known code issues. The primary pending items are validation tasks that require user input and real-world testing.
+-   Issue 1: (P0) Auto-Reconnect feature is incorrectly disabled on temporary connection drops.
+-   Issue 2: (P1) Audio stream is unstable, causing  errors and perceived lag.
+
+Issues Detail:
+-   **Issue 1: Auto-Reconnect incorrectly disabled**
+    -   **Attempted fixes**: None. The bug was just diagnosed.
+    -   **Next debug checklist**:
+        -   Modify the  listener in  (around lines 582-618).
+        -   The logic  is too broad. It needs to differentiate between a manual disconnect (e.g., a user kicking the bot) and an automatic/network-related disconnect.
+        -   A potential fix is to only set  if the bot is moved by a user, not when the connection simply drops. A more robust reconnect attempt should be triggered on connection loss.
+    -   **Why fix this issue and what will be achieved with the fix?**: This is critical for the user's requested auto-reconnect feature. Fixing it will ensure the bot is resilient to network fluctuations and can successfully restore its session after a restart or temporary drop, as intended.
+    -   **Status**: IN PROGRESS
+    -   **Is recurring issue?**: N
+    -   **Should Test backend/both after fix?**: backend
+-   **Issue 2: Audio stream instability and timeouts**
+    -   **Attempted fixes**: The agent modified  arguments in  (e.g., , ) and  to .
+    -   **Why it didn't work**: The user's final logs () still show a flood of  messages, indicating the root cause of the stream instability was not addressed by tweaking  arguments alone. The  of 5 seconds might be too aggressive for unstable streams.
+    -   **Next debug checklist**:
+        -   Review the entire audio pipeline in  again, specifically the  and  functions.
+        -   Investigate the 's  event handler. The current logic just logs and attempts a restart, which may be causing a restart loop.
+        -   Consider increasing the  input timeout () from  (5s) to a more lenient value (e.g., 15-20s) to handle slow-to-start radio streams.
+        -   Examine the resource creation: . Ensure the stream source itself is stable.
+    -   **Why fix this issue and what will be achieved with the fix?**: This directly addresses the user's #1 priority: eliminating audio lag. A stable audio stream is the core function of the application.
+    -   **Status**: IN PROGRESS
+    -   **Is recurring issue?**: Y
+    -   **Should Test backend/both after fix?**: backend
 
 **In progress Task List**:
-  - No tasks are currently in progress. The implementation phase is complete.
+-   No separate tasks; all current work is captured in the issue list above.
 
 **Upcoming and Future Tasks**
 Upcoming Tasks:
-- **(P0) User Validation: Premium/Stripe System**: The user must run 
-[0;36m[1m
-  ╔═══════════════════════════════════════╗
-  ║   Stripe API Key - Einrichtung        ║
-  ╚═══════════════════════════════════════╝
-[0m
-
-  Fuer Stripe-Zahlungen brauchst du einen API-Key.
-  Hol dir deinen unter: [0;36mhttps://dashboard.stripe.com/apikeys[0m
-
-  [0;33mHinweis:[0m Nutze erst den [1mTest-Key[0m (sk_test_...) zum Testen! to provide their Stripe API keys and then test the entire payment and license activation flow. This is the highest priority.
-- **(P1) User Validation: Audio Quality**: The user needs to test the bot in a Discord voice channel to confirm if the extreme audio optimization has successfully eliminated all lagging and improved the experience to their satisfaction.
-- **(P2) Interactive Installation/Update Process**: Enhance  and  to be more interactive, prompting the user for necessary inputs like bot tokens if they aren't found in the  file.
+-   **(P0) Implement Auto-Reconnect Fix**: Apply the fix for the auto-reconnect bug (Issue 1).
+-   **(P1) Resolve Audio Timeouts**: Re-investigate and fix the audio player timeout errors (Issue 2).
+-   **(P2) User Validation**: After fixing both P0 and P1, guide the user to test both audio quality and the auto-reconnect functionality thoroughly.
 
 Future Tasks:
-- **(P3) Automate Dual-Frontend Sync**: Implement a build step (e.g., using yarn run v1.22.22
-info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.) that automatically compiles the React app in  and outputs the static files to the  directory. This would eliminate the need for manual synchronization and reduce potential errors.
+-   **(P3) Automate Dual-Frontend Sync**: Implement a build step (e.g., yarn run v1.22.22
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. in the root) that automatically compiles the React app in  and outputs the static files to the  directory, eliminating manual synchronization.
+-   **(P4) Refactor **: Break down the massive  file into smaller, more manageable modules (e.g., , , , ).
 
 **Completed work in this session**
-- **Premium System & Stripe Integration**: Implemented a full-featured premium system with Free/Pro/Ultimate tiers, powered by Stripe for payments. This included backend endpoints, license management (), a  Discord command, and a  configuration script.
-- **Extreme Audio Optimization**: Overhauled the audio streaming pipeline in  with aggressive  settings, tier-based bitrates, and optimized voice connection parameters to achieve zero lag.
-- **Live Dashboard Removal**: Successfully removed the Live Dashboard feature from the web UI and backend as requested.
-- **UI Bug Fixes**: Corrected several UI issues, including a double navigation bar, a missing volume slider in the player, and making the hero section's EQ animation dynamic.
-- **Script Improvements**: Enhanced  and  for better interactivity.
-- **Dependency & Config Fixes**: Added  to the backend to ensure  variables are loaded correctly and installed the  Node.js package.
-- **Code Synchronization**: Ensured all new features and removals were consistently applied across both the production () and preview () codebases.
+- **Feature: Auto-Reconnect State Persistence**:
+    - Created  and  to save and load bot sessions (guild, channel, station).
+    - Implemented  and  logic within the bot's lifecycle.
+    - Configured Docker () and scripts (, ) to handle the new state file.
+- **Feature: Secure Premium Bot Invites**:
+    - Added a  environment variable to define bot access levels (               total        used        free      shared  buff/cache   available
+Mem:        16358508     8785176     2186752       45820     5689228     7573332
+Swap:              0           0           0, , ).
+    - Updated the frontend (, ) to show a lock icon instead of an invite button for inaccessible premium bots.
+    - Added a secure  endpoint to provide invite links only to guilds with a valid subscription.
+    - Updated  and  to configure the  for new bots.
+- **Feature: Discord Support Link Integration**:
+    - Added the user's Discord server link () to the web UI's Navbar, Hero section, Premium section, and Footer on both the React and static frontends.
+    - Included the support link in the  Discord command's response.
+- **Critical Bug Fixes**:
+    - Fixed a  by removing a duplicate function definition in  and adding the correct exports in .
+    - Fixed a  crash by making the  callback in  an  function.
+    - Fixed a shell script error () in .
+- **Script and CLI Enhancements**:
+    - Created a new CLI tool  to manage premium licenses (, , , , ).
+    - Overhauled  to support adding/removing bots and to be more robust.
+- **Feature: Server-Specific Data Display**:
+    - Enhanced the  endpoint to include , showing per-server activity.
+    - Updated the web UI () to display this guild-specific information.
 
 **Earlier issues found/mentioned but not fixed**
-   - None.
+- The core issue of audio lag and player timeouts () persists despite attempts to fix it. This is now the highest priority technical debt.
 
 **Known issue recurrence from previous fork**
-  - N/A
+- **Issue recurrence in previous fork**: Audio lag and performance issues.
+- **Recurrence count**: 2+
+- **Status**: IN PROGRESS
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- **Bot Backend**: Node.js with  and . Now heavily optimized for low-latency audio streaming.
-- **Web Server**: Express.js server integrated into  serving the static frontend and all API endpoints.
-- **Payment Processing**: Stripe for handling subscriptions. The integration includes checkout session creation and webhook handling.
-- **License System**: A custom file-based () system to track which Discord guilds have active premium status.
-- **Development Stack**: A React/FastAPI stack is used for preview, but the production app is a pure Node.js project.
+- **Bot Backend**: Node.js with  and .
+- **Web Server**: Express.js server integrated into .
+- **Payment Processing**: Stripe for subscriptions.
+- **License System**: File-based () system for premium guilds.
+- **State Persistence**: A  file stores active sessions (guild, channel, station, volume) to enable auto-reconnect after restarts, managed by .
+- **Development Stack**: Dual frontend with React/FastAPI for preview and a static Node.js/HTML/JS app for production.
 
 **key DB schema**
-  - The project uses JSON files for data persistence.
-  - **stations.json**: 
-  - **licenses.json**: 
+- **premium.json**: 
+- **bot-state.json**: 
 
 **changes in tech stack**
-  - **Stripe**: Added for payment processing.
+- No new technologies were added. The architecture was extended with a new state management file ().
 
 **All files of reference**
-- ****: The heart of the application. Contains the bot logic, Express web server, and the new audio optimization and Stripe API endpoints.
-- ****: Manages reading from and writing to  to control premium features.
-- ****: Defines and registers the  slash command for Discord.
-- **
+- : The central file for both pending issues. Contains the flawed  handler and the audio pipeline that is causing timeouts.
+- : Helper module for the auto-reconnect feature.
+- : The data file for the auto-reconnect feature.
+- , 
 [0;36m[1m
-  ╔═══════════════════════════════════════╗
-  ║   Stripe API Key - Einrichtung        ║
-  ╚═══════════════════════════════════════╝
+  ╔═══════════════════════════════════════════╗
+  ║                                           ║
+  ║   Discord Radio Bot - Update & Manage     ║
+  ║                                           ║
+  ╚═══════════════════════════════════════════╝
 [0m
 
-  Fuer Stripe-Zahlungen brauchst du einen API-Key.
-  Hol dir deinen unter: [0;36mhttps://dashboard.stripe.com/apikeys[0m
-
-  [0;33mHinweis:[0m Nutze erst den [1mTest-Key[0m (sk_test_...) zum Testen!**: A critical new script for the user to configure their Stripe keys.
-- ** & **: The two frontend codebases, now updated to remove the dashboard and include the Stripe payment flow.
-- ****: The database file for active premium subscriptions.
+[0;31m[FAIL][0m docker fehlt. Bitte installieren.: Core operational scripts, updated multiple times.
+- : Updated to include persistent volumes for state.
+- : Contains the frontend logic for locking premium bot invites.
 
 **Areas that need refactoring**:
-- The manual synchronization between the React app () and the static production files () is inefficient and error-prone. A future task should be to add an automated build step that compiles the React app into the  directory.
+- The manual synchronization between  and  is inefficient. An automated build process is needed.
+-  has grown excessively large and complex. It should be broken down into smaller, single-responsibility modules to improve maintainability.
 
 **key api endpoints**
-- : Returns metadata for configured bots.
-- : Returns the station list.
-- **New Premium Endpoints**:
-    - : Creates a Stripe checkout session for a specific plan and guild.
-    -  & : Landing pages after payment.
-    - : Checks the premium status for a given guild.
-    - : Endpoint for Stripe to send events (e.g., ).
+- : Creates a Stripe checkout session.
+- : Handles Stripe payment events.
+- : Checks a guild's premium status.
+- : **New endpoint** to securely provide invite links for premium bots to authorized guilds.
 
 **Critical Info for New Agent**
-- **Stripe Is Ready but Unconfigured**: The entire Stripe integration is coded and complete. However, it uses a non-functional placeholder key. The application will fail to create checkout sessions until the user runs 
-[0;36m[1m
-  ╔═══════════════════════════════════════╗
-  ║   Stripe API Key - Einrichtung        ║
-  ╚═══════════════════════════════════════╝
-[0m
-
-  Fuer Stripe-Zahlungen brauchst du einen API-Key.
-  Hol dir deinen unter: [0;36mhttps://dashboard.stripe.com/apikeys[0m
-
-  [0;33mHinweis:[0m Nutze erst den [1mTest-Key[0m (sk_test_...) zum Testen! and provides their own valid Stripe API keys. This is expected behavior, not a bug.
-- **User Validation is Next**: The immediate next steps are not coding, but guiding the user to test the two major new implementations: the Stripe payment flow and the audio quality in Discord.
-- **Dual Frontend Sync is Manual**: Remember to apply any future UI changes to *both*  (React) and  (static JS/HTML/CSS) until the build process is automated.
+1.  **PRIORITY 1: FIX AUTO-RECONNECT**: The immediate task is to fix the bug in the  handler in . The bot must not disable auto-reconnect on temporary network drops. It should only do so on a confirmed manual action (like a user kicking it).
+2.  **PRIORITY 2: FIX AUDIO LAG/TIMEOUTS**: After fixing the reconnect logic, you must address the  errors. This is the user's biggest pain point. Simply tweaking  args was not enough. A deeper investigation into the audio pipeline and error handling is required.
+3.  **The user is at the end of their patience**. The next response must acknowledge the two critical bugs and deliver a working solution for both. Finish the task completely after fixing and verifying these two issues.
 
 **documents and test reports created in this job**
-  - /app/memory/PRD.md (updated)
-  - /app/test_reports/iteration_8.json
+- /app/memory/PRD.md
+- Multiple test reports in , with the last one being .
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Requested extreme optimization for the bot's audio to fix lagging. (PENDING USER VALIDATION)
-2.  **User**: Requested the complete implementation of a premium system, including backend logic, Stripe payments, and a method for users to specify their server ID. (PENDING USER VALIDATION)
-3.  **User**: Requested the removal of the Live Dashboard feature. (COMPLETED)
-4.  **Agent**: Proposed a detailed plan to implement audio optimization, remove the dashboard, and build the entire premium system, including using a test key for Stripe and creating a setup script.
-5.  **User**: Approved the agent's plan (perfekter plan!).
-6.  **User**: Clarified to use a test key for Stripe and create a  script for them to set up their own API key later.
-7.  **Agent**: Started implementation, beginning with audio optimization and removing the dashboard.
-8.  **Agent**: Implemented the full Stripe integration, including new files for license management, premium commands, and backend API endpoints.
-9.  **Agent**: Updated all frontend files (React and static) to reflect the changes.
-10. **Agent**: Encountered a Stripe authentication error, correctly diagnosed it as being caused by the placeholder key, and confirmed the frontend UI was correct before finishing.
+1.  **User**: Asks why auto-reconnect is disabled and provides logs showing both the reconnect failure and persistent audio player timeouts. **(CURRENT BLOCKER)**
+2.  **User**: Demands a final, stable version, emphasizing that audio lag and auto-reconnect are the last two things to fix before finishing. **(PENDING)**
+3.  **User**: Reports a major logic flaw: premium bots can be invited by anyone. **(COMPLETED)**
+4.  **User**: Expresses frustration with update errors and requests the addition of a Discord support link. **(COMPLETED)**
+5.  **Agent**: Declares the task finished after passing automated tests. **(Incorrect, user found more bugs)**
+6.  **User**: Reports a critical bot crash (). **(COMPLETED)**
+7.  **User**: Reports a critical bot crash () and several new feature requests/bug reports related to server-specific info and install scripts. **(COMPLETED)**
+8.  **Agent**: Declares the task finished after passing automated tests. **(Incorrect, user found more bugs)**
+9.  **User**: Gives broad approval to make everything really professional, mentioning audio quality as the most important thing. **(Acknowledged)**
+10. **Agent**: Proposes an initial plan to implement the premium system and audio optimizations. **(Superseded)**
 
 **Project Health Check:**
-- **Broken**: Nothing is broken.
-- **Unconfigured**: The Stripe integration is fully implemented but requires user configuration via the  script to become functional.
+- **Broken**: The auto-reconnect feature is critically flawed. The audio streaming pipeline is unstable and prone to timeouts, failing the user's primary requirement.
 
 **3rd Party Integrations**
 - **Discord**: . Requires User API Keys ( file).
-- **Stripe**: . Requires User API Keys (to be configured via ).
+- **Stripe**: . Requires User API Keys (configured via ).
 
 **Testing status**
-  - Testing agent used after significant changes: YES
-  - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: No permanent test files were created.
-  - Known regressions: None.
+- Testing agent used after significant changes: YES. However, the automated tests failed to catch the critical runtime issues (reconnect logic bug, audio timeouts), proving that real-world scenario testing is required for these problems.
+- Troubleshoot agent used after agent stuck in loop: NO
+- Test files created: None.
+- Known regressions: The auto-reconnect feature is a regression from its intended functionality due to the bug.
 
 **Credentials to test flow:**
 - Bot credentials must be in the  file (, , etc.).
@@ -200,4 +192,5 @@ info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this comm
   [0;33mHinweis:[0m Nutze erst den [1mTest-Key[0m (sk_test_...) zum Testen! and provide their own Stripe Secret Key and Public Key.
 
 **What agent forgot to execute**
-- Nothing. All user requests from the last interaction were fully implemented. The work is pending user validation.</analysis>
+- The agent failed to fully resolve the user's primary complaint about audio lag; the implemented fixes were insufficient.
+- The agent introduced a critical bug into the new auto-reconnect feature, making it non-functional in real-world conditions.</analysis>
