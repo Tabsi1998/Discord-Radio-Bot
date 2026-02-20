@@ -674,16 +674,10 @@ class BotRuntime {
         // Connection is recovering on its own
         log("INFO", `[${this.config.name}] Voice connection recovering for guild=${guildId}`);
       } catch {
-        // Recovery failed, destroy and schedule full reconnect
-        log("INFO", `[${this.config.name}] Voice connection lost for guild=${guildId}, scheduling reconnect`);
+        // Recovery failed - destroy connection, voiceStateUpdate will handle reconnect
+        log("INFO", `[${this.config.name}] Voice connection recovery failed for guild=${guildId}, destroying`);
         markDisconnected();
         try { connection.destroy(); } catch { /* ignore */ }
-        const guild = this.client.guilds.cache.get(guildId);
-        const botChannelId = guild?.members?.me?.voice?.channelId || null;
-        if (botChannelId) {
-          state.lastChannelId = botChannelId;
-        }
-        this.scheduleReconnect(guildId);
       }
     });
 
