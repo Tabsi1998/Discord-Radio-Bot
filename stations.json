@@ -6,51 +6,63 @@
   "stations": {
     "oneworldradio": {
       "name": "Tomorrowland - One World Radio",
-      "url": "https://tomorrowland.my105.ch/oneworldradio.mp3"
+      "url": "https://tomorrowland.my105.ch/oneworldradio.mp3",
+      "tier": "free"
     },
     "tomorrowlandanthems": {
       "name": "Tomorrowland Anthems",
-      "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAB.mp3"
+      "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAB.mp3",
+      "tier": "free"
     },
     "lofi": {
       "name": "Lofi Hip Hop Radio",
-      "url": "https://streams.ilovemusic.de/iloveradio17.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio17.mp3",
+      "tier": "free"
     },
     "classicrock": {
       "name": "Classic Rock Radio",
-      "url": "https://streams.ilovemusic.de/iloveradio21.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio21.mp3",
+      "tier": "free"
     },
     "chillout": {
       "name": "Chillout Lounge",
-      "url": "https://streams.ilovemusic.de/iloveradio7.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio7.mp3",
+      "tier": "free"
     },
     "dance": {
       "name": "Dance Radio",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "tier": "free"
     },
     "hiphop": {
       "name": "Hip Hop Channel",
-      "url": "https://streams.ilovemusic.de/iloveradio3.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio3.mp3",
+      "tier": "pro"
     },
     "techno": {
       "name": "Techno Bunker",
-      "url": "https://streams.ilovemusic.de/iloveradio12.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio12.mp3",
+      "tier": "pro"
     },
     "pop": {
       "name": "Pop Hits",
-      "url": "https://streams.ilovemusic.de/iloveradio.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio.mp3",
+      "tier": "free"
     },
     "rock": {
       "name": "Rock Nation",
-      "url": "https://streams.ilovemusic.de/iloveradio4.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio4.mp3",
+      "tier": "free"
     },
     "bass": {
       "name": "Bass Boost FM",
-      "url": "https://streams.ilovemusic.de/iloveradio16.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio16.mp3",
+      "tier": "pro"
     },
     "deutschrap": {
       "name": "Deutsch Rap",
-      "url": "https://streams.ilovemusic.de/iloveradio6.mp3"
+      "url": "https://streams.ilovemusic.de/iloveradio6.mp3",
+      "tier": "free"
     }
   }
 }
