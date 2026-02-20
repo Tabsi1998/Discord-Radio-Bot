@@ -21,7 +21,7 @@ import {
 import dotenv from "dotenv";
 import { loadStations, resolveStation, getFallbackKey } from "./stations-store.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
-import { getTier, getTierConfig, getLicense, listLicenses, addLicense, TIERS } from "./premium-store.js";
+import { getTier, getTierConfig, getLicense, listLicenses, addLicense, upgradeLicense, calculatePrice, calculateUpgradePrice, TIERS } from "./premium-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
 
 dotenv.config();
