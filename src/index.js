@@ -581,10 +581,14 @@ class BotRuntime {
       };
     }
 
-    // Multiple guilds: show count + hint to use /now for server-specific info
+    // Mehrere Guilds: Zwischen Station-Namen rotieren
+    if (!this._presenceRotationIndex) this._presenceRotationIndex = 0;
+    this._presenceRotationIndex = this._presenceRotationIndex % activeStations.length;
+    const currentStation = activeStations[this._presenceRotationIndex];
+    this._presenceRotationIndex++;
     return {
       type: ActivityType.Listening,
-      name: `${activeStations.length} Server | /now`
+      name: `${currentStation} (+${activeStations.length - 1})`
     };
   }
 
@@ -598,6 +602,18 @@ class BotRuntime {
       });
     } catch (err) {
       log("ERROR", `[${this.config.name}] Presence update fehlgeschlagen: ${err?.message || err}`);
+    }
+  }
+
+  startPresenceRotation() {
+    if (this._presenceInterval) return;
+    this._presenceInterval = setInterval(() => this.updatePresence(), 30000);
+  }
+
+  stopPresenceRotation() {
+    if (this._presenceInterval) {
+      clearInterval(this._presenceInterval);
+      this._presenceInterval = null;
     }
   }
 
