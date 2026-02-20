@@ -110,6 +110,10 @@ tier_badge() {
 restart_container() {
   echo ""
   if prompt_yes_no "Container jetzt neu starten (noetig fuer Aenderungen)?" "j"; then
+    # JSON-Dateien sicherstellen VOR Docker-Start
+    [[ -f premium.json ]]         || echo '{"licenses":{}}' > premium.json
+    [[ -f bot-state.json ]]       || echo '{}' > bot-state.json
+    [[ -f custom-stations.json ]] || echo '{}' > custom-stations.json
     info "Starte Container neu..."
     docker compose up -d --build --remove-orphans 2>&1 | tail -3
     ok "Container neu gestartet."
