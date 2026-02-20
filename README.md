@@ -80,6 +80,14 @@ Das Update-Script:
 3. Stellt deine Konfiguration wieder her
 4. Baut Docker neu und startet den Bot
 
+## Checks
+
+```bash
+npm run test
+```
+
+Fuehrt einen schnellen Syntax-Smoke-Check fuer die wichtigsten `src/*.js` Dateien aus.
+
 ## Web-Interface
 
 Nach der Installation erreichbar unter `http://<server-ip>:<port>`
@@ -133,8 +141,13 @@ Discord-Radio-Bot/
 | `WEB_INTERNAL_PORT` | Container-interner Port | 8080 |
 | `WEB_BIND` | Bind-Adresse | 0.0.0.0 |
 | `PUBLIC_WEB_URL` | Oeffentliche URL | - |
+| `CHECKOUT_RETURN_ORIGINS` | Erlaubte Origins fuer Stripe `returnUrl` (CSV) | - |
+| `STRIPE_SECRET_KEY` | Stripe Secret Key (Checkout/Verify/Webhook) | - |
+| `STRIPE_WEBHOOK_SECRET` | Stripe Webhook Signing Secret | - |
 | `REGISTER_COMMANDS_ON_BOOT` | Slash-Commands registrieren | 1 |
 | `CLEAN_GUILD_COMMANDS_ON_BOOT` | Guild-Commands bereinigen | 1 |
+| `SMTP_TLS_MODE` | SMTP TLS Modus (`auto/plain/starttls/smtps`) | auto |
+| `SMTP_TLS_REJECT_UNAUTHORIZED` | SMTP Zertifikat pruefen (`1`/`0`) | 0 |
 | `TRANSCODE` | FFmpeg Transcoding aktiv | 0 |
 | `LOG_MAX_MB` | Max Log-Groesse in MB | 5 |
 

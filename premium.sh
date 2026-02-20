@@ -8,8 +8,8 @@ if command -v node >/dev/null 2>&1; then
   exec node --no-warnings "$APP_DIR/src/premium-cli.js" "$@"
 fi
 
-if command -v docker >/dev/null 2>&1 && docker compose ps --format json 2>/dev/null | grep -q radio-bot; then
-  exec docker compose exec -it --no-deps radio-bot node /app/src/premium-cli.js "$@"
+if command -v docker >/dev/null 2>&1 && docker compose ps --services --status running 2>/dev/null | grep -q "^radio-bot$"; then
+  exec docker compose exec -it radio-bot node /app/src/premium-cli.js "$@"
 fi
 
 if command -v docker >/dev/null 2>&1; then

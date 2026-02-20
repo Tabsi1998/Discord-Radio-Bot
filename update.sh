@@ -324,6 +324,8 @@ if [[ "$MODE" == "--email" ]]; then
   cur_user=$(read_env "SMTP_USER")
   cur_from=$(read_env "SMTP_FROM")
   cur_admin=$(read_env "ADMIN_EMAIL")
+  cur_tls_mode=$(read_env "SMTP_TLS_MODE" "auto")
+  cur_tls_verify=$(read_env "SMTP_TLS_REJECT_UNAUTHORIZED" "0")
 
   if [[ -n "$cur_host" ]]; then
     echo -e "  SMTP Host:     ${GREEN}${cur_host}${NC}"
@@ -331,6 +333,8 @@ if [[ "$MODE" == "--email" ]]; then
     echo -e "  SMTP User:     ${GREEN}${cur_user}${NC}"
     echo -e "  Absender:      ${DIM}${cur_from:-$cur_user}${NC}"
     echo -e "  Admin-Email:   ${CYAN}${cur_admin:-nicht gesetzt}${NC}"
+    echo -e "  TLS Modus:     ${DIM}${cur_tls_mode}${NC}"
+    echo -e "  TLS Verify:    ${DIM}${cur_tls_verify}${NC}"
     echo ""
     echo -e "  Status:        ${GREEN}konfiguriert${NC}"
   else
@@ -356,12 +360,21 @@ if [[ "$MODE" == "--email" ]]; then
       if [[ -z "$smtp_pass" ]]; then fail "Passwort darf nicht leer sein."; exit 1; fi
       smtp_from="$(prompt_default "Absender-Adresse" "$smtp_user")"
       admin_email="$(prompt_optional "Admin-Email (fuer Kauf-Benachrichtigungen)")"
+      tls_mode="$(prompt_default "TLS Modus (auto/plain/starttls/smtps)" "${cur_tls_mode:-auto}")"
+      case "$tls_mode" in
+        auto|plain|starttls|smtps) ;;
+        *) tls_mode="auto" ;;
+      esac
+      tls_verify="$(prompt_default "TLS Zertifikat pruefen? (1=ja, 0=nein)" "${cur_tls_verify:-0}")"
+      [[ "$tls_verify" == "1" ]] || tls_verify="0"
 
       write_env_line "SMTP_HOST" "$smtp_host"
       write_env_line "SMTP_PORT" "$smtp_port"
       write_env_line "SMTP_USER" "$smtp_user"
       write_env_line "SMTP_PASS" "$smtp_pass"
       write_env_line "SMTP_FROM" "$smtp_from"
+      write_env_line "SMTP_TLS_MODE" "$tls_mode"
+      write_env_line "SMTP_TLS_REJECT_UNAUTHORIZED" "$tls_verify"
       if [[ -n "$admin_email" ]]; then
         write_env_line "ADMIN_EMAIL" "$admin_email"
       fi
@@ -393,12 +406,30 @@ if [[ "$MODE" == "--email" ]]; then
       # Test-Email via Node.js im Container senden
       RESULT=$(docker compose exec -T radio-bot node -e "
         const nm = require('nodemailer');
-        const t = nm.createTransport({
+        const port = Number(process.env.SMTP_PORT) || 587;
+        const modeRaw = String(process.env.SMTP_TLS_MODE || 'auto').toLowerCase();
+        const mode =
+          ['plain', 'starttls', 'smtps'].includes(modeRaw)
+            ? modeRaw
+            : (port === 465 ? 'smtps' : (port === 25 ? 'plain' : 'starttls'));
+        const rejectUnauthorized = String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || '0') === '1';
+        const opts = {
           host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT) || 587,
-          secure: (Number(process.env.SMTP_PORT) || 587) === 465,
+          port,
           auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-          tls: { rejectUnauthorized: false }
+          tls: { rejectUnauthorized }
+        };
+        if (mode === 'smtps') {
+          opts.secure = true;
+        } else if (mode === 'starttls') {
+          opts.secure = false;
+          opts.requireTLS = true;
+        } else {
+          opts.secure = false;
+          opts.ignoreTLS = true;
+        }
+        const t = nm.createTransport({
+          ...opts
         });
         t.sendMail({
           from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -425,6 +456,7 @@ if [[ "$MODE" == "--email" ]]; then
         echo -e "    - Falsches Passwort oder Benutzername"
         echo -e "    - Port falsch (587=STARTTLS, 465=SSL)"
         echo -e "    - SMTP-Server erfordert App-Passwort (z.B. Gmail)"
+        echo -e "    - Self-signed Zertifikat: TLS Verify auf 0 setzen oder eigene CA hinterlegen"
       else
         warn "Unerwartete Antwort: ${RESULT}"
       fi

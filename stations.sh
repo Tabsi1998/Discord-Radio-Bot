@@ -9,7 +9,7 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v docker compose >/dev/null 2>&1; then
+if ! docker compose version >/dev/null 2>&1; then
   echo "docker compose fehlt. Bitte installieren." >&2
   exit 1
 fi

@@ -13,17 +13,66 @@ const TIERS = {
 
 // 12 Monate = nur 10 bezahlen
 const YEARLY_DISCOUNT_MONTHS = 10;
+const MAX_PROCESSED_ENTRIES = 5000;
+
+function emptyStore() {
+  return { licenses: {}, processedSessions: {}, processedEvents: {} };
+}
+
+function normalizeLookupMap(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!key) continue;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      out[String(key)] = {
+        ...value,
+        processedAt: value.processedAt || new Date().toISOString(),
+      };
+    } else {
+      out[String(key)] = { processedAt: new Date().toISOString() };
+    }
+  }
+  return out;
+}
+
+function trimLookupMap(mapInput) {
+  const entries = Object.entries(mapInput || {});
+  if (entries.length <= MAX_PROCESSED_ENTRIES) return mapInput || {};
+  entries.sort((a, b) => {
+    const aTs = new Date(a[1]?.processedAt || 0).getTime();
+    const bTs = new Date(b[1]?.processedAt || 0).getTime();
+    return bTs - aTs;
+  });
+  return Object.fromEntries(entries.slice(0, MAX_PROCESSED_ENTRIES));
+}
+
+function normalizeStore(input) {
+  const base = emptyStore();
+  if (!input || typeof input !== "object" || Array.isArray(input)) return base;
+
+  const licenses =
+    input.licenses && typeof input.licenses === "object" && !Array.isArray(input.licenses)
+      ? input.licenses
+      : {};
+
+  return {
+    licenses,
+    processedSessions: trimLookupMap(normalizeLookupMap(input.processedSessions)),
+    processedEvents: trimLookupMap(normalizeLookupMap(input.processedEvents)),
+  };
+}
 
 function load() {
   try {
-    if (!fs.existsSync(premiumFile)) return { licenses: {} };
+    if (!fs.existsSync(premiumFile)) return emptyStore();
     if (fs.statSync(premiumFile).isDirectory()) {
       console.warn(`[premium-store] ${premiumFile} ist ein Verzeichnis - nutze leeren Store.`);
-      return { licenses: {} };
+      return emptyStore();
     }
-    return JSON.parse(fs.readFileSync(premiumFile, "utf-8"));
+    return normalizeStore(JSON.parse(fs.readFileSync(premiumFile, "utf-8")));
   } catch {
-    return { licenses: {} };
+    return emptyStore();
   }
 }
 
@@ -33,7 +82,8 @@ function save(data) {
       console.warn(`[premium-store] ${premiumFile} ist ein Verzeichnis - Speichern uebersprungen.`);
       return;
     }
-    fs.writeFileSync(premiumFile, JSON.stringify(data, null, 2) + "\n", "utf-8");
+    const normalized = normalizeStore(data);
+    fs.writeFileSync(premiumFile, JSON.stringify(normalized, null, 2) + "\n", "utf-8");
   } catch (err) {
     console.error(`[premium-store] Save error: ${err.message}`);
   }
@@ -125,6 +175,7 @@ function addLicense(guildId, tier, months, activatedBy, note) {
   const data = load();
   const existing = data.licenses[String(guildId)];
   const now = new Date();
+  const contactEmail = typeof existing?.contactEmail === "string" ? existing.contactEmail.trim() : "";
 
   let expiresAt;
   // Wenn bereits aktive Lizenz gleichen Tiers: Laufzeit addieren
@@ -144,6 +195,10 @@ function addLicense(guildId, tier, months, activatedBy, note) {
     durationMonths: months,
     activatedBy: activatedBy || "admin",
     note: note || "",
+    ...(contactEmail ? { contactEmail } : {}),
+    _warning7ForExpiryAt: null,
+    _expiredNotifiedForExpiryAt: null,
+    _expiredNotified: false,
   };
   save(data);
   return data.licenses[String(guildId)];
@@ -178,11 +233,61 @@ function listLicenses() {
   return load().licenses;
 }
 
+function patchLicense(guildId, patch) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
+  const id = String(guildId || "").trim();
+  if (!id) return null;
+  const data = load();
+  const existing = data.licenses[id];
+  if (!existing) return null;
+  data.licenses[id] = { ...existing, ...patch };
+  save(data);
+  return data.licenses[id];
+}
+
+function isSessionProcessed(sessionId) {
+  const id = String(sessionId || "").trim();
+  if (!id) return false;
+  const data = load();
+  return Boolean(data.processedSessions[id]);
+}
+
+function markSessionProcessed(sessionId, meta = {}) {
+  const id = String(sessionId || "").trim();
+  if (!id) return;
+  const data = load();
+  data.processedSessions[id] = {
+    ...meta,
+    processedAt: new Date().toISOString(),
+  };
+  save(data);
+}
+
+function isEventProcessed(eventId) {
+  const id = String(eventId || "").trim();
+  if (!id) return false;
+  const data = load();
+  return Boolean(data.processedEvents[id]);
+}
+
+function markEventProcessed(eventId, meta = {}) {
+  const id = String(eventId || "").trim();
+  if (!id) return;
+  const data = load();
+  data.processedEvents[id] = {
+    ...meta,
+    processedAt: new Date().toISOString(),
+  };
+  save(data);
+}
+
 export {
   TIERS, YEARLY_DISCOUNT_MONTHS,
   load, save, getTier, getTierConfig,
   getLicense, isExpired, remainingDays,
   calculatePrice, calculateUpgradePrice,
   addLicense, upgradeLicense,
-  removeLicense, listLicenses
+  removeLicense, listLicenses, patchLicense,
+  isSessionProcessed, markSessionProcessed,
+  isEventProcessed, markEventProcessed,
 };

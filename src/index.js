@@ -23,8 +23,13 @@ import { loadStations, resolveStation, getFallbackKey, filterStationsByTier } fr
 import { getGuildStations, addGuildStation, removeGuildStation, countGuildStations, MAX_STATIONS_PER_GUILD } from "./custom-stations.js";
 import { isConfigured as isEmailConfigured, sendMail, getSmtpConfig, buildPurchaseEmail, buildAdminNotification, buildExpiryWarningEmail, buildExpiryEmail } from "./email.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
-import { getTier, getTierConfig, getLicense, listLicenses, addLicense, upgradeLicense, calculatePrice, calculateUpgradePrice, TIERS } from "./premium-store.js";
+import {
+  getTier, getTierConfig, getLicense, listLicenses,
+  addLicense, upgradeLicense, calculatePrice, calculateUpgradePrice, TIERS, patchLicense,
+  isSessionProcessed, markSessionProcessed, isEventProcessed, markEventProcessed,
+} from "./premium-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
+import { buildCommandBuilders } from "./commands.js";
 
 dotenv.config();
 
@@ -104,6 +109,95 @@ function formatStationPage(stations, pageInput, perPage = 10) {
     content: `Seite ${page}/${totalPages}\n${lines.join("\n")}`
   };
 }
+
+const TIER_RANK = { free: 0, pro: 1, ultimate: 2 };
+
+function getStripeSecretKey() {
+  return String(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY || "").trim();
+}
+
+function getRequestOrigin(req) {
+  const host = String(req.headers.host || "").trim();
+  if (!host) return null;
+  const protoHeader = String(req.headers["x-forwarded-proto"] || "").trim().toLowerCase();
+  const proto = protoHeader === "https" ? "https" : "http";
+  return `${proto}://${host}`;
+}
+
+function toOrigin(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || "").trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function buildAllowedReturnOrigins(publicUrl, req) {
+  const configured = String(process.env.CHECKOUT_RETURN_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const candidates = [
+    ...configured,
+    publicUrl,
+    getRequestOrigin(req),
+    "http://localhost",
+    "http://127.0.0.1"
+  ];
+
+  const allowed = new Set();
+  for (const candidate of candidates) {
+    const origin = toOrigin(candidate);
+    if (origin) allowed.add(origin);
+  }
+  return allowed;
+}
+
+function resolveCheckoutReturnBase(returnUrl, publicUrl, req) {
+  const fallback = toOrigin(publicUrl) || toOrigin(getRequestOrigin(req)) || "http://localhost";
+  if (!returnUrl) return fallback;
+
+  let parsed;
+  try {
+    parsed = new URL(String(returnUrl).trim());
+  } catch {
+    return fallback;
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return fallback;
+
+  const allowed = buildAllowedReturnOrigins(publicUrl, req);
+  if (!allowed.has(parsed.origin)) {
+    log("INFO", `Checkout returnUrl verworfen (nicht erlaubt): ${parsed.origin}`);
+    return fallback;
+  }
+
+  const safePath = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
+  return `${parsed.origin}${safePath}`;
+}
+
+function buildApiCommands() {
+  return buildCommandBuilders().map((builder) => {
+    const json = builder.toJSON();
+    const args = Array.isArray(json.options)
+      ? json.options
+          .filter((opt) => opt.type === 3 || opt.type === 4)
+          .map((opt) => (opt.required ? `<${opt.name}>` : `[${opt.name}]`))
+          .join(" ")
+      : "";
+
+    return {
+      name: `/${json.name}`,
+      args,
+      description: json.description,
+    };
+  });
+}
+
+const API_COMMANDS = buildApiCommands();
 
 async function fetchStreamInfo(url) {
   try {
@@ -884,8 +978,55 @@ class BotRuntime {
     state.lastReconnectAt = new Date().toISOString();
   }
 
+  getGuildAccess(guildId) {
+    const tierConfig = getTierConfig(guildId);
+    const guildTier = tierConfig.tier || "free";
+    const requiredTier = this.config.requiredTier || "free";
+    const tierAllowed = (TIER_RANK[guildTier] ?? 0) >= (TIER_RANK[requiredTier] ?? 0);
+    const botIndex = Number(this.config.index || 1);
+    const maxBots = Number(tierConfig.maxBots || 0);
+    const withinBotLimit = botIndex <= maxBots;
+
+    return {
+      allowed: tierAllowed && withinBotLimit,
+      guildTier,
+      requiredTier,
+      tierAllowed,
+      botIndex,
+      maxBots,
+      withinBotLimit,
+    };
+  }
+
+  async replyAccessDenied(interaction, access) {
+    if (!access.tierAllowed) {
+      await interaction.reply({
+        content:
+          `Dieser Bot erfordert **${access.requiredTier.toUpperCase()}**.\n` +
+          `Dein Server hat aktuell **${access.guildTier.toUpperCase()}**.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    await interaction.reply({
+      content:
+        `Dein Tier **${access.guildTier.toUpperCase()}** erlaubt maximal **${access.maxBots} Bots**.\n` +
+        `Dieser Bot ist Nummer **#${access.botIndex}**.`,
+      ephemeral: true
+    });
+  }
+
   async handleAutocomplete(interaction) {
     try {
+      if (interaction.guildId) {
+        const access = this.getGuildAccess(interaction.guildId);
+        if (!access.allowed) {
+          await interaction.respond([]);
+          return;
+        }
+      }
+
       const focused = interaction.options.getFocused(true);
 
       if (focused.name === "station") {
@@ -997,6 +1138,15 @@ class BotRuntime {
     if (!interaction.guildId) {
       await interaction.reply({ content: "Dieser Bot funktioniert nur auf Servern.", ephemeral: true });
       return;
+    }
+
+    const unrestrictedCommands = new Set(["premium"]);
+    if (!unrestrictedCommands.has(interaction.commandName)) {
+      const access = this.getGuildAccess(interaction.guildId);
+      if (!access.allowed) {
+        await this.replyAccessDenied(interaction, access);
+        return;
+      }
     }
 
     const stations = loadStations();
@@ -1401,7 +1551,7 @@ class BotRuntime {
     return {
       id: this.config.id,
       name: this.config.name,
-      clientId: this.config.clientId,
+      clientId: isPremiumBot ? null : this.config.clientId,
       inviteUrl: isPremiumBot ? null : buildInviteUrl(this.config),
       requiredTier: this.config.requiredTier || "free",
       ready: this.client.isReady(),
@@ -1573,6 +1723,132 @@ function sendStaticFile(res, filePath) {
   fs.createReadStream(resolved).pipe(res);
 }
 
+function getBotAccessForTier(botConfig, tierConfig) {
+  const serverTier = tierConfig?.tier || "free";
+  const serverRank = TIER_RANK[serverTier] ?? 0;
+  const maxBots = Number(tierConfig?.maxBots || 0);
+  const botTier = botConfig.requiredTier || "free";
+  const botRank = TIER_RANK[botTier] ?? 0;
+  const botIndex = Number(botConfig.index || 0);
+  const withinBotLimit = botIndex > 0 && botIndex <= maxBots;
+  const hasTierAccess = serverRank >= botRank;
+
+  return {
+    hasTierAccess,
+    withinBotLimit,
+    hasAccess: hasTierAccess && withinBotLimit,
+    reason: !hasTierAccess ? "tier" : !withinBotLimit ? "maxBots" : null,
+  };
+}
+
+function buildInviteLinksForTier(runtimes, tierConfig) {
+  return runtimes
+    .filter((runtime) => getBotAccessForTier(runtime.config, tierConfig).hasAccess)
+    .map((runtime) => ({
+      name: runtime.config.name,
+      url: buildInviteUrl(runtime.config),
+    }));
+}
+
+async function activatePaidStripeSession(session, runtimes, source = "verify") {
+  if (!session || session.payment_status !== "paid" || !session.metadata) {
+    return { success: false, status: 400, message: "Zahlung nicht abgeschlossen oder ungueltig." };
+  }
+
+  const sessionId = String(session.id || "").trim();
+  if (!sessionId) {
+    return { success: false, status: 400, message: "session.id fehlt." };
+  }
+
+  const { serverId, tier, months, isUpgrade } = session.metadata;
+  const cleanServerId = String(serverId || "").trim();
+  const cleanTier = String(tier || "").trim().toLowerCase();
+  const upgrade = String(isUpgrade || "false").toLowerCase() === "true";
+
+  if (!/^\d{17,22}$/.test(cleanServerId) || !["pro", "ultimate"].includes(cleanTier)) {
+    return { success: false, status: 400, message: "Session-Metadaten sind ungueltig." };
+  }
+
+  if (isSessionProcessed(sessionId)) {
+    const existing = getLicense(cleanServerId);
+    return {
+      success: true,
+      replay: true,
+      serverId: cleanServerId,
+      tier: cleanTier,
+      expiresAt: existing?.expiresAt || null,
+      remainingDays: existing?.remainingDays || 0,
+      message: `Session ${sessionId} wurde bereits verarbeitet.`,
+    };
+  }
+
+  let license;
+  try {
+    if (upgrade) {
+      license = upgradeLicense(cleanServerId, cleanTier);
+    } else {
+      const durationMonths = Math.max(1, parseInt(months, 10) || 1);
+      license = addLicense(cleanServerId, cleanTier, durationMonths, "stripe", `Session: ${sessionId}`);
+    }
+  } catch (err) {
+    return { success: false, status: 400, message: err.message || String(err) };
+  }
+
+  markSessionProcessed(sessionId, {
+    serverId: cleanServerId,
+    tier: cleanTier,
+    isUpgrade: upgrade,
+    source,
+    expiresAt: license.expiresAt,
+  });
+
+  const licInfo = getLicense(cleanServerId);
+  const customerEmail = String(session.customer_details?.email || "").trim().toLowerCase();
+  if (customerEmail) {
+    patchLicense(cleanServerId, { contactEmail: customerEmail });
+  }
+
+  if (isEmailConfigured() && customerEmail) {
+    const tierConfig = TIERS[cleanTier];
+    const inviteLinks = buildInviteLinksForTier(runtimes, getTierConfig(cleanServerId));
+
+    const purchaseHtml = buildPurchaseEmail({
+      tier: cleanTier,
+      tierName: tierConfig.name,
+      months: Math.max(0, parseInt(months, 10) || 0),
+      serverId: cleanServerId,
+      expiresAt: license.expiresAt,
+      inviteLinks,
+    });
+    sendMail(customerEmail, `Premium ${tierConfig.name} aktiviert!`, purchaseHtml).catch(() => {});
+
+    const adminEmail = getSmtpConfig()?.adminEmail;
+    if (adminEmail) {
+      const adminHtml = buildAdminNotification({
+        tier: cleanTier,
+        tierName: tierConfig.name,
+        months: Math.max(0, parseInt(months, 10) || 0),
+        serverId: cleanServerId,
+        expiresAt: license.expiresAt,
+        pricePaid: session.amount_total,
+      });
+      sendMail(adminEmail, `Neuer Premium-Kauf: ${tierConfig.name}`, adminHtml).catch(() => {});
+    }
+  }
+
+  return {
+    success: true,
+    replay: false,
+    serverId: cleanServerId,
+    tier: cleanTier,
+    expiresAt: license.expiresAt,
+    remainingDays: licInfo?.remainingDays || 0,
+    message: upgrade
+      ? `Server ${cleanServerId} auf ${TIERS[cleanTier].name} upgraded!`
+      : `Server ${cleanServerId} auf ${TIERS[cleanTier].name} aktiviert (${Math.max(1, parseInt(months, 10) || 1)} Monat${parseInt(months, 10) > 1 ? "e" : ""})!`,
+  };
+}
+
 function startWebServer(runtimes) {
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
   const webPort = Number(process.env.WEB_PORT || "8081");
@@ -1592,17 +1868,33 @@ function startWebServer(runtimes) {
       return;
     }
 
-    // --- Helper to read POST body ---
-    function readBody() {
+    // --- Helper to read request body ---
+    function readRawBody(maxBytes = 1024 * 1024) {
       return new Promise((resolve, reject) => {
-        let data = "";
-        req.on("data", (chunk) => { data += chunk; });
-        req.on("end", () => {
-          try { resolve(JSON.parse(data)); }
-          catch { reject(new Error("Invalid JSON")); }
+        const chunks = [];
+        let size = 0;
+        req.on("data", (chunk) => {
+          size += chunk.length;
+          if (size > maxBytes) {
+            reject(new Error("Body too large"));
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
         });
+        req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
         req.on("error", reject);
       });
+    }
+
+    async function readJsonBody() {
+      const raw = await readRawBody();
+      if (!raw.trim()) return {};
+      try {
+        return JSON.parse(raw);
+      } catch {
+        throw new Error("Invalid JSON");
+      }
     }
 
     // --- API routes ---
@@ -1620,6 +1912,32 @@ function startWebServer(runtimes) {
       );
 
       sendJson(res, 200, { bots, totals });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/commands") {
+      sendJson(res, 200, { commands: API_COMMANDS });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/stats") {
+      const bots = runtimes.map((runtime) => runtime.getPublicStatus());
+      const totals = bots.reduce(
+        (acc, bot) => {
+          acc.servers += Number(bot.servers) || 0;
+          acc.users += Number(bot.users) || 0;
+          acc.connections += Number(bot.connections) || 0;
+          acc.listeners += Number(bot.listeners) || 0;
+          return acc;
+        },
+        { servers: 0, users: 0, connections: 0, listeners: 0 }
+      );
+      const stationCount = Object.keys(loadStations().stations).length;
+      sendJson(res, 200, {
+        ...totals,
+        bots: runtimes.length,
+        stations: stationCount,
+      });
       return;
     }
 
@@ -1671,19 +1989,17 @@ function startWebServer(runtimes) {
         return;
       }
       const tierConfig = getTierConfig(serverId);
-      const tierRank = { free: 0, pro: 1, ultimate: 2 };
-      const serverRank = tierRank[tierConfig.tier] || 0;
-
       const links = runtimes.map((rt) => {
         const botTier = rt.config.requiredTier || "free";
-        const botRank = tierRank[botTier] || 0;
-        const hasAccess = serverRank >= botRank;
+        const access = getBotAccessForTier(rt.config, tierConfig);
         return {
           botId: rt.config.id,
           name: rt.config.name,
+          index: rt.config.index,
           requiredTier: botTier,
-          hasAccess,
-          inviteUrl: hasAccess ? buildInviteUrl(rt.config) : null,
+          hasAccess: access.hasAccess,
+          blockedReason: access.reason,
+          inviteUrl: access.hasAccess ? buildInviteUrl(rt.config) : null,
         };
       });
 
@@ -1698,7 +2014,7 @@ function startWebServer(runtimes) {
 
     if (requestUrl.pathname === "/api/premium/checkout" && req.method === "POST") {
       try {
-        const body = await readBody();
+        const body = await readJsonBody();
         const { tier, serverId, months, returnUrl } = body;
         if (!tier || !serverId) {
           sendJson(res, 400, { error: "tier und serverId erforderlich." });
@@ -1713,7 +2029,7 @@ function startWebServer(runtimes) {
           return;
         }
 
-        const stripeKey = process.env.STRIPE_SECRET_KEY;
+        const stripeKey = getStripeSecretKey();
         if (!stripeKey) {
           sendJson(res, 503, { error: "Stripe nicht konfiguriert. Nutze: ./update.sh --stripe" });
           return;
@@ -1764,9 +2080,10 @@ function startWebServer(runtimes) {
             tier,
             months: String(durationMonths),
             isUpgrade: upgradeInfo ? "true" : "false",
+            checkoutCreatedAt: new Date().toISOString(),
           },
-          success_url: (returnUrl || publicUrl || "http://localhost") + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
-          cancel_url: (returnUrl || publicUrl || "http://localhost") + "?payment=cancelled",
+          success_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
+          cancel_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=cancelled",
         });
 
         sendJson(res, 200, { sessionId: session.id, url: session.url });
@@ -1777,94 +2094,120 @@ function startWebServer(runtimes) {
       return;
     }
 
+    if (requestUrl.pathname === "/api/premium/webhook" && req.method === "POST") {
+      try {
+        const stripeKey = getStripeSecretKey();
+        const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+        if (!stripeKey || !webhookSecret) {
+          sendJson(res, 503, { error: "Stripe Webhook nicht konfiguriert." });
+          return;
+        }
+
+        const signatureHeader = req.headers["stripe-signature"];
+        const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
+        if (!signature) {
+          sendJson(res, 400, { error: "Stripe-Signatur fehlt." });
+          return;
+        }
+
+        const rawBody = await readRawBody(2 * 1024 * 1024);
+        const stripe = await import("stripe");
+        const stripeClient = new stripe.default(stripeKey);
+
+        let event;
+        try {
+          event = stripeClient.webhooks.constructEvent(rawBody, signature, webhookSecret);
+        } catch (err) {
+          sendJson(res, 400, { error: `Webhook-Signatur ungueltig: ${err.message}` });
+          return;
+        }
+
+        if (!event?.id) {
+          sendJson(res, 400, { error: "Webhook-Event ungueltig." });
+          return;
+        }
+
+        if (isEventProcessed(event.id)) {
+          sendJson(res, 200, { received: true, duplicate: true });
+          return;
+        }
+
+        if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
+          const result = await activatePaidStripeSession(event.data.object, runtimes, `webhook:${event.type}`);
+          markEventProcessed(event.id, {
+            type: event.type,
+            sessionId: event.data?.object?.id || null,
+            success: result.success,
+          });
+          sendJson(res, 200, {
+            received: true,
+            processed: result.success,
+            replay: !!result.replay,
+            message: result.message,
+          });
+          return;
+        }
+
+        markEventProcessed(event.id, { type: event.type, ignored: true });
+        sendJson(res, 200, { received: true, ignored: true });
+      } catch (err) {
+        log("ERROR", `Stripe webhook error: ${err.message}`);
+        sendJson(res, 500, { error: "Webhook-Verarbeitung fehlgeschlagen: " + err.message });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/premium/verify" && req.method === "POST") {
       try {
-        const body = await readBody();
+        const body = await readJsonBody();
         const { sessionId } = body;
         if (!sessionId) {
           sendJson(res, 400, { error: "sessionId erforderlich." });
           return;
         }
 
-        const stripeKey = process.env.STRIPE_SECRET_KEY;
+        const stripeKey = getStripeSecretKey();
         if (!stripeKey) {
           sendJson(res, 503, { error: "Stripe nicht konfiguriert." });
           return;
         }
 
-        const stripe = await import("stripe");
-        const stripeClient = new stripe.default(stripeKey);
-        const session = await stripeClient.checkout.sessions.retrieve(sessionId);
-
-        if (session.payment_status === "paid" && session.metadata) {
-          const { serverId, tier, months, isUpgrade } = session.metadata;
-          if (serverId && tier) {
-            let license;
-            if (isUpgrade === "true") {
-              // Upgrade: Tier aendern, Laufzeit beibehalten
-              license = upgradeLicense(serverId, tier);
-            } else {
-              // Neukauf oder Verlaengerung: Laufzeit addieren
-              const durationMonths = parseInt(months) || 1;
-              license = addLicense(serverId, tier, durationMonths, "stripe", `Session: ${sessionId}`);
-            }
-
-            const licInfo = getLicense(serverId);
-
-            // E-Mail senden (async, blockiert nicht die Antwort)
-            if (isEmailConfigured() && session.customer_details?.email) {
-              const customerEmail = session.customer_details.email;
-              const tierConfig = TIERS[tier];
-
-              // Invite-Links fuer den Kaeufer
-              const inviteLinks = runtimes
-                .filter(r => {
-                  const botTier = r.config.requiredTier || "free";
-                  const tierRank = { free: 0, pro: 1, ultimate: 2 };
-                  return (tierRank[botTier] || 0) <= (tierRank[tier] || 0);
-                })
-                .map(r => ({
-                  name: r.config.name,
-                  url: `https://discord.com/oauth2/authorize?client_id=${r.config.clientId}&scope=bot%20applications.commands&permissions=${r.config.permissions || "3145728"}`
-                }));
-
-              // Kauf-E-Mail an Kunden
-              const purchaseHtml = buildPurchaseEmail({
-                tier, tierName: tierConfig.name,
-                months: parseInt(months) || 0,
-                serverId, expiresAt: license.expiresAt,
-                inviteLinks,
-              });
-              sendMail(customerEmail, `Premium ${tierConfig.name} aktiviert!`, purchaseHtml).catch(() => {});
-
-              // Admin-Benachrichtigung
-              const adminEmail = getSmtpConfig()?.adminEmail;
-              if (adminEmail) {
-                const adminHtml = buildAdminNotification({
-                  tier, tierName: tierConfig.name,
-                  months: parseInt(months) || 0,
-                  serverId, expiresAt: license.expiresAt,
-                  pricePaid: session.amount_total,
-                });
-                sendMail(adminEmail, `Neuer Premium-Kauf: ${tierConfig.name}`, adminHtml).catch(() => {});
-              }
-            }
-
-            sendJson(res, 200, {
-              success: true,
-              serverId,
-              tier,
-              expiresAt: license.expiresAt,
-              remainingDays: licInfo ? licInfo.remainingDays : 0,
-              message: isUpgrade === "true"
-                ? `Server ${serverId} auf ${TIERS[tier].name} upgraded!`
-                : `Server ${serverId} auf ${TIERS[tier].name} aktiviert (${months} Monat${parseInt(months) > 1 ? "e" : ""})!`
-            });
-            return;
-          }
+        const normalizedSessionId = String(sessionId).trim();
+        if (isSessionProcessed(normalizedSessionId)) {
+          const stripe = await import("stripe");
+          const stripeClient = new stripe.default(stripeKey);
+          const replaySession = await stripeClient.checkout.sessions.retrieve(normalizedSessionId);
+          const replayResult = await activatePaidStripeSession(replaySession, runtimes, "verify:replay");
+          sendJson(res, 200, {
+            success: true,
+            replay: true,
+            serverId: replayResult.serverId || null,
+            tier: replayResult.tier || null,
+            expiresAt: replayResult.expiresAt || null,
+            remainingDays: replayResult.remainingDays || 0,
+            message: replayResult.message,
+          });
+          return;
         }
 
-        sendJson(res, 400, { success: false, message: "Zahlung nicht abgeschlossen oder ungueltig." });
+        const stripe = await import("stripe");
+        const stripeClient = new stripe.default(stripeKey);
+        const session = await stripeClient.checkout.sessions.retrieve(normalizedSessionId);
+        const result = await activatePaidStripeSession(session, runtimes, "verify");
+        if (!result.success) {
+          sendJson(res, result.status || 400, { success: false, message: result.message });
+          return;
+        }
+
+        sendJson(res, 200, {
+          success: true,
+          replay: !!result.replay,
+          serverId: result.serverId,
+          tier: result.tier,
+          expiresAt: result.expiresAt,
+          remainingDays: result.remainingDays,
+          message: result.message,
+        });
       } catch (err) {
         log("ERROR", `Stripe verify error: ${err.message}`);
         sendJson(res, 500, { error: "Verifizierung fehlgeschlagen: " + err.message });
@@ -1986,17 +2329,30 @@ setInterval(async () => {
       const tierName = TIERS[lic.tier]?.name || lic.tier;
 
       // Warnung bei 7 Tagen
-      if (daysLeft === 7 && lic.contactEmail) {
+      const warningAlreadySent = lic._warning7ForExpiryAt === lic.expiresAt;
+      if (daysLeft === 7 && lic.contactEmail && !warningAlreadySent) {
         const html = buildExpiryWarningEmail({ tierName, serverId, expiresAt: lic.expiresAt, daysLeft });
-        await sendMail(lic.contactEmail, `Premium ${tierName} laeuft in 7 Tagen ab!`, html);
-        log("INFO", `[Email] Ablauf-Warnung gesendet an ${lic.contactEmail} fuer ${serverId}`);
+        const result = await sendMail(lic.contactEmail, `Premium ${tierName} laeuft in 7 Tagen ab!`, html);
+        if (result?.success) {
+          patchLicense(serverId, { _warning7ForExpiryAt: lic.expiresAt });
+          log("INFO", `[Email] Ablauf-Warnung gesendet an ${lic.contactEmail} fuer ${serverId}`);
+        } else {
+          log("ERROR", `[Email] Ablauf-Warnung fehlgeschlagen fuer ${serverId}: ${result?.error || "Unbekannter Fehler"}`);
+        }
       }
 
       // Abgelaufen
-      if (daysLeft === 0 && lic.contactEmail && !lic._expiredNotified) {
+      const expiredAlreadyNotified =
+        lic._expiredNotifiedForExpiryAt === lic.expiresAt || lic._expiredNotified === true;
+      if (daysLeft === 0 && lic.contactEmail && !expiredAlreadyNotified) {
         const html = buildExpiryEmail({ tierName, serverId });
-        await sendMail(lic.contactEmail, `Premium ${tierName} abgelaufen`, html);
-        log("INFO", `[Email] Ablauf-Benachrichtigung gesendet an ${lic.contactEmail} fuer ${serverId}`);
+        const result = await sendMail(lic.contactEmail, `Premium ${tierName} abgelaufen`, html);
+        if (result?.success) {
+          patchLicense(serverId, { _expiredNotifiedForExpiryAt: lic.expiresAt, _expiredNotified: true });
+          log("INFO", `[Email] Ablauf-Benachrichtigung gesendet an ${lic.contactEmail} fuer ${serverId}`);
+        } else {
+          log("ERROR", `[Email] Ablauf-Benachrichtigung fehlgeschlagen fuer ${serverId}: ${result?.error || "Unbekannter Fehler"}`);
+        }
       }
     }
   } catch (err) {

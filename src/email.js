@@ -1,4 +1,13 @@
 import nodemailer from "nodemailer";
+import fs from "node:fs";
+
+function resolveTlsMode(port, rawMode) {
+  const mode = String(rawMode || "auto").trim().toLowerCase();
+  if (["plain", "starttls", "smtps"].includes(mode)) return mode;
+  if (port === 465) return "smtps";
+  if (port === 25) return "plain";
+  return "starttls";
+}
 
 function getSmtpConfig() {
   const host = process.env.SMTP_HOST;
@@ -7,22 +16,52 @@ function getSmtpConfig() {
   const pass = process.env.SMTP_PASS;
   const from = process.env.SMTP_FROM || user;
   const adminEmail = process.env.ADMIN_EMAIL || "";
+  const tlsMode = resolveTlsMode(port, process.env.SMTP_TLS_MODE);
+  const rejectUnauthorized = String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED ?? "0") !== "0";
+  const tlsServername = String(process.env.SMTP_TLS_SERVERNAME || "").trim() || null;
+  const tlsCaPath = String(process.env.SMTP_TLS_CA_PATH || "").trim() || null;
 
   if (!host || !user || !pass) return null;
-  return { host, port, user, pass, from, adminEmail };
+  return {
+    host, port, user, pass, from, adminEmail,
+    tlsMode, rejectUnauthorized, tlsServername, tlsCaPath
+  };
 }
 
 function createTransporter() {
   const cfg = getSmtpConfig();
   if (!cfg) return null;
 
-  return nodemailer.createTransport({
+  const options = {
     host: cfg.host,
     port: cfg.port,
-    secure: cfg.port === 465,
     auth: { user: cfg.user, pass: cfg.pass },
-    tls: { rejectUnauthorized: false },
-  });
+    tls: { rejectUnauthorized: cfg.rejectUnauthorized },
+  };
+
+  if (cfg.tlsMode === "smtps") {
+    options.secure = true;
+  } else if (cfg.tlsMode === "starttls") {
+    options.secure = false;
+    options.requireTLS = true;
+  } else {
+    options.secure = false;
+    options.ignoreTLS = true;
+  }
+
+  if (cfg.tlsServername) {
+    options.tls.servername = cfg.tlsServername;
+  }
+
+  if (cfg.tlsCaPath) {
+    try {
+      options.tls.ca = fs.readFileSync(cfg.tlsCaPath, "utf8");
+    } catch (err) {
+      console.error(`[email] CA file konnte nicht gelesen werden (${cfg.tlsCaPath}): ${err.message}`);
+    }
+  }
+
+  return nodemailer.createTransport(options);
 }
 
 function isConfigured() {

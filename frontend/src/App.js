@@ -8,7 +8,7 @@ import Premium from './components/Premium';
 import StatsFooter from './components/StatsFooter';
 import Navbar from './components/Navbar';
 
-const API = process.env.REACT_APP_BACKEND_URL;
+const API = process.env.REACT_APP_BACKEND_URL || '';
 
 function App() {
   const [bots, setBots] = useState([]);

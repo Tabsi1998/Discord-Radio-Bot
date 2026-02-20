@@ -164,7 +164,7 @@ else
   ok "Docker gefunden: $(docker --version | head -1)"
 fi
 
-if ! command -v docker compose >/dev/null 2>&1; then
+if ! docker compose version >/dev/null 2>&1; then
   fail "docker compose Plugin fehlt."
   echo "  Installiere es mit: sudo apt-get install docker-compose-plugin"
   exit 1

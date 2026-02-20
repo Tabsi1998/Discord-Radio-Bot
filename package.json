@@ -11,7 +11,9 @@
     "stations": "node src/stations-cli.js",
     "stations:wizard": "node src/stations-cli.js wizard",
     "premium": "node src/premium-cli.js",
-    "premium:wizard": "node src/premium-cli.js wizard"
+    "premium:wizard": "node src/premium-cli.js wizard",
+    "test": "npm run test:syntax",
+    "test:syntax": "node --check src/index.js && node --check src/deploy-commands.js && node --check src/stations-cli.js && node --check src/premium-cli.js && node --check src/bot-state.js && node --check src/premium-store.js && node --check src/email.js"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",

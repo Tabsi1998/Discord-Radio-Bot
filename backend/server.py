@@ -42,6 +42,10 @@ TIERS = {
 YEARLY_DISCOUNT_MONTHS = 10  # 12 Monate = nur 10 bezahlen
 
 
+def get_stripe_secret_key():
+    return (os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("STRIPE_API_KEY") or "").strip()
+
+
 def load_stations_from_file():
     if not STATIONS_FILE.exists():
         return {"defaultStationKey": None, "stations": {}, "qualityPreset": "custom"}
@@ -273,7 +277,13 @@ async def health():
 
 @app.get("/api/bots")
 async def get_bots():
-    bots = load_bots_from_env()
+    bots = []
+    for bot in load_bots_from_env():
+        item = dict(bot)
+        if item.get("requiredTier", "free") != "free":
+            item["clientId"] = None
+            item["inviteUrl"] = None
+        bots.append(item)
     totals = {"servers": 0, "users": 0, "connections": 0, "listeners": 0}
     for bot in bots:
         totals["servers"] += bot.get("servers", 0)
@@ -391,15 +401,21 @@ async def premium_invite_links(serverId: str = ""):
     if not serverId or not serverId.isdigit() or len(serverId) < 17:
         return {"error": "serverId muss 17-22 Ziffern sein."}
     tier = get_tier(serverId)
+    tier_config = TIERS.get(tier, TIERS["free"])
     tier_rank = {"free": 0, "pro": 1, "ultimate": 2}
     server_rank = tier_rank.get(tier, 0)
+    max_bots = int(tier_config.get("maxBots", 0))
 
     bots_data = load_bots_from_env()
     links = []
     for bot in bots_data:
+        bot_index = int(bot.get("index", 0) or 0)
         bot_tier = bot.get("requiredTier", "free")
         bot_rank = tier_rank.get(bot_tier, 0)
-        has_access = server_rank >= bot_rank
+        has_tier_access = server_rank >= bot_rank
+        within_bot_limit = bot_index > 0 and bot_index <= max_bots
+        has_access = has_tier_access and within_bot_limit
+        blocked_reason = None if has_access else ("tier" if not has_tier_access else "maxBots")
         invite = None
         if has_access:
             cid = bot.get("clientId", "")
@@ -407,11 +423,13 @@ async def premium_invite_links(serverId: str = ""):
         links.append({
             "botId": bot["botId"],
             "name": bot["name"],
+            "index": bot_index,
             "requiredTier": bot_tier,
             "hasAccess": has_access,
+            "blockedReason": blocked_reason,
             "inviteUrl": invite,
         })
-    return {"serverId": serverId, "serverTier": tier, "bots": links}
+    return {"serverId": serverId, "serverTier": tier, "serverMaxBots": max_bots, "bots": links}
 
 
 @app.post("/api/premium/checkout")
@@ -426,7 +444,7 @@ async def premium_checkout(body: dict):
     if not server_id or not server_id.isdigit() or len(server_id) < 17:
         return {"error": "serverId muss 17-22 Ziffern sein."}
 
-    stripe_key = os.environ.get("STRIPE_API_KEY", "")
+    stripe_key = get_stripe_secret_key()
     if not stripe_key:
         return {"error": "Stripe nicht konfiguriert."}
 
@@ -483,7 +501,7 @@ async def verify_premium(body: dict):
     if not session_id:
         return {"error": "sessionId erforderlich."}
 
-    stripe_key = os.environ.get("STRIPE_API_KEY", "")
+    stripe_key = get_stripe_secret_key()
     if not stripe_key:
         return {"error": "Stripe nicht konfiguriert."}
 
