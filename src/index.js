@@ -866,11 +866,26 @@ class BotRuntime {
 
       if (focused.name === "station") {
         const stations = loadStations();
+        const guildId = interaction.guildId;
+        const guildTier = getTier(guildId);
         const query = String(focused.value || "").toLowerCase().trim();
-        const allStations = Object.entries(stations.stations)
-          .map(([key, value]) => ({ key, name: value.name }));
 
-        // Wenn kein Query, zeige alle Stationen (bis 25)
+        // Standard-Stationen nach Tier gefiltert
+        const available = filterStationsByTier(stations.stations, guildTier);
+        const allStations = Object.entries(available)
+          .map(([key, value]) => {
+            const badge = value.tier && value.tier !== "free" ? ` [${value.tier.toUpperCase()}]` : "";
+            return { key, name: value.name, display: `${value.name}${badge}` };
+          });
+
+        // Custom Stationen (Ultimate)
+        if (guildTier === "ultimate") {
+          const custom = getGuildStations(guildId);
+          for (const [key, station] of Object.entries(custom)) {
+            allStations.push({ key, name: station.name, display: `${station.name} [CUSTOM]` });
+          }
+        }
+
         const items = (query
           ? allStations.filter((item) =>
               item.key.toLowerCase().includes(query) ||
@@ -879,9 +894,21 @@ class BotRuntime {
           : allStations
         )
           .slice(0, 25)
-          .map((item) => ({ name: clipText(`${item.name} (${item.key})`, 100), value: item.key }));
+          .map((item) => ({ name: clipText(`${item.display} (${item.key})`, 100), value: item.key }));
 
-        log("INFO", `[${this.config.name}] Autocomplete station: query="${query}" results=${items.length}/${allStations.length}`);
+        await interaction.respond(items);
+        return;
+      }
+
+      // Autocomplete fuer /removestation key
+      if (focused.name === "key" && interaction.commandName === "removestation") {
+        const guildId = interaction.guildId;
+        const custom = getGuildStations(guildId);
+        const query = String(focused.value || "").toLowerCase().trim();
+        const items = Object.entries(custom)
+          .filter(([k, v]) => !query || k.includes(query) || v.name.toLowerCase().includes(query))
+          .slice(0, 25)
+          .map(([k, v]) => ({ name: `${v.name} (${k})`, value: k }));
         await interaction.respond(items);
         return;
       }
