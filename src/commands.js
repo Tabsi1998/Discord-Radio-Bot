@@ -44,7 +44,21 @@ export function buildCommandBuilders() {
       .setDescription("Zeigt Stream-Health und Reconnects"),
     new SlashCommandBuilder()
       .setName("premium")
-      .setDescription("Zeigt den Premium-Status dieses Servers")
+      .setDescription("Zeigt den Premium-Status dieses Servers"),
+    // Custom Stations (Ultimate)
+    new SlashCommandBuilder()
+      .setName("addstation")
+      .setDescription("[Ultimate] Eigene Station hinzufuegen")
+      .addStringOption((o) => o.setName("key").setDescription("Kurzname (z.B. meinestation)").setRequired(true))
+      .addStringOption((o) => o.setName("name").setDescription("Anzeigename").setRequired(true))
+      .addStringOption((o) => o.setName("url").setDescription("Stream URL (http/https)").setRequired(true)),
+    new SlashCommandBuilder()
+      .setName("removestation")
+      .setDescription("[Ultimate] Eigene Station entfernen")
+      .addStringOption((o) => o.setName("key").setDescription("Kurzname der Station").setRequired(true).setAutocomplete(true)),
+    new SlashCommandBuilder()
+      .setName("mystations")
+      .setDescription("[Ultimate] Zeigt deine Custom Stationen"),
   ];
 }
 
