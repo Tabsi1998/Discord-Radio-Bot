@@ -1,232 +1,211 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { TIERS, addLicense, removeLicense, listLicenses, getLicense, getTierConfig } from "./premium-store.js";
-import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
-import dotenv from "dotenv";
-
-dotenv.config();
+import {
+  TIERS, YEARLY_DISCOUNT_MONTHS,
+  getLicense, listLicenses, addLicense, removeLicense,
+  calculatePrice, calculateUpgradePrice, upgradeLicense,
+} from "./premium-store.js";
 
 const rl = createInterface({ input: stdin, output: stdout });
+const ask = (q) => rl.question(`  \x1b[36m?\x1b[0m ${q}: `);
+const ok = (m) => console.log(`  \x1b[32m[OK]\x1b[0m ${m}`);
+const info = (m) => console.log(`  \x1b[36m[INFO]\x1b[0m ${m}`);
+const fail = (m) => console.log(`  \x1b[31m[FAIL]\x1b[0m ${m}`);
+const centsToEur = (c) => (c / 100).toFixed(2).replace(".", ",") + " EUR";
 
-function printBanner() {
+function printHeader() {
   console.log("");
-  console.log("  \x1b[36m\x1b[1m╔═══════════════════════════════════════╗\x1b[0m");
-  console.log("  \x1b[36m\x1b[1m║   Discord Radio Bot - Premium CLI     ║\x1b[0m");
-  console.log("  \x1b[36m\x1b[1m╚═══════════════════════════════════════╝\x1b[0m");
+  console.log("  \x1b[36m\x1b[1m╔═══════════════════════════════════════╗");
+  console.log("  ║   Discord Radio Bot - Premium CLI     ║");
+  console.log("  ╚═══════════════════════════════════════╝\x1b[0m");
   console.log("");
 }
 
-function ok(msg)   { console.log(`  \x1b[32m[OK]\x1b[0m   ${msg}`); }
-function info(msg) { console.log(`  \x1b[36m[INFO]\x1b[0m ${msg}`); }
-function fail(msg) { console.log(`  \x1b[31m[FAIL]\x1b[0m ${msg}`); }
-function warn(msg) { console.log(`  \x1b[33m[WARN]\x1b[0m ${msg}`); }
-
-function printTierInfo(tier, config) {
-  const colors = { free: "\x1b[37m", pro: "\x1b[33m", ultimate: "\x1b[35m" };
-  const c = colors[tier] || "\x1b[37m";
-  console.log(`  ${c}${config.name}\x1b[0m: Bitrate ${config.bitrate}, Reconnect ${config.reconnectMs}ms, Max ${config.maxBots} Bots`);
+function formatDate(iso) {
+  if (!iso) return "-";
+  return new Date(iso).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
 }
 
-function validateServerId(id) {
-  return /^\d{17,22}$/.test(id);
-}
-
-async function cmdAdd(args) {
-  let serverId = args[0];
-  let tier = args[1];
-  let note = args.slice(2).join(" ");
-
-  if (!serverId) {
-    serverId = await rl.question("  \x1b[36m?\x1b[0m \x1b[1mServer ID\x1b[0m: ");
-  }
-  if (!validateServerId(serverId)) {
-    fail("Server ID muss 17-22 Ziffern sein.");
-    return 1;
-  }
-
-  if (!tier) {
-    console.log("");
-    console.log("  Verfuegbare Tiers:");
-    console.log("    \x1b[33m1\x1b[0m) Pro      (4.99 EUR/Monat) - 192k, 10 Bots");
-    console.log("    \x1b[35m2\x1b[0m) Ultimate (9.99 EUR/Monat) - 320k, 20 Bots");
-    console.log("");
-    const choice = await rl.question("  \x1b[36m?\x1b[0m \x1b[1mTier waehlen (1/2)\x1b[0m: ");
-    tier = choice === "1" ? "pro" : choice === "2" ? "ultimate" : choice;
-  }
-
-  if (tier !== "pro" && tier !== "ultimate") {
-    fail("Tier muss 'pro' oder 'ultimate' sein.");
-    return 1;
-  }
-
-  if (!note) {
-    note = await rl.question("  \x1b[36m?\x1b[0m \x1b[2mNotiz (optional)\x1b[0m: ");
-  }
-
-  try {
-    addLicense(serverId, tier, "admin", note);
-    ok(`Server ${serverId} auf ${TIERS[tier].name} aktiviert.`);
-    return 0;
-  } catch (err) {
-    fail(err.message);
-    return 1;
-  }
-}
-
-async function cmdRemove(args) {
-  let serverId = args[0];
-  if (!serverId) {
-    serverId = await rl.question("  \x1b[36m?\x1b[0m \x1b[1mServer ID zum Entfernen\x1b[0m: ");
-  }
-  if (!validateServerId(serverId)) {
-    fail("Server ID muss 17-22 Ziffern sein.");
-    return 1;
-  }
-
-  const existed = removeLicense(serverId);
-  if (existed) {
-    ok(`Premium fuer Server ${serverId} entfernt (zurueck auf Free).`);
-  } else {
-    warn(`Server ${serverId} hatte kein Premium.`);
-  }
-  return 0;
-}
-
-async function cmdList() {
-  const licenses = listLicenses();
-  const entries = Object.entries(licenses);
-  if (entries.length === 0) {
-    info("Keine Premium-Lizenzen vorhanden.");
-    return 0;
-  }
-
-  console.log("");
-  console.log("  \x1b[1mServer ID            Tier       Aktiviert            Notiz\x1b[0m");
-  console.log("  " + "-".repeat(75));
-  for (const [id, lic] of entries) {
-    const tierColor = lic.tier === "ultimate" ? "\x1b[35m" : "\x1b[33m";
-    const date = lic.activatedAt ? lic.activatedAt.slice(0, 19).replace("T", " ") : "-";
-    console.log(`  ${id}  ${tierColor}${(lic.tier || "?").padEnd(10)}\x1b[0m ${date}  ${lic.note || ""}`);
-  }
-  console.log("");
-  info(`${entries.length} Lizenz(en) gesamt.`);
-  return 0;
-}
-
-async function cmdCheck(args) {
-  let serverId = args[0];
-  if (!serverId) {
-    serverId = await rl.question("  \x1b[36m?\x1b[0m \x1b[1mServer ID pruefen\x1b[0m: ");
-  }
-  if (!validateServerId(serverId)) {
-    fail("Server ID muss 17-22 Ziffern sein.");
-    return 1;
-  }
-
-  const config = getTierConfig(serverId);
-  const license = getLicense(serverId);
-  console.log("");
-  console.log(`  Server: ${serverId}`);
-  printTierInfo(config.tier, config);
-  if (license) {
-    console.log(`  Aktiviert: ${license.activatedAt || "-"}`);
-    console.log(`  Von: ${license.activatedBy || "-"}`);
-    if (license.note) console.log(`  Notiz: ${license.note}`);
-  }
-  console.log("");
-  return 0;
-}
-
-async function cmdWizard() {
-  printBanner();
+async function wizardMenu() {
   console.log("  Verfuegbare Aktionen:");
-  console.log("    \x1b[32m1\x1b[0m) Premium aktivieren");
-  console.log("    \x1b[31m2\x1b[0m) Premium entfernen");
-  console.log("    \x1b[36m3\x1b[0m) Alle Lizenzen anzeigen");
-  console.log("    \x1b[33m4\x1b[0m) Server pruefen");
-  console.log("    \x1b[35m5\x1b[0m) Tier-Infos");
-  console.log("    \x1b[36m6\x1b[0m) Bot Invite-Links");
-  console.log("    \x1b[2m7\x1b[0m) Beenden");
+  console.log("    \x1b[32m1\x1b[0m) Premium aktivieren (mit Laufzeit)");
+  console.log("    \x1b[33m2\x1b[0m) Premium verlaengern");
+  console.log("    \x1b[35m3\x1b[0m) Upgrade (Pro -> Ultimate)");
+  console.log("    \x1b[31m4\x1b[0m) Premium entfernen");
+  console.log("    \x1b[36m5\x1b[0m) Alle Lizenzen anzeigen");
+  console.log("    6) Server pruefen");
+  console.log("    7) Preisrechner");
+  console.log("    8) Tier-Infos");
+  console.log("    9) Beenden");
   console.log("");
-
-  const choice = await rl.question("  \x1b[36m?\x1b[0m \x1b[1mAktion waehlen\x1b[0m: ");
-
-  switch (choice.trim()) {
-    case "1": return cmdAdd([]);
-    case "2": return cmdRemove([]);
-    case "3": return cmdList();
-    case "4": return cmdCheck([]);
-    case "5": return cmdTiers();
-    case "6": return cmdInvite();
-    case "7": return 0;
-    default:
-      fail("Unbekannte Aktion.");
-      return 1;
-  }
-}
-
-async function cmdTiers() {
-  console.log("");
-  console.log("  \x1b[1mVerfuegbare Tiers:\x1b[0m");
-  console.log("");
-  Object.entries(TIERS).forEach(([k, v]) => printTierInfo(k, v));
-  console.log("");
-  return 0;
-}
-
-async function cmdInvite() {
-  let bots;
-  try {
-    bots = loadBotConfigs();
-  } catch (err) {
-    fail("Fehler beim Laden der Bot-Konfiguration: " + err.message);
-    info("Pruefe deine .env Datei.");
-    return 1;
-  }
-  console.log("");
-  console.log(`  \x1b[1mBot Invite-Links (${bots.length} Bots):\x1b[0m`);
-  console.log("");
-  for (const bot of bots) {
-    const url = buildInviteUrl(bot);
-    console.log(`  \x1b[36m${bot.name}\x1b[0m \x1b[2m(${bot.clientId})\x1b[0m`);
-    console.log(`  \x1b[32m${url}\x1b[0m`);
-    console.log("");
-  }
-  return 0;
+  return ask("Aktion waehlen");
 }
 
 async function run() {
-  const args = process.argv.slice(2);
-  const cmd = args[0] || "";
-  const rest = args.slice(1);
+  printHeader();
 
-  switch (cmd) {
-    case "add":     return cmdAdd(rest);
-    case "remove":  return cmdRemove(rest);
-    case "list":    return cmdList();
-    case "check":   return cmdCheck(rest);
-    case "tiers":   return cmdTiers();
-    case "invite":  return cmdInvite();
-    case "wizard":  return cmdWizard();
-    case "help":
-    case "--help":
-    case "-h":
-      printBanner();
-      console.log("  Verwendung:");
-      console.log("    premium.sh add <server-id> <pro|ultimate> [notiz]");
-      console.log("    premium.sh remove <server-id>");
-      console.log("    premium.sh list");
-      console.log("    premium.sh check <server-id>");
-      console.log("    premium.sh tiers");
-      console.log("    premium.sh invite");
-      console.log("    premium.sh wizard");
-      console.log("");
-      console.log("  Tiers:");
-      Object.entries(TIERS).forEach(([k, v]) => printTierInfo(k, v));
-      console.log("");
-      return 0;
-    default:
-      return cmdWizard();
+  while (true) {
+    const choice = await wizardMenu();
+
+    switch (choice.trim()) {
+      // --- Aktivieren ---
+      case "1": {
+        const serverId = await ask("Server ID");
+        if (!/^\d{17,22}$/.test(serverId)) { fail("Ungueltige Server ID."); break; }
+
+        const existing = getLicense(serverId);
+        if (existing && !existing.expired) {
+          info(`Server hat bereits ${existing.activeTier.toUpperCase()} (${existing.remainingDays} Tage uebrig).`);
+          info("Nutze Option 2 (Verlaengern) oder 3 (Upgrade).");
+          break;
+        }
+
+        const tier = (await ask("Tier (pro/ultimate)")).toLowerCase();
+        if (tier !== "pro" && tier !== "ultimate") { fail("Muss 'pro' oder 'ultimate' sein."); break; }
+
+        const months = parseInt(await ask("Laufzeit in Monaten")) || 1;
+        const price = calculatePrice(tier, months);
+        info(`Preis: ${centsToEur(price)} (${months} Monat${months > 1 ? "e" : ""})`);
+        if (months >= 12) info("Jahresrabatt: 12 Monate zum Preis von 10!");
+
+        const note = await ask("Notiz (optional)") || "";
+        const lic = addLicense(serverId, tier, months, "admin-cli", note);
+        ok(`Server ${serverId} auf ${tier.toUpperCase()} aktiviert bis ${formatDate(lic.expiresAt)}.`);
+        break;
+      }
+
+      // --- Verlaengern ---
+      case "2": {
+        const serverId = await ask("Server ID");
+        if (!/^\d{17,22}$/.test(serverId)) { fail("Ungueltige Server ID."); break; }
+
+        const lic = getLicense(serverId);
+        if (!lic || lic.expired) { fail("Keine aktive Lizenz. Nutze Option 1 zum Aktivieren."); break; }
+
+        info(`Aktiv: ${lic.activeTier.toUpperCase()} (${lic.remainingDays} Tage uebrig, bis ${formatDate(lic.expiresAt)})`);
+
+        const months = parseInt(await ask("Zusaetzliche Monate")) || 1;
+        const price = calculatePrice(lic.tier, months);
+        info(`Preis: ${centsToEur(price)} fuer ${months} Monat${months > 1 ? "e" : ""}`);
+
+        const updated = addLicense(serverId, lic.tier, months, "admin-cli", `Verlaengerung +${months}M`);
+        ok(`Laufzeit verlaengert bis ${formatDate(updated.expiresAt)}.`);
+        break;
+      }
+
+      // --- Upgrade ---
+      case "3": {
+        const serverId = await ask("Server ID");
+        if (!/^\d{17,22}$/.test(serverId)) { fail("Ungueltige Server ID."); break; }
+
+        const lic = getLicense(serverId);
+        if (!lic || lic.expired) { fail("Keine aktive Lizenz."); break; }
+        if (lic.tier === "ultimate") { fail("Bereits Ultimate."); break; }
+
+        const upgrade = calculateUpgradePrice(serverId, "ultimate");
+        if (!upgrade) { fail("Upgrade nicht moeglich."); break; }
+
+        info(`Aktiv: PRO (${upgrade.daysLeft} Tage uebrig)`);
+        info(`Upgrade-Preis: ${centsToEur(upgrade.upgradeCost)} (Aufpreis fuer Restlaufzeit)`);
+
+        const confirm = (await ask("Upgrade durchfuehren? (j/n)")).toLowerCase();
+        if (confirm === "j" || confirm === "y") {
+          upgradeLicense(serverId, "ultimate");
+          ok(`Server ${serverId} auf ULTIMATE upgraded!`);
+        }
+        break;
+      }
+
+      // --- Entfernen ---
+      case "4": {
+        const serverId = await ask("Server ID");
+        if (removeLicense(serverId)) {
+          ok(`Lizenz fuer ${serverId} entfernt.`);
+        } else {
+          fail("Keine Lizenz gefunden.");
+        }
+        break;
+      }
+
+      // --- Alle Lizenzen ---
+      case "5": {
+        const all = listLicenses();
+        const entries = Object.entries(all);
+        if (entries.length === 0) {
+          info("Keine Lizenzen vorhanden.");
+          break;
+        }
+        console.log("");
+        console.log("  Server ID            Tier       Ablauf               Tage   Notiz");
+        console.log("  " + "-".repeat(75));
+        for (const [id, lic] of entries) {
+          const expired = new Date(lic.expiresAt) <= new Date();
+          const daysLeft = Math.max(0, Math.ceil((new Date(lic.expiresAt) - new Date()) / 86400000));
+          const status = expired ? "\x1b[31mABGELAUFEN\x1b[0m" : `${daysLeft}`;
+          const tierStr = (lic.tier || "?").padEnd(10);
+          const expStr = formatDate(lic.expiresAt).padEnd(20);
+          const noteStr = (lic.note || "").substring(0, 30);
+          console.log(`  ${id}  ${tierStr} ${expStr} ${status.padEnd(6)} ${noteStr}`);
+        }
+        console.log("");
+        info(`${entries.length} Lizenz(en) gesamt.`);
+        break;
+      }
+
+      // --- Server pruefen ---
+      case "6": {
+        const serverId = await ask("Server ID");
+        const lic = getLicense(serverId);
+        if (!lic) {
+          info(`Server ${serverId}: FREE (keine Lizenz).`);
+        } else if (lic.expired) {
+          fail(`Server ${serverId}: ABGELAUFEN (war ${lic.tier}).`);
+          info(`Abgelaufen am: ${formatDate(lic.expiresAt)}`);
+        } else {
+          ok(`Server ${serverId}: ${lic.activeTier.toUpperCase()}`);
+          info(`Laeuft ab: ${formatDate(lic.expiresAt)} (${lic.remainingDays} Tage uebrig)`);
+        }
+        break;
+      }
+
+      // --- Preisrechner ---
+      case "7": {
+        const tier = (await ask("Tier (pro/ultimate)")).toLowerCase();
+        if (tier !== "pro" && tier !== "ultimate") { fail("Muss 'pro' oder 'ultimate' sein."); break; }
+        console.log("");
+        console.log(`  Preistabelle fuer ${TIERS[tier].name}:`);
+        console.log("  " + "-".repeat(40));
+        for (const m of [1, 3, 6, 12, 24]) {
+          const price = calculatePrice(tier, m);
+          const monthly = centsToEur(Math.round(price / m));
+          const total = centsToEur(price);
+          const label = m >= 12 ? ` (${Math.floor(m / 12) * 2} Monate gratis!)` : "";
+          console.log(`  ${String(m).padStart(2)} Monat${m > 1 ? "e" : " "}: ${total.padStart(12)}  (${monthly}/Monat)${label}`);
+        }
+        console.log("");
+        break;
+      }
+
+      // --- Tier-Infos ---
+      case "8": {
+        console.log("");
+        for (const [key, t] of Object.entries(TIERS)) {
+          const price = t.pricePerMonth > 0 ? centsToEur(t.pricePerMonth) + "/Monat" : "Kostenlos";
+          console.log(`  ${t.name.padEnd(10)} ${price.padEnd(16)} Bitrate: ${t.bitrate} | Max Bots: ${t.maxBots} | Reconnect: ${t.reconnectMs}ms`);
+        }
+        console.log("");
+        break;
+      }
+
+      case "9":
+      case "q":
+      case "exit":
+        return 0;
+
+      default:
+        fail("Ungueltige Auswahl.");
+    }
+    console.log("");
   }
 }
 
