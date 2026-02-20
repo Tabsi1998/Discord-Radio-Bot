@@ -20,6 +20,10 @@ function load() {
 
 function save(data) {
   try {
+    if (fs.existsSync(CUSTOM_FILE) && fs.statSync(CUSTOM_FILE).isDirectory()) {
+      console.warn(`[custom-stations] ${CUSTOM_FILE} ist ein Verzeichnis - Speichern uebersprungen.`);
+      return;
+    }
     fs.writeFileSync(CUSTOM_FILE, JSON.stringify(data, null, 2) + "\n", "utf8");
   } catch (err) {
     console.error(`[custom-stations] Save error: ${err.message}`);

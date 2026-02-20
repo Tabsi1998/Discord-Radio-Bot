@@ -17,6 +17,10 @@ const YEARLY_DISCOUNT_MONTHS = 10;
 function load() {
   try {
     if (!fs.existsSync(premiumFile)) return { licenses: {} };
+    if (fs.statSync(premiumFile).isDirectory()) {
+      console.warn(`[premium-store] ${premiumFile} ist ein Verzeichnis - nutze leeren Store.`);
+      return { licenses: {} };
+    }
     return JSON.parse(fs.readFileSync(premiumFile, "utf-8"));
   } catch {
     return { licenses: {} };
@@ -24,7 +28,15 @@ function load() {
 }
 
 function save(data) {
-  fs.writeFileSync(premiumFile, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  try {
+    if (fs.existsSync(premiumFile) && fs.statSync(premiumFile).isDirectory()) {
+      console.warn(`[premium-store] ${premiumFile} ist ein Verzeichnis - Speichern uebersprungen.`);
+      return;
+    }
+    fs.writeFileSync(premiumFile, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  } catch (err) {
+    console.error(`[premium-store] Save error: ${err.message}`);
+  }
 }
 
 function isExpired(license) {
