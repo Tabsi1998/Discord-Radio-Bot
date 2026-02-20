@@ -655,6 +655,7 @@ git clean -fd \
   -e stations.json \
   -e premium.json \
   -e bot-state.json \
+  -e custom-stations.json \
   -e docker-compose.override.yml
 
 if [[ "$old_head" == "$new_head" ]]; then
