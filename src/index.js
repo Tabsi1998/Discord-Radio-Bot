@@ -794,7 +794,7 @@ class BotRuntime {
     if (!channel || !channel.isVoiceBased()) return;
 
     if (state.connection) {
-      state.connection.destroy();
+      try { state.connection.destroy(); } catch {}
       state.connection = null;
     }
 
@@ -810,7 +810,7 @@ class BotRuntime {
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
-      connection.destroy();
+      try { connection.destroy(); } catch {}
       return;
     }
 
@@ -821,8 +821,15 @@ class BotRuntime {
     this.clearReconnectTimer(state);
     this.attachConnectionHandlers(guildId, connection);
 
-    if (state.player.state.status === AudioPlayerStatus.Idle) {
-      await this.restartCurrentStation(state);
+    // Always restart station on reconnect (stream is stale after disconnect)
+    if (state.currentStationKey) {
+      state.streamErrorCount = 0;
+      try {
+        await this.restartCurrentStation(state, guildId);
+        log("INFO", `[${this.config.name}] Reconnect successful: guild=${guildId}`);
+      } catch (err) {
+        log("ERROR", `[${this.config.name}] Station restart after reconnect failed: ${err?.message || err}`);
+      }
     }
   }
 
