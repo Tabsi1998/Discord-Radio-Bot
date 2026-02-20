@@ -1608,7 +1608,8 @@ function startWebServer(runtimes) {
         stations: Object.entries(stations.stations).map(([key, value]) => ({
           key,
           name: value.name,
-          url: value.url
+          url: value.url,
+          tier: value.tier || "free",
         }))
       });
       return;
