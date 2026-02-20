@@ -453,6 +453,7 @@ class BotRuntime {
     try {
       this.clearCurrentProcess(state);
       await this.playStation(state, stations, key, guildId);
+      state.streamErrorCount = 0;
       log("INFO", `[${this.config.name}] Stream restarted: ${key}`);
     } catch (err) {
       state.lastStreamErrorAt = new Date().toISOString();
