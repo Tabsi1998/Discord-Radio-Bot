@@ -167,10 +167,16 @@ if [[ "$MODE" == "--show-bots" ]]; then
 fi
 
 # ====================================
-# MODE: Premium CLI
+# MODE: Premium CLI (via Docker)
 # ====================================
 if [[ "$MODE" == "--premium" ]]; then
-  node src/premium-cli.js wizard
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "radio-bot"; then
+    docker compose exec radio-bot node src/premium-cli.js wizard
+  else
+    warn "Container nicht aktiv. Starte mit: docker compose up -d"
+    echo -e "  ${DIM}Alternativ: docker compose run --rm radio-bot node src/premium-cli.js wizard${NC}"
+    exit 1
+  fi
   exit $?
 fi
 
