@@ -1023,6 +1023,7 @@ class BotRuntime {
       state.currentStationName = null;
       state.currentMeta = null;
       state.reconnectAttempts = 0;
+      state.streamErrorCount = 0;
       this.updatePresence();
 
       await interaction.reply({ content: "Gestoppt und Channel verlassen.", ephemeral: false });
