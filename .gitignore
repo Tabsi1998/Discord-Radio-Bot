@@ -16,3 +16,7 @@ test_reports/
 memory/
 yarn.lock
 .gitconfig
+-e 
+# Environment files
+*.env
+*.env.*
