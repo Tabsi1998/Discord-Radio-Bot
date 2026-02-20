@@ -8,6 +8,11 @@ const STATE_FILE = path.join(rootDir, "bot-state.json");
 function loadState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
+      // Docker-Mount: Wenn es ein Verzeichnis ist, koennen wir nicht lesen
+      if (fs.statSync(STATE_FILE).isDirectory()) {
+        console.warn(`[bot-state] ${STATE_FILE} ist ein Verzeichnis (Docker-Mount Problem). Nutze leeren State.`);
+        return {};
+      }
       const raw = fs.readFileSync(STATE_FILE, "utf8");
       if (!raw || raw.trim().length === 0) return {};
       return JSON.parse(raw);
@@ -20,9 +25,12 @@ function loadState() {
 
 function saveState(state) {
   try {
-    // Sicherstellen dass die Datei existiert und kein Verzeichnis ist
+    // Docker-Mount: Wenn es ein Verzeichnis ist, NICHT versuchen zu loeschen
+    // (schlaegt fehl mit "Device or resource busy")
     if (fs.existsSync(STATE_FILE) && fs.statSync(STATE_FILE).isDirectory()) {
-      fs.rmSync(STATE_FILE, { recursive: true });
+      console.warn(`[bot-state] ${STATE_FILE} ist ein Verzeichnis - State wird nur im Speicher gehalten.`);
+      console.warn(`[bot-state] Fix: echo '{}' > ./bot-state.json && docker compose up -d`);
+      return;
     }
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
   } catch (err) {
