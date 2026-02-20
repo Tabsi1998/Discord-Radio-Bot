@@ -137,3 +137,17 @@ export function getFallbackKey(stations, currentKey) {
   const keys = Object.keys(stations.stations);
   return keys.find((k) => k !== currentKey) || null;
 }
+
+const TIER_RANK = { free: 0, pro: 1, ultimate: 2 };
+
+export function filterStationsByTier(stations, guildTier) {
+  const rank = TIER_RANK[guildTier] ?? 0;
+  const filtered = {};
+  for (const [key, station] of Object.entries(stations)) {
+    const stationRank = TIER_RANK[station.tier || "free"] ?? 0;
+    if (stationRank <= rank) {
+      filtered[key] = station;
+    }
+  }
+  return filtered;
+}
