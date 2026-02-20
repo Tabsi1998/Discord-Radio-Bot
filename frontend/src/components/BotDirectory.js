@@ -121,37 +121,62 @@ function BotCard({ bot, index }) {
       </div>
 
       {/* Server-spezifische Stationen */}
-      {bot.guildDetails && bot.guildDetails.length > 0 && (
+      {bot.guildDetails && bot.guildDetails.length > 0 ? (
         <div style={{
-          padding: '12px 0', marginBottom: 12,
-          borderTop: `1px solid ${colors.accent}15`,
+          padding: '10px 12px', marginBottom: 12, borderRadius: 10,
+          background: 'rgba(255,255,255,0.025)',
+          border: '1px solid rgba(255,255,255,0.05)',
         }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: colors.accent, marginBottom: 8, fontFamily: "'Orbitron', sans-serif" }}>
             AKTIVE SERVER
           </div>
-          {bot.guildDetails.filter(g => g.playing).map((g, i) => (
-            <div key={g.guildId || i} style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
-              borderBottom: i < bot.guildDetails.filter(x => x.playing).length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+          {bot.guildDetails.map((g, i) => (
+            <div key={g.guildId || i} data-testid={`guild-row-${index}-${i}`} style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', gap: 12,
+              borderBottom: i < bot.guildDetails.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+              fontSize: 12,
             }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#39FF14', boxShadow: '0 0 6px rgba(57,255,20,0.4)', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#A1A1AA', minWidth: 0, flexShrink: 1 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.guildName}>
                   {g.guildName}
-                </div>
-                <div style={{ fontSize: 11, color: '#A1A1AA', fontFamily: "'JetBrains Mono', monospace" }}>
-                  {g.stationName || '-'}
-                </div>
+                </span>
+              </div>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 5, fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 11, fontWeight: 600, minWidth: 0, flexShrink: 1,
+                color: g.playing ? colors.accent : '#52525B',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>
+                {g.playing && g.stationName ? (
+                  <>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.stationName}>
+                      {g.stationName}
+                    </span>
+                    {g.channelName && (
+                      <span style={{ fontSize: 10, color: '#52525B', fontWeight: 400 }}>#{g.channelName}</span>
+                    )}
+                  </>
+                ) : (
+                  <span>Idle</span>
+                )}
               </div>
             </div>
           ))}
-          {bot.guildDetails.filter(g => !g.playing).length > 0 && (
-            <div style={{ fontSize: 11, color: '#52525B', marginTop: 6 }}>
-              +{bot.guildDetails.filter(g => !g.playing).length} weitere Server (idle)
-            </div>
-          )}
         </div>
-      )}
+      ) : bot.ready ? (
+        <div style={{
+          display: 'flex', justifyContent: 'center', padding: 8, marginBottom: 12, borderRadius: 10,
+          background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.05)',
+        }}>
+          <span style={{ fontSize: 11, color: '#52525B' }}>Kein Server aktiv</span>
+        </div>
+      ) : null}
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
