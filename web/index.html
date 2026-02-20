@@ -251,10 +251,30 @@
 
     <!-- Premium Checkout Modal -->
     <div id="premiumModal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);align-items:center;justify-content:center">
-      <div style="background:#121212;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:32px;max-width:420px;width:90%;text-align:center">
+      <div style="background:#121212;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:32px;max-width:440px;width:90%;text-align:center">
         <h3 style="font-family:Orbitron,sans-serif;font-size:18px;font-weight:800;margin-bottom:8px">Premium aktivieren</h3>
-        <p style="color:#A1A1AA;font-size:14px;margin-bottom:24px">Gib die Server-ID ein, fuer die du Premium kaufen moechtest.<br><span style="font-size:12px;color:#52525B">Server ID findest du in Discord: Rechtsklick auf Server &rarr; Server-ID kopieren</span></p>
-        <input type="text" id="premiumServerId" placeholder="Discord Server ID (z.B. 123456789012345678)" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:12px;color:#fff;padding:14px 16px;font-size:15px;outline:none;font-family:JetBrains Mono,monospace;margin-bottom:16px;text-align:center" />
+        <p style="color:#A1A1AA;font-size:13px;margin-bottom:20px">Gib die Server-ID ein, fuer die du Premium kaufen moechtest.<br><span style="font-size:11px;color:#52525B">Rechtsklick auf Server &rarr; Server-ID kopieren</span></p>
+
+        <input type="text" id="premiumServerId" placeholder="Discord Server ID" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:12px;color:#fff;padding:14px 16px;font-size:14px;outline:none;font-family:JetBrains Mono,monospace;margin-bottom:8px;text-align:center" />
+
+        <button id="premiumCheckExisting" onclick="checkExistingLicense()" style="background:none;border:1px solid rgba(255,255,255,0.1);color:#A1A1AA;cursor:pointer;font-size:11px;border-radius:8px;padding:6px 12px;margin-bottom:16px">Bestehende Lizenz pruefen</button>
+
+        <div id="premiumMonthsRow" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
+          <label for="premiumMonths" style="font-size:13px;color:#A1A1AA;white-space:nowrap">Laufzeit:</label>
+          <select id="premiumMonths" onchange="updatePriceDisplay()" style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:8px;padding:8px 12px;font-size:14px;font-family:JetBrains Mono,monospace;cursor:pointer">
+            <option value="1">1 Monat</option>
+            <option value="3">3 Monate</option>
+            <option value="6">6 Monate</option>
+            <option value="12">12 Monate (2 gratis!)</option>
+          </select>
+        </div>
+
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px;margin-bottom:16px">
+          <div style="font-size:11px;color:#52525B;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">PREIS</div>
+          <div id="premiumPrice" style="font-size:24px;font-weight:800;font-family:JetBrains Mono,monospace;color:#FFB800">4,99 EUR</div>
+          <div id="premiumDiscount" style="display:none;font-size:11px;color:#39FF14;margin-top:4px"></div>
+        </div>
+
         <button id="premiumSubmit" onclick="submitPremiumCheckout()" style="width:100%;background:#FFB800;color:#050505;border:none;border-radius:12px;padding:14px;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:12px">Jetzt bezahlen</button>
         <button onclick="closePremiumModal()" style="background:none;border:none;color:#52525B;cursor:pointer;font-size:13px">Abbrechen</button>
         <p id="premiumStatus" style="margin-top:12px;font-size:13px"></p>
