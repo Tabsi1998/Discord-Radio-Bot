@@ -1540,7 +1540,7 @@ function startWebServer(runtimes) {
     if (requestUrl.pathname === "/api/premium/checkout" && req.method === "POST") {
       try {
         const body = await readBody();
-        const { tier, serverId, returnUrl } = body;
+        const { tier, serverId, months, returnUrl } = body;
         if (!tier || !serverId) {
           sendJson(res, 400, { error: "tier und serverId erforderlich." });
           return;
@@ -1560,9 +1560,28 @@ function startWebServer(runtimes) {
           return;
         }
 
-        // Stripe Checkout session creation via API
-        const priceMap = { pro: 499, ultimate: 999 };
-        const tierNames = { pro: "Radio Bot Pro", ultimate: "Radio Bot Ultimate" };
+        // Check for upgrade scenario
+        const upgradeInfo = calculateUpgradePrice(serverId, tier);
+        let priceInCents;
+        let description;
+        let durationMonths;
+
+        if (upgradeInfo && upgradeInfo.upgradeCost > 0) {
+          // UPGRADE: Pro -> Ultimate, nur Aufpreis fuer Restlaufzeit
+          priceInCents = upgradeInfo.upgradeCost;
+          durationMonths = 0; // 0 = upgrade, keine neue Laufzeit
+          description = `Upgrade ${TIERS[upgradeInfo.oldTier].name} -> ${TIERS[tier].name} (${upgradeInfo.daysLeft} Tage Restlaufzeit)`;
+        } else {
+          // Neukauf oder Verlaengerung
+          durationMonths = Math.max(1, parseInt(months) || 1);
+          priceInCents = calculatePrice(tier, durationMonths);
+          const tierName = TIERS[tier].name;
+          if (durationMonths >= 12) {
+            description = `${tierName} - ${durationMonths} Monate (Jahresrabatt: 2 Monate gratis!)`;
+          } else {
+            description = `${tierName} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`;
+          }
+        }
 
         const stripe = await import("stripe");
         const stripeClient = new stripe.default(stripeKey);
@@ -1574,14 +1593,19 @@ function startWebServer(runtimes) {
             price_data: {
               currency: "eur",
               product_data: {
-                name: tierNames[tier],
-                description: `Premium ${TIERS[tier].name} fuer Server ${serverId}`,
+                name: `Radio Bot ${TIERS[tier].name}`,
+                description,
               },
-              unit_amount: priceMap[tier],
+              unit_amount: priceInCents,
             },
             quantity: 1,
           }],
-          metadata: { serverId, tier },
+          metadata: {
+            serverId,
+            tier,
+            months: String(durationMonths),
+            isUpgrade: upgradeInfo ? "true" : "false",
+          },
           success_url: (returnUrl || publicUrl || "http://localhost") + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
           cancel_url: (returnUrl || publicUrl || "http://localhost") + "?payment=cancelled",
         });
@@ -1614,14 +1638,28 @@ function startWebServer(runtimes) {
         const session = await stripeClient.checkout.sessions.retrieve(sessionId);
 
         if (session.payment_status === "paid" && session.metadata) {
-          const { serverId, tier } = session.metadata;
+          const { serverId, tier, months, isUpgrade } = session.metadata;
           if (serverId && tier) {
-            addLicense(serverId, tier, "stripe", `Session: ${sessionId}`);
+            let license;
+            if (isUpgrade === "true") {
+              // Upgrade: Tier aendern, Laufzeit beibehalten
+              license = upgradeLicense(serverId, tier);
+            } else {
+              // Neukauf oder Verlaengerung: Laufzeit addieren
+              const durationMonths = parseInt(months) || 1;
+              license = addLicense(serverId, tier, durationMonths, "stripe", `Session: ${sessionId}`);
+            }
+
+            const licInfo = getLicense(serverId);
             sendJson(res, 200, {
               success: true,
               serverId,
               tier,
-              message: `Server ${serverId} auf ${TIERS[tier].name} aktiviert!`
+              expiresAt: license.expiresAt,
+              remainingDays: licInfo ? licInfo.remainingDays : 0,
+              message: isUpgrade === "true"
+                ? `Server ${serverId} auf ${TIERS[tier].name} upgraded!`
+                : `Server ${serverId} auf ${TIERS[tier].name} aktiviert (${months} Monat${parseInt(months) > 1 ? "e" : ""})!`
             });
             return;
           }
@@ -1632,6 +1670,43 @@ function startWebServer(runtimes) {
         log("ERROR", `Stripe verify error: ${err.message}`);
         sendJson(res, 500, { error: "Verifizierung fehlgeschlagen: " + err.message });
       }
+      return;
+    }
+
+    // --- Pricing info endpoint ---
+    if (requestUrl.pathname === "/api/premium/pricing" && req.method === "GET") {
+      const serverId = requestUrl.searchParams.get("serverId");
+      const result = {
+        tiers: {
+          pro: { name: "Pro", pricePerMonth: TIERS.pro.pricePerMonth, features: ["192k Bitrate", "10 Bots", "1s Reconnect"] },
+          ultimate: { name: "Ultimate", pricePerMonth: TIERS.ultimate.pricePerMonth, features: ["320k Bitrate", "20 Bots", "0.5s Reconnect"] },
+        },
+        yearlyDiscount: "12 Monate = 10 bezahlen (2 Monate gratis)",
+      };
+
+      if (serverId && /^\d{17,22}$/.test(serverId)) {
+        const license = getLicense(serverId);
+        if (license && !license.expired) {
+          result.currentLicense = {
+            tier: license.tier,
+            expiresAt: license.expiresAt,
+            remainingDays: license.remainingDays,
+          };
+          // Upgrade-Moeglichkeiten berechnen
+          if (license.tier === "pro") {
+            const upgrade = calculateUpgradePrice(serverId, "ultimate");
+            if (upgrade) {
+              result.upgrade = {
+                to: "ultimate",
+                cost: upgrade.upgradeCost,
+                daysLeft: upgrade.daysLeft,
+              };
+            }
+          }
+        }
+      }
+
+      sendJson(res, 200, result);
       return;
     }
 
