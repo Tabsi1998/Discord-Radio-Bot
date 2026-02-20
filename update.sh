@@ -397,7 +397,8 @@ if [[ "$MODE" == "--email" ]]; then
           host: process.env.SMTP_HOST,
           port: Number(process.env.SMTP_PORT) || 587,
           secure: (Number(process.env.SMTP_PORT) || 587) === 465,
-          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+          tls: { rejectUnauthorized: false }
         });
         t.sendMail({
           from: process.env.SMTP_FROM || process.env.SMTP_USER,
