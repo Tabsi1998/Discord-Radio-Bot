@@ -670,7 +670,7 @@ function checkPremiumStatus() {
     return;
   }
 
-  result.textContent = 'Prüfe...';
+  result.textContent = 'Pruefe...';
   result.style.color = '#A1A1AA';
 
   fetch('/api/premium/check?serverId=' + serverId)
@@ -678,10 +678,24 @@ function checkPremiumStatus() {
   .then(function(data) {
     var tierColors = { free: '#A1A1AA', pro: '#FFB800', ultimate: '#BD00FF' };
     result.style.color = tierColors[data.tier] || '#A1A1AA';
-    result.textContent = 'Tier: ' + data.name + ' | Bitrate: ' + data.bitrate + ' | Reconnect: ' + data.reconnectMs + 'ms';
+
+    if (data.license && !data.license.expired) {
+      var expires = new Date(data.license.expiresAt);
+      var expStr = expires.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      result.innerHTML = '<strong>' + data.name + '</strong> | ' +
+        'Bitrate: ' + data.bitrate + ' | ' +
+        'Reconnect: ' + data.reconnectMs + 'ms<br>' +
+        '<span style="font-size:12px;color:#A1A1AA">Laeuft ab: ' + expStr +
+        ' (' + data.license.remainingDays + ' Tage uebrig)</span>';
+    } else if (data.license && data.license.expired) {
+      result.innerHTML = '<strong style="color:#FF2A2A">Abgelaufen!</strong> ' +
+        '<span style="font-size:12px;color:#A1A1AA">Ehemals: ' + (data.license.tier || 'unbekannt') + '</span>';
+    } else {
+      result.textContent = 'Tier: ' + data.name + ' | Bitrate: ' + data.bitrate;
+    }
   })
   .catch(function() {
-    result.textContent = 'Fehler beim Prüfen.';
+    result.textContent = 'Fehler beim Pruefen.';
     result.style.color = '#FF2A2A';
   });
 }
