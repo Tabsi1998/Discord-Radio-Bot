@@ -19,6 +19,7 @@
     "@discordjs/voice": "^0.18.0",
     "discord.js": "^14.17.3",
     "dotenv": "^16.4.7",
+    "nodemailer": "^8.0.1",
     "stripe": "^17.0.0"
   }
 }
