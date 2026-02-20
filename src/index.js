@@ -355,12 +355,33 @@ class BotRuntime {
 
   handleStreamEnd(guildId, state, reason) {
     if (!state.shouldReconnect || !state.currentStationKey) return;
+    // Don't restart stream if there's no voice connection (reconnect handler will deal with it)
+    if (!state.connection) return;
 
-    // Premium: faster reconnect for higher tiers
+    if (reason === "error") {
+      state.streamErrorCount = (state.streamErrorCount || 0) + 1;
+    } else {
+      state.streamErrorCount = 0;
+    }
+
+    const errorCount = state.streamErrorCount || 0;
     const tierConfig = getTierConfig(guildId);
-    const baseDelay = reason === "error" ? tierConfig.reconnectMs : Math.max(100, tierConfig.reconnectMs / 2);
-    const delay = Math.max(100, Math.min(baseDelay, 5000));
-    log("INFO", `[${this.config.name}] Stream ${reason} guild=${guildId} tier=${tierConfig.tier}, restart in ${delay}ms`);
+    let delay;
+
+    if (reason === "error") {
+      // Exponential backoff: 1s, 2s, 4s, 8s, max 15s
+      delay = Math.min(15000, 1000 * Math.pow(2, Math.min(errorCount - 1, 4)));
+    } else {
+      delay = Math.max(100, tierConfig.reconnectMs / 2);
+    }
+
+    // Too many consecutive errors: cool down for 30s
+    if (errorCount >= 10) {
+      delay = 30000;
+      log("INFO", `[${this.config.name}] Too many stream errors (${errorCount}) guild=${guildId}, cooling down 30s`);
+    }
+
+    log("INFO", `[${this.config.name}] Stream ${reason} guild=${guildId} errors=${errorCount}, restart in ${delay}ms`);
 
     if (state.streamRestartTimer) {
       clearTimeout(state.streamRestartTimer);
