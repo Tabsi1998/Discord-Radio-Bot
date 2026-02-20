@@ -69,6 +69,10 @@ export function loadStations() {
   }
 
   try {
+    if (fs.statSync(stationsPath).isDirectory()) {
+      console.warn(`[stations-store] ${stationsPath} ist ein Verzeichnis.`);
+      return emptyStationsData();
+    }
     const raw = fs.readFileSync(stationsPath, "utf8");
     const parsed = JSON.parse(raw);
     return normalizeStationsData(parsed);
