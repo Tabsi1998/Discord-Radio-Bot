@@ -287,11 +287,19 @@ if [[ $existing_bots -eq 0 ]]; then
 
     perms="$(prompt_default "Permissions (Standard: 3145728)" "3145728")"
 
+    echo ""
+    echo -e "  ${DIM}Bot-Tier bestimmt ob dieser Bot frei oder Premium ist:${NC}"
+    echo -e "    ${DIM}free${NC}     = Jeder kann einladen (Standard)"
+    echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten"
+    echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten"
+    bot_tier="$(prompt_default "Tier (free/pro/ultimate)" "free")"
+
     write_env_line "BOT_${i}_NAME" "$name"
     write_env_line "BOT_${i}_TOKEN" "$token"
     write_env_line "BOT_${i}_CLIENT_ID" "$client_id"
     write_env_line "BOT_${i}_PERMISSIONS" "${perms}"
-    ok "Bot $i konfiguriert."
+    write_env_line "BOT_${i}_TIER" "${bot_tier:-free}"
+    ok "Bot $i konfiguriert (Tier: ${bot_tier:-free})."
   done
 fi
 

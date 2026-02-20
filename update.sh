@@ -119,17 +119,19 @@ MODE="${1:-}"
 if [[ -z "$MODE" ]]; then
   echo -e "  ${BOLD}Was moechtest du tun?${NC}"
   echo ""
-  echo -e "    ${GREEN}1${NC}) Update       - Code aktualisieren & Container rebuild"
-  echo -e "    ${YELLOW}2${NC}) Bot hinzufuegen - Neuen Bot konfigurieren"
-  echo -e "    ${CYAN}3${NC}) Bots anzeigen  - Konfigurierte Bots zeigen"
-  echo -e "    ${DIM}4${NC}) Premium CLI  - Premium-Lizenzen verwalten"
+  echo -e "    ${GREEN}1${NC}) Update         - Code aktualisieren & Container rebuild"
+  echo -e "    ${YELLOW}2${NC}) Bot hinzufuegen  - Neuen Bot konfigurieren"
+  echo -e "    ${CYAN}3${NC}) Bots anzeigen    - Konfigurierte Bots zeigen"
+  echo -e "    ${BOLD}4${NC}) Bot bearbeiten   - Bestehenden Bot aendern (Tier, Name)"
+  echo -e "    ${DIM}5${NC}) Premium CLI    - Premium-Lizenzen verwalten"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-4]${NC}: ")" MODE_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" MODE_CHOICE
   case "$MODE_CHOICE" in
     1) MODE="--update" ;;
     2) MODE="--add-bot" ;;
     3) MODE="--show-bots" ;;
-    4) MODE="--premium" ;;
+    4) MODE="--edit-bot" ;;
+    5) MODE="--premium" ;;
     *) MODE="--update" ;;
   esac
 fi
