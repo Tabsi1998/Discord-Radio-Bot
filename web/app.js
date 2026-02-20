@@ -191,59 +191,39 @@ function renderBots(bots) {
     head.appendChild(icon); head.appendChild(info);
     card.appendChild(head);
 
-    // === Server-Aktivitaet: Was laeuft wo ===
-    if (bot.guildDetails && bot.guildDetails.length > 0) {
-      var guildsSection = document.createElement('div');
-      guildsSection.className = 'bot-guilds';
-      var guildsTitle = document.createElement('div');
-      guildsTitle.className = 'guilds-title';
-      guildsTitle.textContent = 'Aktive Server';
-      guildsSection.appendChild(guildsTitle);
+    // === Bot Statistiken ===
+    var statsBox = document.createElement('div');
+    statsBox.className = 'bot-stats';
+    statsBox.style.borderColor = c.accent + '15';
 
-      bot.guildDetails.forEach(function(g) {
-        var row = document.createElement('div');
-        row.className = 'guild-row';
+    var statsTitle = document.createElement('div');
+    statsTitle.className = 'stats-title';
+    statsTitle.style.color = c.accent;
+    statsTitle.textContent = 'BOT STATISTIKEN';
+    statsBox.appendChild(statsTitle);
 
-        var left = document.createElement('div');
-        left.className = 'guild-left';
-        var serverIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-        left.innerHTML = serverIcon;
-        var serverName = document.createElement('span');
-        serverName.className = 'guild-name';
-        serverName.title = g.guildName;
-        serverName.textContent = g.guildName;
-        left.appendChild(serverName);
-
-        var right = document.createElement('div');
-        right.className = 'guild-right';
-        if (g.playing && g.stationName) {
-          right.style.color = c.accent;
-          right.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
-          var stName = document.createElement('span');
-          stName.title = g.stationName;
-          stName.textContent = g.stationName;
-          right.appendChild(stName);
-          if (g.channelName) {
-            var chName = document.createElement('span');
-            chName.className = 'guild-channel';
-            chName.textContent = '#' + g.channelName;
-            right.appendChild(chName);
-          }
-        } else {
-          right.innerHTML = '<span class="muted">Idle</span>';
-        }
-
-        row.appendChild(left);
-        row.appendChild(right);
-        guildsSection.appendChild(row);
-      });
-      card.appendChild(guildsSection);
-    } else if (bot.ready) {
-      var noGuilds = document.createElement('div');
-      noGuilds.className = 'bot-guilds bot-guilds-empty';
-      noGuilds.innerHTML = '<span class="muted" style="font-size:11px">Kein Server aktiv</span>';
-      card.appendChild(noGuilds);
-    }
+    var statsGrid = document.createElement('div');
+    statsGrid.className = 'stats-grid';
+    var statsData = [
+      { label: 'Server', value: bot.servers || bot.guilds || 0 },
+      { label: 'Nutzer', value: bot.users || 0 },
+      { label: 'Verbindungen', value: bot.connections || 0 },
+      { label: 'Zuhoerer', value: bot.listeners || 0 }
+    ];
+    statsData.forEach(function(s) {
+      var item = document.createElement('div');
+      var label = document.createElement('div');
+      label.className = 'stat-label';
+      label.textContent = s.label;
+      var val = document.createElement('div');
+      val.className = 'stat-value';
+      val.textContent = new Intl.NumberFormat('de-DE').format(s.value);
+      item.appendChild(label);
+      item.appendChild(val);
+      statsGrid.appendChild(item);
+    });
+    statsBox.appendChild(statsGrid);
+    card.appendChild(statsBox);
 
     var isPremiumBot = bot.requiredTier && bot.requiredTier !== 'free';
     var tierColors = { pro: '#FFB800', ultimate: '#BD00FF' };
