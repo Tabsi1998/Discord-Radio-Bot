@@ -603,6 +603,14 @@ class BotRuntime {
     } catch (err) {
       log("ERROR", `[${this.config.name}] Presence update fehlgeschlagen: ${err?.message || err}`);
     }
+
+    // Rotation starten/stoppen basierend auf Anzahl aktiver Guilds
+    const activeCount = [...this.guildState.values()].filter(s => s.currentStationKey).length;
+    if (activeCount > 1) {
+      this.startPresenceRotation();
+    } else {
+      this.stopPresenceRotation();
+    }
   }
 
   startPresenceRotation() {
