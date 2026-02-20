@@ -744,14 +744,15 @@ function checkPremiumStatus() {
       var expStr = expires.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
       result.innerHTML = '<strong>' + data.name + '</strong> | ' +
         'Bitrate: ' + data.bitrate + ' | ' +
-        'Reconnect: ' + data.reconnectMs + 'ms<br>' +
+        'Reconnect: ' + data.reconnectMs + 'ms | ' +
+        'Max Bots: ' + (data.maxBots || 0) + '<br>' +
         '<span style="font-size:12px;color:#A1A1AA">Laeuft ab: ' + expStr +
-        ' (' + data.license.remainingDays + ' Tage uebrig)</span>';
+        ' (' + data.license.remainingDays + ' Tage uebrig), servergebunden auf diese Server-ID.</span>';
     } else if (data.license && data.license.expired) {
       result.innerHTML = '<strong style="color:#FF2A2A">Abgelaufen!</strong> ' +
         '<span style="font-size:12px;color:#A1A1AA">Ehemals: ' + (data.license.tier || 'unbekannt') + '</span>';
     } else {
-      result.textContent = 'Tier: ' + data.name + ' | Bitrate: ' + data.bitrate;
+      result.textContent = 'Tier: ' + data.name + ' | Bitrate: ' + data.bitrate + ' | Max Bots: ' + (data.maxBots || 0);
     }
   })
   .catch(function() {

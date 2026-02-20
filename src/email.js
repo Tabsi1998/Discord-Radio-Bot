@@ -87,24 +87,84 @@ async function sendMail(to, subject, html) {
   }
 }
 
+function formatMoney(cents, currency = "eur") {
+  const value = Number(cents || 0) / 100;
+  const cur = String(currency || "eur").toUpperCase();
+  return `${value.toFixed(2).replace(".", ",")} ${cur}`;
+}
+
 function buildPurchaseEmail(data) {
-  const { tier, tierName, months, serverId, expiresAt, inviteLinks } = data;
+  const {
+    tier,
+    tierName,
+    months,
+    serverId,
+    expiresAt,
+    inviteOverview,
+    dashboardUrl,
+    isUpgrade,
+    pricePaid,
+    currency,
+  } = data;
   const expDate = new Date(expiresAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   const tierColor = tier === "ultimate" ? "#BD00FF" : "#FFB800";
+  const moneyLabel = formatMoney(pricePaid || 0, currency || "eur");
+  const freeWebsiteUrl = String(
+    inviteOverview?.freeWebsiteUrl || dashboardUrl || "https://discord.gg/UeRkfGS43R"
+  ).trim();
+  const freeInfo = inviteOverview?.freeInfo || "Free Bots #1-#4 sind immer verfuegbar.";
+  const proBots = Array.isArray(inviteOverview?.proBots) ? inviteOverview.proBots : [];
+  const ultimateBots = Array.isArray(inviteOverview?.ultimateBots) ? inviteOverview.ultimateBots : [];
 
-  let inviteHtml = "";
-  if (inviteLinks && inviteLinks.length > 0) {
-    inviteHtml = `
+  function renderInviteButtons(items) {
+    return items
+      .map((bot) => `
+        <div style="margin:8px 0">
+          <a href="${bot.url}" style="color:#fff;text-decoration:none;background:${tierColor};padding:8px 16px;border-radius:8px;display:inline-block;font-weight:600">${bot.name} (#${bot.index}) einladen</a>
+        </div>
+      `)
+      .join("");
+  }
+
+  let tierBenefits = "";
+  if (tier === "ultimate") {
+    tierBenefits = `
+      <ul style="margin:0;padding-left:18px;color:#A1A1AA;line-height:1.7">
+        <li>Bots #1-#20 nutzbar (inkl. Ultimate Bots #11-#20)</li>
+        <li>320k Audio + schnellster Reconnect</li>
+        <li>Custom Stations (eigene URLs)</li>
+      </ul>`;
+  } else {
+    tierBenefits = `
+      <ul style="margin:0;padding-left:18px;color:#A1A1AA;line-height:1.7">
+        <li>Bots #1-#10 nutzbar (inkl. Pro Bots #5-#10)</li>
+        <li>192k Audio + schneller Reconnect</li>
+        <li>Priority-Support</li>
+      </ul>`;
+  }
+
+  let inviteHtml = `
+    <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
+      <h3 style="color:${tierColor};margin:0 0 8px">Free Bots (#1-#4)</h3>
+      <p style="margin:0 0 10px;color:#A1A1AA;font-size:13px">${freeInfo}</p>
+      <a href="${freeWebsiteUrl}" style="color:#050505;text-decoration:none;background:#00F0FF;padding:8px 14px;border-radius:8px;display:inline-block;font-weight:700">Zur Bot-Webseite</a>
+    </div>`;
+
+  if (proBots.length > 0) {
+    inviteHtml += `
       <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
-        <h3 style="color:${tierColor};margin:0 0 12px">Deine Bot Invite-Links</h3>
-        ${inviteLinks.map((b, i) => `
-          <div style="margin:8px 0">
-            <a href="${b.url}" style="color:#fff;text-decoration:none;background:${tierColor};padding:8px 16px;border-radius:8px;display:inline-block;font-weight:600">${b.name} einladen</a>
-          </div>
-        `).join("")}
-        <p style="color:#666;font-size:12px;margin:12px 0 0">Diese Links sind gueltig bis ${expDate}.</p>
+        <h3 style="color:${tierColor};margin:0 0 12px">Pro Bots (#5-#10)</h3>
+        ${renderInviteButtons(proBots)}
       </div>`;
   }
+  if (ultimateBots.length > 0) {
+    inviteHtml += `
+      <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
+        <h3 style="color:${tierColor};margin:0 0 12px">Ultimate Bots (#11-#20)</h3>
+        ${renderInviteButtons(ultimateBots)}
+      </div>`;
+  }
+  inviteHtml += `<p style="color:#666;font-size:12px;margin:12px 0 0">Premium-Bots sind servergebunden und nur fuer den lizenzierten Server ${serverId} gueltig.</p>`;
 
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:16px;overflow:hidden">
@@ -115,9 +175,15 @@ function buildPurchaseEmail(data) {
         <table style="width:100%;border-collapse:collapse;margin:16px 0">
           <tr><td style="color:#888;padding:8px 0">Server ID</td><td style="text-align:right;padding:8px 0;font-family:monospace">${serverId}</td></tr>
           <tr><td style="color:#888;padding:8px 0">Tier</td><td style="text-align:right;padding:8px 0;color:${tierColor};font-weight:700">${tierName}</td></tr>
-          <tr><td style="color:#888;padding:8px 0">Laufzeit</td><td style="text-align:right;padding:8px 0">${months} Monat${months > 1 ? "e" : ""}</td></tr>
+          <tr><td style="color:#888;padding:8px 0">Typ</td><td style="text-align:right;padding:8px 0">${isUpgrade ? "Upgrade" : "Neukauf/Verlaengerung"}</td></tr>
+          <tr><td style="color:#888;padding:8px 0">Laufzeit</td><td style="text-align:right;padding:8px 0">${months > 0 ? `${months} Monat${months > 1 ? "e" : ""}` : "Upgrade (Restlaufzeit bleibt)"}</td></tr>
           <tr><td style="color:#888;padding:8px 0">Gueltig bis</td><td style="text-align:right;padding:8px 0;font-weight:700">${expDate}</td></tr>
+          <tr><td style="color:#888;padding:8px 0">Bezahlt</td><td style="text-align:right;padding:8px 0">${moneyLabel}</td></tr>
         </table>
+        <div style="margin:16px 0 8px">
+          <h3 style="margin:0 0 8px;color:${tierColor};font-size:15px">Was dein Abo bringt</h3>
+          ${tierBenefits}
+        </div>
         ${inviteHtml}
         <p style="color:#888;font-size:13px;margin-top:24px;text-align:center">Support: <a href="https://discord.gg/UeRkfGS43R" style="color:${tierColor}">Discord Server</a></p>
       </div>
@@ -140,6 +206,65 @@ function buildAdminNotification(data) {
         <li>Betrag: ${price}</li>
         <li>Zeit: ${new Date().toLocaleString("de-DE")}</li>
       </ul>
+    </div>`;
+}
+
+function buildInvoiceEmail(data) {
+  const {
+    invoiceId,
+    sessionId,
+    serverId,
+    tierName,
+    tier,
+    months,
+    isUpgrade,
+    amountPaid,
+    currency,
+    issuedAt,
+    expiresAt,
+    customerEmail,
+    customerName,
+  } = data;
+
+  const issueDate = new Date(issuedAt || Date.now()).toLocaleDateString("de-DE");
+  const expDate = expiresAt ? new Date(expiresAt).toLocaleDateString("de-DE") : "-";
+  const amount = formatMoney(amountPaid || 0, currency || "eur");
+  const lineText = isUpgrade
+    ? `Upgrade auf ${tierName} (${tier})`
+    : `${tierName} (${tier}) - ${months} Monat${months > 1 ? "e" : ""}`;
+
+  return `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:700px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:16px;overflow:hidden">
+      <div style="padding:28px 32px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <h1 style="margin:0;font-size:22px">Kaufbeleg</h1>
+          <p style="margin:8px 0 0;color:#A1A1AA;font-size:13px">Discord Radio Bot Premium</p>
+        </div>
+        <div style="text-align:right;min-width:220px">
+          <div style="font-family:JetBrains Mono,monospace;font-size:13px">Beleg-Nr: ${invoiceId}</div>
+          <div style="font-size:13px;color:#A1A1AA;margin-top:4px">Datum: ${issueDate}</div>
+        </div>
+      </div>
+      <div style="padding:24px 32px">
+        <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
+          <tr><td style="color:#888;padding:7px 0">Kunde</td><td style="text-align:right;padding:7px 0">${customerName || "-"}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">E-Mail</td><td style="text-align:right;padding:7px 0">${customerEmail || "-"}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">Server ID</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${serverId}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">Gueltig bis</td><td style="text-align:right;padding:7px 0">${expDate}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">Session</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${sessionId || "-"}</td></tr>
+        </table>
+        <div style="border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden">
+          <div style="display:grid;grid-template-columns:1fr 120px;background:rgba(255,255,255,0.04);padding:10px 14px;font-size:12px;color:#A1A1AA;font-weight:700;letter-spacing:0.04em">
+            <span>Leistung</span><span style="text-align:right">Betrag</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 120px;padding:14px">
+            <span>${lineText}</span><span style="text-align:right;font-weight:700">${amount}</span>
+          </div>
+        </div>
+        <div style="margin-top:14px;font-size:12px;color:#A1A1AA">
+          Hinweis: Automatisch erstellter Kaufbeleg fuer den Premium-Service.
+        </div>
+      </div>
     </div>`;
 }
 
@@ -182,5 +307,6 @@ function buildExpiryEmail(data) {
 export {
   isConfigured, sendMail, getSmtpConfig,
   buildPurchaseEmail, buildAdminNotification,
+  buildInvoiceEmail,
   buildExpiryWarningEmail, buildExpiryEmail,
 };

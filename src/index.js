@@ -21,7 +21,16 @@ import {
 import dotenv from "dotenv";
 import { loadStations, resolveStation, getFallbackKey, filterStationsByTier } from "./stations-store.js";
 import { getGuildStations, addGuildStation, removeGuildStation, countGuildStations, MAX_STATIONS_PER_GUILD } from "./custom-stations.js";
-import { isConfigured as isEmailConfigured, sendMail, getSmtpConfig, buildPurchaseEmail, buildAdminNotification, buildExpiryWarningEmail, buildExpiryEmail } from "./email.js";
+import {
+  isConfigured as isEmailConfigured,
+  sendMail,
+  getSmtpConfig,
+  buildPurchaseEmail,
+  buildAdminNotification,
+  buildInvoiceEmail,
+  buildExpiryWarningEmail,
+  buildExpiryEmail
+} from "./email.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
 import {
   getTier, getTierConfig, getLicense, listLicenses,
@@ -353,6 +362,9 @@ class BotRuntime {
       this.readyAt = Date.now();
       log("INFO", `[${this.config.name}] Eingeloggt als ${this.client.user.tag}`);
       this.updatePresence();
+      this.enforcePremiumGuildScope("startup").catch((err) => {
+        log("ERROR", `[${this.config.name}] Premium-Guild-Scope Pruefung fehlgeschlagen: ${err?.message || err}`);
+      });
       this.cleanupGuildCommands().catch((err) => {
         log("ERROR", `[${this.config.name}] Guild-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
       });
@@ -366,6 +378,16 @@ class BotRuntime {
 
     this.client.on("voiceStateUpdate", (oldState, newState) => {
       this.handleBotVoiceStateUpdate(oldState, newState);
+    });
+
+    this.client.on("guildCreate", (guild) => {
+      this.handleGuildJoin(guild).catch((err) => {
+        log("ERROR", `[${this.config.name}] guildCreate handling error: ${err?.message || err}`);
+      });
+    });
+
+    this.client.on("guildDelete", (guild) => {
+      this.resetGuildRuntimeState(guild?.id);
     });
   }
 
@@ -407,6 +429,60 @@ class BotRuntime {
     }
 
     return this.guildState.get(guildId);
+  }
+
+  isPremiumOnlyBot() {
+    const requiredTier = String(this.config.requiredTier || "free").toLowerCase();
+    return requiredTier !== "free";
+  }
+
+  resetGuildRuntimeState(guildId) {
+    if (!guildId) return;
+    const state = this.guildState.get(guildId);
+    if (state) {
+      state.shouldReconnect = false;
+      this.clearReconnectTimer(state);
+      state.player.stop();
+      this.clearCurrentProcess(state);
+      if (state.connection) {
+        try { state.connection.destroy(); } catch {}
+      }
+      this.guildState.delete(guildId);
+    }
+    clearBotGuild(this.config.id, guildId);
+  }
+
+  async enforceGuildAccessForGuild(guild, source = "scope") {
+    if (!this.isPremiumOnlyBot()) return true;
+    if (!guild?.id) return false;
+
+    const access = this.getGuildAccess(guild.id);
+    if (access.allowed) return true;
+
+    const reason = !access.tierAllowed ? "tier" : "maxBots";
+    log(
+      "INFO",
+      `[${this.config.name}] Verlasse Guild ${guild.name} (${guild.id}) - Zugriff verweigert (${reason}, source=${source}, guildTier=${access.guildTier}, required=${access.requiredTier}, botIndex=${access.botIndex}, maxBots=${access.maxBots})`
+    );
+    this.resetGuildRuntimeState(guild.id);
+    try {
+      await guild.leave();
+    } catch (err) {
+      log("ERROR", `[${this.config.name}] Konnte Guild ${guild.id} nicht verlassen: ${err?.message || err}`);
+    }
+    return false;
+  }
+
+  async enforcePremiumGuildScope(source = "scope") {
+    if (!this.isPremiumOnlyBot()) return;
+    for (const guild of this.client.guilds.cache.values()) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.enforceGuildAccessForGuild(guild, source);
+    }
+  }
+
+  async handleGuildJoin(guild) {
+    await this.enforceGuildAccessForGuild(guild, "join");
   }
 
   clearReconnectTimer(state) {
@@ -1595,6 +1671,11 @@ class BotRuntime {
           continue;
         }
 
+        const allowedForRestore = await this.enforceGuildAccessForGuild(guild, "restore");
+        if (!allowedForRestore) {
+          continue;
+        }
+
         // Fetch channel from API if not in cache
         let channel = guild.channels.cache.get(data.channelId);
         if (!channel) {
@@ -1741,13 +1822,52 @@ function getBotAccessForTier(botConfig, tierConfig) {
   };
 }
 
-function buildInviteLinksForTier(runtimes, tierConfig) {
-  return runtimes
-    .filter((runtime) => getBotAccessForTier(runtime.config, tierConfig).hasAccess)
-    .map((runtime) => ({
+function resolvePublicWebsiteUrl() {
+  const raw = String(process.env.PUBLIC_WEB_URL || "").trim();
+  if (!raw) return "https://discord.gg/UeRkfGS43R";
+  try {
+    return new URL(raw).toString();
+  } catch {
+    return "https://discord.gg/UeRkfGS43R";
+  }
+}
+
+function getBotInviteBucket(botConfig) {
+  const index = Number(botConfig.index || 0);
+  if (index >= 1 && index <= 4) return "free";
+  if (index >= 5 && index <= 10) return "pro";
+  if (index >= 11 && index <= 20) return "ultimate";
+  const requiredTier = String(botConfig.requiredTier || "free").toLowerCase();
+  if (requiredTier === "ultimate") return "ultimate";
+  if (requiredTier === "pro") return "pro";
+  return "free";
+}
+
+function buildInviteOverviewForTier(runtimes, tierConfig) {
+  const overview = {
+    freeWebsiteUrl: resolvePublicWebsiteUrl(),
+    freeInfo: "Radio Bot #1 bis #4 kannst du jederzeit ueber die Webseite einladen.",
+    proBots: [],
+    ultimateBots: [],
+  };
+
+  const sorted = [...runtimes].sort((a, b) => Number(a.config.index || 0) - Number(b.config.index || 0));
+  for (const runtime of sorted) {
+    const access = getBotAccessForTier(runtime.config, tierConfig);
+    if (!access.hasAccess) continue;
+
+    const bucket = getBotInviteBucket(runtime.config);
+    const target = bucket === "ultimate" ? overview.ultimateBots : bucket === "pro" ? overview.proBots : null;
+    if (!target) continue; // free bots are intentionally website-only in purchase mails
+
+    target.push({
+      index: Number(runtime.config.index || 0),
       name: runtime.config.name,
       url: buildInviteUrl(runtime.config),
-    }));
+    });
+  }
+
+  return overview;
 }
 
 async function activatePaidStripeSession(session, runtimes, source = "verify") {
@@ -1810,27 +1930,51 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
 
   if (isEmailConfigured() && customerEmail) {
     const tierConfig = TIERS[cleanTier];
-    const inviteLinks = buildInviteLinksForTier(runtimes, getTierConfig(cleanServerId));
+    const inviteOverview = buildInviteOverviewForTier(runtimes, getTierConfig(cleanServerId));
+    const normalizedMonths = Math.max(0, parseInt(months, 10) || 0);
+    const amountPaid = Number(session.amount_total || 0);
 
     const purchaseHtml = buildPurchaseEmail({
       tier: cleanTier,
       tierName: tierConfig.name,
-      months: Math.max(0, parseInt(months, 10) || 0),
+      months: normalizedMonths,
       serverId: cleanServerId,
       expiresAt: license.expiresAt,
-      inviteLinks,
+      inviteOverview,
+      dashboardUrl: resolvePublicWebsiteUrl(),
+      isUpgrade: upgrade,
+      pricePaid: amountPaid,
+      currency: session.currency || "eur",
     });
     sendMail(customerEmail, `Premium ${tierConfig.name} aktiviert!`, purchaseHtml).catch(() => {});
+
+    const invoiceId = `RB-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sessionId.slice(-8).toUpperCase()}`;
+    const invoiceHtml = buildInvoiceEmail({
+      invoiceId,
+      sessionId,
+      serverId: cleanServerId,
+      tierName: tierConfig.name,
+      tier: cleanTier,
+      months: normalizedMonths,
+      isUpgrade: upgrade,
+      amountPaid,
+      currency: session.currency || "eur",
+      issuedAt: new Date().toISOString(),
+      expiresAt: license.expiresAt,
+      customerEmail,
+      customerName: session.customer_details?.name || "",
+    });
+    sendMail(customerEmail, `Kaufbeleg ${invoiceId} - Radio Bot Premium`, invoiceHtml).catch(() => {});
 
     const adminEmail = getSmtpConfig()?.adminEmail;
     if (adminEmail) {
       const adminHtml = buildAdminNotification({
         tier: cleanTier,
         tierName: tierConfig.name,
-        months: Math.max(0, parseInt(months, 10) || 0),
+        months: normalizedMonths,
         serverId: cleanServerId,
         expiresAt: license.expiresAt,
-        pricePaid: session.amount_total,
+        pricePaid: amountPaid,
       });
       sendMail(adminEmail, `Neuer Premium-Kauf: ${tierConfig.name}`, adminHtml).catch(() => {});
     }
@@ -2220,8 +2364,27 @@ function startWebServer(runtimes) {
       const serverId = requestUrl.searchParams.get("serverId");
       const result = {
         tiers: {
-          pro: { name: "Pro", pricePerMonth: TIERS.pro.pricePerMonth, features: ["192k Bitrate", "10 Bots", "1s Reconnect"] },
-          ultimate: { name: "Ultimate", pricePerMonth: TIERS.ultimate.pricePerMonth, features: ["320k Bitrate", "20 Bots", "0.5s Reconnect"] },
+          pro: {
+            name: "Pro",
+            pricePerMonth: TIERS.pro.pricePerMonth,
+            features: [
+              "192k Bitrate",
+              "Bots #1-#10 (inkl. Pro #5-#10)",
+              "1s Reconnect",
+              "Servergebunden (nur lizenzierte Server-ID)",
+            ]
+          },
+          ultimate: {
+            name: "Ultimate",
+            pricePerMonth: TIERS.ultimate.pricePerMonth,
+            features: [
+              "320k Bitrate",
+              "Bots #1-#20 (inkl. Ultimate #11-#20)",
+              "0.5s Reconnect",
+              "Custom Station URLs",
+              "Servergebunden (nur lizenzierte Server-ID)",
+            ]
+          },
         },
         yearlyDiscount: "12 Monate = 10 bezahlen (2 Monate gratis)",
       };
@@ -2359,6 +2522,16 @@ setInterval(async () => {
     log("ERROR", `[ExpiryCheck] ${err.message}`);
   }
 }, 6 * 60 * 60 * 1000);
+
+// Premium-Bot-Guild-Scope regelmaessig durchsetzen (z.B. nach Lizenzablauf/Downgrade)
+setInterval(() => {
+  for (const runtime of runtimes) {
+    if (!runtime.client.isReady()) continue;
+    runtime.enforcePremiumGuildScope("periodic").catch((err) => {
+      log("ERROR", `[${runtime.config.name}] Periodische Premium-Guild-Scope Pruefung fehlgeschlagen: ${err?.message || err}`);
+    });
+  }
+}, 10 * 60 * 1000);
 
 let shuttingDown = false;
 async function shutdown(signal) {
