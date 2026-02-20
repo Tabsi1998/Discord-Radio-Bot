@@ -1785,6 +1785,46 @@ function startWebServer(runtimes) {
             }
 
             const licInfo = getLicense(serverId);
+
+            // E-Mail senden (async, blockiert nicht die Antwort)
+            if (isEmailConfigured() && session.customer_details?.email) {
+              const customerEmail = session.customer_details.email;
+              const tierConfig = TIERS[tier];
+
+              // Invite-Links fuer den Kaeufer
+              const inviteLinks = runtimes
+                .filter(r => {
+                  const botTier = r.config.requiredTier || "free";
+                  const tierRank = { free: 0, pro: 1, ultimate: 2 };
+                  return (tierRank[botTier] || 0) <= (tierRank[tier] || 0);
+                })
+                .map(r => ({
+                  name: r.config.name,
+                  url: `https://discord.com/oauth2/authorize?client_id=${r.config.clientId}&scope=bot%20applications.commands&permissions=${r.config.permissions || "3145728"}`
+                }));
+
+              // Kauf-E-Mail an Kunden
+              const purchaseHtml = buildPurchaseEmail({
+                tier, tierName: tierConfig.name,
+                months: parseInt(months) || 0,
+                serverId, expiresAt: license.expiresAt,
+                inviteLinks,
+              });
+              sendMail(customerEmail, `Premium ${tierConfig.name} aktiviert!`, purchaseHtml).catch(() => {});
+
+              // Admin-Benachrichtigung
+              const adminEmail = getSmtpConfig()?.adminEmail;
+              if (adminEmail) {
+                const adminHtml = buildAdminNotification({
+                  tier, tierName: tierConfig.name,
+                  months: parseInt(months) || 0,
+                  serverId, expiresAt: license.expiresAt,
+                  pricePaid: session.amount_total,
+                });
+                sendMail(adminEmail, `Neuer Premium-Kauf: ${tierConfig.name}`, adminHtml).catch(() => {});
+              }
+            }
+
             sendJson(res, 200, {
               success: true,
               serverId,
