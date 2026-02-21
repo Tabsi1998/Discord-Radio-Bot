@@ -2596,10 +2596,9 @@ function startWebServer(runtimes) {
           sendJson(res, 200, {
             success: true,
             replay: true,
-            serverId: replayResult.serverId || null,
+            email: replayResult.email || null,
+            licenseKey: replayResult.licenseKey || null,
             tier: replayResult.tier || null,
-            expiresAt: replayResult.expiresAt || null,
-            remainingDays: replayResult.remainingDays || 0,
             message: replayResult.message,
           });
           return;
@@ -2617,10 +2616,11 @@ function startWebServer(runtimes) {
         sendJson(res, 200, {
           success: true,
           replay: !!result.replay,
-          serverId: result.serverId,
+          email: result.email,
+          licenseKey: result.licenseKey,
           tier: result.tier,
           expiresAt: result.expiresAt,
-          remainingDays: result.remainingDays,
+          seats: result.seats,
           message: result.message,
         });
       } catch (err) {
