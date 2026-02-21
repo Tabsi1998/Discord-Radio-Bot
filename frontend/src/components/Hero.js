@@ -55,7 +55,7 @@ function Hero({ stats }) {
       >
         <Radio size={14} color="#00F0FF" />
         <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#00F0FF' }}>
-          Discord Radio Network
+          OmniFM Radio Network
         </span>
       </div>
 
