@@ -122,9 +122,9 @@ async function run() {
         const serverId = await ask("Server ID");
         if (!/^\d{17,22}$/.test(serverId)) { fail("Ungueltige Server ID."); break; }
 
-        const lic = getLicense(serverId);
+        const lic = getServerLicense(serverId);
         if (!lic || lic.expired) { fail("Keine aktive Lizenz."); break; }
-        if (lic.tier === "ultimate") { fail("Bereits Ultimate."); break; }
+        if (lic.plan === "ultimate") { fail("Bereits Ultimate."); break; }
 
         const upgrade = calculateUpgradePrice(serverId, "ultimate");
         if (!upgrade) { fail("Upgrade nicht moeglich."); break; }
@@ -134,7 +134,7 @@ async function run() {
 
         const confirm = (await ask("Upgrade durchfuehren? (j/n)")).toLowerCase();
         if (confirm === "j" || confirm === "y") {
-          upgradeLicense(serverId, "ultimate");
+          upgradeLicenseForServer(serverId, "ultimate");
           ok(`Server ${serverId} auf ULTIMATE upgraded!`);
         }
         break;
