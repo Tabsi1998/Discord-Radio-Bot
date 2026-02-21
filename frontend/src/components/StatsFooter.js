@@ -84,7 +84,7 @@ function StatsFooter({ stats }) {
                 letterSpacing: '0.05em',
               }}
             >
-              RADIO<span style={{ color: '#00F0FF' }}>BOT</span>
+              OMNI<span style={{ color: '#00F0FF' }}>FM</span>
             </span>
           </div>
 

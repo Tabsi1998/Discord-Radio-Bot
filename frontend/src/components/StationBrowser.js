@@ -138,7 +138,7 @@ function StationBrowser({ stations, loading }) {
             Live Station Directory
           </span>
           <h2 data-testid="stations-title" style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 'clamp(24px, 4vw, 40px)', marginTop: 8, marginBottom: 12 }}>
-            Radio Stationen
+            OmniFM Stationen
           </h2>
           <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 500 }}>
             {stations.length} verfügbare Stationen. Klicke zum Vorhören oder nutze <code style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>/play</code> im Discord.
