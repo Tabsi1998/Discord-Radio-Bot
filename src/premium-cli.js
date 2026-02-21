@@ -1,10 +1,34 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import { PLANS } from "./config/plans.js";
 import {
-  TIERS, YEARLY_DISCOUNT_MONTHS,
-  getLicense, listLicenses, addLicense, removeLicense,
-  calculatePrice, calculateUpgradePrice, upgradeLicense,
+  getServerLicense, listLicenses, addLicenseForServer, removeLicense,
+  upgradeLicenseForServer,
 } from "./premium-store.js";
+
+const PRICE_PER_MONTH_CENTS = { free: 0, pro: 299, ultimate: 499 };
+const YEARLY_DISCOUNT_MONTHS = 10;
+
+function calculatePrice(tier, months) {
+  const ppm = PRICE_PER_MONTH_CENTS[tier];
+  if (!ppm) return 0;
+  if (months >= 12) return ppm * YEARLY_DISCOUNT_MONTHS;
+  return ppm * months;
+}
+
+function calculateUpgradePrice(serverId, targetTier) {
+  const lic = getServerLicense(serverId);
+  if (!lic || lic.expired || !lic.active) return null;
+  const oldTier = lic.plan || "free";
+  if (oldTier === targetTier) return null;
+  const oldPpm = PRICE_PER_MONTH_CENTS[oldTier] || 0;
+  const newPpm = PRICE_PER_MONTH_CENTS[targetTier] || 0;
+  const diff = newPpm - oldPpm;
+  if (diff <= 0) return null;
+  const daysLeft = lic.remainingDays || 0;
+  if (daysLeft <= 0) return null;
+  return { oldTier, targetTier, daysLeft, upgradeCost: Math.ceil(diff * daysLeft / 30) };
+}
 
 const rl = createInterface({ input: stdin, output: stdout });
 const ask = (q) => rl.question(`  \x1b[36m?\x1b[0m ${q}: `);
