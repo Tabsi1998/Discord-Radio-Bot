@@ -16,12 +16,33 @@
       "activatedBy": "test",
       "note": "Integration test",
       "contactEmail": "test@example.com"
+    },
+    "lic_mlw7zdmf_0srgf0": {
+      "id": "lic_mlw7zdmf_0srgf0",
+      "plan": "ultimate",
+      "seats": 1,
+      "billingPeriod": "monthly",
+      "active": true,
+      "linkedServerIds": [
+        "9876543210987654321"
+      ],
+      "createdAt": "2026-02-21T11:12:44.727Z",
+      "updatedAt": "2026-02-21T11:12:44.730Z",
+      "expiresAt": "2026-05-21T11:12:44.727Z",
+      "durationMonths": 3,
+      "activatedBy": "test",
+      "note": "E2E Test",
+      "contactEmail": "e2e@test.de"
     }
   },
   "serverEntitlements": {
     "1234567890123456789": {
       "serverId": "1234567890123456789",
       "licenseId": "lic_mlw7uvox_vz9v7u"
+    },
+    "9876543210987654321": {
+      "serverId": "9876543210987654321",
+      "licenseId": "lic_mlw7zdmf_0srgf0"
     }
   },
   "processedSessions": {},
