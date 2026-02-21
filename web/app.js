@@ -33,6 +33,31 @@ var fmt = new Intl.NumberFormat('de-DE');
 function fmtInt(v) { return fmt.format(Number(v) || 0); }
 
 var allStations = [];
+var currentTierFilter = 'all';
+
+function setTierFilter(tier) {
+  currentTierFilter = tier;
+  var buttons = document.querySelectorAll('#tierFilter button');
+  buttons.forEach(function(btn) {
+    var t = btn.getAttribute('data-tier');
+    var isActive = t === tier;
+    btn.style.background = isActive ? (
+      t === 'free' ? 'rgba(57,255,20,0.12)' :
+      t === 'pro' ? 'rgba(255,184,0,0.12)' :
+      'rgba(255,255,255,0.08)'
+    ) : 'transparent';
+    btn.style.borderColor = isActive ? (
+      t === 'free' ? 'rgba(57,255,20,0.5)' :
+      t === 'pro' ? 'rgba(255,184,0,0.5)' :
+      'rgba(255,255,255,0.3)'
+    ) : (
+      t === 'free' ? 'rgba(57,255,20,0.2)' :
+      t === 'pro' ? 'rgba(255,184,0,0.2)' :
+      'rgba(255,255,255,0.15)'
+    );
+  });
+  filterStations(document.getElementById('stationSearch').value);
+}
 
 // --- Navbar scroll + mobile toggle ---
 window.addEventListener('scroll', function() {
