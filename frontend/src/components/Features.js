@@ -5,7 +5,7 @@ const features = [
   {
     icon: Clock,
     title: '24/7 Streaming',
-    desc: 'Nonstop Radio, rund um die Uhr. Dein Server schläft nie.',
+    desc: 'Nonstop Musik, rund um die Uhr. Dein Server schlaeft nie.',
     color: '#00F0FF',
   },
   {
