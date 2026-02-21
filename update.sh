@@ -119,11 +119,11 @@ count_bots() {
 }
 
 prompt_tier() {
-  echo ""
-  echo -e "  ${DIM}Tier-Optionen:${NC}"
-  echo -e "    ${GREEN}free${NC}     = Jeder kann einladen (Standard)"
-  echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten"
-  echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten"
+  echo "" >&2
+  echo -e "  ${DIM}Tier-Optionen:${NC}" >&2
+  echo -e "    ${GREEN}free${NC}     = Jeder kann einladen (Standard)" >&2
+  echo -e "    ${YELLOW}pro${NC}      = Nur Pro-Abonnenten" >&2
+  echo -e "    ${CYAN}ultimate${NC} = Nur Ultimate-Abonnenten" >&2
   local tier
   tier="$(prompt_default "Tier (free/pro/ultimate)" "${1:-free}")"
   case "$tier" in
