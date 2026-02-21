@@ -27,6 +27,7 @@ var COMMANDS = [
   { name: '/addstation',    args: '<key> <name> <url>',   desc: '[Ultimate] Eigene Station hinzufügen' },
   { name: '/removestation', args: '<key>',                desc: '[Ultimate] Eigene Station entfernen' },
   { name: '/mystations',    args: '',                     desc: '[Ultimate] Zeigt deine Custom Stationen' },
+  { name: '/license',       args: '<activate|info|remove>', desc: 'Lizenz verwalten: aktivieren, anzeigen oder entfernen' },
 ];
 
 var fmt = new Intl.NumberFormat('de-DE');
