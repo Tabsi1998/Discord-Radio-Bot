@@ -143,7 +143,9 @@ async function run() {
       // --- Entfernen ---
       case "4": {
         const serverId = await ask("Server ID");
-        if (removeLicense(serverId)) {
+        const lic = getServerLicense(serverId);
+        if (lic && lic.id) {
+          removeLicense(lic.id);
           ok(`Lizenz fuer ${serverId} entfernt.`);
         } else {
           fail("Keine Lizenz gefunden.");
