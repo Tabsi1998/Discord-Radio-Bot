@@ -82,8 +82,15 @@ prompt_optional() {
   printf "%s" "$(echo "$val" | xargs)"
 }
 
+strip_ansi() {
+  # Entfernt alle ANSI Escape-Codes aus einem String
+  printf "%s" "$1" | sed 's/\x1b\[[0-9;]*m//g; s/\x1b\[[0-9;]*[a-zA-Z]//g; s/\033\[[0-9;]*m//g'
+}
+
 write_env_line() {
-  local key="$1" value="$2"
+  local key="$1" value
+  # ANSI-Codes aus dem Wert entfernen bevor er geschrieben wird
+  value="$(strip_ansi "$2")"
   if grep -q "^${key}=" .env 2>/dev/null; then
     sed -i "s|^${key}=.*|${key}=${value}|" .env
   else
