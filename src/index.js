@@ -1654,7 +1654,7 @@ class BotRuntime {
         const stationTier = stations.stations[key]?.tier || "free";
         const tierRank = { free: 0, pro: 1, ultimate: 2 };
         if ((tierRank[stationTier] || 0) > (tierRank[guildTier] || 0)) {
-          await interaction.reply({ content: `Station "${stations.stations[key].name}" erfordert ${stationTier.toUpperCase()}. Dein Server: ${guildTier.toUpperCase()}.`, ephemeral: true });
+          await interaction.reply(premiumStationEmbed(stations.stations[key].name, stationTier));
           return;
         }
       } else {
@@ -1667,7 +1667,7 @@ class BotRuntime {
           customUrl = customStations[customKey].url;
           stations.stations[key] = { name: customStations[customKey].name, url: customUrl, tier: "ultimate" };
         } else if (customKey) {
-          await interaction.reply({ content: "Custom Stationen erfordern ULTIMATE.", ephemeral: true });
+          await interaction.reply(customStationEmbed());
           return;
         } else {
           await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
