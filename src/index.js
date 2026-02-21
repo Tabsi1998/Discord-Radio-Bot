@@ -883,7 +883,7 @@ class BotRuntime {
     if (activeStations.length === 0) {
       return {
         type: ActivityType.Listening,
-        name: publicUrl ? `/play | ${publicUrl}` : "/play zum Starten"
+        name: publicUrl ? `${BRAND.name} | /play | ${publicUrl}` : `${BRAND.name} | /play`
       };
     }
 
