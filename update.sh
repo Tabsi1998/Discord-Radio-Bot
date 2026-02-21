@@ -39,6 +39,13 @@ fail()  { echo -e "  ${RED}[FAIL]${NC} $*"; }
 APP_DIR="${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$APP_DIR"
 
+# .env sanitizer: ANSI-Codes entfernen falls vorhanden
+if [[ -f .env ]] && grep -qP '\x1b\[' .env 2>/dev/null; then
+  warn ".env enthaelt ANSI-Codes - wird bereinigt..."
+  sed -i 's/\x1b\[[0-9;]*m//g; s/\x1b\[[0-9;]*[a-zA-Z]//g' .env
+  ok ".env bereinigt."
+fi
+
 REMOTE="${UPDATE_REMOTE:-origin}"
 BRANCH="${UPDATE_BRANCH:-main}"
 
