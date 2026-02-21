@@ -334,13 +334,14 @@
   },
   {
     "id": "pro_tech_11",
-    "name": "Underground Sessions",
-    "streamURL": "https://ice4.somafm.com/earwaves-128-mp3",
+    "name": "Suburbs of Goa",
+    "streamURL": "https://ice1.somafm.com/suburbsofgoa-128-mp3",
     "requiredPlan": "pro",
     "bitrate": 128,
     "tags": [
-      "underground",
-      "electronic"
+      "techno",
+      "deep",
+      "psytrance"
     ]
   },
   {

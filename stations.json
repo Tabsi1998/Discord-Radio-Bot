@@ -65,7 +65,7 @@
     },
     "bluesradio": {
       "name": "Blues Radio",
-      "url": "https://icecast.omroep.nl/radio6-blues-bb-mp3",
+      "url": "https://stream.laut.fm/blues",
       "tier": "free"
     },
     "jazzradio": {
@@ -259,8 +259,8 @@
       "tier": "pro"
     },
     "pro_tech_11": {
-      "name": "Underground Sessions",
-      "url": "https://ice4.somafm.com/earwaves-128-mp3",
+      "name": "Suburbs of Goa",
+      "url": "https://ice1.somafm.com/suburbsofgoa-128-mp3",
       "tier": "pro"
     },
     "pro_tech_12": {
