@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,57 @@ function sanitizeKey(raw) {
   return String(raw || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").substring(0, 40);
 }
 
+function isPrivateOrLocalHost(hostnameInput) {
+  const hostname = String(hostnameInput || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!hostname) return true;
+  if (hostname === "localhost" || hostname === "0.0.0.0") return true;
+  if (hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".lan") || hostname.endsWith(".home")) {
+    return true;
+  }
+
+  const ipVersion = net.isIP(hostname);
+  if (ipVersion === 4) {
+    const parts = hostname.split(".").map((p) => Number.parseInt(p, 10));
+    if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return false;
+    const [a, b] = parts;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    return false;
+  }
+
+  if (ipVersion === 6) {
+    if (hostname === "::1" || hostname === "::") return true;
+    if (hostname.startsWith("fe80:")) return true; // link-local
+    if (hostname.startsWith("fc") || hostname.startsWith("fd")) return true; // unique local
+    if (hostname.startsWith("::ffff:127.")) return true; // mapped loopback
+  }
+
+  return false;
+}
+
+function validateCustomStationUrl(rawUrl) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(String(rawUrl || "").trim());
+  } catch {
+    return { ok: false, error: "URL-Format ungueltig." };
+  }
+  if (!/^https?:$/i.test(parsedUrl.protocol)) {
+    return { ok: false, error: "URL muss mit http:// oder https:// beginnen." };
+  }
+  if (parsedUrl.username || parsedUrl.password) {
+    return { ok: false, error: "URL mit Benutzername/Passwort sind nicht erlaubt." };
+  }
+  if (isPrivateOrLocalHost(parsedUrl.hostname)) {
+    return { ok: false, error: "Lokale/private Hosts sind nicht erlaubt." };
+  }
+  return { ok: true, url: parsedUrl.toString() };
+}
+
 function getGuildStations(guildId) {
   const data = load();
   return data[String(guildId)] || {};
@@ -98,11 +150,13 @@ function addGuildStation(guildId, key, name, url) {
   if (!sKey) return { error: "Ungueltiger Station-Key." };
   if (!name || !name.trim()) return { error: "Name darf nicht leer sein." };
   if (!url || !url.trim()) return { error: "URL darf nicht leer sein." };
-  if (!/^https?:\/\//i.test(url)) return { error: "URL muss mit http:// oder https:// beginnen." };
+
+  const validation = validateCustomStationUrl(url);
+  if (!validation.ok) return { error: validation.error };
 
   data[gid][sKey] = {
     name: name.trim().substring(0, 100),
-    url: url.trim(),
+    url: validation.url,
     addedAt: new Date().toISOString(),
   };
   save(data);
@@ -135,6 +189,7 @@ function clearGuildStations(guildId) {
 
 export {
   MAX_STATIONS_PER_GUILD,
+  validateCustomStationUrl,
   getGuildStations, addGuildStation, removeGuildStation,
   listGuildStations, countGuildStations, clearGuildStations,
 };

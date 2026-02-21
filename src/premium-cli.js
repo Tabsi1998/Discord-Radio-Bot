@@ -1,10 +1,15 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import dotenv from "dotenv";
 import { PLANS } from "./config/plans.js";
 import {
   getServerLicense, listLicenses, addLicenseForServer, removeLicense,
   upgradeLicenseForServer,
 } from "./premium-store.js";
+import { isConfigured as isEmailConfigured, sendMail } from "./email.js";
+import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
+
+dotenv.config();
 
 const PRICE_PER_MONTH_CENTS = { free: 0, pro: 299, ultimate: 499 };
 const YEARLY_DISCOUNT_MONTHS = 10;
@@ -36,6 +41,213 @@ const ok = (m) => console.log(`  \x1b[32m[OK]\x1b[0m ${m}`);
 const info = (m) => console.log(`  \x1b[36m[INFO]\x1b[0m ${m}`);
 const fail = (m) => console.log(`  \x1b[31m[FAIL]\x1b[0m ${m}`);
 const centsToEur = (c) => (c / 100).toFixed(2).replace(".", ",") + " EUR";
+const SUPPORT_URL = "https://discord.gg/UeRkfGS43R";
+
+function escapeHtml(input) {
+  return String(input || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeLicense(license, fallbackId = null) {
+  if (!license) return null;
+  const expiresAt = license.expiresAt || null;
+  const expired = expiresAt ? new Date(expiresAt) <= new Date() : false;
+  const remainingDays = expiresAt ? Math.max(0, Math.ceil((new Date(expiresAt) - new Date()) / 86400000)) : null;
+  return {
+    ...license,
+    id: license.id || fallbackId || null,
+    expired: typeof license.expired === "boolean" ? license.expired : expired,
+    remainingDays: Number.isFinite(license.remainingDays) ? license.remainingDays : remainingDays,
+    linkedServerIds: Array.isArray(license.linkedServerIds) ? [...license.linkedServerIds] : [],
+  };
+}
+
+function resolvePublicWebsiteUrl() {
+  const raw = String(process.env.PUBLIC_WEB_URL || "").trim();
+  if (!raw) return SUPPORT_URL;
+  try {
+    return new URL(raw).toString();
+  } catch {
+    return SUPPORT_URL;
+  }
+}
+
+function getLicenseByInput(input) {
+  const query = String(input || "").trim();
+  if (!query) return null;
+
+  if (/^\d{17,22}$/.test(query)) {
+    return normalizeLicense(getServerLicense(query));
+  }
+
+  const all = listLicenses();
+  if (all[query]) return normalizeLicense(all[query], query);
+
+  const lower = query.toLowerCase();
+  for (const [id, license] of Object.entries(all)) {
+    if (id.toLowerCase() === lower) return normalizeLicense(license, id);
+  }
+
+  return null;
+}
+
+function getBotInviteBucket(botConfig) {
+  const index = Number(botConfig.index || 0);
+  if (index >= 1 && index <= 4) return "free";
+  if (index >= 5 && index <= 10) return "pro";
+  if (index >= 11 && index <= 20) return "ultimate";
+  const requiredTier = String(botConfig.requiredTier || "free").toLowerCase();
+  if (requiredTier === "ultimate") return "ultimate";
+  if (requiredTier === "pro") return "pro";
+  return "free";
+}
+
+function buildInviteOverviewForTier(botConfigs, tier) {
+  const normalizedTier = String(tier || "free").toLowerCase();
+  const hasPro = normalizedTier === "pro" || normalizedTier === "ultimate";
+  const hasUltimate = normalizedTier === "ultimate";
+  const overview = {
+    freeWebsiteUrl: resolvePublicWebsiteUrl(),
+    proBots: [],
+    ultimateBots: [],
+  };
+
+  const sorted = [...botConfigs].sort((a, b) => Number(a.index || 0) - Number(b.index || 0));
+  const seenPro = new Set();
+  const seenUltimate = new Set();
+
+  for (const botConfig of sorted) {
+    const index = Number(botConfig.index || 0);
+    if (hasPro && index >= 5 && index <= 10 && !seenPro.has(index)) {
+      seenPro.add(index);
+      overview.proBots.push({ index, name: botConfig.name, url: buildInviteUrl(botConfig) });
+      continue;
+    }
+
+    if (hasUltimate && index >= 11 && index <= 20 && !seenUltimate.has(index)) {
+      seenUltimate.add(index);
+      overview.ultimateBots.push({ index, name: botConfig.name, url: buildInviteUrl(botConfig) });
+      continue;
+    }
+
+    const bucket = getBotInviteBucket(botConfig);
+    if (bucket !== "pro" && bucket !== "ultimate") continue;
+    if ((bucket === "pro" && !hasPro) || (bucket === "ultimate" && !hasUltimate)) continue;
+    const seen = bucket === "ultimate" ? seenUltimate : seenPro;
+    if (seen.has(index)) continue;
+    seen.add(index);
+    if (bucket === "pro") {
+      overview.proBots.push({ index, name: botConfig.name, url: buildInviteUrl(botConfig) });
+    } else {
+      overview.ultimateBots.push({ index, name: botConfig.name, url: buildInviteUrl(botConfig) });
+    }
+  }
+
+  return overview;
+}
+
+function getInviteOverviewForTier(tier) {
+  try {
+    const botConfigs = loadBotConfigs(process.env);
+    return buildInviteOverviewForTier(botConfigs, tier);
+  } catch {
+    return { freeWebsiteUrl: resolvePublicWebsiteUrl(), proBots: [], ultimateBots: [] };
+  }
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
+}
+
+function renderInviteList(title, bots) {
+  if (!bots.length) {
+    return `
+      <h3 style="margin:18px 0 8px;font-size:15px;color:#A1A1AA">${escapeHtml(title)}</h3>
+      <p style="margin:0;color:#52525B;font-size:12px">Keine direkten Bot-Links verfuegbar.</p>`;
+  }
+
+  const rows = bots
+    .map((bot) => `<li style="margin:6px 0"><a href="${escapeHtml(bot.url)}" style="color:#00F0FF;text-decoration:none">Bot #${escapeHtml(bot.index)} - ${escapeHtml(bot.name || "Bot")}</a></li>`)
+    .join("");
+
+  return `
+    <h3 style="margin:18px 0 8px;font-size:15px;color:#A1A1AA">${escapeHtml(title)}</h3>
+    <ul style="margin:0;padding-left:18px;color:#A1A1AA;line-height:1.6">${rows}</ul>`;
+}
+
+function buildResendEmailHtml({ license, tierName, inviteOverview }) {
+  const expDate = license.expiresAt
+    ? new Date(license.expiresAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "Unbegrenzt";
+  const tier = String(license.plan || "pro").toLowerCase();
+  const tierColor = tier === "ultimate" ? "#BD00FF" : "#FFB800";
+  const seats = Number(license.seats || 1);
+  const linkedServerIds = Array.isArray(license.linkedServerIds) ? license.linkedServerIds : [];
+
+  const proList = renderInviteList("Pro Bots (#5-#10)", inviteOverview.proBots || []);
+  const ultimateList = tier === "ultimate"
+    ? renderInviteList("Ultimate Bots (#11-#20)", inviteOverview.ultimateBots || [])
+    : "";
+
+  return `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:680px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:16px;overflow:hidden">
+      <div style="background:linear-gradient(135deg,${tierColor}22,transparent);padding:32px;text-align:center">
+        <h1 style="font-size:24px;margin:0;color:${tierColor}">OmniFM ${escapeHtml(tierName)} - Lizenzdaten (Resend)</h1>
+      </div>
+      <div style="padding:24px 32px">
+        <div style="margin:0 0 18px;padding:18px;background:#111;border-radius:12px;border:1px solid ${tierColor}40;text-align:center">
+          <p style="margin:0 0 6px;color:#A1A1AA;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;font-weight:700">Lizenz-Key</p>
+          <p style="margin:0;font-size:24px;font-weight:800;font-family:'Courier New',monospace;color:${tierColor}">${escapeHtml(license.id || "-")}</p>
+        </div>
+
+        <table style="width:100%;border-collapse:collapse;margin:10px 0 18px">
+          <tr><td style="color:#888;padding:7px 0">Plan</td><td style="text-align:right;padding:7px 0;color:${tierColor};font-weight:700">${escapeHtml(tierName)}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">Server-Slots</td><td style="text-align:right;padding:7px 0">${escapeHtml(linkedServerIds.length)}/${escapeHtml(seats)}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">Gueltig bis</td><td style="text-align:right;padding:7px 0">${escapeHtml(expDate)}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">Kontakt-E-Mail</td><td style="text-align:right;padding:7px 0">${escapeHtml(license.contactEmail || "-")}</td></tr>
+        </table>
+
+        <div style="padding:14px;background:#1a1a1a;border-radius:12px;border:1px solid rgba(255,255,255,0.08)">
+          <p style="margin:0 0 8px;color:#A1A1AA">Server zuweisen:</p>
+          <ol style="margin:0;padding-left:20px;color:#A1A1AA;line-height:1.8">
+            <li>Im Zielserver: <code>/license activate ${escapeHtml(license.id || "")}</code></li>
+            <li>Status pruefen: <code>/license info</code></li>
+            <li>Invite-Links unten verwenden.</li>
+          </ol>
+        </div>
+
+        ${proList}
+        ${ultimateList}
+
+        <p style="margin:18px 0 0;color:#A1A1AA;font-size:12px">
+          Weitere Links: <a href="${escapeHtml(inviteOverview.freeWebsiteUrl || resolvePublicWebsiteUrl())}" style="color:#00F0FF;text-decoration:none">${escapeHtml(inviteOverview.freeWebsiteUrl || resolvePublicWebsiteUrl())}</a><br/>
+          Support: <a href="${escapeHtml(SUPPORT_URL)}" style="color:#00F0FF;text-decoration:none">${escapeHtml(SUPPORT_URL)}</a>
+        </p>
+      </div>
+    </div>`;
+}
+
+function printInviteOverviewToConsole(overview, tier) {
+  const isUltimate = String(tier || "").toLowerCase() === "ultimate";
+  const proBots = Array.isArray(overview.proBots) ? overview.proBots : [];
+  const ultimateBots = Array.isArray(overview.ultimateBots) ? overview.ultimateBots : [];
+
+  info("Invite-Links (Copy/Paste):");
+  for (const bot of proBots) {
+    console.log(`    PRO #${bot.index} - ${bot.name}: ${bot.url}`);
+  }
+  if (isUltimate) {
+    for (const bot of ultimateBots) {
+      console.log(`    ULTIMATE #${bot.index} - ${bot.name}: ${bot.url}`);
+    }
+  }
+  console.log(`    Website: ${overview.freeWebsiteUrl || resolvePublicWebsiteUrl()}`);
+  console.log(`    Support: ${SUPPORT_URL}`);
+}
 
 function printHeader() {
   console.log("");
@@ -60,7 +272,8 @@ async function wizardMenu() {
   console.log("    6) Server pruefen");
   console.log("    7) Preisrechner");
   console.log("    8) Tier-Infos");
-  console.log("    9) Beenden");
+  console.log("    9) Lizenz-Mail + Invite-Links erneut senden");
+  console.log("    10) Beenden");
   console.log("");
   return ask("Aktion waehlen");
 }
@@ -226,7 +439,72 @@ async function run() {
         break;
       }
 
+      // --- Resend Lizenz-Mail ---
       case "9":
+      case "resend": {
+        if (!isEmailConfigured()) {
+          fail("SMTP ist nicht konfiguriert. Nutze zuerst: ./update.sh --email-settings");
+          break;
+        }
+
+        const query = await ask("Lizenz-ID oder Server-ID");
+        const license = getLicenseByInput(query);
+        if (!license || !license.id) {
+          fail("Lizenz nicht gefunden.");
+          break;
+        }
+
+        if (!["pro", "ultimate"].includes(String(license.plan || "").toLowerCase())) {
+          fail("Nur Pro/Ultimate Lizenzen koennen erneut versendet werden.");
+          break;
+        }
+
+        const tier = String(license.plan || "").toLowerCase();
+        const tierName = PLANS[tier]?.name || tier;
+        const defaultEmail = String(license.contactEmail || "").trim().toLowerCase();
+        const emailPrompt = defaultEmail
+          ? `Ziel-E-Mail (Enter fuer ${defaultEmail})`
+          : "Ziel-E-Mail";
+        const rawEmail = (await ask(emailPrompt)).trim().toLowerCase();
+        const targetEmail = rawEmail || defaultEmail;
+
+        if (!targetEmail) {
+          fail("Keine Ziel-E-Mail angegeben.");
+          break;
+        }
+        if (!isValidEmail(targetEmail)) {
+          fail("Ungueltige E-Mail-Adresse.");
+          break;
+        }
+
+        if (license.expired) {
+          const continueExpired = (await ask("Lizenz ist abgelaufen. Trotzdem E-Mail senden? (j/n)")).trim().toLowerCase();
+          if (continueExpired !== "j" && continueExpired !== "y") {
+            info("Abgebrochen.");
+            break;
+          }
+        }
+
+        const inviteOverview = getInviteOverviewForTier(tier);
+        const html = buildResendEmailHtml({
+          license,
+          tierName,
+          inviteOverview,
+        });
+
+        const subject = `OmniFM ${tierName} - Lizenz-Key & Invite-Links (Resend)`;
+        const result = await sendMail(targetEmail, subject, html);
+        if (result?.success) {
+          ok(`Resend erfolgreich an ${targetEmail} gesendet.`);
+          info(`Lizenz-Key: ${license.id}`);
+          printInviteOverviewToConsole(inviteOverview, tier);
+        } else {
+          fail(`Resend fehlgeschlagen: ${result?.error || "Unbekannter Fehler"}`);
+        }
+        break;
+      }
+
+      case "10":
       case "q":
       case "exit":
         return 0;

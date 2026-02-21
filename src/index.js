@@ -38,7 +38,7 @@ import {
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
 import { buildCommandBuilders } from "./commands.js";
 import { loadStations, resolveStation, filterStationsByTier, getFallbackKey } from "./stations-store.js";
-import { getGuildStations, addGuildStation, removeGuildStation, countGuildStations, MAX_STATIONS_PER_GUILD } from "./custom-stations.js";
+import { getGuildStations, addGuildStation, removeGuildStation, countGuildStations, MAX_STATIONS_PER_GUILD, validateCustomStationUrl } from "./custom-stations.js";
 
 dotenv.config();
 
@@ -47,11 +47,29 @@ dotenv.config();
 // ============================================================
 setLicenseProvider(getServerLicense);
 
-const PRICE_PER_MONTH_CENTS = { free: 0, pro: 299, ultimate: 499 };
+const YEARLY_DISCOUNT_MONTHS = 10;
+const SEAT_OPTIONS = [1, 2, 3, 5];
+const SEAT_PRICING_CENTS = {
+  pro: { 1: 299, 2: 549, 3: 749, 5: 1149 },
+  ultimate: { 1: 499, 2: 799, 3: 1099, 5: 1699 },
+};
+
+function normalizeSeats(rawSeats) {
+  const seats = Number(rawSeats);
+  return SEAT_OPTIONS.includes(seats) ? seats : 1;
+}
+
+function getSeatPricePerMonthCents(tier, seats = 1) {
+  if (tier === "free") return 0;
+  const pricing = SEAT_PRICING_CENTS[tier];
+  if (!pricing) return 0;
+  const normalizedSeats = normalizeSeats(seats);
+  return pricing[normalizedSeats] || pricing[1] || 0;
+}
 
 const TIERS = Object.fromEntries(
   Object.entries(PLANS).map(([key, plan]) => [key, {
-    ...plan, tier: key, pricePerMonth: PRICE_PER_MONTH_CENTS[key] || 0,
+    ...plan, tier: key, pricePerMonth: getSeatPricePerMonthCents(key, 1),
   }])
 );
 
@@ -80,11 +98,16 @@ function upgradeLicense(serverId, newTier) {
   return upgradeLicenseForServer(serverId, newTier);
 }
 
-function calculatePrice(tier, months) {
-  const ppm = PRICE_PER_MONTH_CENTS[tier];
+function calculatePrice(tier, months, seats = 1) {
+  const ppm = getSeatPricePerMonthCents(tier, seats);
   if (!ppm) return 0;
-  if (months >= 12) return ppm * 10;
-  return ppm * months;
+  const durationMonths = Math.max(1, parseInt(months, 10) || 1);
+  if (durationMonths >= 12) {
+    const fullYears = Math.floor(durationMonths / 12);
+    const remaining = durationMonths % 12;
+    return (fullYears * YEARLY_DISCOUNT_MONTHS * ppm) + (remaining * ppm);
+  }
+  return ppm * durationMonths;
 }
 
 function calculateUpgradePrice(serverId, targetTier) {
@@ -95,11 +118,25 @@ function calculateUpgradePrice(serverId, targetTier) {
   if (!planAtLeast(targetTier, oldTier)) return null;
   const daysLeft = lic.remainingDays || 0;
   if (daysLeft <= 0) return null;
-  const oldPpm = PRICE_PER_MONTH_CENTS[oldTier] || 0;
-  const newPpm = PRICE_PER_MONTH_CENTS[targetTier] || 0;
+  const seats = normalizeSeats(lic.seats || 1);
+  const oldPpm = getSeatPricePerMonthCents(oldTier, seats);
+  const newPpm = getSeatPricePerMonthCents(targetTier, seats);
   const diff = newPpm - oldPpm;
   if (diff <= 0) return null;
-  return { oldTier, targetTier, daysLeft, upgradeCost: Math.ceil(diff * daysLeft / 30) };
+  return { oldTier, targetTier, daysLeft, seats, upgradeCost: Math.ceil(diff * daysLeft / 30) };
+}
+
+function seatPricingInEuro(tier) {
+  const out = {};
+  for (const seats of SEAT_OPTIONS) {
+    const cents = getSeatPricePerMonthCents(tier, seats);
+    if (cents > 0) out[seats] = Number((cents / 100).toFixed(2));
+  }
+  return out;
+}
+
+function formatEuroCentsDe(cents) {
+  return (Number(cents || 0) / 100).toFixed(2).replace(".", ",");
 }
 
 function listLicenses() {
@@ -258,6 +295,89 @@ function resolveCheckoutReturnBase(returnUrl, publicUrl, req) {
 
   const safePath = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
   return `${parsed.origin}${safePath}`;
+}
+
+function buildAllowedApiOrigins(publicUrl, req) {
+  const configured = String(process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const candidates = [
+    ...configured,
+    publicUrl,
+    getRequestOrigin(req),
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+  ];
+
+  const allowed = new Set();
+  for (const candidate of candidates) {
+    const origin = toOrigin(candidate);
+    if (origin) allowed.add(origin);
+  }
+  return allowed;
+}
+
+function applyCors(req, res, publicUrl) {
+  const originHeader = String(req.headers.origin || "").trim();
+  const allowedOrigins = buildAllowedApiOrigins(publicUrl, req);
+  const normalizedOrigin = toOrigin(originHeader);
+  const hasOriginHeader = originHeader.length > 0;
+
+  let originAllowed = !hasOriginHeader;
+  if (hasOriginHeader && normalizedOrigin && allowedOrigins.has(normalizedOrigin)) {
+    originAllowed = true;
+    res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
+    res.setHeader("Vary", "Origin");
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token");
+  return originAllowed;
+}
+
+function getAdminApiToken() {
+  return String(process.env.API_ADMIN_TOKEN || process.env.ADMIN_API_TOKEN || "").trim();
+}
+
+function isAdminApiRequest(req) {
+  const configuredToken = getAdminApiToken();
+  if (!configuredToken) return false;
+
+  const headerToken = String(req.headers["x-admin-token"] || "").trim();
+  if (headerToken && headerToken === configuredToken) return true;
+
+  const auth = String(req.headers.authorization || "").trim();
+  if (/^Bearer\s+/i.test(auth)) {
+    const bearer = auth.replace(/^Bearer\s+/i, "").trim();
+    if (bearer && bearer === configuredToken) return true;
+  }
+
+  return false;
+}
+
+function sanitizeLicenseForApi(license, includeSensitive = false) {
+  if (!license) return null;
+
+  const safe = {
+    tier: license.plan || "free",
+    plan: license.plan || "free",
+    seats: normalizeSeats(license.seats || 1),
+    active: Boolean(license.active) && !Boolean(license.expired),
+    expired: Boolean(license.expired),
+    expiresAt: license.expiresAt || null,
+    remainingDays: Number.isFinite(license.remainingDays) ? license.remainingDays : null,
+  };
+
+  if (includeSensitive) {
+    safe.id = license.id || null;
+    safe.linkedServerIds = Array.isArray(license.linkedServerIds) ? [...license.linkedServerIds] : [];
+  }
+
+  return safe;
 }
 
 function buildApiCommands() {
@@ -1033,51 +1153,60 @@ class BotRuntime {
     });
   }
 
-  async connectToVoice(interaction, targetChannel = null) {
+  hasGuildManagePermissions(interaction) {
+    if (!interaction) return false;
+    if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+    return interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) || false;
+  }
+
+  async respondInteraction(interaction, payload) {
+    if (interaction.deferred || interaction.replied) {
+      const editPayload = { ...payload };
+      delete editPayload.ephemeral;
+      if (!editPayload.content && !editPayload.embeds) {
+        editPayload.content = "Es ist ein Fehler aufgetreten.";
+      }
+      return interaction.editReply(editPayload);
+    }
+    return interaction.reply(payload);
+  }
+
+  async connectToVoice(interaction, targetChannel = null, { silent = false } = {}) {
+    const sendError = async (message) => {
+      if (!silent) {
+        await this.respondInteraction(interaction, { content: message, ephemeral: true });
+      }
+      return { connection: null, error: message };
+    };
+
     const member = interaction.member;
     const channel = targetChannel || member?.voice?.channel;
     if (!channel) {
-      await interaction.reply({
-        content: "Waehle einen Voice-Channel im Command oder trete selbst einem Voice-Channel bei.",
-        ephemeral: true
-      });
-      return null;
+      return sendError("Waehle einen Voice-Channel im Command oder trete selbst einem Voice-Channel bei.");
     }
     if (!channel.isVoiceBased()) {
-      await interaction.reply({ content: "Bitte waehle einen Voice- oder Stage-Channel.", ephemeral: true });
-      return null;
+      return sendError("Bitte waehle einen Voice- oder Stage-Channel.");
     }
     if (channel.guildId !== interaction.guildId) {
-      await interaction.reply({ content: "Der ausgewaehlte Channel ist nicht in diesem Server.", ephemeral: true });
-      return null;
+      return sendError("Der ausgewaehlte Channel ist nicht in diesem Server.");
     }
 
     const guild = interaction.guild;
     if (!guild) {
-      await interaction.reply({ content: "Guild konnte nicht ermittelt werden.", ephemeral: true });
-      return null;
+      return sendError("Guild konnte nicht ermittelt werden.");
     }
 
     const me = await this.resolveBotMember(guild);
     if (!me) {
-      await interaction.reply({ content: "Bot-Mitglied im Server konnte nicht geladen werden.", ephemeral: true });
-      return null;
+      return sendError("Bot-Mitglied im Server konnte nicht geladen werden.");
     }
 
     const perms = channel.permissionsFor(me);
     if (!perms?.has(PermissionFlagsBits.Connect)) {
-      await interaction.reply({
-        content: `Ich habe keine Berechtigung fuer ${channel.toString()} (Connect fehlt).`,
-        ephemeral: true
-      });
-      return null;
+      return sendError(`Ich habe keine Berechtigung fuer ${channel.toString()} (Connect fehlt).`);
     }
     if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
-      await interaction.reply({
-        content: `Ich habe keine Berechtigung fuer ${channel.toString()} (Speak fehlt).`,
-        ephemeral: true
-      });
-      return null;
+      return sendError(`Ich habe keine Berechtigung fuer ${channel.toString()} (Speak fehlt).`);
     }
 
     const guildId = interaction.guildId;
@@ -1087,7 +1216,7 @@ class BotRuntime {
     if (state.connection) {
       const currentChannelId = state.connection.joinConfig?.channelId;
       if (currentChannelId === channel.id) {
-        return state.connection;
+        return { connection: state.connection, error: null };
       }
 
       state.shouldReconnect = false;
@@ -1109,8 +1238,7 @@ class BotRuntime {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
       connection.destroy();
-      await interaction.reply({ content: "Konnte dem Voice-Channel nicht beitreten.", ephemeral: true });
-      return null;
+      return sendError("Konnte dem Voice-Channel nicht beitreten.");
     }
 
     connection.subscribe(state.player);
@@ -1120,7 +1248,7 @@ class BotRuntime {
     this.clearReconnectTimer(state);
 
     this.attachConnectionHandlers(guildId, connection);
-    return connection;
+    return { connection, error: null };
   }
 
   async tryReconnect(guildId) {
@@ -1632,10 +1760,27 @@ class BotRuntime {
     if (interaction.commandName === "license") {
       const sub = interaction.options.getSubcommand();
       const guildId = interaction.guildId;
+      const requiresManagePermission = sub === "activate" || sub === "remove";
+      if (requiresManagePermission && !this.hasGuildManagePermissions(interaction)) {
+        await interaction.reply({
+          content: "Du brauchst die Berechtigung `Server verwalten` um Lizenz-Aktionen auszufuehren.",
+          ephemeral: true
+        });
+        return;
+      }
 
       if (sub === "activate") {
-        const key = interaction.options.getString("key").trim().toUpperCase();
-        const lic = getLicenseById(key);
+        const rawKey = interaction.options.getString("key").trim();
+        const keyCandidates = [...new Set([rawKey, rawKey.toLowerCase(), rawKey.toUpperCase()])];
+        let lic = null;
+        let resolvedKey = null;
+        for (const candidate of keyCandidates) {
+          lic = getLicenseById(candidate);
+          if (lic) {
+            resolvedKey = lic.id || candidate;
+            break;
+          }
+        }
 
         if (!lic) {
           await interaction.reply({ content: "Lizenz-Key nicht gefunden. Bitte pruefe den Key und versuche es erneut.", ephemeral: true });
@@ -1646,7 +1791,7 @@ class BotRuntime {
           return;
         }
 
-        const result = linkServerToLicense(guildId, key);
+        const result = linkServerToLicense(guildId, resolvedKey);
         if (!result.ok) {
           const msg = result.message.includes("already linked")
             ? "Dieser Server ist bereits mit dieser Lizenz verknuepft."
@@ -1666,7 +1811,7 @@ class BotRuntime {
             title: "Lizenz aktiviert!",
             description: `Dieser Server wurde erfolgreich mit deiner **${planName}**-Lizenz verknuepft.`,
             fields: [
-              { name: "Lizenz-Key", value: `\`${key}\``, inline: true },
+              { name: "Lizenz-Key", value: `\`${resolvedKey}\``, inline: true },
               { name: "Plan", value: planName, inline: true },
               { name: "Server-Slots", value: `${usedSeats}/${lic.seats}`, inline: true },
               { name: "Gueltig bis", value: expDate, inline: true },
@@ -1697,6 +1842,7 @@ class BotRuntime {
             color: lic.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
             title: `OmniFM ${planName}`,
             fields: [
+              { name: "Lizenz-Key", value: `\`${lic.id || "-"}\``, inline: true },
               { name: "Plan", value: planName, inline: true },
               { name: "Server-Slots", value: `${linked.length}/${lic.seats}`, inline: true },
               { name: "Gueltig bis", value: expDate, inline: true },
@@ -1766,7 +1912,15 @@ class BotRuntime {
           key = `custom:${customKey}`;
           isCustom = true;
           customUrl = customStations[customKey].url;
-          stations.stations[key] = { name: customStations[customKey].name, url: customUrl, tier: "ultimate" };
+          const customUrlValidation = validateCustomStationUrl(customUrl);
+          if (!customUrlValidation.ok) {
+            await interaction.reply({
+              content: `Custom-Station kann nicht genutzt werden: ${customUrlValidation.error}`,
+              ephemeral: true
+            });
+            return;
+          }
+          stations.stations[key] = { name: customStations[customKey].name, url: customUrlValidation.url, tier: "ultimate" };
         } else if (customKey) {
           await interaction.reply(customStationEmbed());
           return;
@@ -1790,15 +1944,16 @@ class BotRuntime {
         return;
       }
 
-      const memberChannelId = interaction.member?.voice?.channel?.id || null;
       log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} custom=${isCustom} tier=${guildTier}`);
 
       const selectedStation = stations.stations[key];
-      const connection = await this.connectToVoice(interaction, requestedChannel);
-      if (!connection) return;
-
-      state.shouldReconnect = true;
       await interaction.deferReply();
+      const { connection, error: connectError } = await this.connectToVoice(interaction, requestedChannel, { silent: true });
+      if (!connection) {
+        await interaction.editReply(connectError || "Konnte keine Voice-Verbindung herstellen.");
+        return;
+      }
+      state.shouldReconnect = true;
 
       try {
         await this.playStation(state, stations, key, guildId);
@@ -2042,8 +2197,7 @@ const MIME_TYPES = {
 function sendJson(res, status, payload) {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-    "Access-Control-Allow-Origin": "*"
+    "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(payload));
 }
@@ -2063,12 +2217,35 @@ function sendStaticFile(res, filePath) {
     return;
   }
 
+  let stat;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+  if (!stat.isFile()) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
   const ext = path.extname(resolved).toLowerCase();
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
   const cacheControl = ext === ".html" ? "no-cache" : "public, max-age=86400";
 
   res.writeHead(200, { "Content-Type": contentType, "Cache-Control": cacheControl });
-  fs.createReadStream(resolved).pipe(res);
+  const stream = fs.createReadStream(resolved);
+  stream.on("error", () => {
+    if (!res.headersSent) {
+      res.writeHead(500);
+      res.end("Internal server error");
+      return;
+    }
+    res.destroy();
+  });
+  stream.pipe(res);
 }
 
 function getBotAccessForTier(botConfig, tierConfig) {
@@ -2228,6 +2405,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       tierName: tierConfig.name,
       months: durationMonths,
       licenseKey: license.id,
+      seats: cleanSeats,
       email: customerEmail,
       expiresAt: license.expiresAt,
       inviteOverview,
@@ -2242,12 +2420,12 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     const invoiceHtml = buildInvoiceEmail({
       invoiceId,
       sessionId,
-      email: customerEmail,
+      customerEmail,
       tier: cleanTier,
       tierName: tierConfig.name,
       months: durationMonths,
       seats: cleanSeats,
-      pricePaid: amountPaid,
+      amountPaid,
       currency: session.currency || "eur",
       licenseKey: license.id,
       expiresAt: license.expiresAt,
@@ -2268,6 +2446,8 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
   };
 }
 
+const webhookEventsInFlight = new Set();
+
 function startWebServer(runtimes) {
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
   const webPort = Number(process.env.WEB_PORT || "8081");
@@ -2278,12 +2458,18 @@ function startWebServer(runtimes) {
     const requestUrl = new URL(req.url || "/", "http://localhost");
 
     // CORS
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    const originAllowed = applyCors(req, res, publicUrl);
     if (req.method === "OPTIONS") {
+      if (!originAllowed) {
+        sendJson(res, 403, { error: "Origin nicht erlaubt." });
+        return;
+      }
       res.writeHead(204);
       res.end();
+      return;
+    }
+    if (!originAllowed) {
+      sendJson(res, 403, { error: "Origin nicht erlaubt." });
       return;
     }
 
@@ -2400,7 +2586,16 @@ function startWebServer(runtimes) {
       }
       const tierConfig = getTierConfig(serverId);
       const license = getLicense(serverId);
-      sendJson(res, 200, { serverId, ...tierConfig, license });
+      const includeSensitive = isAdminApiRequest(req);
+      sendJson(res, 200, {
+        serverId,
+        tier: tierConfig.tier,
+        name: tierConfig.name,
+        bitrate: tierConfig.bitrate,
+        reconnectMs: tierConfig.reconnectMs,
+        maxBots: tierConfig.maxBots,
+        license: sanitizeLicenseForApi(license, includeSensitive),
+      });
       return;
     }
 
@@ -2452,7 +2647,7 @@ function startWebServer(runtimes) {
           return;
         }
 
-        const seats = [1, 2, 3, 5].includes(Number(rawSeats)) ? Number(rawSeats) : 1;
+        const seats = normalizeSeats(rawSeats);
 
         const stripeKey = getStripeSecretKey();
         if (!stripeKey) {
@@ -2461,7 +2656,11 @@ function startWebServer(runtimes) {
         }
 
         const durationMonths = Math.max(1, parseInt(months) || 1);
-        const priceInCents = calculatePrice(tier, durationMonths) * seats;
+        const priceInCents = calculatePrice(tier, durationMonths, seats);
+        if (priceInCents <= 0) {
+          sendJson(res, 400, { error: "Ungueltige Preisberechnung fuer die gewaehlte Kombination." });
+          return;
+        }
         const tierName = TIERS[tier].name;
         const seatsLabel = seats > 1 ? ` (${seats} Server)` : "";
         let description;
@@ -2547,24 +2746,45 @@ function startWebServer(runtimes) {
           return;
         }
 
-        if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
-          const result = await activatePaidStripeSession(event.data.object, runtimes, `webhook:${event.type}`);
-          markEventProcessed(event.id, {
-            type: event.type,
-            sessionId: event.data?.object?.id || null,
-            success: result.success,
-          });
-          sendJson(res, 200, {
-            received: true,
-            processed: result.success,
-            replay: !!result.replay,
-            message: result.message,
-          });
+        if (webhookEventsInFlight.has(event.id)) {
+          sendJson(res, 200, { received: true, duplicate: true, inFlight: true });
           return;
         }
+        webhookEventsInFlight.add(event.id);
 
-        markEventProcessed(event.id, { type: event.type, ignored: true });
-        sendJson(res, 200, { received: true, ignored: true });
+        try {
+          if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
+            const result = await activatePaidStripeSession(event.data.object, runtimes, `webhook:${event.type}`);
+            if (!result.success) {
+              log("ERROR", `Webhook-Aktivierung fehlgeschlagen (event=${event.id}, type=${event.type}): ${result.message}`);
+              sendJson(res, 500, {
+                received: true,
+                processed: false,
+                replay: !!result.replay,
+                message: result.message,
+              });
+              return;
+            }
+
+            markEventProcessed(event.id, {
+              type: event.type,
+              sessionId: event.data?.object?.id || null,
+              success: true,
+            });
+            sendJson(res, 200, {
+              received: true,
+              processed: true,
+              replay: !!result.replay,
+              message: result.message,
+            });
+            return;
+          }
+
+          markEventProcessed(event.id, { type: event.type, ignored: true });
+          sendJson(res, 200, { received: true, ignored: true });
+        } finally {
+          webhookEventsInFlight.delete(event.id);
+        }
       } catch (err) {
         log("ERROR", `Stripe webhook error: ${err.message}`);
         sendJson(res, 500, { error: "Webhook-Verarbeitung fehlgeschlagen: " + err.message });
@@ -2649,8 +2869,8 @@ function startWebServer(runtimes) {
           pro: {
             name: "Pro",
             pricePerMonth: TIERS.pro.pricePerMonth,
-            startingAt: "2,99",
-            seatPricing: { 1: 2.99, 2: 5.49, 3: 7.49, 5: 11.49 },
+            startingAt: formatEuroCentsDe(getSeatPricePerMonthCents("pro", 1)),
+            seatPricing: seatPricingInEuro("pro"),
             features: [
               "128k Bitrate (HQ Opus)",
               "Bis zu 8 Bots",
@@ -2662,8 +2882,8 @@ function startWebServer(runtimes) {
           ultimate: {
             name: "Ultimate",
             pricePerMonth: TIERS.ultimate.pricePerMonth,
-            startingAt: "4,99",
-            seatPricing: { 1: 4.99, 2: 7.99, 3: 10.99, 5: 16.99 },
+            startingAt: formatEuroCentsDe(getSeatPricePerMonthCents("ultimate", 1)),
+            seatPricing: seatPricingInEuro("ultimate"),
             features: [
               "320k Bitrate (Ultra HQ)",
               "Bis zu 16 Bots",
@@ -2674,7 +2894,7 @@ function startWebServer(runtimes) {
           },
         },
         yearlyDiscount: "12 Monate = 10 bezahlen (2 Monate gratis)",
-        seatOptions: [1, 2, 3, 5],
+        seatOptions: [...SEAT_OPTIONS],
       };
 
       if (serverId && /^\d{17,22}$/.test(serverId)) {
