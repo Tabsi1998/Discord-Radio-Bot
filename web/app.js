@@ -526,6 +526,7 @@ function filterStations(query) {
 }
 
 document.getElementById('stationSearch').addEventListener('input', function(e) {
+  stationsDisplayCount = STATIONS_PER_PAGE;
   filterStations(e.target.value);
 });
 
