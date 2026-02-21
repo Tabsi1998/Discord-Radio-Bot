@@ -286,7 +286,7 @@ async function fetchStreamInfo(url) {
       method: "GET",
       headers: {
         "Icy-MetaData": "1",
-        "User-Agent": "discord-radio-bot"
+        "User-Agent": "OmniFM/3.0"
       },
       redirect: "follow"
     });
@@ -400,7 +400,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
 
   const res = await fetch(url, {
     redirect: "follow",
-    headers: { "User-Agent": "discord-radio-bot/3.0" },
+    headers: { "User-Agent": "OmniFM/3.0" },
     signal: AbortSignal.timeout(10_000)
   });
   if (!res.ok || !res.body) {
@@ -2011,7 +2011,7 @@ function buildInviteOverviewForTier(runtimes, tier) {
   const hasUltimate = normalizedTier === "ultimate";
   const overview = {
     freeWebsiteUrl: resolvePublicWebsiteUrl(),
-    freeInfo: "Radio Bot #1 bis #4 kannst du jederzeit ueber die Webseite einladen.",
+    freeInfo: "OmniFM Bot #1 bis #4 kannst du jederzeit ueber die Webseite einladen.",
     proBots: [],
     ultimateBots: [],
   };
@@ -2153,7 +2153,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       customerEmail,
       customerName: session.customer_details?.name || "",
     });
-    sendMail(customerEmail, `Kaufbeleg ${invoiceId} - Radio Bot Premium`, invoiceHtml).catch(() => {});
+    sendMail(customerEmail, `Kaufbeleg ${invoiceId} - OmniFM Premium`, invoiceHtml).catch(() => {});
 
     const adminEmail = getSmtpConfig()?.adminEmail;
     if (adminEmail) {
@@ -2416,7 +2416,7 @@ function startWebServer(runtimes) {
             price_data: {
               currency: "eur",
               product_data: {
-                name: `Radio Bot ${TIERS[tier].name}`,
+                name: `OmniFM ${TIERS[tier].name}`,
                 description,
               },
               unit_amount: priceInCents,
