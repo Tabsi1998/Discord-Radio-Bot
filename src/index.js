@@ -1628,6 +1628,111 @@ class BotRuntime {
       return;
     }
 
+    // === /license Command ===
+    if (interaction.commandName === "license") {
+      const sub = interaction.options.getSubcommand();
+      const guildId = interaction.guildId;
+
+      if (sub === "activate") {
+        const key = interaction.options.getString("key").trim().toUpperCase();
+        const lic = getLicenseById(key);
+
+        if (!lic) {
+          await interaction.reply({ content: "Lizenz-Key nicht gefunden. Bitte pruefe den Key und versuche es erneut.", ephemeral: true });
+          return;
+        }
+        if (lic.expired) {
+          await interaction.reply({ content: "Diese Lizenz ist abgelaufen. Bitte erneuere dein Abo.", ephemeral: true });
+          return;
+        }
+
+        const result = linkServerToLicense(guildId, key);
+        if (!result.ok) {
+          const msg = result.message.includes("already linked")
+            ? "Dieser Server ist bereits mit dieser Lizenz verknuepft."
+            : result.message.includes("seat")
+              ? `Alle ${lic.seats} Server-Slots sind belegt. Entferne zuerst einen Server mit \`/license remove\` oder upgrade auf mehr Seats.`
+              : result.message;
+          await interaction.reply({ content: msg, ephemeral: true });
+          return;
+        }
+
+        const planName = PLANS[lic.plan]?.name || lic.plan;
+        const expDate = lic.expiresAt ? new Date(lic.expiresAt).toLocaleDateString("de-DE") : "Unbegrenzt";
+        const usedSeats = (lic.linkedServerIds?.length || 0) + 1;
+        await interaction.reply({
+          embeds: [{
+            color: lic.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
+            title: "Lizenz aktiviert!",
+            description: `Dieser Server wurde erfolgreich mit deiner **${planName}**-Lizenz verknuepft.`,
+            fields: [
+              { name: "Lizenz-Key", value: `\`${key}\``, inline: true },
+              { name: "Plan", value: planName, inline: true },
+              { name: "Server-Slots", value: `${usedSeats}/${lic.seats}`, inline: true },
+              { name: "Gueltig bis", value: expDate, inline: true },
+            ],
+            footer: { text: "OmniFM Premium" },
+          }],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      if (sub === "info") {
+        const lic = getServerLicense(guildId);
+        if (!lic) {
+          await interaction.reply({
+            content: "Dieser Server hat keine aktive Lizenz.\nNutze `/license activate <key>` um einen Lizenz-Key zu aktivieren.",
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const planName = PLANS[lic.plan]?.name || lic.plan;
+        const expDate = lic.expiresAt ? new Date(lic.expiresAt).toLocaleDateString("de-DE") : "Unbegrenzt";
+        const linked = lic.linkedServerIds || [];
+        const tierConfig = PLANS[lic.plan] || PLANS.free;
+        await interaction.reply({
+          embeds: [{
+            color: lic.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
+            title: `OmniFM ${planName}`,
+            fields: [
+              { name: "Plan", value: planName, inline: true },
+              { name: "Server-Slots", value: `${linked.length}/${lic.seats}`, inline: true },
+              { name: "Gueltig bis", value: expDate, inline: true },
+              { name: "Verbleibend", value: `${lic.remainingDays} Tage`, inline: true },
+              { name: "Audio", value: tierConfig.bitrate, inline: true },
+              { name: "Max Bots", value: `${tierConfig.maxBots}`, inline: true },
+              { name: "Reconnect", value: `${tierConfig.reconnectMs}ms`, inline: true },
+            ],
+            footer: { text: lic.expired ? "ABGELAUFEN" : "OmniFM Premium" },
+          }],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      if (sub === "remove") {
+        const lic = getServerLicense(guildId);
+        if (!lic || !lic.id) {
+          await interaction.reply({ content: "Dieser Server hat keine aktive Lizenz.", ephemeral: true });
+          return;
+        }
+
+        const result = unlinkServerFromLicense(guildId, lic.id);
+        if (!result.ok) {
+          await interaction.reply({ content: "Fehler beim Entfernen: " + result.message, ephemeral: true });
+          return;
+        }
+
+        await interaction.reply({
+          content: "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann fuer einen anderen Server genutzt werden.\nNutze `/license activate <key>` um eine neue Lizenz zu aktivieren.",
+          ephemeral: true,
+        });
+        return;
+      }
+    }
+
     if (interaction.commandName === "play") {
       const requested = interaction.options.getString("station");
       const requestedChannelInput = interaction.options.getString("channel");
