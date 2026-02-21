@@ -70,26 +70,29 @@ function StationCard({ station, index, isPlaying, onPlay, onStop }) {
 
 function StationBrowser({ stations, loading }) {
   const [search, setSearch] = useState('');
-  const [activeGenre, setActiveGenre] = useState(null);
+  const [activeTier, setActiveTier] = useState(null);
   const [playingKey, setPlayingKey] = useState(null);
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(false);
   const audioRef = useRef(null);
 
-  const genres = useMemo(() => {
-    const set = new Set();
-    stations.forEach((s) => { if (s.genre) set.add(s.genre); });
-    return Array.from(set);
-  }, [stations]);
+  const tierFilters = [
+    { id: null, label: 'ALLE', color: '#fff' },
+    { id: 'free', label: 'FREE', color: '#39FF14' },
+    { id: 'pro', label: 'PRO', color: '#FFB800' },
+  ];
+
+  const freeCount = useMemo(() => stations.filter(s => (s.tier || 'free') === 'free').length, [stations]);
+  const proCount = useMemo(() => stations.filter(s => (s.tier || 'free') === 'pro').length, [stations]);
 
   const filtered = useMemo(() => {
     return stations.filter((s) => {
       const q = search.toLowerCase();
-      const matchSearch = !q || s.name.toLowerCase().includes(q) || s.key.toLowerCase().includes(q) || (s.genre || '').toLowerCase().includes(q);
-      const matchGenre = !activeGenre || s.genre === activeGenre;
-      return matchSearch && matchGenre;
+      const matchSearch = !q || s.name.toLowerCase().includes(q) || s.key.toLowerCase().includes(q);
+      const matchTier = !activeTier || (s.tier || 'free') === activeTier;
+      return matchSearch && matchTier;
     });
-  }, [stations, search, activeGenre]);
+  }, [stations, search, activeTier]);
 
   const getAudio = useCallback(() => {
     if (!audioRef.current) {
