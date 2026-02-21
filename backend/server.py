@@ -599,8 +599,9 @@ async def verify_premium(body: dict):
         return {"error": "sessionId erforderlich."}
 
     stripe_key = get_stripe_secret_key()
-    if not stripe_key:
-        return {"error": "Stripe nicht konfiguriert."}
+    valid, msg = validate_stripe_key(stripe_key)
+    if not valid:
+        return {"error": msg}
 
     try:
         import stripe
