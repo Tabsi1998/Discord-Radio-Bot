@@ -75,7 +75,7 @@ async function sendMail(to, subject, html) {
   const transporter = createTransporter();
   try {
     await transporter.sendMail({
-      from: `"Radio Bot Premium" <${cfg.from}>`,
+      from: `"OmniFM Premium" <${cfg.from}>`,
       to,
       subject,
       html,
