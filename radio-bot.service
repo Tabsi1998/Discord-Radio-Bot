@@ -1,5 +1,5 @@
 [Unit]
-Description=Discord Radio Bot (Docker)
+Description=OmniFM (Docker)
 After=docker.service
 Requires=docker.service
 
