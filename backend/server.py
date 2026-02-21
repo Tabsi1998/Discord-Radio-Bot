@@ -257,34 +257,40 @@ def calculate_upgrade_price(server_id, new_tier):
     }
 
 
-def add_license(server_id, tier, months, seats=1, activated_by="stripe", note=""):
+def generate_license_key():
+    """Generiert einen eindeutigen Lizenz-Key im Format OMNI-XXXX-XXXX-XXXX"""
+    chars = string.ascii_uppercase + string.digits
+    parts = [''.join(secrets.choice(chars) for _ in range(4)) for _ in range(3)]
+    return f"OMNI-{parts[0]}-{parts[1]}-{parts[2]}"
+
+
+def add_license(email, tier, months, seats=1, activated_by="stripe", note=""):
     if tier not in TIERS or tier == "free":
         raise ValueError("Tier muss 'pro' oder 'ultimate' sein.")
     if months < 1:
         raise ValueError("Mindestens 1 Monat.")
     data = load_premium()
     now = datetime.now(timezone.utc)
-    sid = str(server_id)
 
-    existing = data.get("licenses", {}).get(sid)
-    if existing and not is_expired(existing) and existing.get("tier") == tier:
-        current_expiry = datetime.fromisoformat(existing["expiresAt"].replace("Z", "+00:00"))
-        expires_at = current_expiry + timedelta(days=months * 30)
-    else:
-        expires_at = now + timedelta(days=months * 30)
+    license_key = generate_license_key()
+    # Sicherstellen dass der Key eindeutig ist
+    while license_key in data.get("licenses", {}):
+        license_key = generate_license_key()
 
-    data.setdefault("licenses", {})[sid] = {
+    data.setdefault("licenses", {})[license_key] = {
         "tier": tier,
         "plan": tier,
         "seats": seats,
+        "email": email,
+        "linkedServerIds": [],
         "activatedAt": now.isoformat(),
-        "expiresAt": expires_at.isoformat(),
+        "expiresAt": (now + timedelta(days=months * 30)).isoformat(),
         "durationMonths": months,
         "activatedBy": activated_by,
         "note": note,
     }
     save_premium(data)
-    return data["licenses"][sid]
+    return {**data["licenses"][license_key], "licenseKey": license_key}
 
 
 def upgrade_license(server_id, new_tier):
