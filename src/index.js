@@ -2363,7 +2363,7 @@ function startWebServer(runtimes) {
     if (requestUrl.pathname === "/api/premium/checkout" && req.method === "POST") {
       try {
         const body = await readJsonBody();
-        const { tier, serverId, months, returnUrl } = body;
+        const { tier, serverId, months, seats: rawSeats, returnUrl } = body;
         if (!tier || !serverId) {
           sendJson(res, 400, { error: "tier und serverId erforderlich." });
           return;
@@ -2376,6 +2376,8 @@ function startWebServer(runtimes) {
           sendJson(res, 400, { error: "tier muss 'pro' oder 'ultimate' sein." });
           return;
         }
+
+        const seats = [1, 2, 3, 5].includes(Number(rawSeats)) ? Number(rawSeats) : 1;
 
         const stripeKey = getStripeSecretKey();
         if (!stripeKey) {
@@ -2390,19 +2392,18 @@ function startWebServer(runtimes) {
         let durationMonths;
 
         if (upgradeInfo && upgradeInfo.upgradeCost > 0) {
-          // UPGRADE: Pro -> Ultimate, nur Aufpreis fuer Restlaufzeit
           priceInCents = upgradeInfo.upgradeCost;
-          durationMonths = 0; // 0 = upgrade, keine neue Laufzeit
+          durationMonths = 0;
           description = `Upgrade ${TIERS[upgradeInfo.oldTier].name} -> ${TIERS[tier].name} (${upgradeInfo.daysLeft} Tage Restlaufzeit)`;
         } else {
-          // Neukauf oder Verlaengerung
           durationMonths = Math.max(1, parseInt(months) || 1);
-          priceInCents = calculatePrice(tier, durationMonths);
+          priceInCents = calculatePrice(tier, durationMonths) * seats;
           const tierName = TIERS[tier].name;
+          const seatsLabel = seats > 1 ? ` (${seats} Server)` : "";
           if (durationMonths >= 12) {
-            description = `${tierName} - ${durationMonths} Monate (Jahresrabatt: 2 Monate gratis!)`;
+            description = `${tierName}${seatsLabel} - ${durationMonths} Monate (Jahresrabatt: 2 Monate gratis!)`;
           } else {
-            description = `${tierName} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`;
+            description = `${tierName}${seatsLabel} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`;
           }
         }
 
@@ -2416,7 +2417,7 @@ function startWebServer(runtimes) {
             price_data: {
               currency: "eur",
               product_data: {
-                name: `OmniFM ${TIERS[tier].name}`,
+                name: `${BRAND.name} ${TIERS[tier].name}`,
                 description,
               },
               unit_amount: priceInCents,
@@ -2426,6 +2427,7 @@ function startWebServer(runtimes) {
           metadata: {
             serverId,
             tier,
+            seats: String(seats),
             months: String(durationMonths),
             isUpgrade: upgradeInfo ? "true" : "false",
             checkoutCreatedAt: new Date().toISOString(),
