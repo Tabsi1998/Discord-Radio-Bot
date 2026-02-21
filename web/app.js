@@ -1,4 +1,4 @@
-/* === Discord Radio Bot - Frontend v3.1 === */
+/* === OmniFM - Frontend v4.0 === */
 
 var BOT_COLORS = [
   { name: 'cyan',   accent: '#00F0FF', glow: 'rgba(0,240,255,0.15)',  border: 'rgba(0,240,255,0.25)' },
