@@ -1,5 +1,5 @@
 // ============================================================
-// OmniFM - Upgrade Embeds (Reusable Discord Embeds)
+// OmniFM - Upgrade Embeds (Reusable Discord Embeds, Deutsch)
 // ============================================================
 
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
@@ -30,15 +30,15 @@ export function premiumStationEmbed(stationName, requiredPlan) {
       baseEmbed()
         .setTitle("Premium Station")
         .setDescription(
-          `**${stationName || "This station"}** is available in ${BRAND.name} **${planConfig.name}** and above.\n\n` +
-          `Upgrade to unlock:\n` +
-          `> 100+ premium stations\n` +
-          `> HQ audio quality\n` +
-          `> Priority reconnect`
+          `**${stationName || "Diese Station"}** ist ab ${BRAND.name} **${planConfig.name}** verfuegbar.\n\n` +
+          `Upgrade fuer:\n` +
+          `> 100+ Premium Stationen\n` +
+          `> HQ Audio-Qualitaet\n` +
+          `> Priority Reconnect`
         )
         .setColor(BRAND.proColor)
     ],
-    components: [upgradeButton(`Upgrade to ${planConfig.name}`)],
+    components: [upgradeButton(`Upgrade auf ${planConfig.name}`)],
     ephemeral: true,
   };
 }
@@ -49,10 +49,10 @@ export function hqAudioEmbed(currentPlan) {
       baseEmbed()
         .setTitle("HQ Audio")
         .setDescription(
-          `HQ audio is available in ${BRAND.name} plans:\n\n` +
+          `HQ Audio ist in folgenden ${BRAND.name} Plaenen verfuegbar:\n\n` +
           `> **Pro** — 128k Opus\n` +
           `> **Ultimate** — 320k Opus\n\n` +
-          `Your current plan: **${PLANS[currentPlan]?.name || "Free"}** (${PLANS[currentPlan]?.bitrate || "64k"})`
+          `Dein aktueller Plan: **${PLANS[currentPlan]?.name || "Free"}** (${PLANS[currentPlan]?.bitrate || "64k"})`
         )
         .setColor(BRAND.proColor)
     ],
@@ -65,16 +65,16 @@ export function customStationEmbed() {
   return {
     embeds: [
       baseEmbed()
-        .setTitle("Custom Stations")
+        .setTitle("Custom Stationen")
         .setDescription(
-          `Custom station URLs are an **${BRAND.name} Ultimate** exclusive.\n\n` +
-          `> Add your own stream URLs\n` +
-          `> Up to 50 custom stations per server\n` +
-          `> Full control over your playlist`
+          `Eigene Station-URLs sind ein **${BRAND.name} Ultimate** Feature.\n\n` +
+          `> Eigene Stream-URLs hinzufuegen\n` +
+          `> Bis zu 50 Custom Stationen pro Server\n` +
+          `> Volle Kontrolle ueber deine Playlist`
         )
         .setColor(BRAND.ultimateColor)
     ],
-    components: [upgradeButton("Upgrade to Ultimate")],
+    components: [upgradeButton("Upgrade auf Ultimate")],
     ephemeral: true,
   };
 }
@@ -83,12 +83,12 @@ export function botLimitEmbed(currentPlan, maxBots, requestedIndex) {
   return {
     embeds: [
       baseEmbed()
-        .setTitle("Bot Limit Reached")
+        .setTitle("Bot-Limit erreicht")
         .setDescription(
-          `Your **${PLANS[currentPlan]?.name || "Free"}** plan allows up to **${maxBots}** bots.\n` +
-          `You requested bot #${requestedIndex}.\n\n` +
-          `> **Pro** — up to 8 bots\n` +
-          `> **Ultimate** — up to 16 bots`
+          `Dein **${PLANS[currentPlan]?.name || "Free"}** Plan erlaubt maximal **${maxBots}** Bots.\n` +
+          `Du hast Bot #${requestedIndex} angefragt.\n\n` +
+          `> **Pro** — bis zu 8 Bots\n` +
+          `> **Ultimate** — bis zu 16 Bots`
         )
         .setColor(BRAND.proColor)
     ],
@@ -101,12 +101,12 @@ export function reconnectPriorityEmbed(currentPlan) {
   return {
     embeds: [
       baseEmbed()
-        .setTitle("Reconnect Priority")
+        .setTitle("Reconnect Prioritaet")
         .setDescription(
-          `Faster reconnects are available with ${BRAND.name} upgrades:\n\n` +
-          `> **Pro** — Priority reconnect (1.5s)\n` +
-          `> **Ultimate** — Instant reconnect (0.4s)\n\n` +
-          `Your current plan: **${PLANS[currentPlan]?.name || "Free"}** (5s)`
+          `Schnellere Reconnects mit ${BRAND.name} Upgrades:\n\n` +
+          `> **Pro** — Priority Reconnect (1,5s)\n` +
+          `> **Ultimate** — Instant Reconnect (0,4s)\n\n` +
+          `Dein aktueller Plan: **${PLANS[currentPlan]?.name || "Free"}** (5s)`
         )
         .setColor(BRAND.proColor)
     ],
@@ -119,15 +119,15 @@ export function seatLimitEmbed(seats) {
   return {
     embeds: [
       baseEmbed()
-        .setTitle("Seat Limit Reached")
+        .setTitle("Seat-Limit erreicht")
         .setDescription(
-          `This license covers **${seats}** server(s) and all seats are occupied.\n\n` +
-          `> Unlink an existing server first, or\n` +
-          `> Upgrade to a larger bundle`
+          `Diese Lizenz deckt **${seats}** Server ab und alle Plaetze sind belegt.\n\n` +
+          `> Trenne zuerst einen bestehenden Server, oder\n` +
+          `> Upgrade auf ein groesseres Bundle`
         )
         .setColor(BRAND.proColor)
     ],
-    components: [upgradeButton("Manage License")],
+    components: [upgradeButton("Lizenz verwalten")],
     ephemeral: true,
   };
 }
