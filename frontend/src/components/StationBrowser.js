@@ -6,6 +6,8 @@ const STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '
 function StationCard({ station, index, isPlaying, onPlay, onStop }) {
   const [hovered, setHovered] = useState(false);
   const color = STATION_COLORS[index % STATION_COLORS.length];
+  const tier = (station.tier || 'free').toLowerCase();
+  const tierBadge = { free: { text: 'FREE', bg: 'rgba(57,255,20,0.08)', border: 'rgba(57,255,20,0.2)', color: '#39FF14' }, pro: { text: 'PRO', bg: 'rgba(255,184,0,0.12)', border: 'rgba(255,184,0,0.3)', color: '#FFB800' }, ultimate: { text: 'ULTIMATE', bg: 'rgba(189,0,255,0.12)', border: 'rgba(189,0,255,0.3)', color: '#BD00FF' } }[tier] || { text: 'FREE', bg: 'rgba(57,255,20,0.08)', border: 'rgba(57,255,20,0.2)', color: '#39FF14' };
 
   return (
     <div
@@ -35,15 +37,23 @@ function StationCard({ station, index, isPlaying, onPlay, onStop }) {
           hovered ? <Play size={18} color={color} fill={color} /> : <Radio size={18} color={color} />
         )}
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {station.name}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {station.name}
+          </div>
+          <div style={{ fontSize: 12, color: '#52525B', fontFamily: "'JetBrains Mono', monospace", marginTop: 2 }}>
+            {station.key}
+          </div>
         </div>
-        <div style={{ fontSize: 12, color: '#52525B', fontFamily: "'JetBrains Mono', monospace", marginTop: 2 }}>
-          {station.key}
-        </div>
+        <span style={{
+          fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', padding: '3px 8px', borderRadius: 6,
+          fontFamily: "'Orbitron', sans-serif", whiteSpace: 'nowrap', flexShrink: 0,
+          background: tierBadge.bg, border: `1px solid ${tierBadge.border}`, color: tierBadge.color,
+        }}>
+          {tierBadge.text}
+        </span>
       </div>
-      {station.genre && <span className="genre-tag">{station.genre}</span>}
       {isPlaying && (
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 16 }}>
           {[0.6, 1, 0.7, 0.9].map((h, i) => (
