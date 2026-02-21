@@ -202,7 +202,7 @@ async function run() {
         const tier = (await ask("Tier (pro/ultimate)")).toLowerCase();
         if (tier !== "pro" && tier !== "ultimate") { fail("Muss 'pro' oder 'ultimate' sein."); break; }
         console.log("");
-        console.log(`  Preistabelle fuer ${TIERS[tier].name}:`);
+        console.log(`  Preistabelle fuer ${PLANS[tier].name}:`);
         console.log("  " + "-".repeat(40));
         for (const m of [1, 3, 6, 12, 24]) {
           const price = calculatePrice(tier, m);
