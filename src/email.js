@@ -259,7 +259,7 @@ function buildInvoiceEmail(data) {
       <div style="padding:28px 32px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div>
           <h1 style="margin:0;font-size:22px">Kaufbeleg</h1>
-          <p style="margin:8px 0 0;color:#A1A1AA;font-size:13px">Discord Radio Bot Premium</p>
+          <p style="margin:8px 0 0;color:#A1A1AA;font-size:13px">OmniFM Premium</p>
         </div>
         <div style="text-align:right;min-width:220px">
           <div style="font-family:JetBrains Mono,monospace;font-size:13px">Beleg-Nr: ${invoiceId}</div>

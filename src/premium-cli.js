@@ -16,7 +16,7 @@ const centsToEur = (c) => (c / 100).toFixed(2).replace(".", ",") + " EUR";
 function printHeader() {
   console.log("");
   console.log("  \x1b[36m\x1b[1m╔═══════════════════════════════════════╗");
-  console.log("  ║   Discord Radio Bot - Premium CLI     ║");
+  console.log("  ║   OmniFM - Premium CLI                ║");
   console.log("  ╚═══════════════════════════════════════╝\x1b[0m");
   console.log("");
 }
