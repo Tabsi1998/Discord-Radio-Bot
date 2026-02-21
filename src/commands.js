@@ -35,6 +35,20 @@ export function buildCommandBuilders() {
       .setDescription("[Ultimate] Eigene Station entfernen")
       .addStringOption((o) => o.setName("key").setDescription("Station-Key").setRequired(true).setAutocomplete(true)),
     new SlashCommandBuilder().setName("mystations").setDescription("[Ultimate] Deine eigenen Stationen anzeigen"),
+    // License Management
+    new SlashCommandBuilder()
+      .setName("license")
+      .setDescription("Lizenz verwalten - aktivieren, info, entfernen")
+      .addSubcommand((sub) =>
+        sub.setName("activate").setDescription("Lizenz-Key fuer diesen Server aktivieren")
+          .addStringOption((o) => o.setName("key").setDescription("Dein Lizenz-Key (z.B. OMNI-XXXX-XXXX-XXXX)").setRequired(true))
+      )
+      .addSubcommand((sub) =>
+        sub.setName("info").setDescription("Lizenz-Info fuer diesen Server anzeigen")
+      )
+      .addSubcommand((sub) =>
+        sub.setName("remove").setDescription("Diesen Server von der Lizenz entfernen")
+      ),
   ];
 }
 
