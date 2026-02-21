@@ -469,10 +469,17 @@ document.getElementById('stationSearch').addEventListener('input', function(e) {
   filterStations(e.target.value);
 });
 
-// --- Premium Checkout (Button-Style Month Selector) ---
+// --- Premium Checkout (Server-Seat + Month Selector) ---
 var MONTH_OPTIONS = [1, 3, 6, 12];
+var SEAT_OPTIONS = [1, 2, 3, 5];
 var YEARLY_DISCOUNT_MONTHS = 10;
 var checkoutUpgradeInfo = null;
+
+// Seat-based pricing in cents per month
+var SEAT_PRICING = {
+  pro:      { 1: 299, 2: 549, 3: 749, 5: 1149 },
+  ultimate: { 1: 499, 2: 799, 3: 1099, 5: 1699 }
+};
 
 function calculateCheckoutPrice(pricePerMonth, months) {
   if (months >= 12) {
