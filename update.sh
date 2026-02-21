@@ -620,7 +620,7 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     echo "  ────────────────────────────────────"
     echo ""
 
-    bot_name="$(prompt_default "Bot Name" "Radio Bot ${new_index}")"
+    bot_name="$(prompt_default "Bot Name" "OmniFM Bot ${new_index}")"
     bot_token="$(prompt_nonempty "Token")"
     bot_client_id="$(prompt_nonempty "Client ID")"
     bot_perms="$(prompt_default "Permissions" "3145728")"
