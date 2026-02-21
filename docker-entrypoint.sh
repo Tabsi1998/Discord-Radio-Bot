@@ -48,5 +48,5 @@ if [ "${REGISTER_COMMANDS_ON_BOOT:-1}" = "1" ]; then
   node /app/src/deploy-commands.js || echo "[WARN] Command-Registrierung fehlgeschlagen (ueberspringe)"
 fi
 
-echo "[INFO] Starte Radio-Bot..."
+echo "[INFO] Starte OmniFM..."
 exec node /app/src/index.js
