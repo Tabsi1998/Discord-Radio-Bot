@@ -2473,13 +2473,13 @@ function startWebServer(runtimes) {
     if (requestUrl.pathname === "/api/premium/checkout" && req.method === "POST") {
       try {
         const body = await readJsonBody();
-        const { tier, serverId, months, seats: rawSeats, returnUrl } = body;
-        if (!tier || !serverId) {
-          sendJson(res, 400, { error: "tier und serverId erforderlich." });
+        const { tier, email, months, seats: rawSeats, returnUrl } = body;
+        if (!tier || !email) {
+          sendJson(res, 400, { error: "tier und email erforderlich." });
           return;
         }
-        if (!/^\d{17,22}$/.test(serverId)) {
-          sendJson(res, 400, { error: "serverId muss 17-22 Ziffern sein." });
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          sendJson(res, 400, { error: "Bitte eine gueltige E-Mail-Adresse eingeben." });
           return;
         }
         if (tier !== "pro" && tier !== "ultimate") {
@@ -2495,26 +2495,15 @@ function startWebServer(runtimes) {
           return;
         }
 
-        // Check for upgrade scenario
-        const upgradeInfo = calculateUpgradePrice(serverId, tier);
-        let priceInCents;
+        const durationMonths = Math.max(1, parseInt(months) || 1);
+        const priceInCents = calculatePrice(tier, durationMonths) * seats;
+        const tierName = TIERS[tier].name;
+        const seatsLabel = seats > 1 ? ` (${seats} Server)` : "";
         let description;
-        let durationMonths;
-
-        if (upgradeInfo && upgradeInfo.upgradeCost > 0) {
-          priceInCents = upgradeInfo.upgradeCost;
-          durationMonths = 0;
-          description = `Upgrade ${TIERS[upgradeInfo.oldTier].name} -> ${TIERS[tier].name} (${upgradeInfo.daysLeft} Tage Restlaufzeit)`;
+        if (durationMonths >= 12) {
+          description = `${tierName}${seatsLabel} - ${durationMonths} Monate (Jahresrabatt: 2 Monate gratis!)`;
         } else {
-          durationMonths = Math.max(1, parseInt(months) || 1);
-          priceInCents = calculatePrice(tier, durationMonths) * seats;
-          const tierName = TIERS[tier].name;
-          const seatsLabel = seats > 1 ? ` (${seats} Server)` : "";
-          if (durationMonths >= 12) {
-            description = `${tierName}${seatsLabel} - ${durationMonths} Monate (Jahresrabatt: 2 Monate gratis!)`;
-          } else {
-            description = `${tierName}${seatsLabel} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`;
-          }
+          description = `${tierName}${seatsLabel} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`;
         }
 
         const stripe = await import("stripe");
@@ -2523,6 +2512,7 @@ function startWebServer(runtimes) {
         const session = await stripeClient.checkout.sessions.create({
           payment_method_types: ["card"],
           mode: "payment",
+          customer_email: email.trim().toLowerCase(),
           line_items: [{
             price_data: {
               currency: "eur",
@@ -2535,11 +2525,11 @@ function startWebServer(runtimes) {
             quantity: 1,
           }],
           metadata: {
-            serverId,
+            email: email.trim().toLowerCase(),
             tier,
             seats: String(seats),
             months: String(durationMonths),
-            isUpgrade: upgradeInfo ? "true" : "false",
+            isUpgrade: "false",
             checkoutCreatedAt: new Date().toISOString(),
           },
           success_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
