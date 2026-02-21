@@ -77,9 +77,9 @@ async function run() {
         const serverId = await ask("Server ID");
         if (!/^\d{17,22}$/.test(serverId)) { fail("Ungueltige Server ID."); break; }
 
-        const existing = getLicense(serverId);
+        const existing = getServerLicense(serverId);
         if (existing && !existing.expired) {
-          info(`Server hat bereits ${existing.activeTier.toUpperCase()} (${existing.remainingDays} Tage uebrig).`);
+          info(`Server hat bereits ${(existing.plan || "free").toUpperCase()} (${existing.remainingDays} Tage uebrig).`);
           info("Nutze Option 2 (Verlaengern) oder 3 (Upgrade).");
           break;
         }
@@ -93,7 +93,7 @@ async function run() {
         if (months >= 12) info("Jahresrabatt: 12 Monate zum Preis von 10!");
 
         const note = await ask("Notiz (optional)") || "";
-        const lic = addLicense(serverId, tier, months, "admin-cli", note);
+        const lic = addLicenseForServer(serverId, tier, months, "admin-cli", note);
         ok(`Server ${serverId} auf ${tier.toUpperCase()} aktiviert bis ${formatDate(lic.expiresAt)}.`);
         break;
       }
