@@ -2567,42 +2567,58 @@ function startWebServer(runtimes) {
     if (requestUrl.pathname === "/api/premium/pricing" && req.method === "GET") {
       const serverId = requestUrl.searchParams.get("serverId");
       const result = {
+        brand: BRAND.name,
         tiers: {
+          free: {
+            name: "Free",
+            pricePerMonth: 0,
+            features: [
+              "64k Bitrate",
+              "Bis zu 2 Bots",
+              "20 Free Stationen",
+              "Standard Reconnect (5s)",
+            ]
+          },
           pro: {
             name: "Pro",
             pricePerMonth: TIERS.pro.pricePerMonth,
+            startingAt: "2,99",
+            seatPricing: { 1: 2.99, 2: 5.49, 3: 7.49, 5: 11.49 },
             features: [
-              "192k Bitrate",
-              "Bots #1-#10 (inkl. Pro #5-#10)",
-              "1s Reconnect",
-              "Servergebunden (nur lizenzierte Server-ID)",
+              "128k Bitrate (HQ Opus)",
+              "Bis zu 8 Bots",
+              "120 Stationen (Free + Pro)",
+              "Priority Reconnect (1,5s)",
+              "Server-Lizenz (1/2/3/5 Server)",
             ]
           },
           ultimate: {
             name: "Ultimate",
             pricePerMonth: TIERS.ultimate.pricePerMonth,
+            startingAt: "4,99",
+            seatPricing: { 1: 4.99, 2: 7.99, 3: 10.99, 5: 16.99 },
             features: [
-              "320k Bitrate",
-              "Bots #1-#20 (inkl. Ultimate #11-#20)",
-              "0.5s Reconnect",
-              "Custom Station URLs",
-              "Servergebunden (nur lizenzierte Server-ID)",
+              "320k Bitrate (Ultra HQ)",
+              "Bis zu 16 Bots",
+              "Alle Stationen + Custom URLs",
+              "Instant Reconnect (0,4s)",
+              "Server-Lizenz Bundles",
             ]
           },
         },
         yearlyDiscount: "12 Monate = 10 bezahlen (2 Monate gratis)",
+        seatOptions: [1, 2, 3, 5],
       };
 
       if (serverId && /^\d{17,22}$/.test(serverId)) {
         const license = getLicense(serverId);
         if (license && !license.expired) {
           result.currentLicense = {
-            tier: license.tier,
+            tier: license.tier || license.plan,
             expiresAt: license.expiresAt,
             remainingDays: license.remainingDays,
           };
-          // Upgrade-Moeglichkeiten berechnen
-          if (license.tier === "pro") {
+          if ((license.tier || license.plan) === "pro") {
             const upgrade = calculateUpgradePrice(serverId, "ultimate");
             if (upgrade) {
               result.upgrade = {
