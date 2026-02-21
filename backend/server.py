@@ -398,9 +398,28 @@ async def get_commands():
 # === Premium API ===
 
 @app.get("/api/premium/check")
-async def check_premium(serverId: str = ""):
+async def check_premium(serverId: str = "", licenseKey: str = ""):
+    # Lizenz per Key suchen
+    if licenseKey:
+        data = load_premium()
+        lic = data.get("licenses", {}).get(licenseKey)
+        if not lic:
+            return {"error": "Lizenz-Key nicht gefunden."}
+        expired = is_expired(lic)
+        return {
+            "licenseKey": licenseKey,
+            "tier": lic.get("tier", lic.get("plan", "free")),
+            "seats": lic.get("seats", 1),
+            "linkedServerIds": lic.get("linkedServerIds", []),
+            "email": lic.get("email", ""),
+            "expiresAt": lic.get("expiresAt"),
+            "expired": expired,
+            "remainingDays": remaining_days(lic),
+        }
+
+    # Fallback: Server-ID basiert
     if not serverId or not serverId.isdigit() or len(serverId) < 17:
-        return {"error": "serverId muss 17-22 Ziffern sein."}
+        return {"error": "serverId oder licenseKey erforderlich."}
     tier = get_tier(serverId)
     tier_config = TIERS.get(tier, TIERS["free"])
     license_info = get_license(serverId)
