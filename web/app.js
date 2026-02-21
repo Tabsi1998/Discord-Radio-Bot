@@ -416,12 +416,38 @@ function filterStations(query) {
     }
 
     var info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:0';
+    info.style.cssText = 'flex:1;min-width:0;display:flex;align-items:center;gap:8px';
+    var textWrap = document.createElement('div');
+    textWrap.style.cssText = 'flex:1;min-width:0';
     var nm = document.createElement('div');
     nm.className = 'station-name'; nm.textContent = s.name;
     var ky = document.createElement('div');
     ky.className = 'station-key'; ky.textContent = s.key;
-    info.appendChild(nm); info.appendChild(ky);
+    textWrap.appendChild(nm); textWrap.appendChild(ky);
+    info.appendChild(textWrap);
+
+    // Tier Badge
+    var tier = (s.tier || 'free').toLowerCase();
+    var badge = document.createElement('span');
+    badge.style.cssText = 'font-size:9px;font-weight:800;letter-spacing:0.08em;padding:3px 8px;border-radius:6px;font-family:Orbitron,sans-serif;white-space:nowrap;flex-shrink:0';
+    if (tier === 'pro') {
+      badge.textContent = 'PRO';
+      badge.style.background = 'rgba(255,184,0,0.12)';
+      badge.style.border = '1px solid rgba(255,184,0,0.3)';
+      badge.style.color = '#FFB800';
+    } else if (tier === 'ultimate') {
+      badge.textContent = 'ULTIMATE';
+      badge.style.background = 'rgba(189,0,255,0.12)';
+      badge.style.border = '1px solid rgba(189,0,255,0.3)';
+      badge.style.color = '#BD00FF';
+    } else {
+      badge.textContent = 'FREE';
+      badge.style.background = 'rgba(57,255,20,0.08)';
+      badge.style.border = '1px solid rgba(57,255,20,0.2)';
+      badge.style.color = '#39FF14';
+    }
+    info.appendChild(badge);
+
     item.appendChild(icon); item.appendChild(info);
 
     if (isPlaying) {
