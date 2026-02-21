@@ -261,5 +261,39 @@ export function markEventProcessed(eventId, meta = {}) {
   save(data);
 }
 
+// --- Server-level convenience functions ---
+
+export function addLicenseForServer(serverId, plan, months = 1, activatedBy = "admin", note = "") {
+  const license = createLicense({ plan, seats: 1, billingPeriod: months >= 12 ? "yearly" : "monthly", months, activatedBy, note });
+  const link = linkServerToLicense(serverId, license.id);
+  if (!link.ok) throw new Error(link.message);
+  return license;
+}
+
+export function patchLicenseForServer(serverId, patch) {
+  const data = load();
+  const entitlement = data.serverEntitlements[String(serverId)];
+  if (!entitlement) return null;
+  const lic = data.licenses[entitlement.licenseId];
+  if (!lic) return null;
+  Object.assign(lic, patch);
+  lic.updatedAt = new Date().toISOString();
+  save(data);
+  return lic;
+}
+
+export function upgradeLicenseForServer(serverId, newPlan) {
+  const data = load();
+  const entitlement = data.serverEntitlements[String(serverId)];
+  if (!entitlement) throw new Error("No active license for this server.");
+  const lic = data.licenses[entitlement.licenseId];
+  if (!lic) throw new Error("License not found.");
+  lic.plan = newPlan;
+  lic.updatedAt = new Date().toISOString();
+  lic.active = true;
+  save(data);
+  return lic;
+}
+
 // Expose for entitlements module
 export { isExpired, remainingDays };

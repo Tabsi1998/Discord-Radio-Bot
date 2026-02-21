@@ -21,29 +21,24 @@ import {
 import dotenv from "dotenv";
 import { BRAND, PLANS } from "./config/plans.js";
 import { setLicenseProvider, getServerPlan, getServerPlanConfig, requirePlan, requireFeature, getBitrateFlag, getReconnectDelay, getMaxBots, isBotAllowed, planAtLeast } from "./core/entitlements.js";
-import {
-  getStationsForServer, findStation, isStationAccessible, getStationById,
-  addCustomStation, removeCustomStation, getCustomStations, loadAllStations, getStationCounts,
-} from "./services/stations.js";
 import { premiumStationEmbed, hqAudioEmbed, customStationEmbed, botLimitEmbed } from "./ui/upgradeEmbeds.js";
 import {
   isConfigured as isEmailConfigured,
-  sendMail,
-  getSmtpConfig,
-  buildPurchaseEmail,
-  buildAdminNotification,
-  buildInvoiceEmail,
-  buildExpiryWarningEmail,
-  buildExpiryEmail
+  sendMail, getSmtpConfig,
+  buildPurchaseEmail, buildAdminNotification, buildInvoiceEmail,
+  buildExpiryWarningEmail, buildExpiryEmail
 } from "./email.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
 import {
-  getServerPlan as getStorePlan, getServerLicense, listLicenses,
+  getServerLicense, listLicenses as listRawLicenses,
   createLicense, linkServerToLicense, extendLicense,
   isSessionProcessed, markSessionProcessed, isEventProcessed, markEventProcessed,
+  addLicenseForServer, patchLicenseForServer, upgradeLicenseForServer,
 } from "./premium-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
 import { buildCommandBuilders } from "./commands.js";
+import { loadStations, resolveStation, filterStationsByTier, getFallbackKey } from "./stations-store.js";
+import { getGuildStations, addGuildStation, removeGuildStation, countGuildStations, MAX_STATIONS_PER_GUILD } from "./custom-stations.js";
 
 dotenv.config();
 
