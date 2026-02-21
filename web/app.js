@@ -402,16 +402,21 @@ function updateNowPlaying(station) {
 }
 
 // --- Stations ---
+var STATIONS_PER_PAGE = 8;
+var stationsDisplayCount = STATIONS_PER_PAGE;
+
 function renderStations(stations) {
   allStations = stations || [];
   var freeCount = allStations.filter(function(s) { return (s.tier || 'free') === 'free'; }).length;
   var proCount = allStations.filter(function(s) { return (s.tier || 'free') === 'pro'; }).length;
   document.getElementById('stationCount').textContent = allStations.length + ' Stationen (' + freeCount + ' Free, ' + proCount + ' Pro). Klicke zum Vorhoeren oder nutze /play im Discord.';
+  stationsDisplayCount = STATIONS_PER_PAGE;
   filterStations('');
 }
 
 function filterStations(query) {
   var list = document.getElementById('stationList');
+  var pagination = document.getElementById('stationPagination');
   list.innerHTML = '';
   var q = (query || '').toLowerCase().trim();
   var filtered = allStations.filter(function(s) {
@@ -422,10 +427,14 @@ function filterStations(query) {
 
   if (filtered.length === 0) {
     list.innerHTML = '<p class="muted" style="padding:40px;text-align:center">Keine Stationen gefunden.</p>';
+    if (pagination) pagination.innerHTML = '';
     return;
   }
 
-  filtered.forEach(function(s, i) {
+  var visible = filtered.slice(0, stationsDisplayCount);
+  var remaining = filtered.length - visible.length;
+
+  visible.forEach(function(s, i) {
     var color = STATION_COLORS[i % STATION_COLORS.length];
     var isPlaying = currentPlayingKey === s.key;
     var item = document.createElement('div');
@@ -491,6 +500,27 @@ function filterStations(query) {
     }
     list.appendChild(item);
   });
+
+  // Pagination
+  if (pagination) {
+    pagination.innerHTML = '';
+    if (remaining > 0) {
+      var btn = document.createElement('button');
+      btn.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#A1A1AA;padding:14px 40px;border-radius:14px;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.2s';
+      btn.textContent = 'Mehr anzeigen (' + remaining + ' weitere)';
+      btn.onmouseenter = function() { btn.style.background = 'rgba(255,255,255,0.1)'; btn.style.borderColor = 'rgba(255,255,255,0.2)'; };
+      btn.onmouseleave = function() { btn.style.background = 'rgba(255,255,255,0.06)'; btn.style.borderColor = 'rgba(255,255,255,0.12)'; };
+      btn.onclick = function() {
+        stationsDisplayCount += STATIONS_PER_PAGE;
+        filterStations(document.getElementById('stationSearch').value);
+      };
+      pagination.appendChild(btn);
+    }
+    var countText = document.createElement('p');
+    countText.style.cssText = 'color:#52525B;font-size:12px;margin-top:8px';
+    countText.textContent = visible.length + ' von ' + filtered.length + ' Stationen angezeigt';
+    pagination.appendChild(countText);
+  }
 }
 
 document.getElementById('stationSearch').addEventListener('input', function(e) {
