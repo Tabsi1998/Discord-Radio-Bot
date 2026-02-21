@@ -2267,32 +2267,6 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     message: `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`,
   };
 }
-      tierName: tierConfig.name,
-      tier: cleanTier,
-      months: normalizedMonths,
-      isUpgrade: upgrade,
-      amountPaid,
-      currency: session.currency || "eur",
-      issuedAt: new Date().toISOString(),
-      expiresAt: license.expiresAt,
-      customerEmail,
-      customerName: session.customer_details?.name || "",
-    });
-    sendMail(customerEmail, `Kaufbeleg ${invoiceId} - OmniFM Premium`, invoiceHtml).catch(() => {});
-
-    const adminEmail = getSmtpConfig()?.adminEmail;
-    if (adminEmail) {
-      const adminHtml = buildAdminNotification({
-        tier: cleanTier,
-        tierName: tierConfig.name,
-        months: normalizedMonths,
-        serverId: cleanServerId,
-        expiresAt: license.expiresAt,
-        pricePaid: amountPaid,
-      });
-      sendMail(adminEmail, `Neuer Premium-Kauf: ${tierConfig.name}`, adminHtml).catch(() => {});
-    }
-  }
 
   for (const runtime of runtimes) {
     try {
