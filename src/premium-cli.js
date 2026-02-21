@@ -183,15 +183,16 @@ async function run() {
       // --- Server pruefen ---
       case "6": {
         const serverId = await ask("Server ID");
-        const lic = getLicense(serverId);
+        const lic = getServerLicense(serverId);
         if (!lic) {
           info(`Server ${serverId}: FREE (keine Lizenz).`);
         } else if (lic.expired) {
-          fail(`Server ${serverId}: ABGELAUFEN (war ${lic.tier}).`);
+          fail(`Server ${serverId}: ABGELAUFEN (war ${lic.plan}).`);
           info(`Abgelaufen am: ${formatDate(lic.expiresAt)}`);
         } else {
-          ok(`Server ${serverId}: ${lic.activeTier.toUpperCase()}`);
+          ok(`Server ${serverId}: ${(lic.plan || "free").toUpperCase()}`);
           info(`Laeuft ab: ${formatDate(lic.expiresAt)} (${lic.remainingDays} Tage uebrig)`);
+          info(`Lizenz-ID: ${lic.id} | Seats: ${(lic.linkedServerIds || []).length}/${lic.seats || 1}`);
         }
         break;
       }
