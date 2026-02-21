@@ -535,7 +535,7 @@ function updatePriceDisplay() {
   var tier = modal.dataset.tier;
   var months = parseInt(modal.dataset.months) || 1;
 
-  var pricePerMonth = tier === 'ultimate' ? 999 : 499;
+  var pricePerMonth = tier === 'ultimate' ? 499 : 299;
   var totalCents, regularCents, hasDiscount;
 
   if (checkoutUpgradeInfo) {
