@@ -802,6 +802,14 @@ fi
 
 # Pull latest code
 info "Hole neuesten Code von ${REMOTE}/${BRANCH}..."
+
+# WICHTIG: Premium-Daten IMMER sichern vor Update!
+for pf in premium.json bot-state.json custom-stations.json; do
+  if [[ -f "$pf" ]]; then
+    cp "$pf" ".update-backups/${pf}.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+  fi
+done
+
 git fetch "$REMOTE" "$BRANCH" 2>&1 | tail -3
 
 old_head="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
