@@ -60,6 +60,9 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - [x] /license Discord-Command: activate, info, remove Subcommands (22.02.2026)
 - [x] Self-Service Server-Zuweisung per /license activate <key> im Discord (22.02.2026)
 - [x] Final QA: 100% (Backend 26/26, Frontend alle UI-Tests bestanden, Iteration 26)
+- [x] 120 Stationen: 20 Free + 100 Pro (EDM, Techno, Trance, Hardstyle, House, Urban, Rock) (22.02.2026)
+- [x] Station-Browser Pagination: 8er Batches mit "Mehr anzeigen" Button (22.02.2026)
+- [x] Testing: 100% (Backend 9/9, Frontend alle UI-Tests bestanden, Iteration 27)
 
 ## API Endpoints
 - GET /api/health - Health + OmniFM Brand
