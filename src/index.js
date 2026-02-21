@@ -313,7 +313,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
   const presetBitrate =
     preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
 
-  const transcode = String(process.env.TRANSCODE || "0") === "1" || preset !== "custom";
+  const transcode = String(process.env.TRANSCODE || "0") === "1" || preset !== "custom" || !!bitrateOverride;
   if (transcode) {
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
