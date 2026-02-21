@@ -9,7 +9,7 @@ from pymongo import MongoClient
 
 load_dotenv()
 
-app = FastAPI(title="Discord Radio Bot API")
+app = FastAPI(title="OmniFM API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,17 +28,23 @@ db = client[DB_NAME]
 STATIONS_FILE = Path(__file__).parent.parent / "stations.json"
 PREMIUM_FILE = Path(__file__).parent.parent / "premium.json"
 
-# Bot-Bilder (fuer die Webseite)
 BOT_IMAGES = ["/img/bot-1.png", "/img/bot-2.png", "/img/bot-3.png", "/img/bot-4.png"]
 BOT_COLORS = ["cyan", "green", "pink", "amber", "purple", "red"]
 
-# Tier-Konfiguration (identisch mit premium-store.js)
+# OmniFM v3 Tier-Konfiguration (identisch mit config/plans.js)
 TIERS = {
-    "free":     {"name": "Free",     "bitrate": "128k", "reconnectMs": 3000, "maxBots": 4,  "pricePerMonth": 0},
-    "pro":      {"name": "Pro",      "bitrate": "192k", "reconnectMs": 1000, "maxBots": 10, "pricePerMonth": 499},
-    "ultimate": {"name": "Ultimate", "bitrate": "320k", "reconnectMs": 500,  "maxBots": 20, "pricePerMonth": 999},
+    "free":     {"name": "Free",     "bitrate": "64k",  "reconnectMs": 5000, "maxBots": 2,  "pricePerMonth": 0},
+    "pro":      {"name": "Pro",      "bitrate": "128k", "reconnectMs": 1500, "maxBots": 8,  "pricePerMonth": 299},
+    "ultimate": {"name": "Ultimate", "bitrate": "320k", "reconnectMs": 400,  "maxBots": 16, "pricePerMonth": 499},
 }
 
+# Seat-basierte Preise (Cents pro Monat)
+SEAT_PRICING = {
+    "pro":      {1: 299, 2: 549, 3: 749, 5: 1149},
+    "ultimate": {1: 499, 2: 799, 3: 1099, 5: 1699},
+}
+
+SEAT_OPTIONS = [1, 2, 3, 5]
 YEARLY_DISCOUNT_MONTHS = 10  # 12 Monate = nur 10 bezahlen
 
 
@@ -60,7 +66,7 @@ def load_bots_from_env():
         cid = os.environ.get(f"BOT_{i}_CLIENT_ID", "").strip()
         if not token and not cid:
             continue
-        name = os.environ.get(f"BOT_{i}_NAME", f"Radio Bot {i}").strip()
+        name = os.environ.get(f"BOT_{i}_NAME", f"OmniFM Bot {i}").strip()
         color = BOT_COLORS[(i - 1) % len(BOT_COLORS)]
         img = BOT_IMAGES[(i - 1) % len(BOT_IMAGES)] if i <= len(BOT_IMAGES) else ""
         required_tier = os.environ.get(f"BOT_{i}_TIER", "free").strip().lower()
@@ -82,10 +88,10 @@ def load_bots_from_env():
         })
 
     if not bots:
-        for i in range(1, 5):
+        for i in range(1, 3):
             bots.append({
                 "botId": f"bot-{i}", "index": i,
-                "name": f"Radio Bot {i}",
+                "name": f"OmniFM Bot {i}",
                 "clientId": f"0000000000000000{i:02d}",
                 "inviteUrl": "",
                 "requiredTier": "free",
@@ -133,12 +139,16 @@ def seed_stations_if_empty():
 seed_stations_if_empty()
 
 
-# === Premium Helper Functions (mirror premium-store.js) ===
+# === Premium Helper Functions ===
 
 def load_premium():
     try:
         if PREMIUM_FILE.exists():
-            return json.loads(PREMIUM_FILE.read_text())
+            data = json.loads(PREMIUM_FILE.read_text())
+            # Support both old format (licenses keyed by serverId) and new format (licenses + serverEntitlements)
+            if "serverEntitlements" in data:
+                return data
+            return data
         return {"licenses": {}}
     except Exception:
         return {"licenses": {}}
@@ -161,19 +171,28 @@ def remaining_days(license_info):
     return max(0, int(diff.total_seconds() / 86400) + 1)
 
 
-def get_tier(server_id):
+def get_server_license(server_id):
+    """Get license for a server - supports both old and new format"""
     data = load_premium()
-    lic = data.get("licenses", {}).get(str(server_id))
-    if not lic:
-        return "free"
-    if is_expired(lic):
-        return "free"
-    return lic.get("tier", "free") if lic.get("tier") in TIERS else "free"
+    sid = str(server_id)
 
+    # New format: serverEntitlements -> licenseId -> licenses
+    if "serverEntitlements" in data:
+        ent = data.get("serverEntitlements", {}).get(sid)
+        if ent:
+            lic = data.get("licenses", {}).get(ent.get("licenseId", ""))
+            if lic:
+                expired = is_expired(lic)
+                return {
+                    **lic,
+                    "expired": expired,
+                    "remainingDays": remaining_days(lic),
+                    "activeTier": "free" if expired else lic.get("plan", "free"),
+                    "tier": lic.get("plan", "free"),
+                }
 
-def get_license(server_id):
-    data = load_premium()
-    lic = data.get("licenses", {}).get(str(server_id))
+    # Old format: licenses keyed by serverId
+    lic = data.get("licenses", {}).get(sid)
     if not lic:
         return None
     expired = is_expired(lic)
@@ -181,66 +200,81 @@ def get_license(server_id):
         **lic,
         "expired": expired,
         "remainingDays": remaining_days(lic),
-        "activeTier": "free" if expired else lic.get("tier", "free"),
+        "activeTier": "free" if expired else lic.get("tier", lic.get("plan", "free")),
+        "tier": lic.get("tier", lic.get("plan", "free")),
     }
 
 
-def calculate_price(tier, months):
-    config = TIERS.get(tier)
-    if not config or tier == "free":
+def get_tier(server_id):
+    lic = get_server_license(server_id)
+    if not lic or lic.get("expired"):
+        return "free"
+    tier = lic.get("tier", lic.get("plan", "free"))
+    return tier if tier in TIERS else "free"
+
+
+def get_license(server_id):
+    return get_server_license(server_id)
+
+
+def get_seat_price(tier, seats):
+    pricing = SEAT_PRICING.get(tier, {})
+    return pricing.get(seats, pricing.get(1, 0))
+
+
+def calculate_price(tier, months, seats=1):
+    ppm = get_seat_price(tier, seats)
+    if not ppm:
         return 0
-    ppm = config["pricePerMonth"]
     if months >= 12:
         full_years = months // 12
-        remaining = months % 12
-        return (full_years * YEARLY_DISCOUNT_MONTHS * ppm) + (remaining * ppm)
+        rem = months % 12
+        return (full_years * YEARLY_DISCOUNT_MONTHS * ppm) + (rem * ppm)
     return months * ppm
 
 
 def calculate_upgrade_price(server_id, new_tier):
-    data = load_premium()
-    lic = data.get("licenses", {}).get(str(server_id))
-    if not lic or is_expired(lic):
+    lic = get_server_license(server_id)
+    if not lic or lic.get("expired"):
         return None
     old_tier = lic.get("tier", "free")
-    old_config = TIERS.get(old_tier)
-    new_config = TIERS.get(new_tier)
-    if not old_config or not new_config:
+    old_ppm = TIERS.get(old_tier, {}).get("pricePerMonth", 0)
+    new_ppm = TIERS.get(new_tier, {}).get("pricePerMonth", 0)
+    if new_ppm <= old_ppm:
         return None
-    if new_config["pricePerMonth"] <= old_config["pricePerMonth"]:
-        return None
-    days_left = remaining_days(lic)
+    days_left = lic.get("remainingDays", 0)
     if days_left <= 0:
         return None
-    old_daily = old_config["pricePerMonth"] / 30
-    new_daily = new_config["pricePerMonth"] / 30
-    upgrade_cost = round((new_daily - old_daily) * days_left)
+    diff_daily = (new_ppm - old_ppm) / 30
+    upgrade_cost = round(diff_daily * days_left)
     return {
         "oldTier": old_tier,
         "newTier": new_tier,
         "daysLeft": days_left,
         "upgradeCost": upgrade_cost,
-        "expiresAt": lic.get("expiresAt"),
     }
 
 
-def add_license(server_id, tier, months, activated_by="stripe", note=""):
+def add_license(server_id, tier, months, seats=1, activated_by="stripe", note=""):
     if tier not in TIERS or tier == "free":
         raise ValueError("Tier muss 'pro' oder 'ultimate' sein.")
     if months < 1:
         raise ValueError("Mindestens 1 Monat.")
     data = load_premium()
-    existing = data.get("licenses", {}).get(str(server_id))
     now = datetime.now(timezone.utc)
+    sid = str(server_id)
 
+    existing = data.get("licenses", {}).get(sid)
     if existing and not is_expired(existing) and existing.get("tier") == tier:
         current_expiry = datetime.fromisoformat(existing["expiresAt"].replace("Z", "+00:00"))
         expires_at = current_expiry + timedelta(days=months * 30)
     else:
         expires_at = now + timedelta(days=months * 30)
 
-    data.setdefault("licenses", {})[str(server_id)] = {
+    data.setdefault("licenses", {})[sid] = {
         "tier": tier,
+        "plan": tier,
+        "seats": seats,
         "activatedAt": now.isoformat(),
         "expiresAt": expires_at.isoformat(),
         "durationMonths": months,
@@ -248,31 +282,31 @@ def add_license(server_id, tier, months, activated_by="stripe", note=""):
         "note": note,
     }
     save_premium(data)
-    return data["licenses"][str(server_id)]
+    return data["licenses"][sid]
 
 
 def upgrade_license(server_id, new_tier):
     data = load_premium()
-    lic = data.get("licenses", {}).get(str(server_id))
+    sid = str(server_id)
+    lic = data.get("licenses", {}).get(sid)
     if not lic or is_expired(lic):
         raise ValueError("Keine aktive Lizenz zum Upgraden.")
-    if new_tier not in TIERS or new_tier == "free":
-        raise ValueError("Ungueltiges Tier.")
-    data["licenses"][str(server_id)] = {
+    data["licenses"][sid] = {
         **lic,
         "tier": new_tier,
+        "plan": new_tier,
         "upgradedAt": datetime.now(timezone.utc).isoformat(),
         "upgradedFrom": lic.get("tier"),
     }
     save_premium(data)
-    return data["licenses"][str(server_id)]
+    return data["licenses"][sid]
 
 
 # === API Routes ===
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "status": "online", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"ok": True, "status": "online", "brand": "OmniFM", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/api/bots")
@@ -305,6 +339,9 @@ async def get_stations():
             "url": val.get("url", ""),
             "tier": val.get("tier", "free"),
         })
+    # Sort: free first, then pro, then ultimate
+    tier_order = {"free": 0, "pro": 1, "ultimate": 2}
+    stations_list.sort(key=lambda s: (tier_order.get(s["tier"], 0), s["name"]))
     return {
         "defaultStationKey": file_data.get("defaultStationKey"),
         "total": len(stations_list),
@@ -317,7 +354,9 @@ async def get_stats():
     bots = load_bots_from_env()
     file_data = load_stations_from_file()
     station_count = len(file_data.get("stations", {}))
-    totals = {"servers": 0, "users": 0, "connections": 0, "listeners": 0, "bots": len(bots), "stations": station_count}
+    free_count = sum(1 for s in file_data.get("stations", {}).values() if s.get("tier", "free") == "free")
+    pro_count = station_count - free_count
+    totals = {"servers": 0, "users": 0, "connections": 0, "listeners": 0, "bots": len(bots), "stations": station_count, "freeStations": free_count, "proStations": pro_count}
     for bot in bots:
         totals["servers"] += bot.get("servers", 0)
         totals["users"] += bot.get("users", 0)
@@ -330,20 +369,20 @@ async def get_stats():
 async def get_commands():
     return {
         "commands": [
-            {"name": "/play", "args": "[station] [channel]", "description": "Startet einen Radio-Stream im Voice-Channel"},
-            {"name": "/pause", "args": "", "description": "Pausiert die aktuelle Wiedergabe"},
-            {"name": "/resume", "args": "", "description": "Setzt die Wiedergabe fort"},
-            {"name": "/stop", "args": "", "description": "Stoppt die Wiedergabe und verlaesst den Channel"},
-            {"name": "/stations", "args": "", "description": "Zeigt alle verfuegbaren Radio-Stationen (nach Tier gefiltert)"},
-            {"name": "/list", "args": "[page]", "description": "Listet Stationen paginiert auf"},
-            {"name": "/now", "args": "", "description": "Zeigt die aktuelle Station und Metadaten"},
-            {"name": "/setvolume", "args": "<0-100>", "description": "Setzt die Lautstaerke"},
-            {"name": "/status", "args": "", "description": "Zeigt Bot-Status, Uptime und Last"},
-            {"name": "/health", "args": "", "description": "Zeigt Stream-Health und Reconnect-Info"},
-            {"name": "/premium", "args": "", "description": "Zeigt den Premium-Status dieses Servers"},
-            {"name": "/addstation", "args": "<key> <name> <url>", "description": "[Ultimate] Eigene Station hinzufuegen"},
+            {"name": "/play", "args": "[station] [channel]", "description": "Starte einen Radio-Stream im Voice-Channel"},
+            {"name": "/pause", "args": "", "description": "Wiedergabe pausieren"},
+            {"name": "/resume", "args": "", "description": "Wiedergabe fortsetzen"},
+            {"name": "/stop", "args": "", "description": "Stoppen und Channel verlassen"},
+            {"name": "/stations", "args": "", "description": "Verfuegbare Stationen fuer deinen Plan anzeigen"},
+            {"name": "/list", "args": "[page]", "description": "Stationen auflisten (paginiert)"},
+            {"name": "/now", "args": "", "description": "Zeigt was gerade laeuft"},
+            {"name": "/setvolume", "args": "<0-100>", "description": "Lautstaerke setzen"},
+            {"name": "/status", "args": "", "description": "Bot-Status und Uptime anzeigen"},
+            {"name": "/health", "args": "", "description": "Stream-Health und Reconnect-Info anzeigen"},
+            {"name": "/premium", "args": "", "description": "OmniFM Premium-Status deines Servers anzeigen"},
+            {"name": "/addstation", "args": "<key> <name> <url>", "description": "[Ultimate] Eigene Station-URL hinzufuegen"},
             {"name": "/removestation", "args": "<key>", "description": "[Ultimate] Eigene Station entfernen"},
-            {"name": "/mystations", "args": "", "description": "[Ultimate] Zeigt deine Custom Stationen"},
+            {"name": "/mystations", "args": "", "description": "[Ultimate] Deine eigenen Stationen anzeigen"},
         ]
     }
 
@@ -368,24 +407,41 @@ async def get_tiers():
 @app.get("/api/premium/pricing")
 async def get_pricing(serverId: str = ""):
     result = {
+        "brand": "OmniFM",
         "tiers": {
-            "pro": {"name": "Pro", "pricePerMonth": TIERS["pro"]["pricePerMonth"],
-                     "features": ["192k Bitrate", "10 Bots", "1s Reconnect", "Pro Stationen"]},
-            "ultimate": {"name": "Ultimate", "pricePerMonth": TIERS["ultimate"]["pricePerMonth"],
-                          "features": ["320k Bitrate", "20 Bots", "0.5s Reconnect", "Alle Stationen", "Eigene Station-URLs"]},
+            "free": {
+                "name": "Free",
+                "pricePerMonth": 0,
+                "features": ["64k Bitrate", "Bis zu 2 Bots", "20 Free Stationen", "Standard Reconnect (5s)"]
+            },
+            "pro": {
+                "name": "Pro",
+                "pricePerMonth": TIERS["pro"]["pricePerMonth"],
+                "startingAt": "2,99",
+                "seatPricing": SEAT_PRICING["pro"],
+                "features": ["128k Bitrate (HQ Opus)", "Bis zu 8 Bots", "120 Stationen (Free + Pro)", "Priority Reconnect (1,5s)", "Server-Lizenz (1/2/3/5 Server)"]
+            },
+            "ultimate": {
+                "name": "Ultimate",
+                "pricePerMonth": TIERS["ultimate"]["pricePerMonth"],
+                "startingAt": "4,99",
+                "seatPricing": SEAT_PRICING["ultimate"],
+                "features": ["320k Bitrate (Ultra HQ)", "Bis zu 16 Bots", "Alle Stationen + Custom URLs", "Instant Reconnect (0,4s)", "Server-Lizenz Bundles"]
+            },
         },
         "yearlyDiscount": "12 Monate = 10 bezahlen (2 Monate gratis)",
         "yearlyDiscountMonths": YEARLY_DISCOUNT_MONTHS,
+        "seatOptions": SEAT_OPTIONS,
     }
     if serverId and serverId.isdigit() and len(serverId) >= 17:
         license_info = get_license(serverId)
         if license_info and not license_info.get("expired"):
             result["currentLicense"] = {
-                "tier": license_info["tier"],
+                "tier": license_info.get("tier", license_info.get("plan", "free")),
                 "expiresAt": license_info.get("expiresAt"),
                 "remainingDays": license_info.get("remainingDays", 0),
             }
-            if license_info["tier"] == "pro":
+            if license_info.get("tier", "") == "pro":
                 upgrade = calculate_upgrade_price(serverId, "ultimate")
                 if upgrade:
                     result["upgrade"] = {
@@ -437,12 +493,15 @@ async def premium_checkout(body: dict):
     tier = body.get("tier", "")
     server_id = body.get("serverId", "")
     months = body.get("months", 1)
+    raw_seats = body.get("seats", 1)
     return_url = body.get("returnUrl", "")
 
     if tier not in ("pro", "ultimate"):
         return {"error": "tier muss 'pro' oder 'ultimate' sein."}
     if not server_id or not server_id.isdigit() or len(server_id) < 17:
         return {"error": "serverId muss 17-22 Ziffern sein."}
+
+    seats = int(raw_seats) if int(raw_seats) in SEAT_OPTIONS else 1
 
     stripe_key = get_stripe_secret_key()
     if not stripe_key:
@@ -460,12 +519,13 @@ async def premium_checkout(body: dict):
             description = f"Upgrade {TIERS[upgrade_info['oldTier']]['name']} -> {TIERS[tier]['name']} ({upgrade_info['daysLeft']} Tage Restlaufzeit)"
         else:
             duration_months = max(1, int(months))
-            price_in_cents = calculate_price(tier, duration_months)
+            price_in_cents = calculate_price(tier, duration_months, seats)
             tier_name = TIERS[tier]["name"]
+            seats_label = f" ({seats} Server)" if seats > 1 else ""
             if duration_months >= 12:
-                description = f"{tier_name} - {duration_months} Monate (Jahresrabatt: 2 Monate gratis!)"
+                description = f"{tier_name}{seats_label} - {duration_months} Monate (Jahresrabatt: 2 Monate gratis!)"
             else:
-                description = f"{tier_name} - {duration_months} Monat{'e' if duration_months > 1 else ''}"
+                description = f"{tier_name}{seats_label} - {duration_months} Monat{'e' if duration_months > 1 else ''}"
 
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -474,7 +534,7 @@ async def premium_checkout(body: dict):
                 "price_data": {
                     "currency": "eur",
                     "product_data": {
-                        "name": f"Radio Bot {TIERS[tier]['name']}",
+                        "name": f"OmniFM {TIERS[tier]['name']}",
                         "description": description,
                     },
                     "unit_amount": price_in_cents,
@@ -484,6 +544,7 @@ async def premium_checkout(body: dict):
             metadata={
                 "serverId": server_id,
                 "tier": tier,
+                "seats": str(seats),
                 "months": str(duration_months),
                 "isUpgrade": "true" if upgrade_info else "false",
             },
@@ -515,14 +576,16 @@ async def verify_premium(body: dict):
             server_id = metadata.get("serverId", "")
             tier = metadata.get("tier", "")
             months_str = metadata.get("months", "1")
+            seats_str = metadata.get("seats", "1")
             is_upgrade = metadata.get("isUpgrade", "false")
+            seats = int(seats_str) if seats_str.isdigit() and int(seats_str) in SEAT_OPTIONS else 1
 
             if server_id and tier and tier in ("pro", "ultimate"):
                 if is_upgrade == "true":
                     license_data = upgrade_license(server_id, tier)
                 else:
                     duration_months = max(1, int(months_str))
-                    license_data = add_license(server_id, tier, duration_months, "stripe", f"Session: {session_id}")
+                    license_data = add_license(server_id, tier, duration_months, seats, "stripe", f"Session: {session_id}")
 
                 lic_info = get_license(server_id)
                 msg = (f"Server {server_id} auf {TIERS[tier]['name']} upgraded!"
@@ -533,6 +596,7 @@ async def verify_premium(body: dict):
                     "success": True,
                     "serverId": server_id,
                     "tier": tier,
+                    "seats": seats,
                     "expiresAt": license_data.get("expiresAt"),
                     "remainingDays": lic_info["remainingDays"] if lic_info else 0,
                     "message": msg,
