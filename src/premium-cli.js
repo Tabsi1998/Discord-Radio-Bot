@@ -168,10 +168,12 @@ async function run() {
           const expired = new Date(lic.expiresAt) <= new Date();
           const daysLeft = Math.max(0, Math.ceil((new Date(lic.expiresAt) - new Date()) / 86400000));
           const status = expired ? "\x1b[31mABGELAUFEN\x1b[0m" : `${daysLeft}`;
-          const tierStr = (lic.tier || "?").padEnd(10);
+          const tierStr = (lic.plan || "?").padEnd(10);
           const expStr = formatDate(lic.expiresAt).padEnd(20);
+          const servers = (lic.linkedServerIds || []).join(", ") || "-";
           const noteStr = (lic.note || "").substring(0, 30);
           console.log(`  ${id}  ${tierStr} ${expStr} ${status.padEnd(6)} ${noteStr}`);
+          console.log(`    Server: ${servers} (${(lic.linkedServerIds || []).length}/${lic.seats || 1} Seats)`);
         }
         console.log("");
         info(`${entries.length} Lizenz(en) gesamt.`);
