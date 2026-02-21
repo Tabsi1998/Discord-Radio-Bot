@@ -50,7 +50,13 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - [x] E-Mail: Bestaetigungs-E-Mail mit Server-Aenderungs-Hinweis (22.02.2026)
 - [x] Rebranding-Cleanup: package.json, systemd service, README (22.02.2026)
 - [x] QA-Pass: Vollstaendiger Test aller APIs, Frontend, CLI, Code-Level (22.02.2026)
-- [x] Testing: 100% (Backend 22/22, Frontend alle UI-Tests bestanden, Iteration 24)
+- [x] E-Mail-basierter Checkout: Server-ID durch E-Mail ersetzt (22.02.2026)
+- [x] Lizenz-Key System: OMNI-XXXX-XXXX-XXXX Format, automatische Generierung (22.02.2026)
+- [x] Server-Zuweisung per Support: E-Mail/Discord statt Checkout (22.02.2026)
+- [x] Checkout-Modal redesigned: E-Mail Input, Lizenz-Key Info-Hinweis (22.02.2026)
+- [x] Lizenz-Lookup per Key: GET /api/premium/check?licenseKey=... (22.02.2026)
+- [x] Purchase-E-Mail komplett neu: Lizenz-Key prominent, Server-Zuweisungs-Anleitung (22.02.2026)
+- [x] Testing: 100% (Backend 17/17, Frontend alle UI-Tests bestanden, Iteration 25)
 
 ## API Endpoints
 - GET /api/health - Health + OmniFM Brand
