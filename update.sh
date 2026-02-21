@@ -825,6 +825,18 @@ git clean -fd \
   -e custom-stations.json \
   -e docker-compose.override.yml 2>/dev/null || true
 
+# Sicherheitscheck: Premium-Daten duerfen NICHT leer sein nach Update
+for pf in premium.json bot-state.json custom-stations.json; do
+  if [[ -f "$pf" ]] && [[ ! -s "$pf" ]]; then
+    latest_backup=$(ls -t ".update-backups/${pf}."* 2>/dev/null | head -1)
+    if [[ -n "$latest_backup" ]] && [[ -s "$latest_backup" ]]; then
+      warn "${pf} ist leer nach Update - stelle Backup wieder her..."
+      cp "$latest_backup" "$pf"
+      ok "${pf} aus Backup wiederhergestellt."
+    fi
+  fi
+done
+
 if [[ "$old_head" == "$new_head" ]]; then
   info "Keine neuen Commits."
 else
