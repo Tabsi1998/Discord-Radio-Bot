@@ -218,8 +218,8 @@ async function run() {
       // --- Tier-Infos ---
       case "8": {
         console.log("");
-        for (const [key, t] of Object.entries(TIERS)) {
-          const price = t.pricePerMonth > 0 ? centsToEur(t.pricePerMonth) + "/Monat" : "Kostenlos";
+        for (const [key, t] of Object.entries(PLANS)) {
+          const price = PRICE_PER_MONTH_CENTS[key] > 0 ? centsToEur(PRICE_PER_MONTH_CENTS[key]) + "/Monat" : "Kostenlos";
           console.log(`  ${t.name.padEnd(10)} ${price.padEnd(16)} Bitrate: ${t.bitrate} | Max Bots: ${t.maxBots} | Reconnect: ${t.reconnectMs}ms`);
         }
         console.log("");
