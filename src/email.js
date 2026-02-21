@@ -132,16 +132,19 @@ function buildPurchaseEmail(data) {
   if (tier === "ultimate") {
     tierBenefits = `
       <ul style="margin:0;padding-left:18px;color:#A1A1AA;line-height:1.7">
-        <li>Bots #1-#20 nutzbar (inkl. Ultimate Bots #11-#20)</li>
-        <li>320k Audio + schnellster Reconnect</li>
+        <li>Bis zu 16 Bots gleichzeitig</li>
+        <li>320k Ultra HQ Audio + Instant Reconnect (0.4s)</li>
+        <li>Alle 120+ Stationen inkl. Premium</li>
         <li>Custom Stations (eigene URLs)</li>
+        <li>Priority-Support per Discord</li>
       </ul>`;
   } else {
     tierBenefits = `
       <ul style="margin:0;padding-left:18px;color:#A1A1AA;line-height:1.7">
-        <li>Bots #1-#10 nutzbar (inkl. Pro Bots #5-#10)</li>
-        <li>192k Audio + schneller Reconnect</li>
-        <li>Priority-Support</li>
+        <li>Bis zu 8 Bots gleichzeitig</li>
+        <li>128k HQ Audio + Priority Reconnect (1.5s)</li>
+        <li>100+ Premium Stationen</li>
+        <li>Support per Discord</li>
       </ul>`;
   }
 
