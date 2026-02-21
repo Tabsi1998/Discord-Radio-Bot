@@ -42,6 +42,78 @@ import { getGuildStations, addGuildStation, removeGuildStation, countGuildStatio
 
 dotenv.config();
 
+// ============================================================
+// OmniFM: Entitlements Wiring & Legacy Compatibility
+// ============================================================
+setLicenseProvider(getServerLicense);
+
+const PRICE_PER_MONTH_CENTS = { free: 0, pro: 299, ultimate: 499 };
+
+const TIERS = Object.fromEntries(
+  Object.entries(PLANS).map(([key, plan]) => [key, {
+    ...plan, tier: key, pricePerMonth: PRICE_PER_MONTH_CENTS[key] || 0,
+  }])
+);
+
+function getTierConfig(serverId) {
+  const config = getServerPlanConfig(serverId);
+  return { ...config, tier: config.plan };
+}
+
+function getTier(serverId) {
+  return getServerPlan(serverId);
+}
+
+function getLicense(serverId) {
+  return getServerLicense(serverId);
+}
+
+function addLicense(serverId, tier, months, activatedBy, note) {
+  return addLicenseForServer(serverId, tier, months, activatedBy, note);
+}
+
+function patchLicense(serverId, patch) {
+  return patchLicenseForServer(serverId, patch);
+}
+
+function upgradeLicense(serverId, newTier) {
+  return upgradeLicenseForServer(serverId, newTier);
+}
+
+function calculatePrice(tier, months) {
+  const ppm = PRICE_PER_MONTH_CENTS[tier];
+  if (!ppm) return 0;
+  if (months >= 12) return ppm * 10;
+  return ppm * months;
+}
+
+function calculateUpgradePrice(serverId, targetTier) {
+  const lic = getServerLicense(serverId);
+  if (!lic || lic.expired || !lic.active) return null;
+  const oldTier = lic.plan || "free";
+  if (oldTier === targetTier) return null;
+  if (!planAtLeast(targetTier, oldTier)) return null;
+  const daysLeft = lic.remainingDays || 0;
+  if (daysLeft <= 0) return null;
+  const oldPpm = PRICE_PER_MONTH_CENTS[oldTier] || 0;
+  const newPpm = PRICE_PER_MONTH_CENTS[targetTier] || 0;
+  const diff = newPpm - oldPpm;
+  if (diff <= 0) return null;
+  return { oldTier, targetTier, daysLeft, upgradeCost: Math.ceil(diff * daysLeft / 30) };
+}
+
+function listLicenses() {
+  const raw = listRawLicenses();
+  const byServer = {};
+  for (const [, lic] of Object.entries(raw)) {
+    for (const sid of (lic.linkedServerIds || [])) {
+      byServer[sid] = { ...lic, tier: lic.plan };
+    }
+  }
+  return byServer;
+}
+// ============================================================
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const webDir = path.join(rootDir, "web");
