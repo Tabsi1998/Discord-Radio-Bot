@@ -190,6 +190,25 @@ count_license_entries() {
   grep -c '"plan"[[:space:]]*:' "$fp" 2>/dev/null || echo 0
 }
 
+prune_update_backups() {
+  local keep="${UPDATE_BACKUP_KEEP:-20}"
+  if [[ ! "$keep" =~ ^[0-9]+$ ]] || (( keep < 5 )); then
+    keep=20
+  fi
+
+  local prefix
+  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json"; do
+    mapfile -t files < <(ls -1t ".update-backups/${prefix}."* 2>/dev/null || true)
+    if (( ${#files[@]} <= keep )); then
+      continue
+    fi
+    local i
+    for (( i=keep; i<${#files[@]}; i++ )); do
+      rm -f "${files[$i]}" 2>/dev/null || true
+    done
+  done
+}
+
 restart_container() {
   echo ""
   if prompt_yes_no "Container jetzt neu starten (noetig fuer Aenderungen)?" "j"; then
@@ -364,7 +383,7 @@ if [[ "$MODE" == "--email" ]]; then
   cur_from=$(read_env "SMTP_FROM")
   cur_admin=$(read_env "ADMIN_EMAIL")
   cur_tls_mode=$(read_env "SMTP_TLS_MODE" "auto")
-  cur_tls_verify=$(read_env "SMTP_TLS_REJECT_UNAUTHORIZED" "0")
+  cur_tls_verify=$(read_env "SMTP_TLS_REJECT_UNAUTHORIZED" "1")
 
   if [[ -n "$cur_host" ]]; then
     echo -e "  SMTP Host:     ${GREEN}${cur_host}${NC}"
@@ -404,7 +423,7 @@ if [[ "$MODE" == "--email" ]]; then
         auto|plain|starttls|smtps) ;;
         *) tls_mode="auto" ;;
       esac
-      tls_verify="$(prompt_default "TLS Zertifikat pruefen? (1=ja, 0=nein)" "${cur_tls_verify:-0}")"
+      tls_verify="$(prompt_default "TLS Zertifikat pruefen? (1=ja, 0=nein)" "${cur_tls_verify:-1}")"
       [[ "$tls_verify" == "1" ]] || tls_verify="0"
 
       write_env_line "SMTP_HOST" "$smtp_host"
@@ -451,7 +470,7 @@ if [[ "$MODE" == "--email" ]]; then
           ['plain', 'starttls', 'smtps'].includes(modeRaw)
             ? modeRaw
             : (port === 465 ? 'smtps' : (port === 25 ? 'plain' : 'starttls'));
-        const rejectUnauthorized = String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || '0') === '1';
+        const rejectUnauthorized = String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || '1') === '1';
         const opts = {
           host: process.env.SMTP_HOST,
           port,
@@ -808,6 +827,7 @@ echo ""
 # Backup .env
 if [[ -f .env ]]; then
   mkdir -p .update-backups
+  prune_update_backups
   cp .env ".update-backups/.env.$(date +%Y%m%d%H%M%S)"
 fi
 
@@ -822,6 +842,7 @@ for pf in premium.json bot-state.json custom-stations.json; do
     cp "$pf" ".update-backups/${pf}.${update_stamp}" 2>/dev/null || true
   fi
 done
+prune_update_backups
 
 git fetch "$REMOTE" "$BRANCH" 2>&1 | tail -3
 

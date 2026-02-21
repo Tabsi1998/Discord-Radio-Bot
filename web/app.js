@@ -23,6 +23,7 @@ var COMMANDS = [
   { name: '/setvolume',     args: '<0-100>',              desc: 'Setzt die Lautstärke' },
   { name: '/status',        args: '',                     desc: 'Zeigt Bot-Status, Uptime und Last' },
   { name: '/health',        args: '',                     desc: 'Zeigt Stream-Health und Reconnect-Info' },
+  { name: '/diag',          args: '',                     desc: 'Zeigt ffmpeg/Audio Diagnose-Werte fuer Troubleshooting' },
   { name: '/premium',       args: '',                     desc: 'Zeigt den Premium-Status dieses Servers' },
   { name: '/addstation',    args: '<key> <name> <url>',   desc: '[Ultimate] Eigene Station hinzufügen' },
   { name: '/removestation', args: '<key>',                desc: '[Ultimate] Eigene Station entfernen' },

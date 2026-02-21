@@ -139,6 +139,53 @@ function formatEuroCentsDe(cents) {
   return (Number(cents || 0) / 100).toFixed(2).replace(".", ",");
 }
 
+function parseBitrateKbps(rawBitrate) {
+  if (rawBitrate === null || rawBitrate === undefined) return null;
+  const str = String(rawBitrate).trim().toLowerCase();
+  if (!str) return null;
+  const match = str.match(/^(\d+)\s*k?$/i);
+  if (!match) return null;
+  const kbps = Number.parseInt(match[1], 10);
+  return Number.isFinite(kbps) && kbps > 0 ? kbps : null;
+}
+
+function buildTranscodeProfile({ bitrateOverride, qualityPreset }) {
+  const overrideKbps = parseBitrateKbps(bitrateOverride);
+  const requestedKbps = overrideKbps || parseBitrateKbps(process.env.OPUS_BITRATE || "192k") || 192;
+  const isUltra = requestedKbps >= 256 || String(qualityPreset || "").toLowerCase() === "high";
+
+  return {
+    requestedKbps,
+    isUltra,
+    threadQueueSize: String(process.env.FFMPEG_THREAD_QUEUE_SIZE || (isUltra ? "4096" : "2048")),
+    probeSize: String(process.env.FFMPEG_PROBESIZE || (isUltra ? "262144" : "131072")),
+    analyzeDuration: String(process.env.FFMPEG_ANALYZE_US || (isUltra ? "3000000" : "2000000")),
+    rtbufsize: String(process.env.FFMPEG_RTBUFSIZE || (isUltra ? "96M" : "64M")),
+    maxDelayUs: String(process.env.FFMPEG_MAX_DELAY_US || (isUltra ? "600000" : "400000")),
+    rwTimeoutUs: String(process.env.FFMPEG_RW_TIMEOUT_US || "20000000"),
+    ioTimeoutUs: String(process.env.FFMPEG_IO_TIMEOUT_US || "20000000"),
+    outputFlushPackets: String(process.env.FFMPEG_OUTPUT_FLUSH_PACKETS || "0"),
+  };
+}
+
+function shouldLogFfmpegStderrLine(line) {
+  const text = String(line || "").trim();
+  if (!text) return false;
+
+  const mode = String(process.env.FFMPEG_STDERR_VERBOSITY || "warn").trim().toLowerCase();
+  if (mode === "all" || mode === "debug" || mode === "info") return true;
+  if (mode === "off" || mode === "none") return false;
+
+  const lc = text.toLowerCase();
+  return lc.includes("error")
+    || lc.includes("failed")
+    || lc.includes("invalid")
+    || lc.includes("warn")
+    || lc.includes("timed out")
+    || lc.includes("http error")
+    || lc.includes("reconnect");
+}
+
 function listLicenses() {
   const raw = listRawLicenses();
   const byServer = {};
@@ -157,25 +204,43 @@ const webDir = path.join(rootDir, "web");
 const logsDir = path.join(rootDir, "logs");
 const logFile = path.join(logsDir, "bot.log");
 const maxLogSizeBytes = Number(process.env.LOG_MAX_MB || "5") * 1024 * 1024;
+const logRotateCheckIntervalMs = Number(process.env.LOG_ROTATE_CHECK_MS || "5000");
 const appStartTime = Date.now();
+let logWriteQueue = Promise.resolve();
+let lastLogRotateCheckAt = 0;
 
-function ensureLogsDir() {
-  if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
-  }
+async function ensureLogsDir() {
+  await fs.promises.mkdir(logsDir, { recursive: true });
 }
 
-function rotateLogIfNeeded() {
+async function rotateLogIfNeeded() {
+  const now = Date.now();
+  if (now - lastLogRotateCheckAt < logRotateCheckIntervalMs) return;
+  lastLogRotateCheckAt = now;
+
   try {
-    if (!fs.existsSync(logFile)) return;
-    const size = fs.statSync(logFile).size;
+    const stat = await fs.promises.stat(logFile).catch(() => null);
+    if (!stat) return;
+    const size = stat.size;
     if (size < maxLogSizeBytes) return;
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const rotated = path.join(logsDir, `bot-${stamp}.log`);
-    fs.renameSync(logFile, rotated);
+    await fs.promises.rename(logFile, rotated);
   } catch {
     // ignore
   }
+}
+
+function queueLogWrite(line) {
+  logWriteQueue = logWriteQueue
+    .then(async () => {
+      await ensureLogsDir();
+      await rotateLogIfNeeded();
+      await fs.promises.appendFile(logFile, `${line}\n`, "utf8");
+    })
+    .catch(() => {
+      // ignore
+    });
 }
 
 function log(level, message) {
@@ -187,13 +252,7 @@ function log(level, message) {
     console.log(line);
   }
 
-  try {
-    ensureLogsDir();
-    rotateLogIfNeeded();
-    fs.appendFileSync(logFile, `${line}\n`);
-  } catch {
-    // ignore
-  }
+  queueLogWrite(line);
 }
 
 function clampVolume(value) {
@@ -432,32 +491,36 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
   const preset = qualityPreset || "custom";
   const presetBitrate =
     preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
+  const profile = buildTranscodeProfile({ bitrateOverride, qualityPreset: preset });
 
   const transcode = String(process.env.TRANSCODE || "0") === "1" || preset !== "custom" || !!bitrateOverride;
   if (transcode) {
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
       "-loglevel", "warning",
-      // === Stable streaming: small buffer for resilience, low latency ===
-      "-fflags", "+flush_packets+genpts+discardcorrupt",
-      "-flags", "+low_delay",
-      "-probesize", "32768",
-      "-analyzeduration", "500000",
-      "-thread_queue_size", "1024",
+      // === Stable streaming profile (favors fewer dropouts over minimum latency) ===
+      "-fflags", "+genpts+discardcorrupt",
+      "-probesize", profile.probeSize,
+      "-analyzeduration", profile.analyzeDuration,
+      "-thread_queue_size", profile.threadQueueSize,
+      "-rtbufsize", profile.rtbufsize,
+      "-max_delay", profile.maxDelayUs,
       // === Reconnect bei Stream-Abbruch ===
       "-reconnect", "1",
       "-reconnect_streamed", "1",
+      "-reconnect_at_eof", "1",
       "-reconnect_delay_max", "5",
       "-reconnect_on_network_error", "1",
       "-reconnect_on_http_error", "4xx,5xx",
-      "-rw_timeout", "15000000",
-      "-timeout", "15000000",
+      "-rw_timeout", profile.rwTimeoutUs,
+      "-timeout", profile.ioTimeoutUs,
       // === Input ===
       "-i", url,
       "-ar", "48000",
       "-ac", "2",
       "-vn",
-      "-flush_packets", "1",
+      "-af", "aresample=async=1:first_pts=0",
+      "-flush_packets", profile.outputFlushPackets,
     ];
 
     let inputType = StreamType.Raw;
@@ -467,6 +530,8 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       // compression_level 5 statt 10 = weniger CPU-Last = weniger Latenz
       const compression = String(process.env.OPUS_COMPRESSION || "5");
       const frame = String(process.env.OPUS_FRAME || "20");
+      const application = String(process.env.OPUS_APPLICATION || (profile.isUltra ? "audio" : "lowdelay")).toLowerCase();
+      const packetLoss = String(process.env.OPUS_PACKET_LOSS || (profile.isUltra ? "8" : "3"));
 
       args.push(
         "-c:a", "libopus",
@@ -474,8 +539,8 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
         "-vbr", vbr,
         "-compression_level", compression,
         "-frame_duration", frame,
-        "-application", "lowdelay",
-        "-packet_loss", "3",
+        "-application", application,
+        "-packet_loss", packetLoss,
         "-cutoff", "20000",
         "-f", "ogg",
         "pipe:1"
@@ -486,6 +551,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       inputType = StreamType.Raw;
     }
 
+    log("INFO", `[${botName}] ffmpeg profile=${profile.isUltra ? "ultra-stable" : "stable"} bitrate=${profile.requestedKbps}k queue=${profile.threadQueueSize} probe=${profile.probeSize} analyzeUs=${profile.analyzeDuration}`);
     log("INFO", `[${botName}] ffmpeg ${args.join(" ")}`);
     const ffmpeg = spawn("ffmpeg", args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -499,7 +565,8 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       stderrBuffer = lines.pop() || "";
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed) log("INFO", `[${botName}] ffmpeg: ${trimmed}`);
+        if (!shouldLogFfmpegStderrLine(trimmed)) continue;
+        log("INFO", `[${botName}] ffmpeg: ${clipText(trimmed, 500)}`);
       }
     });
 
@@ -609,7 +676,8 @@ class BotRuntime {
         reconnectTimer: null,
         streamRestartTimer: null,
         shouldReconnect: false,
-        streamErrorCount: 0
+        streamErrorCount: 0,
+        lastStreamStartAt: null,
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
@@ -626,6 +694,30 @@ class BotRuntime {
     }
 
     return this.guildState.get(guildId);
+  }
+
+  getStreamDiagnostics(guildId, state) {
+    const tierConfig = getTierConfig(guildId);
+    const stations = loadStations();
+    const preset = stations.qualityPreset || "custom";
+    const bitrateOverride = tierConfig.bitrate;
+    const transcodeEnabled = String(process.env.TRANSCODE || "0") === "1" || preset !== "custom" || !!bitrateOverride;
+    const profile = buildTranscodeProfile({ bitrateOverride, qualityPreset: preset });
+    const streamLifetimeSec = state.lastStreamStartAt ? Math.floor((Date.now() - state.lastStreamStartAt) / 1000) : 0;
+
+    return {
+      preset,
+      tier: tierConfig.tier,
+      bitrateOverride,
+      transcodeEnabled,
+      transcodeMode: String(process.env.TRANSCODE_MODE || "opus").toLowerCase(),
+      requestedBitrateKbps: profile.requestedKbps,
+      profile: profile.isUltra ? "ultra-stable" : "stable",
+      queue: profile.threadQueueSize,
+      probeSize: profile.probeSize,
+      analyzeUs: profile.analyzeDuration,
+      streamLifetimeSec,
+    };
   }
 
   isPremiumOnlyBot() {
@@ -793,7 +885,13 @@ class BotRuntime {
     // Don't restart stream if there's no voice connection (reconnect handler will deal with it)
     if (!state.connection) return;
 
+    const streamLifetimeMs = state.lastStreamStartAt ? (Date.now() - state.lastStreamStartAt) : 0;
+    const earlyIdle = reason === "idle" && streamLifetimeMs > 0 && streamLifetimeMs < 5000;
+
     if (reason === "error") {
+      state.streamErrorCount = (state.streamErrorCount || 0) + 1;
+    } else if (earlyIdle) {
+      // Early idle shortly after start usually means upstream hiccup, not a clean end.
       state.streamErrorCount = (state.streamErrorCount || 0) + 1;
     } else {
       state.streamErrorCount = 0;
@@ -803,11 +901,11 @@ class BotRuntime {
     const tierConfig = getTierConfig(guildId);
     let delay;
 
-    if (reason === "error") {
+    if (reason === "error" || earlyIdle) {
       // Exponential backoff: 1s, 2s, 4s, 8s, max 15s
       delay = Math.min(15000, 1000 * Math.pow(2, Math.min(errorCount - 1, 4)));
     } else {
-      delay = Math.max(100, tierConfig.reconnectMs / 2);
+      delay = Math.max(1000, tierConfig.reconnectMs);
     }
 
     // Too many consecutive errors: cool down for 30s
@@ -816,7 +914,8 @@ class BotRuntime {
       log("INFO", `[${this.config.name}] Too many stream errors (${errorCount}) guild=${guildId}, cooling down 30s`);
     }
 
-    log("INFO", `[${this.config.name}] Stream ${reason} guild=${guildId} errors=${errorCount}, restart in ${delay}ms`);
+    const reasonLabel = earlyIdle ? "idle-early" : reason;
+    log("INFO", `[${this.config.name}] Stream ${reasonLabel} guild=${guildId} lifetimeMs=${streamLifetimeMs} errors=${errorCount}, restart in ${delay}ms`);
 
     if (state.streamRestartTimer) {
       clearTimeout(state.streamRestartTimer);
@@ -858,6 +957,7 @@ class BotRuntime {
     state.currentStationKey = key;
     state.currentStationName = station.name || key;
     state.currentMeta = null;
+    state.lastStreamStartAt = Date.now();
     this.updatePresence();
     this.persistState();
 
@@ -1679,6 +1779,29 @@ class BotRuntime {
       return;
     }
 
+    if (interaction.commandName === "diag") {
+      const connected = state.connection ? "ja" : "nein";
+      const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || "-";
+      const station = state.currentStationKey || "-";
+      const diag = this.getStreamDiagnostics(interaction.guildId, state);
+      const restartPending = state.streamRestartTimer ? "ja" : "nein";
+      const reconnectPending = state.reconnectTimer ? "ja" : "nein";
+
+      const content = [
+        `Bot: ${this.config.name}`,
+        `Server: ${interaction.guild?.name || interaction.guildId}`,
+        `Plan: ${diag.tier.toUpperCase()} | preset=${diag.preset} | transcode=${diag.transcodeEnabled ? "on" : "off"} (${diag.transcodeMode})`,
+        `Bitrate Ziel: ${diag.bitrateOverride || "-"} (${diag.requestedBitrateKbps}k) | Profil: ${diag.profile}`,
+        `FFmpeg Buffer: queue=${diag.queue} probe=${diag.probeSize} analyzeUs=${diag.analyzeUs}`,
+        `Verbunden: ${connected} | Channel: ${channelId} | Station: ${station}`,
+        `Stream-Laufzeit: ${diag.streamLifetimeSec}s | Errors in Reihe: ${state.streamErrorCount || 0}`,
+        `Restart geplant: ${restartPending} | Reconnect geplant: ${reconnectPending}`,
+      ].join("\n");
+
+      await interaction.reply({ content, ephemeral: true });
+      return;
+    }
+
     if (interaction.commandName === "status") {
       const connected = state.connection ? "ja" : "nein";
       const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || "-";
@@ -2418,6 +2541,82 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
 }
 
 const webhookEventsInFlight = new Set();
+const apiRateLimitState = new Map();
+
+function getClientIp(req) {
+  const forwardedFor = String(req.headers["x-forwarded-for"] || "").trim();
+  if (forwardedFor) {
+    const first = forwardedFor.split(",")[0].trim();
+    if (first) return first;
+  }
+  const realIp = String(req.headers["x-real-ip"] || "").trim();
+  if (realIp) return realIp;
+  return String(req.socket?.remoteAddress || "unknown");
+}
+
+function getApiRateLimitSpec(pathname) {
+  if (!String(pathname || "").startsWith("/api/premium")) return null;
+  if (pathname === "/api/premium/webhook") {
+    return {
+      scope: "webhook",
+      windowMs: Number(process.env.API_RATE_WEBHOOK_WINDOW_MS || "60000"),
+      max: Number(process.env.API_RATE_WEBHOOK_MAX || "300"),
+    };
+  }
+
+  if (pathname === "/api/premium/checkout" || pathname === "/api/premium/verify") {
+    return {
+      scope: "write",
+      windowMs: Number(process.env.API_RATE_WRITE_WINDOW_MS || "60000"),
+      max: Number(process.env.API_RATE_WRITE_MAX || "20"),
+    };
+  }
+
+  return {
+    scope: "read",
+    windowMs: Number(process.env.API_RATE_READ_WINDOW_MS || "60000"),
+    max: Number(process.env.API_RATE_READ_MAX || "120"),
+  };
+}
+
+function cleanupRateLimitState(now = Date.now()) {
+  if (apiRateLimitState.size < 10000) return;
+  for (const [key, value] of apiRateLimitState.entries()) {
+    if (!value || value.resetAt <= now) {
+      apiRateLimitState.delete(key);
+    }
+  }
+}
+
+function enforceApiRateLimit(req, res, pathname) {
+  const spec = getApiRateLimitSpec(pathname);
+  if (!spec) return true;
+
+  const now = Date.now();
+  cleanupRateLimitState(now);
+  const ip = getClientIp(req);
+  const key = `${spec.scope}:${req.method}:${pathname}:${ip}`;
+
+  let entry = apiRateLimitState.get(key);
+  if (!entry || entry.resetAt <= now) {
+    entry = { count: 0, resetAt: now + spec.windowMs };
+  }
+
+  entry.count += 1;
+  apiRateLimitState.set(key, entry);
+
+  if (entry.count > spec.max) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
+    res.setHeader("Retry-After", String(retryAfterSeconds));
+    sendJson(res, 429, {
+      error: "Rate limit erreicht. Bitte spaeter erneut versuchen.",
+      retryAfterSeconds,
+    });
+    return false;
+  }
+
+  return true;
+}
 
 function startWebServer(runtimes) {
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
@@ -2441,6 +2640,10 @@ function startWebServer(runtimes) {
     }
     if (!originAllowed) {
       sendJson(res, 403, { error: "Origin nicht erlaubt." });
+      return;
+    }
+
+    if (!enforceApiRateLimit(req, res, requestUrl.pathname)) {
       return;
     }
 
@@ -3026,6 +3229,11 @@ async function shutdown(signal) {
 
   webServer.close();
   await Promise.all(runtimes.map((runtime) => runtime.stop()));
+  try {
+    await logWriteQueue;
+  } catch {
+    // ignore
+  }
   process.exit(0);
 }
 

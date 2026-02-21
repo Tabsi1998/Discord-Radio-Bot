@@ -22,6 +22,7 @@ export function buildCommandBuilders() {
       .setDescription("Stationen auflisten (paginiert)")
       .addIntegerOption((o) => o.setName("page").setDescription("Seitennummer").setRequired(false)),
     new SlashCommandBuilder().setName("health").setDescription("Stream-Health und Reconnect-Info anzeigen"),
+    new SlashCommandBuilder().setName("diag").setDescription("Diagnose: Audio/ffmpeg Profil und Stream-Details anzeigen"),
     new SlashCommandBuilder().setName("premium").setDescription("OmniFM Premium-Status deines Servers anzeigen"),
     // Custom Stations (Ultimate)
     new SlashCommandBuilder()

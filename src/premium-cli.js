@@ -11,14 +11,36 @@ import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
 
 dotenv.config();
 
-const PRICE_PER_MONTH_CENTS = { free: 0, pro: 299, ultimate: 499 };
+const SEAT_OPTIONS = [1, 2, 3, 5];
+const SEAT_PRICING_CENTS = {
+  pro: { 1: 299, 2: 549, 3: 749, 5: 1149 },
+  ultimate: { 1: 499, 2: 799, 3: 1099, 5: 1699 },
+};
 const YEARLY_DISCOUNT_MONTHS = 10;
 
-function calculatePrice(tier, months) {
-  const ppm = PRICE_PER_MONTH_CENTS[tier];
+function normalizeSeats(rawSeats) {
+  const seats = Number(rawSeats);
+  return SEAT_OPTIONS.includes(seats) ? seats : 1;
+}
+
+function getSeatPricePerMonthCents(tier, seats = 1) {
+  if (tier === "free") return 0;
+  const pricing = SEAT_PRICING_CENTS[tier];
+  if (!pricing) return 0;
+  const normalizedSeats = normalizeSeats(seats);
+  return pricing[normalizedSeats] || pricing[1] || 0;
+}
+
+function calculatePrice(tier, months, seats = 1) {
+  const ppm = getSeatPricePerMonthCents(tier, seats);
   if (!ppm) return 0;
-  if (months >= 12) return ppm * YEARLY_DISCOUNT_MONTHS;
-  return ppm * months;
+  const durationMonths = Math.max(1, Number.parseInt(months, 10) || 1);
+  if (durationMonths >= 12) {
+    const fullYears = Math.floor(durationMonths / 12);
+    const remaining = durationMonths % 12;
+    return (fullYears * YEARLY_DISCOUNT_MONTHS * ppm) + (remaining * ppm);
+  }
+  return ppm * durationMonths;
 }
 
 function calculateUpgradePrice(serverId, targetTier) {
@@ -26,13 +48,14 @@ function calculateUpgradePrice(serverId, targetTier) {
   if (!lic || lic.expired || !lic.active) return null;
   const oldTier = lic.plan || "free";
   if (oldTier === targetTier) return null;
-  const oldPpm = PRICE_PER_MONTH_CENTS[oldTier] || 0;
-  const newPpm = PRICE_PER_MONTH_CENTS[targetTier] || 0;
+  const seats = normalizeSeats(lic.seats || 1);
+  const oldPpm = getSeatPricePerMonthCents(oldTier, seats);
+  const newPpm = getSeatPricePerMonthCents(targetTier, seats);
   const diff = newPpm - oldPpm;
   if (diff <= 0) return null;
   const daysLeft = lic.remainingDays || 0;
   if (daysLeft <= 0) return null;
-  return { oldTier, targetTier, daysLeft, upgradeCost: Math.ceil(diff * daysLeft / 30) };
+  return { oldTier, targetTier, daysLeft, seats, upgradeCost: Math.ceil(diff * daysLeft / 30) };
 }
 
 const rl = createInterface({ input: stdin, output: stdout });
@@ -411,7 +434,8 @@ async function run() {
       case "8": {
         console.log("");
         for (const [key, t] of Object.entries(PLANS)) {
-          const price = PRICE_PER_MONTH_CENTS[key] > 0 ? centsToEur(PRICE_PER_MONTH_CENTS[key]) + "/Monat" : "Kostenlos";
+          const seat1Price = getSeatPricePerMonthCents(key, 1);
+          const price = seat1Price > 0 ? `${centsToEur(seat1Price)}/Monat (ab 1 Seat)` : "Kostenlos";
           console.log(`  ${t.name.padEnd(10)} ${price.padEnd(16)} Bitrate: ${t.bitrate} | Max Bots: ${t.maxBots} | Reconnect: ${t.reconnectMs}ms`);
         }
         console.log("");
