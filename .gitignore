@@ -6,7 +6,9 @@ logs/
 .update-backups/
 bot-state.json
 premium.json
+premium.json.bak
 custom-stations.json
+custom-stations.json.bak
 
 # Emergent Platform (nicht Teil des Bot-Repos)
 backend/

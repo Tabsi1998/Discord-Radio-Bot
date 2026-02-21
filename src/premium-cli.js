@@ -95,17 +95,6 @@ function getLicenseByInput(input) {
   return null;
 }
 
-function getBotInviteBucket(botConfig) {
-  const index = Number(botConfig.index || 0);
-  if (index >= 1 && index <= 4) return "free";
-  if (index >= 5 && index <= 10) return "pro";
-  if (index >= 11 && index <= 20) return "ultimate";
-  const requiredTier = String(botConfig.requiredTier || "free").toLowerCase();
-  if (requiredTier === "ultimate") return "ultimate";
-  if (requiredTier === "pro") return "pro";
-  return "free";
-}
-
 function buildInviteOverviewForTier(botConfigs, tier) {
   const normalizedTier = String(tier || "free").toLowerCase();
   const hasPro = normalizedTier === "pro" || normalizedTier === "ultimate";
@@ -122,19 +111,7 @@ function buildInviteOverviewForTier(botConfigs, tier) {
 
   for (const botConfig of sorted) {
     const index = Number(botConfig.index || 0);
-    if (hasPro && index >= 5 && index <= 10 && !seenPro.has(index)) {
-      seenPro.add(index);
-      overview.proBots.push({ index, name: botConfig.name, url: buildInviteUrl(botConfig) });
-      continue;
-    }
-
-    if (hasUltimate && index >= 11 && index <= 20 && !seenUltimate.has(index)) {
-      seenUltimate.add(index);
-      overview.ultimateBots.push({ index, name: botConfig.name, url: buildInviteUrl(botConfig) });
-      continue;
-    }
-
-    const bucket = getBotInviteBucket(botConfig);
+    const bucket = String(botConfig.requiredTier || "free").toLowerCase();
     if (bucket !== "pro" && bucket !== "ultimate") continue;
     if ((bucket === "pro" && !hasPro) || (bucket === "ultimate" && !hasUltimate)) continue;
     const seen = bucket === "ultimate" ? seenUltimate : seenPro;
@@ -147,6 +124,8 @@ function buildInviteOverviewForTier(botConfigs, tier) {
     }
   }
 
+  overview.proBots.sort((a, b) => Number(a.index || 0) - Number(b.index || 0));
+  overview.ultimateBots.sort((a, b) => Number(a.index || 0) - Number(b.index || 0));
   return overview;
 }
 
@@ -188,9 +167,9 @@ function buildResendEmailHtml({ license, tierName, inviteOverview }) {
   const seats = Number(license.seats || 1);
   const linkedServerIds = Array.isArray(license.linkedServerIds) ? license.linkedServerIds : [];
 
-  const proList = renderInviteList("Pro Bots (#5-#10)", inviteOverview.proBots || []);
+  const proList = renderInviteList("Pro Bots", inviteOverview.proBots || []);
   const ultimateList = tier === "ultimate"
-    ? renderInviteList("Ultimate Bots (#11-#20)", inviteOverview.ultimateBots || [])
+    ? renderInviteList("Ultimate Bots", inviteOverview.ultimateBots || [])
     : "";
 
   return `

@@ -802,11 +802,12 @@ fi
 
 # Pull latest code
 info "Hole neuesten Code von ${REMOTE}/${BRANCH}..."
+update_stamp="$(date +%Y%m%d%H%M%S)"
 
 # WICHTIG: Premium-Daten IMMER sichern vor Update!
 for pf in premium.json bot-state.json custom-stations.json; do
   if [[ -f "$pf" ]]; then
-    cp "$pf" ".update-backups/${pf}.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+    cp "$pf" ".update-backups/${pf}.${update_stamp}" 2>/dev/null || true
   fi
 done
 
@@ -824,6 +825,18 @@ git clean -fd \
   -e bot-state.json \
   -e custom-stations.json \
   -e docker-compose.override.yml 2>/dev/null || true
+
+# Laufzeitdaten immer aus dem VOR-Update Snapshot wiederherstellen,
+# damit git reset keine produktiven JSON-Daten ueberschreibt.
+for pf in premium.json bot-state.json custom-stations.json; do
+  snapshot=".update-backups/${pf}.${update_stamp}"
+  if [[ -s "$snapshot" ]]; then
+    if ! cmp -s "$snapshot" "$pf" 2>/dev/null; then
+      cp "$snapshot" "$pf"
+      info "${pf} aus Pre-Update Snapshot wiederhergestellt."
+    fi
+  fi
+done
 
 # Sicherheitscheck: Premium-Daten duerfen NICHT leer sein nach Update
 for pf in premium.json bot-state.json custom-stations.json; do

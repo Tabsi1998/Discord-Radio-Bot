@@ -2276,24 +2276,13 @@ function resolvePublicWebsiteUrl() {
   }
 }
 
-function getBotInviteBucket(botConfig) {
-  const index = Number(botConfig.index || 0);
-  if (index >= 1 && index <= 4) return "free";
-  if (index >= 5 && index <= 10) return "pro";
-  if (index >= 11 && index <= 20) return "ultimate";
-  const requiredTier = String(botConfig.requiredTier || "free").toLowerCase();
-  if (requiredTier === "ultimate") return "ultimate";
-  if (requiredTier === "pro") return "pro";
-  return "free";
-}
-
 function buildInviteOverviewForTier(runtimes, tier) {
   const normalizedTier = String(tier || "free").toLowerCase();
   const hasPro = normalizedTier === "pro" || normalizedTier === "ultimate";
   const hasUltimate = normalizedTier === "ultimate";
   const overview = {
     freeWebsiteUrl: resolvePublicWebsiteUrl(),
-    freeInfo: "OmniFM Bot #1 bis #4 kannst du jederzeit ueber die Webseite einladen.",
+    freeInfo: "Free-Bots sind bereits enthalten. Hier sind nur zusaetzlich freigeschaltete Premium-Bots gelistet.",
     proBots: [],
     ultimateBots: [],
   };
@@ -2304,27 +2293,7 @@ function buildInviteOverviewForTier(runtimes, tier) {
 
   for (const runtime of sorted) {
     const index = Number(runtime.config.index || 0);
-    if (hasPro && index >= 5 && index <= 10 && !seenPro.has(index)) {
-      seenPro.add(index);
-      overview.proBots.push({
-        index,
-        name: runtime.config.name,
-        url: buildInviteUrl(runtime.config),
-      });
-      continue;
-    }
-
-    if (hasUltimate && index >= 11 && index <= 20 && !seenUltimate.has(index)) {
-      seenUltimate.add(index);
-      overview.ultimateBots.push({
-        index,
-        name: runtime.config.name,
-        url: buildInviteUrl(runtime.config),
-      });
-      continue;
-    }
-
-    const bucket = getBotInviteBucket(runtime.config);
+    const bucket = String(runtime.config.requiredTier || "free").toLowerCase();
     if (bucket !== "pro" && bucket !== "ultimate") continue;
     const target = bucket === "ultimate" ? overview.ultimateBots : overview.proBots;
     if ((bucket === "pro" && !hasPro) || (bucket === "ultimate" && !hasUltimate)) continue;
@@ -2338,6 +2307,8 @@ function buildInviteOverviewForTier(runtimes, tier) {
     });
   }
 
+  overview.proBots.sort((a, b) => Number(a.index || 0) - Number(b.index || 0));
+  overview.ultimateBots.sort((a, b) => Number(a.index || 0) - Number(b.index || 0));
   return overview;
 }
 
