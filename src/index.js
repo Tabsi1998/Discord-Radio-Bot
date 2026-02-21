@@ -1180,9 +1180,13 @@ class BotRuntime {
 
     const attempt = state.reconnectAttempts + 1;
     state.reconnectAttempts = attempt;
-    const delay = Math.min(30_000, 1_000 * Math.pow(2, attempt));
 
-    log("INFO", `[${this.config.name}] Reconnecting guild=${guildId} in ${delay}ms (attempt ${attempt})`);
+    // Plan-based reconnect: use tier's reconnectMs as base, with exponential backoff
+    const tierConfig = getTierConfig(guildId);
+    const baseDelay = tierConfig.reconnectMs || 5000;
+    const delay = Math.min(30_000, baseDelay * Math.pow(1.5, Math.min(attempt - 1, 5)));
+
+    log("INFO", `[${this.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms (attempt ${attempt}, plan=${tierConfig.tier})`);
     state.reconnectTimer = setTimeout(async () => {
       state.reconnectTimer = null;
       if (!state.shouldReconnect) return;
