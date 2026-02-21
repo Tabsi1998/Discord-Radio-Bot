@@ -1,210 +1,177 @@
 <analysis>**original_problem_statement:**
-The user has requested a complete rebranding of the existing Discord Radio Bot to a new product called OmniFM. This includes a comprehensive overhaul of the architecture and monetization model to a professional, scalable system.
+The user has requested a complete rebranding of an existing Discord Radio Bot to a new product called OmniFM. This includes a comprehensive overhaul of the architecture and monetization model to a professional, scalable system. The full, up-to-date requirements are detailed below.
 
-**PRODUCT REQUIREMENTS (Monetization System v3 & Rebrand):**
-1.  **Rebrand**: Systematically replace all instances of RADIOBOT with OmniFM, including UI strings, logs, and bot presence.
-2.  **Plans & Features**: Implement a strict three-tier system (free, pro, ultimate) with feature flags managed in a central config ().
-3.  **Server-Based Licensing**: Shift from a guild-based model to a server-seat bundle model. A single license can cover multiple servers (1, 2, 3, or 5 seats).
-4.  **Station Tier System**: Segment stations into                total        used        free      shared  buff/cache   available
-Mem:        16358500     4814364     5282672       45532     6584388    11544136
-Swap:              0           0           0 (20 stations) and  (100 stations). The  plan includes all stations plus server-specific custom station URLs.
-5.  **Command Permission Matrix**: Strictly enforce plan-based access for all commands, especially , , and quality settings. Deny access with a clear upgrade message.
-6.  **Reconnect Priority**: Implement tiered reconnect delays: standard for free, faster for pro, and instant for ultimate.
-7.  **Audio Quality Enforcement**: Cap audio bitrates based on the server's plan (Free: 64k, Pro: 128k, Ultimate: 320k).
-8.  **Pricing System**: Implement a pricing calculator () for different plans, seat bundles, and billing periods (monthly/yearly) with a yearly discount.
-9.  **Website Copy Update**: Update the static website to reflect the new OmniFM branding, features, and pricing tiers.
-10. **Upgrade Flow**: Create a reusable module for sending clear, helpful upgrade embeds within Discord when a user hits a feature paywall.
+**PRODUCT REQUIREMENTS (Monetization System v3 & Rebrand - per user message #401):**
+
+1.  **Rebrand**: Systematically replace all instances of RADIOBOT with OmniFM (UI, logs, bot presence).
+2.  **Plans & Features**: Implement a strict three-tier system (free, pro, ultimate) with feature flags managed in a central config.
+    *   **free**: 2 bots, standard audio (64k), standard reconnect.
+    *   **pro**: 8 bots, HQ audio (128k), priority reconnect, premium stations.
+    *   **ultimate**: 16 bots, Ultra HQ audio (320k), instant reconnect, premium stations, custom station URLs.
+3.  **Server-Based Licensing**: Shift to a server-seat bundle model (1, 2, 3, or 5 servers). A single license covers multiple servers.
+4.  **Station Tier System**:
+    *   20                total        used        free      shared  buff/cache   available
+Mem:        16358512     5794376     5114744       45564     5751688    10564136
+Swap:              0           0           0 stations.
+    *   100  stations.
+    *    plan includes all stations plus server-specific custom station URLs.
+5.  **Command Permission Matrix**: Strictly enforce plan-based access for all commands (, , etc.), denying access with a clear upgrade message.
+6.  **Reconnect Priority**: Implement tiered reconnect delays: standard (free), faster (pro), and instant (ultimate).
+7.  **Audio Quality Enforcement**: **Crucially, the audio bitrate is determined by the server's plan, NOT the station being played.** Free servers get 64k, Pro get 128k, and Ultimate get 320k on ANY station.
+8.  **Pricing System**: Implement a pricing calculator for plans, seat bundles, and billing periods (monthly/yearly) with a yearly discount (pay for 10 months).
+9.  **Website Copy Update**: Update the web frontend to reflect OmniFM branding, features, and the new seat-based pricing tiers.
+10. **Upgrade Flow**: Create a reusable module for sending standardized upgrade embeds within Discord when a user hits a paywall.
 
 **User's preferred language**: German. The next agent MUST respond in German.
 
 **what currently exists?**
-The agent has begun the massive rebranding and architectural refactoring from RadioBot to OmniFM. It has successfully laid the groundwork by creating several new, modular files for configuration, services, and data. The project is in a transitional, non-functional state as the core logic has not yet been updated to use these new modules. The previous critical bugs related to the  script and auto-reconnect functionality have been resolved.
+The agent has successfully completed the massive RadioBot to OmniFM rebranding across the Node.js backend, shell scripts, and both a legacy static frontend and a new React frontend. The v3 monetization system, including tiered plans, seat-based licensing, and permission enforcement, is almost fully implemented. A major round of UI fixes was just completed based on user feedback, adding a server-seat selector to the checkout, displaying station tier badges (FREE/PRO), and correcting the pricing display. The application is largely functional, pending one critical logic fix.
 
 **Last working item**:
-- Last item agent was working: The agent was in the middle of the OmniFM refactoring. It had just created the new modules for plans, pricing, entitlements, and station management, and was about to begin the most critical part: refactoring the monolithic  to integrate these new services and apply the new permission model and branding.
+- Last item agent was working: Addressing the user's final, critical feedback (message #401): the audio bitrate must be enforced based on the server's **plan**, not the station's properties. The agent had correctly identified the issue and was about to modify the audio playback logic.
 - Status: IN PROGRESS
-- Agent Testing Done: N (The application is in a broken, mid-refactor state)
-- Which testing method agent to use? **testing agent v3 fork**. A comprehensive E2E test will be mandatory after the refactoring is complete to validate the new architecture, permissions, and branding.
+- Agent Testing Done: N
+- Which testing method agent to use? backend testing agent. A small  script that calls the relevant backend functions could also verify the logic quickly. After the fix, a full regression test using  is recommended.
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
--   Issue 1: (P0) The application is non-functional due to the incomplete OmniFM rebranding and architectural refactor.
+-   Issue 1: (P0) Plan-Based Bitrate Enforcement is Incorrect.
 
 Issues Detail:
--   **Issue 1: Incomplete OmniFM Refactor**
-    -   **Attempted fixes**: The agent has created the foundational files for the new architecture (, , , , , ) and updated  and .
+-   **Issue 1: Plan-Based Bitrate Enforcement is Incorrect**
+    -   **Attempted fixes**: The agent identified the problem but has not yet implemented a fix.
     -   **Next debug checklist**:
-        1.  Continue the refactor of . Systematically replace old logic with calls to the new services (, , ).
-        2.  Enforce the new permission model within all Discord command handlers ( event). Use  and  helpers.
-        3.  Update the audio playback logic to enforce bitrate caps based on the server's plan.
-        4.  Update the auto-reconnect logic to use the new plan-based priority settings.
-        5.  Replace all remaining RadioBot branding with OmniFM.
-    -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary goal. Completing this will result in a professional, modular, and monetizable product as specified.
+        1.  Open .
+        2.  Locate the  function.
+        3.  Find where  is called and its options are set (likely  or ).
+        4.  Replace the current logic which uses the station's bitrate (e.g., ) with a call to get the bitrate from the server's plan.
+        5.  Use the  helper, which correctly sources the bitrate from , to set the bitrate for the audio stream.
+    -   **Why fix this issue and what will be achieved with the fix?**: This is a core tenet of the monetization model and was explicitly flagged as incorrect by the user. Fixing it will align the bot's behavior with the product requirements.
     -   **Status**: IN PROGRESS
     -   **Is recurring issue?**: N
-    -   **Should Test frontend/backend/both after fix?**: both
+    -   **Should Test frontend/backend/both after fix?**: backend
 
 **In progress Task List**:
--   Task 1: Complete the RadioBot to OmniFM rebrand & v3 monetization system implementation.
-    -   Where to resume: Refactoring the main application file, , to integrate and use all the newly created modules and enforce the strict permission model.
-    -   What will be achieved with this?: A fully rebranded, modular, and professionally architected bot with a new server-seat-based licensing model, ready for market.
-    -   Status: IN PROGRESS
-    -   Should Test frontend/backend/both after fix?: both
+- None.
 
 **Upcoming and Future Tasks**
 Upcoming Tasks:
--   (P0) Complete the  refactor to use new services and enforce permissions.
--   (P1) Implement the reconnect priority logic based on plan features.
--   (P1) Implement the audio quality/bitrate enforcement during playback.
--   (P2) Update the static website UI/copy in  and  to match the OmniFM branding and new pricing structure.
--   (P2) Create the  module for generating standardized upgrade messages in Discord.
+-   (P1) **Full QA Pass**: As requested by the user, perform a manual verification of all plan limits, permissions, and pricing on a real Discord server.
+-   (P2) **Deploy Commands**: Run the  script to register the updated German command descriptions with Discord.
+-   (P2) **Verify Docker Service Names**: Check  and test that containers can be run with new service names ( instead of ).
 
 Future Tasks:
--   (P3) Perform a full Quality Assurance pass to verify all plan limits, permissions, and pricing calculations are correct.
--   (P4) Refactor the static frontend in  into a modern React application to improve maintainability.
+-   **Consolidate Frontends**: Refactor the web presence by removing the legacy static site in  and having the backend serve the modern React app from .
+-   **Admin Dashboard**: Build an interface for license management.
+-   **Subscription Automation**: Upgrade the payment system from one-time payments to recurring subscriptions via Stripe.
 
 **Completed work in this session**
-- **Bug Fix: Critical  Failures (RESOLVED)**
-  - Fixed a bug where  would crash after a  by implementing a self-exec pattern that re-runs the script from a temporary copy.
-  - Made the script robust by ensuring  is correctly set and  is always found.
-- **Bug Fix: Auto-Reconnect on Restart (RESOLVED)**
-  - Fixed a container restart loop caused by  attempting to remove a mounted volume.
-  - Made all JSON store modules (, , etc.) and shell scripts (, ) robust against files being replaced by directory mounts from Docker.
-  - Verified via logs that the auto-reconnect feature is now fully functional.
-- **Bug Fix: Email self-signed certificate (RESOLVED)**
-  - Added the  option to  to allow connections to a local mail server with self-signed certificates.
-- **Feature: OmniFM Refactor (IN PROGRESS)**
-  - Created new config files for the v3 monetization system:  and .
-  - Created new core modules for entitlements and station management:  and .
-  - Created new tiered station data files:  and .
-  - Updated  to support the new seat-based licensing model.
-  - Updated  to rebrand commands to OmniFM.
+- **Rebranding**: Completed the RadioBot -> OmniFM rebrand across the entire project (backend, frontend, scripts).
+- **V3 Monetization System**: Implemented tiered plans, seat-based licensing, tiered stations, and command permissions.
+- **Frontend Overhaul (Static & React)**:
+    - Added station tier badges (FREE/PRO) and a tier filter to the station list.
+    - Implemented a server-seat selector in the checkout modal.
+    - Added a detailed seat-based pricing table.
+    - Corrected all pricing logic and display formats.
+    - Fixed all branding issues identified by the user (e.g., RADIOBOT in navbar).
+- **API Updates**: Updated , , and  to support seats, tiers, and new pricing.
+- **Testing**: Performed a full, successful E2E test run via  which confirmed the stability of all features prior to the discovery of the bitrate logic bug.
 
 **Earlier issues found/mentioned but not fixed**
-- None. All previously reported user issues were addressed before the current refactoring task began.
+- None.
 
 **Known issue recurrence from previous fork**
 - **Issue recurrence in previous fork**: Auto-Reconnect functionality.
 - **Recurrence count**: 3+
-- **Status**: RESOLVED. Logs confirmed the feature now works reliably after fixing the underlying container restart-loop issue.
+- **Status**: RESOLVED.
 
 **Code Architecture**
-The architecture is being refactored into a more modular structure:
 
 
 **Key Technical Concepts**
 - **Backend**: Node.js, , Express.js
-- **State Persistence**: Flat-file database using JSON files (, , ).
-- **Architecture**: Refactoring from a monolithic  to a modular, service-oriented architecture with centralized configuration.
-- **Monetization**: Implementing a seat-based licensing model with tiered features and pricing.
+- **Frontend**: A legacy static HTML/JS site in  and a modern React app in .
+- **State Persistence**: Flat-file database using JSON files.
+- **Architecture**: Refactored from a monolithic  to a modular, service-oriented architecture.
+- **Monetization**: Tiered (free/pro/ultimate) seat-based licensing model.
 
 **key DB schema**
-The  schema is being updated to support the new model:
--   ** (New Target Schema)**: 
+-   ****: 
 -   ****: 
 -   ****: 
 
 **changes in tech stack**
-- No new technologies, but a major architectural refactor is in progress.
+- A new React frontend was introduced in , creating a dual-frontend situation that needs future consolidation.
 
 **All files of reference**
-*   **New/Created Files**:
-    *   : Defines features for each subscription tier.
-    *   : Defines pricing for plans, seats, and billing periods.
+*   **Critically Modified Files**:
+    *   : The core application logic. **This is where the next change needs to happen.**
+    *   : Contains the bitrate values per plan.
+    *   : Contains the frontend checkout and pricing UI.
+    *   : Contains the frontend station list UI.
+    *    & : Legacy frontend files, also updated.
+*   **Key New Files**:
     *   : Core logic for checking a server's plan and feature access.
     *   : Manages access to stations based on plan.
-    *    & : New tiered station lists.
-*   **Critically Modified Files**:
-    *   : The main application file, currently being refactored. **(CRITICAL)**
-    *   : Updated to handle the new seat-based license structure.
-    *   
-[0;36m[1m
-  ╔══════════════════════════════════════════════╗
-  ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
-  ║                                              ║
-  ╚══════════════════════════════════════════════╝
-[0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren. & 
-[0;36m[1m
-  ╔═══════════════════════════════════════════╗
-  ║                                           ║
-  ║    Discord Radio Bot - Installer v4.0     ║
-  ║    Zero-Lag Audio + Premium System         ║
-  ║                                           ║
-  ╚═══════════════════════════════════════════╝
-[0m
-
-[1mSchritt 1/6: Docker pruefen[0m
-─────────────────────────────────────
-[0;33m[WARN][0m Docker nicht gefunden.
-[0;36m[INFO][0m Installiere Docker...
-[0;32m[OK][0m   Docker installiert.
-[0;31m[FAIL][0m docker compose Plugin fehlt.
-  Installiere es mit: sudo apt-get install docker-compose-plugin: Made significantly more robust to handle updates and file system issues.
-    *   : Fixed to prevent container restart loops.
+    *   : Generates localized Discord upgrade messages.
 
 **Areas that need refactoring**:
--    is the primary focus of the current refactoring effort.
--   The static frontend in  is a candidate for a future upgrade to a modern framework like React.
+-   **Dual Frontends**: The project has both a legacy static site () and a new React app (). This is confusing and should be consolidated into a single React application. The old  directory should be deprecated or removed.
+-   The role of  should be re-evaluated. An Express static server within the Node.js application is a more conventional choice for serving the React build.
 
 **key api endpoints**
--   : Will need to be updated to use the new  service.
--   : Will need to be updated to use the new  logic for creating/updating seat-based licenses.
+-   : Returns stations list, now includes  and is sorted.
+-   : Returns the full pricing structure.
+-   : Creates a Stripe checkout session, now accepts .
 
 **Critical Info for New Agent**
-1.  **TOP PRIORITY**: You are in the middle of a massive refactoring and rebranding task. Your first and foremost goal is to complete it by modifying  to use all the new services and configs. The application is currently **non-functional**.
-2.  **Follow the PRD**: The user's message #240 is the complete Product Requirements Document for this OmniFM task. Adhere to it strictly.
-3.  **Language**: You MUST communicate with the user in **German**.
-4.  **Resolved Issues**: The previously critical, recurring Auto-Reconnect and  script bugs are **FIXED**. Do not spend time investigating them. The user has confirmed the fixes.
+1.  **TOP PRIORITY**: Your first task is to fix the audio bitrate logic. Bitrate MUST be determined by the server's plan (Free=64k, Pro=128k, Ultimate=320k), not the station's metadata. This change needs to be made in the  function in .
+2.  **Language**: You MUST communicate with the user in **German**.
+3.  **Context**: The project is at the very end of a massive refactoring effort. The user is now performing final acceptance testing and has found this last critical bug. Address it, test it, and then proceed with the final QA pass.
 
 **documents and test reports created in this job**
-- /app/memory/PRD.md (will need a major update after the refactor is complete)
-- Test reports were generated for previous bug fixes but are not relevant to the current refactoring task.
+-  (has been updated)
+-  (successful test run before the bitrate bug was found)
 
 **Last 10 User Messages and any pending HUMAN messages**
-- **User (240)**: Provided a detailed, multi-page PRD for a complete rebranding to OmniFM and a new v3 monetization system. This is the current source of truth for all work. **(IN PROGRESS)**
-- **User (232-238)**: Instructed the agent to pull the latest code from a specific GitHub repository. **(Completed)**
-- **User (226)**: Asked the agent to get the latest git state before giving further instructions. **(Completed)**
-- **User (217-225)**: Reported a self-signed certificate error with the email test and confirmed the agent's proposed fix. **(Completed)**
-- **User (216)**: Confirmed the  script seems to work now but reported the email test is failing. **(Partially Completed)**
-- **User (209-215)**: Pointed out that the  script fix was incorrect, leading the agent to identify the  bug and resolve it. Also noted that the auto-reconnect now works. **(Completed)**
-- **User (208)**: Provided logs showing the bot container was not active according to , despite logs showing the bot was running. This led to the discovery of the  bug. **(Completed)**
+-   **User (401)**: Stated that the bitrate logic is wrong. Quality must be based on the plan (free=64k, pro=128k, ultimate=320k) for *all* stations. Provided the full, updated PRD again for clarity. **(This is the current P0 task)**.
+-   **User (238)**: Sent a screenshot showing the website was missing the seat selector, station tier labels, and had incorrect pricing. Requested a full fix. **(Completed)**.
+-   **Agent (before 238)**: Prematurely finished the task, believing the implementation was complete. **(Corrected by user feedback)**.
 
 **Project Health Check:**
--   **Broken**: The application is in a non-functional state mid-refactor. The core  file is out of sync with the new modular architecture.
+-   **Working with Critical Bug**: The application is stable and the UI is complete, but a core monetization feature (plan-based audio quality) is implemented incorrectly.
 
 **3rd Party Integrations**
--   **Discord**:  - Requires user-provided bot tokens.
--   **Stripe**:  - Logic only for pricing; no active integration.
--   **Nodemailer**: For SMTP emails, requires user-provided SMTP credentials.
+-   **Discord**:  - Requires user-provided bot token.
+-   **Stripe**:  - Logic for checkout session creation exists. Requires user-provided keys.
+-   **Nodemailer**: For SMTP emails, requires user-provided credentials.
 
 **Testing status**
--   Testing agent used after significant changes: NO (Not yet, as the refactor is incomplete).
+-   Testing agent used after significant changes: YES (A full pass was completed successfully before the latest bug was reported).
 -   Troubleshoot agent used after agent stuck in loop: NO
--   Test files created: None.
--   Known regressions: None. The main regression (auto-reconnect) was fixed.
+-   Test files created: None
+-   Known regressions: None
 
 **Credentials to test flow:**
 -   Bot credentials must be set in the  file.
--   Stripe API keys must be configured via 
+-   Stripe API keys can be configured via 
 [0;36m[1m
   ╔══════════════════════════════════════════════╗
   ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
+  ║   OmniFM - Management & Settings            ║
   ║                                              ║
   ╚══════════════════════════════════════════════╝
 [0m
   [0;31m[FAIL][0m docker fehlt. Bitte installieren..
--   SMTP credentials must be configured via 
+-   SMTP credentials can be configured via 
 [0;36m[1m
   ╔══════════════════════════════════════════════╗
   ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
+  ║   OmniFM - Management & Settings            ║
   ║                                              ║
   ╚══════════════════════════════════════════════╝
 [0m
   [0;31m[FAIL][0m docker fehlt. Bitte installieren..
 
 **What agent forgot to execute**
-- The agent has not forgotten anything; it is simply in the middle of a very large, multi-step task and has correctly identified the next step (refactoring ).</analysis>
+- The agent incorrectly implemented the audio quality feature. It was tied to the station's properties instead of being dynamically enforced based on the server's active subscription plan, as required by the user's PRD.</analysis>
