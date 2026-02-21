@@ -1,6 +1,6 @@
 # OmniFM v3.0
 
-24/7 Discord Radio Streaming Bot mit Premium Tier-System.
+24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basierter Lizenzierung.
 
 ## Features
 
