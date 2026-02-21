@@ -103,16 +103,16 @@ async function run() {
         const serverId = await ask("Server ID");
         if (!/^\d{17,22}$/.test(serverId)) { fail("Ungueltige Server ID."); break; }
 
-        const lic = getLicense(serverId);
+        const lic = getServerLicense(serverId);
         if (!lic || lic.expired) { fail("Keine aktive Lizenz. Nutze Option 1 zum Aktivieren."); break; }
 
-        info(`Aktiv: ${lic.activeTier.toUpperCase()} (${lic.remainingDays} Tage uebrig, bis ${formatDate(lic.expiresAt)})`);
+        info(`Aktiv: ${(lic.plan || "free").toUpperCase()} (${lic.remainingDays} Tage uebrig, bis ${formatDate(lic.expiresAt)})`);
 
         const months = parseInt(await ask("Zusaetzliche Monate")) || 1;
-        const price = calculatePrice(lic.tier, months);
+        const price = calculatePrice(lic.plan, months);
         info(`Preis: ${centsToEur(price)} fuer ${months} Monat${months > 1 ? "e" : ""}`);
 
-        const updated = addLicense(serverId, lic.tier, months, "admin-cli", `Verlaengerung +${months}M`);
+        const updated = addLicenseForServer(serverId, lic.plan, months, "admin-cli", `Verlaengerung +${months}M`);
         ok(`Laufzeit verlaengert bis ${formatDate(updated.expiresAt)}.`);
         break;
       }
