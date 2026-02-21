@@ -1582,7 +1582,7 @@ class BotRuntime {
       const guildId = interaction.guildId;
       const guildTier = getTier(guildId);
       if (guildTier !== "ultimate") {
-        await interaction.reply({ content: "Custom Stationen sind ein ULTIMATE Feature. Upgrade auf: https://discord.gg/UeRkfGS43R", ephemeral: true });
+        await interaction.reply(customStationEmbed());
         return;
       }
       const key = interaction.options.getString("key");
@@ -1602,7 +1602,7 @@ class BotRuntime {
       const guildId = interaction.guildId;
       const guildTier = getTier(guildId);
       if (guildTier !== "ultimate") {
-        await interaction.reply({ content: "Custom Stationen sind ein ULTIMATE Feature.", ephemeral: true });
+        await interaction.reply(customStationEmbed());
         return;
       }
       const key = interaction.options.getString("key");
@@ -1618,7 +1618,7 @@ class BotRuntime {
       const guildId = interaction.guildId;
       const guildTier = getTier(guildId);
       if (guildTier !== "ultimate") {
-        await interaction.reply({ content: "Custom Stationen sind ein ULTIMATE Feature.", ephemeral: true });
+        await interaction.reply(customStationEmbed());
         return;
       }
       const custom = getGuildStations(guildId);
