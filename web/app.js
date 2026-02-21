@@ -561,7 +561,7 @@ function renderSeatButtons(tier) {
 
 function startCheckout(tier) {
   var modal = document.getElementById('premiumModal');
-  var input = document.getElementById('premiumServerId');
+  var input = document.getElementById('premiumEmail');
   var statusEl = document.getElementById('premiumStatus');
 
   modal.style.display = 'flex';
@@ -742,16 +742,16 @@ function closePremiumModal() {
 
 function submitPremiumCheckout() {
   var modal = document.getElementById('premiumModal');
-  var input = document.getElementById('premiumServerId');
+  var input = document.getElementById('premiumEmail');
   var submitBtn = document.getElementById('premiumSubmit');
   var statusEl = document.getElementById('premiumStatus');
   var tier = modal.dataset.tier;
   var months = parseInt(modal.dataset.months) || 1;
   var seats = parseInt(modal.dataset.seats) || 1;
-  var serverId = input.value.trim();
+  var email = input.value.trim();
 
-  if (!/^\d{17,22}$/.test(serverId)) {
-    statusEl.textContent = 'Server ID muss 17-22 Ziffern sein!';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    statusEl.textContent = 'Bitte eine gueltige E-Mail-Adresse eingeben!';
     statusEl.style.color = '#FF2A2A';
     return;
   }
@@ -762,7 +762,7 @@ function submitPremiumCheckout() {
   fetch('/api/premium/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tier: tier, serverId: serverId, months: months, seats: seats, returnUrl: window.location.origin })
+    body: JSON.stringify({ tier: tier, email: email, months: months, seats: seats, returnUrl: window.location.origin })
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
