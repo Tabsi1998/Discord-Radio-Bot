@@ -1233,7 +1233,7 @@ class BotRuntime {
       return;
     }
 
-    await interaction.reply(botLimitEmbed(access.maxBots, access.botIndex));
+    await interaction.reply(botLimitEmbed(access.guildTier, access.maxBots, access.botIndex));
   }
 
   async handleAutocomplete(interaction) {
