@@ -1226,18 +1226,14 @@ class BotRuntime {
       await interaction.reply({
         content:
           `Dieser Bot erfordert **${access.requiredTier.toUpperCase()}**.\n` +
-          `Dein Server hat aktuell **${access.guildTier.toUpperCase()}**.`,
+          `Dein Server hat aktuell **${access.guildTier.toUpperCase()}**.\n` +
+          `Upgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
         ephemeral: true
       });
       return;
     }
 
-    await interaction.reply({
-      content:
-        `Dein Tier **${access.guildTier.toUpperCase()}** erlaubt maximal **${access.maxBots} Bots**.\n` +
-        `Dieser Bot ist Nummer **#${access.botIndex}**.`,
-      ephemeral: true
-    });
+    await interaction.reply(botLimitEmbed(access.maxBots, access.botIndex));
   }
 
   async handleAutocomplete(interaction) {
