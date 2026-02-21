@@ -188,7 +188,7 @@ function BotDirectory({ bots, loading }) {
             Wähle deine Frequenz
           </span>
           <h2 data-testid="bot-directory-title" style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 'clamp(24px, 4vw, 40px)', marginTop: 8, marginBottom: 12 }}>
-            Unsere OmniFMs
+            Unsere OmniFM Bots
           </h2>
           <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 500 }}>
             Jeder Bot ist ein eigener Worker. Lade so viele ein wie du möchtest für maximale Abdeckung.
