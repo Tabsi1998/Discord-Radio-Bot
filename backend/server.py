@@ -546,8 +546,9 @@ async def premium_checkout(body: dict):
     seats = int(raw_seats) if int(raw_seats) in SEAT_OPTIONS else 1
 
     stripe_key = get_stripe_secret_key()
-    if not stripe_key:
-        return {"error": "Stripe nicht konfiguriert."}
+    valid, msg = validate_stripe_key(stripe_key)
+    if not valid:
+        return {"error": msg}
 
     try:
         import stripe
