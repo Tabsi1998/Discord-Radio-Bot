@@ -2,7 +2,7 @@
   "licenses": {
     "lic_mlw7uvox_vz9v7u": {
       "id": "lic_mlw7uvox_vz9v7u",
-      "plan": "ultimate",
+      "plan": "pro",
       "seats": 1,
       "billingPeriod": "monthly",
       "active": true,
@@ -10,7 +10,7 @@
         "1234567890123456789"
       ],
       "createdAt": "2026-02-21T11:09:14.865Z",
-      "updatedAt": "2026-02-21T11:09:14.871Z",
+      "updatedAt": "2026-02-21T11:09:14.870Z",
       "expiresAt": "2026-03-21T11:09:14.865Z",
       "durationMonths": 1,
       "activatedBy": "test",
