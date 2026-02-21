@@ -715,6 +715,7 @@ function submitPremiumCheckout() {
   var statusEl = document.getElementById('premiumStatus');
   var tier = modal.dataset.tier;
   var months = parseInt(modal.dataset.months) || 1;
+  var seats = parseInt(modal.dataset.seats) || 1;
   var serverId = input.value.trim();
 
   if (!/^\d{17,22}$/.test(serverId)) {
@@ -729,7 +730,7 @@ function submitPremiumCheckout() {
   fetch('/api/premium/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tier: tier, serverId: serverId, months: months, returnUrl: window.location.origin })
+    body: JSON.stringify({ tier: tier, serverId: serverId, months: months, seats: seats, returnUrl: window.location.origin })
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
