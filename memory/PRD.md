@@ -1,51 +1,75 @@
-# Discord Radio Bot - PRD v21
+# OmniFM - Product Requirements Document v3.0
+
+## Produkt
+OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basierter Lizenzierung.
 
 ## Architektur
-- Node.js Bot Backend (Discord, Express), FastAPI Preview Backend, React Frontend, Stripe Payments, JSON-Datenbank
+- **Backend**: Node.js, discord.js, Express.js
+- **Frontend**: Static HTML/CSS/JS (`/web/`)
+- **State**: Flat-file JSON (`premium.json`, `bot-state.json`, `custom-stations.json`, `stations.json`)
+- **Payment**: Stripe Checkout (One-time payments)
+- **Email**: Nodemailer (SMTP)
 
-## Alle Features Implementiert
+## Modulstruktur
+```
+src/
+  index.js              # Haupt-Applikation (Discord Bots + Web-Server)
+  config/plans.js       # Plan-Konfiguration (Single Source of Truth)
+  core/entitlements.js  # Server-Plan & Feature-Checks
+  services/pricing.js   # Seat-basiertes Pricing
+  services/stations.js  # Station-Daten (Free/Pro JSON)
+  ui/upgradeEmbeds.js   # Discord Upgrade-Embeds (Deutsch)
+  premium-store.js      # Lizenz-Verwaltung (JSON Store)
+  bot-state.js          # Bot-State Persistenz
+  commands.js           # Slash-Command Definitionen (Deutsch)
+  stations-store.js     # Station-Lade/Filter-Logik
+  custom-stations.js    # Custom Station URLs (Ultimate)
+  email.js              # E-Mail Service
+  bot-config.js         # Bot-Konfiguration
+  premium-cli.js        # CLI fuer Lizenzverwaltung
+```
 
-### update.sh v4 - Komplett ueberarbeitet (Feb 2026)
-- **Self-Exec Trick**: Script kopiert sich in /tmp und fuehrt sich von dort aus
-  - Verhindert dass git reset --hard das laufende Script zerstoert
-  - tmp-File wird automatisch aufgeraeumt bei Exit
-- **set -e entfernt**: Kein unkontrollierter Abbruch bei grep-Fehlern
-- **read_env() Helper**: Sichere .env-Lesefunktion (kein Crash bei fehlenden Keys)
-- **ensure_json_file()**: Erkennt/fixt Directory-Mounts und erstellt fehlende Dateien
-- **ensure_all_json_files()**: Zentrale Funktion vor jedem Docker-Start
-- **E-Mail Test** (Option 3): SMTP-Verbindungstest mit Fehlerdiagnose
-- **Robustere Variable-Handhabung**: ${VAR:-} Pattern ueberall
+## Plan-System (3 Tiers)
 
-### Docker Crash-Loop Fix (Feb 2026)
-- docker-entrypoint.sh: set -e entfernt, kein rm -rf auf Volume-Mounts
-- install.sh + update.sh: JSON-Dateien VOR docker compose up erstellen
-- Alle JSON-Module: Pruefen auf Directory-Mounts
+| Feature | Free | Pro | Ultimate |
+|---------|------|-----|----------|
+| Max Bots | 2 | 8 | 16 |
+| Bitrate | 64k | 128k Opus | 320k Opus |
+| Reconnect | 5s | 1.5s | 0.4s |
+| Stationen | 20 Free | 20 Free + 100 Pro | Alle + Custom URLs |
+| Custom URLs | - | - | 50 pro Server |
+| Preis (1 Server) | 0€ | 2.99€/mo | 4.99€/mo |
 
-### Premium System v3 (3-Tier)
-- Free (0 EUR), Pro (4.99 EUR/mo), Ultimate (9.99 EUR/mo)
-- Monatsauswahl: 1, 3, 6, 12 Monate (Button-Style)
-- Jahresrabatt: 12 Monate = 10 bezahlen (2 gratis)
-- Upgrade Pro→Ultimate mit Restlaufzeit-Aufpreis
+## Seat-basierte Lizenzierung
+- 1, 2, 3 oder 5 Server pro Lizenz
+- Seat-Preise: Pro 1=€2.99, 2=€5.49, 3=€7.49, 5=€11.49
+- Seat-Preise: Ultimate 1=€4.99, 2=€7.99, 3=€10.99, 5=€16.99
+- Jahresrabatt: 12 Monate buchen = 10 bezahlen
 
-### Custom Stations (Ultimate)
-- /addstation, /removestation, /mystations Commands
-- Max 50 pro Guild, gespeichert in custom-stations.json
+## API Endpoints
+- `GET /api/premium/tiers` - Plan-Konfiguration
+- `GET /api/premium/pricing` - Pricing mit Upgrade-Info
+- `POST /api/premium/checkout` - Stripe Checkout Session
+- `POST /api/premium/webhook` - Stripe Webhook
+- `POST /api/premium/verify` - Payment Verification
+- `GET /api/bots` - Bot-Status
+- `GET /api/stations` - Station-Liste
 
-### SMTP E-Mail
-- Kauf-Email + Admin-Benachrichtigung
-- Test-Email Versand via update.sh
+## Implementiert (v3.0)
+- [x] Komplett-Rebranding: RadioBot → OmniFM (Code, UI, CLI, Docker, Docs)
+- [x] 3-Tier Plan-System (Free/Pro/Ultimate) mit zentraler Config
+- [x] Seat-basierte Server-Lizenzierung (1/2/3/5 Seats)
+- [x] Station-Tier-System (Free: 20, Pro: 100, Ultimate: alle + custom)
+- [x] Plan-basierte Audio-Bitrate Enforcement (64k/128k/320k)
+- [x] Plan-basierte Reconnect-Prioritaet (5s/1.5s/0.4s)
+- [x] Command Permission Matrix mit Upgrade-Embeds
+- [x] Pricing Calculator (services/pricing.js)
+- [x] Website aktualisiert (OmniFM Branding, neue Preise)
+- [x] Upgrade-Embeds Modul (Deutsch) fuer Feature-Paywalls
+- [x] Docker + Shell-Skripte aktualisiert
+- [x] Integrationstest: Alle Module funktionsfaehig
 
-### Bot Presence Rotation
-- Rotiert alle 30s zwischen Station-Namen bei mehreren Guilds
-
-### Static Web (/web/) - Synchronisiert
-- Button-Style Checkout-Modal, Preis-Berechnung, 14 Commands
-
-## Testing
-- Iteration 21: Static Web + Checkout + Commands 100%
-- Iteration 20: FastAPI + Frontend Premium 100%
-- Iteration 19: Node.js Premium Modules 100%
-
-## Backlog
-- P3: Automatisierter Build (React -> Static Web)
-- P4: Refactoring src/index.js in Module
+## Bekannte Einschraenkungen
+- Bot kann in Preview-Umgebung nicht gestartet werden (keine Discord-Tokens)
+- Stripe-Integration erfordert aktive API-Keys
+- SMTP erfordert konfigurierte Credentials
