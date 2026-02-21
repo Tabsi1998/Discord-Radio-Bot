@@ -19,8 +19,13 @@ import {
   StreamType
 } from "@discordjs/voice";
 import dotenv from "dotenv";
-import { loadStations, resolveStation, getFallbackKey, filterStationsByTier } from "./stations-store.js";
-import { getGuildStations, addGuildStation, removeGuildStation, countGuildStations, MAX_STATIONS_PER_GUILD } from "./custom-stations.js";
+import { BRAND, PLANS } from "./config/plans.js";
+import { setLicenseProvider, getServerPlan, getServerPlanConfig, requirePlan, requireFeature, getBitrateFlag, getReconnectDelay, getMaxBots, isBotAllowed, planAtLeast } from "./core/entitlements.js";
+import {
+  getStationsForServer, findStation, isStationAccessible, getStationById,
+  addCustomStation, removeCustomStation, getCustomStations, loadAllStations, getStationCounts,
+} from "./services/stations.js";
+import { premiumStationEmbed, hqAudioEmbed, customStationEmbed, botLimitEmbed } from "./ui/upgradeEmbeds.js";
 import {
   isConfigured as isEmailConfigured,
   sendMail,
@@ -33,8 +38,8 @@ import {
 } from "./email.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
 import {
-  getTier, getTierConfig, getLicense, listLicenses,
-  addLicense, upgradeLicense, calculatePrice, calculateUpgradePrice, TIERS, patchLicense,
+  getServerPlan as getStorePlan, getServerLicense, listLicenses,
+  createLicense, linkServerToLicense, extendLicense,
   isSessionProcessed, markSessionProcessed, isEventProcessed, markEventProcessed,
 } from "./premium-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
