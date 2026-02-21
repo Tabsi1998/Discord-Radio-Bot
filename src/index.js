@@ -2268,34 +2268,6 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
   };
 }
 
-  for (const runtime of runtimes) {
-    try {
-      if (!runtime.client.isReady()) continue;
-
-      // Nach Upgrade/Lizenz-Aktivierung direkte Durchsetzung + sofortige Command-Sichtbarkeit.
-      // So muss niemand auf globale Command-Propagation warten.
-      await runtime.enforcePremiumGuildScope("license-update");
-      if (runtime.client.guilds.cache.has(cleanServerId)) {
-        await runtime.syncGuildCommandForGuild(cleanServerId, "license-update");
-      }
-    } catch (err) {
-      log("ERROR", `[${runtime.config.name}] Post-license Sync fehlgeschlagen: ${err?.message || err}`);
-    }
-  }
-
-  return {
-    success: true,
-    replay: false,
-    serverId: cleanServerId,
-    tier: cleanTier,
-    expiresAt: license.expiresAt,
-    remainingDays: licInfo?.remainingDays || 0,
-    message: upgrade
-      ? `Server ${cleanServerId} auf ${TIERS[cleanTier].name} upgraded!`
-      : `Server ${cleanServerId} auf ${TIERS[cleanTier].name} aktiviert (${Math.max(1, parseInt(months, 10) || 1)} Monat${parseInt(months, 10) > 1 ? "e" : ""})!`,
-  };
-}
-
 function startWebServer(runtimes) {
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
   const webPort = Number(process.env.WEB_PORT || "8081");
