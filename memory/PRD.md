@@ -1,4 +1,4 @@
-# OmniFM - Product Requirements Document v3.1
+# OmniFM - Product Requirements Document v3.2
 
 ## Produkt
 OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basierter Lizenzierung.
@@ -6,11 +6,11 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 ## Architektur
 - **Backend (Bot)**: Node.js, discord.js, Express.js (`/app/src/index.js`)
 - **Backend (API)**: Python FastAPI (`/app/backend/server.py`)
-- **Frontend**: React (`/app/frontend/src/`)
-- **Static Web**: HTML/CSS/JS (`/app/web/`)
-- **State**: Flat-file JSON (`premium.json`, `bot-state.json`, `custom-stations.json`, `stations.json`)
-- **Payment**: Stripe Checkout (One-time payments)
-- **Email**: Nodemailer (SMTP)
+- **Frontend (React)**: React (`/app/frontend/src/`) - Emergent Preview
+- **Frontend (Static)**: HTML/CSS/JS (`/app/web/`) - Produktions-Docker
+- **State**: Flat-file JSON (`premium.json`, `bot-state.json`, `stations.json`)
+- **Payment**: Stripe Checkout (One-time, E-Mail-basiert)
+- **Email**: Nodemailer (SMTP) fuer Lizenz-Key Versand
 
 ## Plan-System (3 Tiers)
 
@@ -18,35 +18,24 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 |---------|------|-----|----------|
 | Max Bots | 2 | 8 | 16 |
 | Bitrate | 64k | 128k Opus | 320k Opus |
-| Reconnect | 5s | 1.5s | 0.4s |
-| Stationen | 20 Free | 20 Free + 104 Pro | Alle + Custom URLs |
+| Stationen | 20 Free | 20 Free + 100 Pro | Alle + Custom URLs |
 | Custom URLs | - | - | 50 pro Server |
-| Preis (1 Server) | 0 | 2.99/mo | 4.99/mo |
 
 ## Seat-basierte Lizenzierung
 - 1, 2, 3 oder 5 Server pro Lizenz
-- Pro Seats: 1=2.99, 2=5.49, 3=7.49, 5=11.49
-- Ultimate Seats: 1=4.99, 2=7.99, 3=10.99, 5=16.99
-- Jahresrabatt: 12 Monate buchen = 10 bezahlen
+- E-Mail-basierter Checkout: Lizenz-Key per E-Mail
+- /license activate im Discord zum Verknuepfen
 
-## Stationen (v3.1 - 120 Total)
-- **20 Free**: Groove Salad, Drone Zone, Deep Space One, Space Station, Beat Blender, PopTron, Underground 80s, Metal Detector, Lush, The Trip, Classical Radio, Blues Radio, Jazz Radio, Reggae Radio, Ambient Radio, Techno Radio, Rock Radio, Chillout Radio, Hip Hop Radio, Lounge Radio
+## Stationen (v3.2 - 120 Total)
+- **20 Free**: Groove Salad, Drone Zone, Deep Space One, etc.
 - **100 Pro**: EDM (16), Tomorrowland (3), Sunshine Live (1), Techno (20), Trance (10), Hardstyle (10), House (15), Urban (15), Rock (10)
-- **Spezial-Stationen**: Tomorrowland One World Radio, Tomorrowland Daybreak, Tomorrowland DAB, Sunshine Live
 
 ## API Endpoints
-- GET /api/health - Health + OmniFM Brand
-- GET /api/bots - Bot-Status
-- GET /api/stations - 124 Stationen sortiert nach Tier
-- GET /api/stats - Statistiken
-- GET /api/commands - Slash-Commands
-- GET /api/premium/tiers - Tier-Konfiguration
-- GET /api/premium/pricing - Seat-Pricing mit Upgrade-Info
-- GET /api/premium/check - Server Premium-Status / Lizenz-Lookup
-- POST /api/premium/checkout - Stripe Checkout (mit seats)
-- POST /api/premium/verify - Payment Verification
+- GET /api/health, /api/bots, /api/stations, /api/stats, /api/commands
+- GET /api/premium/tiers, /api/premium/pricing, /api/premium/check
+- POST /api/premium/checkout (email-basiert), /api/premium/verify
 
 ## Bekannte Einschraenkungen
-- Discord Bot-Tokens erforderlich fuer Bot-Start
-- Stripe-Integration erfordert aktive API-Keys
-- SMTP erfordert konfigurierte Credentials
+- Discord Bot-Tokens erforderlich
+- Stripe API-Keys erforderlich
+- SMTP Credentials fuer E-Mail-Versand
