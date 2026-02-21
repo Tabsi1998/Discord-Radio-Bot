@@ -1,106 +1,1056 @@
 [
-  { "id": "pro_edm_01", "name": "Festival Anthems", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["festival","edm"] },
-  { "id": "pro_edm_02", "name": "Big Room Arena", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["bigroom","edm"] },
-  { "id": "pro_edm_03", "name": "Mainstage Energy", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["mainstage","festival"] },
-  { "id": "pro_tml_01", "name": "Tomorrowland - One World Radio", "streamURL": "https://tomorrowland.my105.ch/oneworldradio.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["festival","edm","tomorrowland"] },
-  { "id": "pro_tml_02", "name": "Tomorrowland - Daybreak", "streamURL": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAYBREAK.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["festival","morning","edm"] },
-  { "id": "pro_tml_03", "name": "Tomorrowland - DAB", "streamURL": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAB.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["festival","edm","live"] },
-  { "id": "pro_sl_01", "name": "Sunshine Live", "streamURL": "http://stream.sunshine-live.de/live/mp3-192/", "requiredPlan": "pro", "bitrate": 192, "tags": ["electronic","germany"] },
-  { "id": "pro_edm_04", "name": "EDM Hits", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["edm","dance"] },
-  { "id": "pro_edm_05", "name": "Progressive Arena", "streamURL": "https://ice4.somafm.com/thetrip-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["progressive","electronic"] },
-  { "id": "pro_edm_06", "name": "Future Dance", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["future","dance"] },
-  { "id": "pro_edm_07", "name": "Club Bangers", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["club","edm"] },
-  { "id": "pro_edm_08", "name": "Peak Time EDM", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["peaktime","festival"] },
-  { "id": "pro_edm_09", "name": "Summer Dance", "streamURL": "https://streams.ilovemusic.de/iloveradio11.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["summer","dance"] },
-  { "id": "pro_edm_10", "name": "Ibiza Vibes", "streamURL": "https://ice4.somafm.com/beatblender-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["ibiza","house"] },
-  { "id": "pro_edm_11", "name": "Dance Reloaded", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["dance","club"] },
-  { "id": "pro_edm_12", "name": "Electro Arena", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["electro","edm"] },
-  { "id": "pro_edm_13", "name": "Festival Classics", "streamURL": "https://streams.ilovemusic.de/iloveradio14.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["festival","classics"] },
-  { "id": "pro_edm_14", "name": "Aftermovie Sound", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["anthem","festival"] },
-  { "id": "pro_edm_15", "name": "Rave Essentials", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["rave","edm"] },
-  { "id": "pro_edm_16", "name": "Ultra Style", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["festival","ultra"] },
-  { "id": "pro_edm_17", "name": "Anthem Reload", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["anthem","dance"] },
-  { "id": "pro_edm_18", "name": "Hard EDM", "streamURL": "https://streams.ilovemusic.de/iloveradio16.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["hard","bass"] },
-  { "id": "pro_edm_19", "name": "EDM Workout", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["workout","energy"] },
-  { "id": "pro_edm_20", "name": "Festival Night", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["night","festival"] },
-  { "id": "pro_tech_01", "name": "Peak Time Techno", "streamURL": "https://listen.technobase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["techno","peaktime"] },
-  { "id": "pro_tech_02", "name": "Hard Techno", "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["hard","techno"] },
-  { "id": "pro_tech_03", "name": "Minimal Techno", "streamURL": "https://ice4.somafm.com/cliqhop-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["minimal","techno"] },
-  { "id": "pro_tech_04", "name": "Melodic Techno", "streamURL": "https://ice4.somafm.com/thetrip-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["melodic","techno"] },
-  { "id": "pro_tech_05", "name": "Industrial Techno", "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["industrial","techno"] },
-  { "id": "pro_tech_06", "name": "Warehouse Berlin", "streamURL": "https://listen.technobase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["berlin","underground"] },
-  { "id": "pro_tech_07", "name": "Afterhours Techno", "streamURL": "https://ice4.somafm.com/beatblender-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["afterhours","techno"] },
-  { "id": "pro_tech_08", "name": "Detroit Techno", "streamURL": "https://ice4.somafm.com/digitalis-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["detroit","techno"] },
-  { "id": "pro_tech_09", "name": "Dark Techno", "streamURL": "https://ice4.somafm.com/scanner-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["dark","techno"] },
-  { "id": "pro_tech_10", "name": "Acid Techno", "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["acid","techno"] },
-  { "id": "pro_tech_11", "name": "Underground Sessions", "streamURL": "https://ice4.somafm.com/earwaves-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["underground","electronic"] },
-  { "id": "pro_tech_12", "name": "Raw Techno", "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["raw","techno"] },
-  { "id": "pro_tech_13", "name": "Hypnotic Techno", "streamURL": "https://ice4.somafm.com/thetrip-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["hypnotic","techno"] },
-  { "id": "pro_tech_14", "name": "Hardgroove", "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["groove","techno"] },
-  { "id": "pro_tech_15", "name": "Rave Techno", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["rave","techno"] },
-  { "id": "pro_tech_16", "name": "Deep Underground", "streamURL": "https://ice4.somafm.com/beatblender-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["deep","techno"] },
-  { "id": "pro_tech_17", "name": "Techno Classics", "streamURL": "https://streams.ilovemusic.de/iloveradio14.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["classic","techno"] },
-  { "id": "pro_tech_18", "name": "Peak Rave", "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["rave","festival"] },
-  { "id": "pro_tech_19", "name": "Minimal Grooves", "streamURL": "https://ice4.somafm.com/cliqhop-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["minimal","groove"] },
-  { "id": "pro_tech_20", "name": "Night Warehouse", "streamURL": "https://ice4.somafm.com/scanner-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["warehouse","dark"] },
-  { "id": "pro_trance_01", "name": "Uplifting Trance", "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["uplifting","trance"] },
-  { "id": "pro_trance_02", "name": "Vocal Trance", "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["vocal","trance"] },
-  { "id": "pro_trance_03", "name": "Classic Trance", "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["classic","trance"] },
-  { "id": "pro_trance_04", "name": "Progressive Trance", "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["progressive","trance"] },
-  { "id": "pro_trance_05", "name": "Psy Trance", "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["psy","trance"] },
-  { "id": "pro_trance_06", "name": "Goa Trance", "streamURL": "https://ice4.somafm.com/suburbsofgoa-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["goa","trance"] },
-  { "id": "pro_trance_07", "name": "Tech Trance", "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["tech","trance"] },
-  { "id": "pro_trance_08", "name": "Trance Anthems", "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["anthem","trance"] },
-  { "id": "pro_trance_09", "name": "Melodic Trance", "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["melodic","trance"] },
-  { "id": "pro_trance_10", "name": "Trance Reloaded", "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["festival","trance"] },
-  { "id": "pro_hard_01", "name": "Hardstyle Arena", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["hardstyle"] },
-  { "id": "pro_hard_02", "name": "Rawstyle", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["rawstyle"] },
-  { "id": "pro_hard_03", "name": "Hardcore", "streamURL": "https://listen.technobase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["hardcore"] },
-  { "id": "pro_hard_04", "name": "Frenchcore", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["frenchcore"] },
-  { "id": "pro_hard_05", "name": "Uptempo", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["uptempo"] },
-  { "id": "pro_hard_06", "name": "Hard Dance", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["harddance"] },
-  { "id": "pro_hard_07", "name": "Reverse Bass", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["reversebass"] },
-  { "id": "pro_hard_08", "name": "Jumpstyle", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["jumpstyle"] },
-  { "id": "pro_hard_09", "name": "Defqon Style", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["festival","hardstyle"] },
-  { "id": "pro_hard_10", "name": "Harder Reloaded", "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls", "requiredPlan": "pro", "bitrate": 128, "tags": ["hard"] },
-  { "id": "pro_house_01", "name": "Deep House Lounge", "streamURL": "https://ice4.somafm.com/beatblender-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["deephouse"] },
-  { "id": "pro_house_02", "name": "Tech House Club", "streamURL": "https://ice4.somafm.com/thetrip-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["techhouse"] },
-  { "id": "pro_house_03", "name": "Afro House", "streamURL": "https://ice4.somafm.com/beatblender-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["afrohouse"] },
-  { "id": "pro_house_04", "name": "Tropical House", "streamURL": "https://streams.ilovemusic.de/iloveradio11.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["tropical"] },
-  { "id": "pro_house_05", "name": "Ibiza Sunset", "streamURL": "https://ice4.somafm.com/groovesalad-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["ibiza"] },
-  { "id": "pro_house_06", "name": "Soulful House", "streamURL": "https://ice4.somafm.com/7soul-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["soulful"] },
-  { "id": "pro_house_07", "name": "Disco House", "streamURL": "https://ice4.somafm.com/poptron-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["disco"] },
-  { "id": "pro_house_08", "name": "French House", "streamURL": "https://ice4.somafm.com/digitalis-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["frenchhouse"] },
-  { "id": "pro_house_09", "name": "Minimal House", "streamURL": "https://ice4.somafm.com/cliqhop-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["minimal"] },
-  { "id": "pro_house_10", "name": "Latin House", "streamURL": "https://ice4.somafm.com/bagel-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["latin"] },
-  { "id": "pro_house_11", "name": "Organic House", "streamURL": "https://ice4.somafm.com/thetrip-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["organic"] },
-  { "id": "pro_house_12", "name": "Club House", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["club"] },
-  { "id": "pro_house_13", "name": "Future House", "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["future"] },
-  { "id": "pro_house_14", "name": "Vocal House", "streamURL": "https://ice4.somafm.com/lush-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["vocal"] },
-  { "id": "pro_house_15", "name": "House Classics", "streamURL": "https://streams.ilovemusic.de/iloveradio14.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["classic"] },
-  { "id": "pro_urban_01", "name": "HipHop US", "streamURL": "https://streams.ilovemusic.de/iloveradio3.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["hiphop"] },
-  { "id": "pro_urban_02", "name": "Deutschrap", "streamURL": "https://streams.ilovemusic.de/iloveradio6.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["german"] },
-  { "id": "pro_urban_03", "name": "Trap Nation", "streamURL": "https://streams.ilovemusic.de/iloveradio3.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["trap"] },
-  { "id": "pro_urban_04", "name": "Drill Beats", "streamURL": "https://streams.ilovemusic.de/iloveradio3.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["drill"] },
-  { "id": "pro_urban_05", "name": "R&B Smooth", "streamURL": "https://ice4.somafm.com/7soul-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["rnb"] },
-  { "id": "pro_urban_06", "name": "Afrobeats", "streamURL": "https://ice4.somafm.com/reggae-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["afro"] },
-  { "id": "pro_urban_07", "name": "Reggaeton", "streamURL": "https://ice4.somafm.com/bagel-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["latin"] },
-  { "id": "pro_urban_08", "name": "Oldschool HipHop", "streamURL": "https://ice4.somafm.com/fluid-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["oldschool"] },
-  { "id": "pro_urban_09", "name": "LoFi Beats", "streamURL": "https://streams.ilovemusic.de/iloveradio17.mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["lofi"] },
-  { "id": "pro_urban_10", "name": "Latin Urban", "streamURL": "https://ice4.somafm.com/bagel-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["urban"] },
-  { "id": "pro_urban_11", "name": "Urban Charts", "streamURL": "https://streams.ilovemusic.de/iloveradio109.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["charts"] },
-  { "id": "pro_urban_12", "name": "Smooth Grooves", "streamURL": "https://ice4.somafm.com/illstreet-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["groove"] },
-  { "id": "pro_urban_13", "name": "Bass & Trap", "streamURL": "https://streams.ilovemusic.de/iloveradio16.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["bass"] },
-  { "id": "pro_urban_14", "name": "Chill R&B", "streamURL": "https://ice4.somafm.com/lush-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["chill"] },
-  { "id": "pro_urban_15", "name": "Street Vibes", "streamURL": "https://streams.ilovemusic.de/iloveradio3.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["street"] },
-  { "id": "pro_rock_01", "name": "Classic Rock", "streamURL": "https://streams.ilovemusic.de/iloveradio4.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["rock"] },
-  { "id": "pro_rock_02", "name": "Hard Rock", "streamURL": "https://streams.ilovemusic.de/iloveradio4.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["hardrock"] },
-  { "id": "pro_rock_03", "name": "Indie Rock", "streamURL": "https://ice4.somafm.com/indiepop-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["indie"] },
-  { "id": "pro_rock_04", "name": "Alternative", "streamURL": "https://ice4.somafm.com/poptron-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["alternative"] },
-  { "id": "pro_rock_05", "name": "Metal Arena", "streamURL": "https://ice4.somafm.com/metal-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["metal"] },
-  { "id": "pro_rock_06", "name": "Nu Metal", "streamURL": "https://ice4.somafm.com/metal-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["numetal"] },
-  { "id": "pro_rock_07", "name": "Pop Punk", "streamURL": "https://ice4.somafm.com/indiepop-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["punk"] },
-  { "id": "pro_rock_08", "name": "Grunge", "streamURL": "https://ice4.somafm.com/indiepop-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["grunge"] },
-  { "id": "pro_rock_09", "name": "Prog Rock", "streamURL": "https://ice4.somafm.com/poptron-128-mp3", "requiredPlan": "pro", "bitrate": 128, "tags": ["progressive"] },
-  { "id": "pro_rock_10", "name": "Rock Classics", "streamURL": "https://streams.ilovemusic.de/iloveradio21.mp3", "requiredPlan": "pro", "bitrate": 192, "tags": ["classic"] }
+  {
+    "id": "pro_edm_01",
+    "name": "Festival Anthems",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "festival",
+      "edm"
+    ]
+  },
+  {
+    "id": "pro_edm_02",
+    "name": "Big Room Arena",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "bigroom",
+      "edm"
+    ]
+  },
+  {
+    "id": "pro_edm_03",
+    "name": "Mainstage Energy",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "mainstage",
+      "festival"
+    ]
+  },
+  {
+    "id": "pro_tml_01",
+    "name": "Tomorrowland - One World Radio",
+    "streamURL": "https://tomorrowland.my105.ch/oneworldradio.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "festival",
+      "edm",
+      "tomorrowland"
+    ]
+  },
+  {
+    "id": "pro_tml_02",
+    "name": "Tomorrowland - Daybreak",
+    "streamURL": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAYBREAK.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "festival",
+      "morning",
+      "edm"
+    ]
+  },
+  {
+    "id": "pro_tml_03",
+    "name": "Tomorrowland - DAB",
+    "streamURL": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAB.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "festival",
+      "edm",
+      "live"
+    ]
+  },
+  {
+    "id": "pro_sl_01",
+    "name": "Sunshine Live",
+    "streamURL": "http://stream.sunshine-live.de/live/mp3-192/",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "electronic",
+      "germany"
+    ]
+  },
+  {
+    "id": "pro_edm_04",
+    "name": "EDM Hits",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "edm",
+      "dance"
+    ]
+  },
+  {
+    "id": "pro_edm_05",
+    "name": "Progressive Arena",
+    "streamURL": "https://ice4.somafm.com/thetrip-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "progressive",
+      "electronic"
+    ]
+  },
+  {
+    "id": "pro_edm_06",
+    "name": "Future Dance",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "future",
+      "dance"
+    ]
+  },
+  {
+    "id": "pro_edm_07",
+    "name": "Club Bangers",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "club",
+      "edm"
+    ]
+  },
+  {
+    "id": "pro_edm_08",
+    "name": "Peak Time EDM",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "peaktime",
+      "festival"
+    ]
+  },
+  {
+    "id": "pro_edm_09",
+    "name": "Summer Dance",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio11.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "summer",
+      "dance"
+    ]
+  },
+  {
+    "id": "pro_edm_10",
+    "name": "Ibiza Vibes",
+    "streamURL": "https://ice4.somafm.com/beatblender-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "ibiza",
+      "house"
+    ]
+  },
+  {
+    "id": "pro_edm_11",
+    "name": "Dance Reloaded",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "dance",
+      "club"
+    ]
+  },
+  {
+    "id": "pro_edm_13",
+    "name": "Festival Classics",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio14.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "festival",
+      "classics"
+    ]
+  },
+  {
+    "id": "pro_edm_14",
+    "name": "Aftermovie Sound",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "anthem",
+      "festival"
+    ]
+  },
+  {
+    "id": "pro_edm_15",
+    "name": "Rave Essentials",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "rave",
+      "edm"
+    ]
+  },
+  {
+    "id": "pro_edm_18",
+    "name": "Hard EDM",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio16.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "hard",
+      "bass"
+    ]
+  },
+  {
+    "id": "pro_edm_19",
+    "name": "EDM Workout",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "workout",
+      "energy"
+    ]
+  },
+  {
+    "id": "pro_tech_01",
+    "name": "Peak Time Techno",
+    "streamURL": "https://listen.technobase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "techno",
+      "peaktime"
+    ]
+  },
+  {
+    "id": "pro_tech_02",
+    "name": "Hard Techno",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "hard",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_03",
+    "name": "Minimal Techno",
+    "streamURL": "https://ice4.somafm.com/cliqhop-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "minimal",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_04",
+    "name": "Melodic Techno",
+    "streamURL": "https://ice4.somafm.com/thetrip-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "melodic",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_05",
+    "name": "Industrial Techno",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "industrial",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_06",
+    "name": "Warehouse Berlin",
+    "streamURL": "https://listen.technobase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "berlin",
+      "underground"
+    ]
+  },
+  {
+    "id": "pro_tech_07",
+    "name": "Afterhours Techno",
+    "streamURL": "https://ice4.somafm.com/beatblender-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "afterhours",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_08",
+    "name": "Detroit Techno",
+    "streamURL": "https://ice4.somafm.com/digitalis-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "detroit",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_09",
+    "name": "Dark Techno",
+    "streamURL": "https://ice4.somafm.com/scanner-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "dark",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_10",
+    "name": "Acid Techno",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "acid",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_11",
+    "name": "Underground Sessions",
+    "streamURL": "https://ice4.somafm.com/earwaves-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "underground",
+      "electronic"
+    ]
+  },
+  {
+    "id": "pro_tech_12",
+    "name": "Raw Techno",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "raw",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_13",
+    "name": "Hypnotic Techno",
+    "streamURL": "https://ice4.somafm.com/thetrip-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "hypnotic",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_14",
+    "name": "Hardgroove",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "groove",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_15",
+    "name": "Rave Techno",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "rave",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_16",
+    "name": "Deep Underground",
+    "streamURL": "https://ice4.somafm.com/beatblender-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "deep",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_17",
+    "name": "Techno Classics",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio14.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "classic",
+      "techno"
+    ]
+  },
+  {
+    "id": "pro_tech_18",
+    "name": "Peak Rave",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio8.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "rave",
+      "festival"
+    ]
+  },
+  {
+    "id": "pro_tech_19",
+    "name": "Minimal Grooves",
+    "streamURL": "https://ice4.somafm.com/cliqhop-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "minimal",
+      "groove"
+    ]
+  },
+  {
+    "id": "pro_tech_20",
+    "name": "Night Warehouse",
+    "streamURL": "https://ice4.somafm.com/scanner-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "warehouse",
+      "dark"
+    ]
+  },
+  {
+    "id": "pro_trance_01",
+    "name": "Uplifting Trance",
+    "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "uplifting",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_02",
+    "name": "Vocal Trance",
+    "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "vocal",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_03",
+    "name": "Classic Trance",
+    "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "classic",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_04",
+    "name": "Progressive Trance",
+    "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "progressive",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_05",
+    "name": "Psy Trance",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio12.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "psy",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_06",
+    "name": "Goa Trance",
+    "streamURL": "https://ice4.somafm.com/suburbsofgoa-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "goa",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_07",
+    "name": "Tech Trance",
+    "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "tech",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_08",
+    "name": "Trance Anthems",
+    "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "anthem",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_09",
+    "name": "Melodic Trance",
+    "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "melodic",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_trance_10",
+    "name": "Trance Reloaded",
+    "streamURL": "https://listen.trancebase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "festival",
+      "trance"
+    ]
+  },
+  {
+    "id": "pro_hard_01",
+    "name": "Hardstyle Arena",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "hardstyle"
+    ]
+  },
+  {
+    "id": "pro_hard_02",
+    "name": "Rawstyle",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "rawstyle"
+    ]
+  },
+  {
+    "id": "pro_hard_03",
+    "name": "Hardcore",
+    "streamURL": "https://listen.technobase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "hardcore"
+    ]
+  },
+  {
+    "id": "pro_hard_04",
+    "name": "Frenchcore",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "frenchcore"
+    ]
+  },
+  {
+    "id": "pro_hard_05",
+    "name": "Uptempo",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "uptempo"
+    ]
+  },
+  {
+    "id": "pro_hard_06",
+    "name": "Hard Dance",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "harddance"
+    ]
+  },
+  {
+    "id": "pro_hard_07",
+    "name": "Reverse Bass",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "reversebass"
+    ]
+  },
+  {
+    "id": "pro_hard_08",
+    "name": "Jumpstyle",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "jumpstyle"
+    ]
+  },
+  {
+    "id": "pro_hard_09",
+    "name": "Defqon Style",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "festival",
+      "hardstyle"
+    ]
+  },
+  {
+    "id": "pro_hard_10",
+    "name": "Harder Reloaded",
+    "streamURL": "https://listen.hardbase.fm/tunein-mp3-pls",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "hard"
+    ]
+  },
+  {
+    "id": "pro_house_01",
+    "name": "Deep House Lounge",
+    "streamURL": "https://ice4.somafm.com/beatblender-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "deephouse"
+    ]
+  },
+  {
+    "id": "pro_house_02",
+    "name": "Tech House Club",
+    "streamURL": "https://ice4.somafm.com/thetrip-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "techhouse"
+    ]
+  },
+  {
+    "id": "pro_house_03",
+    "name": "Afro House",
+    "streamURL": "https://ice4.somafm.com/beatblender-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "afrohouse"
+    ]
+  },
+  {
+    "id": "pro_house_04",
+    "name": "Tropical House",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio11.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "tropical"
+    ]
+  },
+  {
+    "id": "pro_house_05",
+    "name": "Ibiza Sunset",
+    "streamURL": "https://ice4.somafm.com/groovesalad-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "ibiza"
+    ]
+  },
+  {
+    "id": "pro_house_06",
+    "name": "Soulful House",
+    "streamURL": "https://ice4.somafm.com/7soul-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "soulful"
+    ]
+  },
+  {
+    "id": "pro_house_07",
+    "name": "Disco House",
+    "streamURL": "https://ice4.somafm.com/poptron-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "disco"
+    ]
+  },
+  {
+    "id": "pro_house_08",
+    "name": "French House",
+    "streamURL": "https://ice4.somafm.com/digitalis-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "frenchhouse"
+    ]
+  },
+  {
+    "id": "pro_house_09",
+    "name": "Minimal House",
+    "streamURL": "https://ice4.somafm.com/cliqhop-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "minimal"
+    ]
+  },
+  {
+    "id": "pro_house_10",
+    "name": "Latin House",
+    "streamURL": "https://ice4.somafm.com/bagel-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "latin"
+    ]
+  },
+  {
+    "id": "pro_house_11",
+    "name": "Organic House",
+    "streamURL": "https://ice4.somafm.com/thetrip-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "organic"
+    ]
+  },
+  {
+    "id": "pro_house_12",
+    "name": "Club House",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "club"
+    ]
+  },
+  {
+    "id": "pro_house_13",
+    "name": "Future House",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "future"
+    ]
+  },
+  {
+    "id": "pro_house_14",
+    "name": "Vocal House",
+    "streamURL": "https://ice4.somafm.com/lush-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "vocal"
+    ]
+  },
+  {
+    "id": "pro_house_15",
+    "name": "House Classics",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio14.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "classic"
+    ]
+  },
+  {
+    "id": "pro_urban_01",
+    "name": "HipHop US",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio3.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "hiphop"
+    ]
+  },
+  {
+    "id": "pro_urban_02",
+    "name": "Deutschrap",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio6.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "german"
+    ]
+  },
+  {
+    "id": "pro_urban_03",
+    "name": "Trap Nation",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio3.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "trap"
+    ]
+  },
+  {
+    "id": "pro_urban_04",
+    "name": "Drill Beats",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio3.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "drill"
+    ]
+  },
+  {
+    "id": "pro_urban_05",
+    "name": "R&B Smooth",
+    "streamURL": "https://ice4.somafm.com/7soul-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "rnb"
+    ]
+  },
+  {
+    "id": "pro_urban_06",
+    "name": "Afrobeats",
+    "streamURL": "https://ice4.somafm.com/reggae-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "afro"
+    ]
+  },
+  {
+    "id": "pro_urban_07",
+    "name": "Reggaeton",
+    "streamURL": "https://ice4.somafm.com/bagel-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "latin"
+    ]
+  },
+  {
+    "id": "pro_urban_08",
+    "name": "Oldschool HipHop",
+    "streamURL": "https://ice4.somafm.com/fluid-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "oldschool"
+    ]
+  },
+  {
+    "id": "pro_urban_09",
+    "name": "LoFi Beats",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio17.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "lofi"
+    ]
+  },
+  {
+    "id": "pro_urban_10",
+    "name": "Latin Urban",
+    "streamURL": "https://ice4.somafm.com/bagel-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "urban"
+    ]
+  },
+  {
+    "id": "pro_urban_11",
+    "name": "Urban Charts",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio109.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "charts"
+    ]
+  },
+  {
+    "id": "pro_urban_12",
+    "name": "Smooth Grooves",
+    "streamURL": "https://ice4.somafm.com/illstreet-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "groove"
+    ]
+  },
+  {
+    "id": "pro_urban_13",
+    "name": "Bass & Trap",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio16.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "bass"
+    ]
+  },
+  {
+    "id": "pro_urban_14",
+    "name": "Chill R&B",
+    "streamURL": "https://ice4.somafm.com/lush-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "chill"
+    ]
+  },
+  {
+    "id": "pro_urban_15",
+    "name": "Street Vibes",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio3.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "street"
+    ]
+  },
+  {
+    "id": "pro_rock_01",
+    "name": "Classic Rock",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio4.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "rock"
+    ]
+  },
+  {
+    "id": "pro_rock_02",
+    "name": "Hard Rock",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio4.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "hardrock"
+    ]
+  },
+  {
+    "id": "pro_rock_03",
+    "name": "Indie Rock",
+    "streamURL": "https://ice4.somafm.com/indiepop-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "indie"
+    ]
+  },
+  {
+    "id": "pro_rock_04",
+    "name": "Alternative",
+    "streamURL": "https://ice4.somafm.com/poptron-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "alternative"
+    ]
+  },
+  {
+    "id": "pro_rock_05",
+    "name": "Metal Arena",
+    "streamURL": "https://ice4.somafm.com/metal-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "metal"
+    ]
+  },
+  {
+    "id": "pro_rock_06",
+    "name": "Nu Metal",
+    "streamURL": "https://ice4.somafm.com/metal-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "numetal"
+    ]
+  },
+  {
+    "id": "pro_rock_07",
+    "name": "Pop Punk",
+    "streamURL": "https://ice4.somafm.com/indiepop-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "punk"
+    ]
+  },
+  {
+    "id": "pro_rock_08",
+    "name": "Grunge",
+    "streamURL": "https://ice4.somafm.com/indiepop-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "grunge"
+    ]
+  },
+  {
+    "id": "pro_rock_09",
+    "name": "Prog Rock",
+    "streamURL": "https://ice4.somafm.com/poptron-128-mp3",
+    "requiredPlan": "pro",
+    "bitrate": 128,
+    "tags": [
+      "progressive"
+    ]
+  },
+  {
+    "id": "pro_rock_10",
+    "name": "Rock Classics",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio21.mp3",
+    "requiredPlan": "pro",
+    "bitrate": 192,
+    "tags": [
+      "classic"
+    ]
+  }
 ]
