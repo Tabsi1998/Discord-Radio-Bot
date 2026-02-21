@@ -34,7 +34,7 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - [x] 3-Tier Plan-System (Free/Pro/Ultimate) mit zentraler Config
 - [x] Seat-basierte Server-Lizenzierung (1/2/3/5 Seats)
 - [x] Station-Tier-System (Free/Pro Badges in UI + Filter)
-- [x] Plan-basierte Audio-Bitrate Enforcement (64k/128k/320k)
+- [x] Plan-basierte Audio-Bitrate Enforcement (64k/128k/320k) - FIX 22.02.2026: Transcode wird jetzt immer erzwungen wenn bitrateOverride gesetzt
 - [x] Plan-basierte Reconnect-Prioritaet (5s/1.5s/0.4s)
 - [x] Command Permission Matrix mit Upgrade-Embeds (Deutsch)
 - [x] Pricing Calculator (services/pricing.js)
@@ -46,6 +46,7 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - [x] React Frontend komplett aktualisiert (alle Komponenten)
 - [x] Docker + Shell-Skripte aktualisiert
 - [x] Testing: 100% (Backend 18/18, Frontend alle UI-Tests bestanden)
+- [x] P0 Fix: Bitrate-Enforcement via bitrateOverride in createResource (22.02.2026)
 
 ## API Endpoints
 - GET /api/health - Health + OmniFM Brand
