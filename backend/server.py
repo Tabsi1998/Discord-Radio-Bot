@@ -51,7 +51,19 @@ YEARLY_DISCOUNT_MONTHS = 10  # 12 Monate = nur 10 bezahlen
 
 
 def get_stripe_secret_key():
-    return (os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("STRIPE_API_KEY") or "").strip()
+    key = (os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("STRIPE_API_KEY") or "").strip()
+    return key
+
+
+def validate_stripe_key(key):
+    """Prueft ob der Stripe Key gueltig aussieht"""
+    if not key:
+        return False, "Stripe ist nicht konfiguriert. Bitte STRIPE_SECRET_KEY oder STRIPE_API_KEY in der .env setzen."
+    if not (key.startswith("sk_test_") or key.startswith("sk_live_")):
+        return False, "Stripe API-Key ungueltig. Der Key muss mit 'sk_test_' oder 'sk_live_' beginnen. Bitte den richtigen Secret Key aus dem Stripe Dashboard verwenden."
+    if len(key) < 30:
+        return False, "Stripe API-Key zu kurz. Bitte den vollstaendigen Key aus dem Stripe Dashboard kopieren."
+    return True, ""
 
 
 def load_stations_from_file():
