@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PLANS } from "../config/plans.js";
+import { PLANS } from "./config/plans.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const premiumFile = path.resolve(__dirname, "..", "premium.json");
