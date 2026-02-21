@@ -609,8 +609,9 @@ function updatePriceDisplay() {
   var modal = document.getElementById('premiumModal');
   var tier = modal.dataset.tier;
   var months = parseInt(modal.dataset.months) || 1;
+  var seats = parseInt(modal.dataset.seats) || 1;
 
-  var pricePerMonth = tier === 'ultimate' ? 499 : 299;
+  var pricePerMonth = getSeatPricePerMonth(tier, seats);
   var totalCents, regularCents, hasDiscount;
 
   if (checkoutUpgradeInfo) {
@@ -628,7 +629,8 @@ function updatePriceDisplay() {
   priceEl.textContent = priceStr + '\u20ac';
 
   var priceLabel = document.getElementById('premiumPriceLabel');
-  priceLabel.textContent = checkoutUpgradeInfo ? 'Upgrade-Preis' : months + ' Monat' + (months > 1 ? 'e' : '');
+  var seatsLabel = seats > 1 ? ' (' + seats + ' Server)' : '';
+  priceLabel.textContent = checkoutUpgradeInfo ? 'Upgrade-Preis' : months + ' Monat' + (months > 1 ? 'e' : '') + seatsLabel;
 
   var oldPriceEl = document.getElementById('premiumPriceOld');
   if (hasDiscount) {
@@ -649,7 +651,7 @@ function updatePriceDisplay() {
 
   var perMonthEl = document.getElementById('premiumPerMonth');
   if (!checkoutUpgradeInfo && months > 1) {
-    perMonthEl.textContent = '= ' + (totalCents / months / 100).toFixed(2).replace('.', ',') + '\u20ac/Monat';
+    perMonthEl.textContent = '= ' + (totalCents / months / 100).toFixed(2).replace('.', ',') + '\u20ac/Monat' + seatsLabel;
     perMonthEl.style.display = 'block';
   } else {
     perMonthEl.style.display = 'none';
