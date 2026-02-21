@@ -391,6 +391,9 @@ async def get_commands():
             {"name": "/addstation", "args": "<key> <name> <url>", "description": "[Ultimate] Eigene Station-URL hinzufuegen"},
             {"name": "/removestation", "args": "<key>", "description": "[Ultimate] Eigene Station entfernen"},
             {"name": "/mystations", "args": "", "description": "[Ultimate] Deine eigenen Stationen anzeigen"},
+            {"name": "/license activate", "args": "<key>", "description": "Lizenz-Key fuer diesen Server aktivieren"},
+            {"name": "/license info", "args": "", "description": "Lizenz-Info fuer diesen Server anzeigen"},
+            {"name": "/license remove", "args": "", "description": "Diesen Server von der Lizenz entfernen"},
         ]
     }
 
