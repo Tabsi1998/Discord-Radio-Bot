@@ -47,6 +47,7 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - [x] Docker + Shell-Skripte aktualisiert
 - [x] Testing: 100% (Backend 18/18, Frontend alle UI-Tests bestanden)
 - [x] P0 Fix: Bitrate-Enforcement via bitrateOverride in createResource (22.02.2026)
+- [x] CLI-Fix: premium-cli.js Imports nach Refactoring repariert (22.02.2026)
 
 ## API Endpoints
 - GET /api/health - Health + OmniFM Brand
