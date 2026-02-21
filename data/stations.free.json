@@ -1,0 +1,22 @@
+[
+  { "id": "oneworldradio",      "name": "Tomorrowland - One World Radio", "streamURL": "https://tomorrowland.my105.ch/oneworldradio.mp3", "requiredPlan": "free", "bitrate": 128, "tags": ["electronic", "festival"] },
+  { "id": "lofi",               "name": "Lofi Hip Hop Radio",             "streamURL": "https://streams.ilovemusic.de/iloveradio17.mp3",  "requiredPlan": "free", "bitrate": 128, "tags": ["lofi", "chill"] },
+  { "id": "chillout",           "name": "Chillout Lounge",                "streamURL": "https://streams.ilovemusic.de/iloveradio7.mp3",   "requiredPlan": "free", "bitrate": 128, "tags": ["chill", "ambient"] },
+  { "id": "pop",                "name": "Pop Hits",                       "streamURL": "https://streams.ilovemusic.de/iloveradio.mp3",    "requiredPlan": "free", "bitrate": 128, "tags": ["pop", "charts"] },
+  { "id": "dance",              "name": "Dance Radio",                    "streamURL": "https://streams.ilovemusic.de/iloveradio2.mp3",   "requiredPlan": "free", "bitrate": 128, "tags": ["dance", "edm"] },
+  { "id": "rock",               "name": "Rock Nation",                    "streamURL": "https://streams.ilovemusic.de/iloveradio4.mp3",   "requiredPlan": "free", "bitrate": 128, "tags": ["rock"] },
+  { "id": "classicrock",        "name": "Classic Rock Radio",             "streamURL": "https://streams.ilovemusic.de/iloveradio21.mp3",  "requiredPlan": "free", "bitrate": 128, "tags": ["rock", "classic"] },
+  { "id": "deutschrap",         "name": "Deutsch Rap",                    "streamURL": "https://streams.ilovemusic.de/iloveradio6.mp3",   "requiredPlan": "free", "bitrate": 128, "tags": ["hiphop", "german"] },
+  { "id": "groovesalad",        "name": "Groove Salad",                   "streamURL": "https://ice4.somafm.com/groovesalad-128-mp3",     "requiredPlan": "free", "bitrate": 128, "tags": ["ambient", "chill"] },
+  { "id": "defcon",             "name": "DEF CON Radio",                  "streamURL": "https://ice4.somafm.com/defcon-128-mp3",          "requiredPlan": "free", "bitrate": 128, "tags": ["synthwave", "electronic"] },
+  { "id": "dronezone",          "name": "Drone Zone",                     "streamURL": "https://ice4.somafm.com/dronezone-128-mp3",       "requiredPlan": "free", "bitrate": 128, "tags": ["ambient", "drone"] },
+  { "id": "spacestation",       "name": "Space Station Soma",             "streamURL": "https://ice4.somafm.com/spacestation-128-mp3",    "requiredPlan": "free", "bitrate": 128, "tags": ["ambient", "space"] },
+  { "id": "secretagent",        "name": "Secret Agent",                   "streamURL": "https://ice4.somafm.com/secretagent-128-mp3",     "requiredPlan": "free", "bitrate": 128, "tags": ["lounge", "spy"] },
+  { "id": "beatblender",        "name": "Beat Blender",                   "streamURL": "https://ice4.somafm.com/beatblender-128-mp3",     "requiredPlan": "free", "bitrate": 128, "tags": ["electronic", "mix"] },
+  { "id": "poptron",            "name": "PopTron",                        "streamURL": "https://ice4.somafm.com/poptron-128-mp3",         "requiredPlan": "free", "bitrate": 128, "tags": ["synthpop", "electronic"] },
+  { "id": "deepspaceone",       "name": "Deep Space One",                 "streamURL": "https://ice4.somafm.com/deepspaceone-128-mp3",    "requiredPlan": "free", "bitrate": 128, "tags": ["space", "ambient"] },
+  { "id": "seventies",          "name": "Left Coast 70s",                 "streamURL": "https://ice4.somafm.com/seventies-128-mp3",       "requiredPlan": "free", "bitrate": 128, "tags": ["70s", "rock"] },
+  { "id": "bootliquor",         "name": "Boot Liquor",                    "streamURL": "https://ice4.somafm.com/bootliquor-128-mp3",      "requiredPlan": "free", "bitrate": 128, "tags": ["country", "americana"] },
+  { "id": "thetrip",            "name": "The Trip",                       "streamURL": "https://ice4.somafm.com/thetrip-128-mp3",         "requiredPlan": "free", "bitrate": 128, "tags": ["house", "electronic"] },
+  { "id": "sonicuniverse",      "name": "Sonic Universe",                 "streamURL": "https://ice4.somafm.com/sonicuniverse-128-mp3",   "requiredPlan": "free", "bitrate": 128, "tags": ["jazz", "fusion"] }
+]
