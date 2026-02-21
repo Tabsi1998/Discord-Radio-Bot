@@ -574,32 +574,27 @@ async def verify_premium(body: dict):
 
         if session.payment_status == "paid":
             metadata = session.metadata or {}
-            server_id = metadata.get("serverId", "")
+            email = metadata.get("email", "")
             tier = metadata.get("tier", "")
             months_str = metadata.get("months", "1")
             seats_str = metadata.get("seats", "1")
-            is_upgrade = metadata.get("isUpgrade", "false")
             seats = int(seats_str) if seats_str.isdigit() and int(seats_str) in SEAT_OPTIONS else 1
 
-            if server_id and tier and tier in ("pro", "ultimate"):
-                if is_upgrade == "true":
-                    license_data = upgrade_license(server_id, tier)
-                else:
-                    duration_months = max(1, int(months_str))
-                    license_data = add_license(server_id, tier, duration_months, seats, "stripe", f"Session: {session_id}")
+            if email and tier and tier in ("pro", "ultimate"):
+                duration_months = max(1, int(months_str))
+                license_data = add_license(email, tier, duration_months, seats, "stripe", f"Session: {session_id}")
 
-                lic_info = get_license(server_id)
-                msg = (f"Server {server_id} auf {TIERS[tier]['name']} upgraded!"
-                       if is_upgrade == "true"
-                       else f"Server {server_id} auf {TIERS[tier]['name']} aktiviert ({months_str} Monat{'e' if int(months_str) > 1 else ''})!")
+                license_key = license_data.get("licenseKey", "")
+                tier_name = TIERS[tier]["name"]
+                msg = f"Lizenz {license_key} erstellt! {tier_name} fuer {seats} Server, {months_str} Monat{'e' if int(months_str) > 1 else ''}."
 
                 return {
                     "success": True,
-                    "serverId": server_id,
+                    "licenseKey": license_key,
+                    "email": email,
                     "tier": tier,
                     "seats": seats,
                     "expiresAt": license_data.get("expiresAt"),
-                    "remainingDays": lic_info["remainingDays"] if lic_info else 0,
                     "message": msg,
                 }
 
