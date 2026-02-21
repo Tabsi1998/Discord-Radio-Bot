@@ -793,7 +793,11 @@ function submitPremiumCheckout() {
         banner.style.display = 'flex';
         banner.style.background = 'rgba(57,255,20,0.1)';
         banner.style.borderColor = 'rgba(57,255,20,0.3)';
-        banner.querySelector('span').textContent = data.message || 'Premium aktiviert!';
+        var msg = data.message || 'Premium aktiviert!';
+        if (data.licenseKey) {
+          msg += ' Dein Lizenz-Key: ' + data.licenseKey;
+        }
+        banner.querySelector('span').textContent = msg;
         banner.querySelector('span').style.color = '#39FF14';
       } else {
         banner.style.display = 'flex';
