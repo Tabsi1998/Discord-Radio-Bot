@@ -146,7 +146,7 @@
     <section class="section section-glow" id="stations">
       <div class="container">
         <span class="section-eyebrow cyan">Live Station Directory</span>
-        <h2 class="section-title">Radio Stationen</h2>
+        <h2 class="section-title">OmniFM Stationen</h2>
         <p class="section-sub" id="stationCount">Lade Stationen...</p>
 
         <div class="station-search-wrap">
@@ -168,6 +168,7 @@
         <div class="station-list" id="stationList">
           <p class="muted">Lade Stationen...</p>
         </div>
+        <div id="stationPagination" style="text-align:center;margin-top:24px"></div>
       </div>
     </section>
 
@@ -296,11 +297,11 @@
           <h3 id="premiumModalTitle" style="font-family:Orbitron,sans-serif;font-size:20px;font-weight:800;margin-bottom:8px"></h3>
         </div>
 
-        <!-- Server ID -->
+        <!-- E-Mail Adresse -->
         <div style="margin-bottom:16px">
-          <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#A1A1AA;margin-bottom:8px">SERVER ID</div>
-          <input type="text" id="premiumServerId" placeholder="z.B. 123456789012345678" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;color:#fff;padding:14px 16px;font-size:14px;outline:none;font-family:'JetBrains Mono',monospace" onchange="checkExistingLicense()" />
-          <p style="color:#52525B;font-size:11px;margin-top:6px">Rechtsklick auf Server in Discord &rarr; Server-ID kopieren</p>
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#A1A1AA;margin-bottom:8px">E-MAIL ADRESSE</div>
+          <input type="email" id="premiumEmail" placeholder="deine@email.de" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;color:#fff;padding:14px 16px;font-size:14px;outline:none" />
+          <p style="color:#52525B;font-size:11px;margin-top:6px">Dein Lizenz-Key und die Rechnung werden an diese Adresse gesendet.</p>
         </div>
 
         <!-- Upgrade Badge -->
