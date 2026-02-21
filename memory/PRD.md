@@ -29,9 +29,9 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - Ultimate Seats: 1=4.99, 2=7.99, 3=10.99, 5=16.99
 - Jahresrabatt: 12 Monate buchen = 10 bezahlen
 
-## Stationen (v3.1 - 124 Total)
+## Stationen (v3.1 - 120 Total)
 - **20 Free**: Groove Salad, Drone Zone, Deep Space One, Space Station, Beat Blender, PopTron, Underground 80s, Metal Detector, Lush, The Trip, Classical Radio, Blues Radio, Jazz Radio, Reggae Radio, Ambient Radio, Techno Radio, Rock Radio, Chillout Radio, Hip Hop Radio, Lounge Radio
-- **104 Pro**: EDM (20), Tomorrowland (3), Sunshine Live (1), Techno (20), Trance (10), Hardstyle (10), House (15), Urban (15), Rock (10)
+- **100 Pro**: EDM (16), Tomorrowland (3), Sunshine Live (1), Techno (20), Trance (10), Hardstyle (10), House (15), Urban (15), Rock (10)
 - **Spezial-Stationen**: Tomorrowland One World Radio, Tomorrowland Daybreak, Tomorrowland DAB, Sunshine Live
 
 ## API Endpoints
