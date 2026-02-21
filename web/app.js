@@ -490,6 +490,47 @@ function calculateCheckoutPrice(pricePerMonth, months) {
   return months * pricePerMonth;
 }
 
+function getSeatPricePerMonth(tier, seats) {
+  var pricing = SEAT_PRICING[tier];
+  if (!pricing) return 0;
+  return pricing[seats] || pricing[1] || 0;
+}
+
+function renderSeatButtons(tier) {
+  var container = document.getElementById('seatButtons');
+  if (!container) return;
+  container.innerHTML = '';
+  var modal = document.getElementById('premiumModal');
+  var currentSeats = parseInt(modal.dataset.seats) || 1;
+  var tierColors = { pro: '#FFB800', ultimate: '#BD00FF' };
+  var color = tierColors[tier] || '#FFB800';
+
+  SEAT_OPTIONS.forEach(function(seats) {
+    var pricePerMonth = getSeatPricePerMonth(tier, seats);
+    var priceLabel = (pricePerMonth / 100).toFixed(2).replace('.', ',') + '\u20ac';
+    var isActive = seats === currentSeats;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.style.cssText = 'padding:10px 6px;border-radius:10px;cursor:pointer;text-align:center;transition:all 0.2s;' +
+      'background:' + (isActive ? color + '12' : 'rgba(255,255,255,0.03)') + ';' +
+      'border:1px solid ' + (isActive ? color + '40' : 'rgba(255,255,255,0.08)') + ';' +
+      'color:' + (isActive ? color : '#A1A1AA');
+    btn.innerHTML = '<div style="font-size:15px;font-weight:700;font-family:JetBrains Mono,monospace">' + seats + '</div>' +
+      '<div style="font-size:10px;opacity:0.7">Server</div>' +
+      '<div style="font-size:9px;margin-top:2px;color:' + (isActive ? color : '#52525B') + '">' + priceLabel + '/mo</div>';
+    if (seats >= 5) {
+      btn.innerHTML += '<div style="position:absolute;top:-8px;right:-4px;background:#39FF14;color:#050505;font-size:7px;font-weight:800;padding:2px 4px;border-radius:4px;font-family:Orbitron,sans-serif">BEST</div>';
+      btn.style.position = 'relative';
+    }
+    btn.onclick = function() {
+      modal.dataset.seats = String(seats);
+      renderSeatButtons(tier);
+      updatePriceDisplay();
+    };
+    container.appendChild(btn);
+  });
+}
+
 function startCheckout(tier) {
   var modal = document.getElementById('premiumModal');
   var input = document.getElementById('premiumServerId');
@@ -500,6 +541,7 @@ function startCheckout(tier) {
   statusEl.textContent = '';
   modal.dataset.tier = tier;
   modal.dataset.months = '1';
+  modal.dataset.seats = '1';
   modal.dataset.isUpgrade = 'false';
   checkoutUpgradeInfo = null;
 
@@ -507,14 +549,13 @@ function startCheckout(tier) {
   var tierNames = { pro: 'Pro', ultimate: 'Ultimate' };
   var color = tierColors[tier] || '#FFB800';
 
-  // Modal-Farbe anpassen
   var icon = document.getElementById('premiumModalIcon');
   icon.style.background = color + '12';
   icon.style.border = '1px solid ' + color + '30';
   icon.style.color = color;
 
   var title = document.getElementById('premiumModalTitle');
-  title.textContent = tierNames[tier] + ' aktivieren';
+  title.textContent = 'OmniFM ' + tierNames[tier];
 
   var submitBtn = document.getElementById('premiumSubmit');
   submitBtn.style.background = color;
@@ -524,11 +565,12 @@ function startCheckout(tier) {
   var priceEl = document.getElementById('premiumPrice');
   priceEl.style.color = color;
 
-  // Upgrade-Badge verstecken
   document.getElementById('premiumUpgradeBadge').style.display = 'none';
   document.getElementById('premiumMonthsRow').style.display = 'block';
+  var seatRow = document.getElementById('seatSelectorRow');
+  if (seatRow) seatRow.style.display = 'block';
 
-  // Month Buttons generieren
+  renderSeatButtons(tier);
   renderMonthButtons(tier);
   updatePriceDisplay();
 }
