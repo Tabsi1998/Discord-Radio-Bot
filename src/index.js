@@ -2174,80 +2174,99 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     return { success: false, status: 400, message: "session.id fehlt." };
   }
 
-  const { serverId, tier, months, seats, isUpgrade } = session.metadata;
-  const cleanServerId = String(serverId || "").trim();
+  const { email: metaEmail, tier, months, seats } = session.metadata;
+  const customerEmail = String(metaEmail || session.customer_details?.email || "").trim().toLowerCase();
   const cleanTier = String(tier || "").trim().toLowerCase();
   const cleanSeats = [1, 2, 3, 5].includes(Number(seats)) ? Number(seats) : 1;
-  const upgrade = String(isUpgrade || "false").toLowerCase() === "true";
+  const durationMonths = Math.max(1, parseInt(months, 10) || 1);
 
-  if (!/^\d{17,22}$/.test(cleanServerId) || !["pro", "ultimate"].includes(cleanTier)) {
-    return { success: false, status: 400, message: "Session-Metadaten sind ungueltig." };
+  if (!customerEmail || !["pro", "ultimate"].includes(cleanTier)) {
+    return { success: false, status: 400, message: "Session-Metadaten sind ungueltig (email oder tier fehlt)." };
   }
 
   if (isSessionProcessed(sessionId)) {
-    const existing = getLicense(cleanServerId);
     return {
       success: true,
       replay: true,
-      serverId: cleanServerId,
+      email: customerEmail,
       tier: cleanTier,
-      expiresAt: existing?.expiresAt || null,
-      remainingDays: existing?.remainingDays || 0,
       message: `Session ${sessionId} wurde bereits verarbeitet.`,
     };
   }
 
   let license;
   try {
-    if (upgrade) {
-      license = upgradeLicense(cleanServerId, cleanTier);
-    } else {
-      const durationMonths = Math.max(1, parseInt(months, 10) || 1);
-      license = addLicense(cleanServerId, cleanTier, durationMonths, "stripe", `Session: ${sessionId}`);
-    }
+    license = createLicense({
+      plan: cleanTier,
+      seats: cleanSeats,
+      billingPeriod: durationMonths >= 12 ? "yearly" : "monthly",
+      months: durationMonths,
+      activatedBy: "stripe",
+      note: `Session: ${sessionId}`,
+      contactEmail: customerEmail,
+    });
   } catch (err) {
     return { success: false, status: 400, message: err.message || String(err) };
   }
 
   markSessionProcessed(sessionId, {
-    serverId: cleanServerId,
+    email: customerEmail,
     tier: cleanTier,
-    isUpgrade: upgrade,
+    licenseId: license.id,
     source,
     expiresAt: license.expiresAt,
   });
 
-  const licInfo = getLicense(cleanServerId);
-  const customerEmail = String(session.customer_details?.email || "").trim().toLowerCase();
-  if (customerEmail) {
-    patchLicense(cleanServerId, { contactEmail: customerEmail });
-  }
-
+  // Send license key email
   if (isEmailConfigured() && customerEmail) {
     const tierConfig = TIERS[cleanTier];
     const inviteOverview = buildInviteOverviewForTier(runtimes, cleanTier);
-    const normalizedMonths = Math.max(0, parseInt(months, 10) || 0);
     const amountPaid = Number(session.amount_total || 0);
 
     const purchaseHtml = buildPurchaseEmail({
       tier: cleanTier,
       tierName: tierConfig.name,
-      months: normalizedMonths,
-      serverId: cleanServerId,
+      months: durationMonths,
+      licenseKey: license.id,
+      email: customerEmail,
       expiresAt: license.expiresAt,
       inviteOverview,
       dashboardUrl: resolvePublicWebsiteUrl(),
-      isUpgrade: upgrade,
+      isUpgrade: false,
       pricePaid: amountPaid,
       currency: session.currency || "eur",
     });
-    sendMail(customerEmail, `Premium ${tierConfig.name} aktiviert!`, purchaseHtml).catch(() => {});
+    sendMail(customerEmail, `OmniFM ${tierConfig.name} - Dein Lizenz-Key`, purchaseHtml).catch(() => {});
 
     const invoiceId = `OF-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sessionId.slice(-8).toUpperCase()}`;
     const invoiceHtml = buildInvoiceEmail({
       invoiceId,
       sessionId,
-      serverId: cleanServerId,
+      email: customerEmail,
+      tier: cleanTier,
+      tierName: tierConfig.name,
+      months: durationMonths,
+      seats: cleanSeats,
+      pricePaid: amountPaid,
+      currency: session.currency || "eur",
+      licenseKey: license.id,
+      expiresAt: license.expiresAt,
+    });
+    sendMail(customerEmail, `OmniFM Rechnung ${invoiceId}`, invoiceHtml).catch(() => {});
+  }
+
+  log("INFO", `[License] Erstellt: ${license.id} fuer ${customerEmail} (${cleanTier}, ${cleanSeats} Seats, ${durationMonths}mo) via ${source}`);
+
+  return {
+    success: true,
+    email: customerEmail,
+    tier: cleanTier,
+    licenseKey: license.id,
+    expiresAt: license.expiresAt,
+    seats: cleanSeats,
+    message: `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`,
+  };
+}
       tierName: tierConfig.name,
       tier: cleanTier,
       months: normalizedMonths,
