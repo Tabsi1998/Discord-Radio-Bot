@@ -493,7 +493,7 @@ if $health_ok; then
   ok "Health-Check bestanden!"
 else
   warn "Health-Check nicht bestanden. Das kann normal sein wenn Bot-Tokens noch nicht verifiziert sind."
-  echo -e "  ${DIM}Pruefe Logs:  docker compose logs --tail=100 radio-bot${NC}"
+  echo -e "  ${DIM}Pruefe Logs:  docker compose logs --tail=100 omnifm${NC}"
 fi
 
 # ====================================
@@ -520,7 +520,7 @@ echo -e "    Bot bearbeiten:   ${GREEN}bash ./update.sh --edit-bot${NC}"
 echo -e "    Premium:          ${GREEN}bash ./update.sh --premium${NC}"
 echo -e "    Stripe Setup:     ${GREEN}bash ./setup-stripe.sh${NC}"
 echo -e "    Update:           ${GREEN}bash ./update.sh${NC}"
-echo -e "    Logs:             ${GREEN}docker compose logs -f radio-bot${NC}"
+echo -e "    Logs:             ${GREEN}docker compose logs -f omnifm${NC}"
 echo -e "    Status:           ${GREEN}docker compose ps${NC}"
 echo -e "    Neustart:         ${GREEN}docker compose restart${NC}"
 echo ""
