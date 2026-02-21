@@ -4,30 +4,13 @@
 OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basierter Lizenzierung.
 
 ## Architektur
-- **Backend**: Node.js, discord.js, Express.js
-- **Frontend**: Static HTML/CSS/JS (`/web/`)
+- **Backend (Bot)**: Node.js, discord.js, Express.js (`/app/src/index.js`)
+- **Backend (API)**: Python FastAPI (`/app/backend/server.py`)
+- **Frontend**: React (`/app/frontend/src/`)
+- **Static Web**: HTML/CSS/JS (`/app/web/`)
 - **State**: Flat-file JSON (`premium.json`, `bot-state.json`, `custom-stations.json`, `stations.json`)
 - **Payment**: Stripe Checkout (One-time payments)
 - **Email**: Nodemailer (SMTP)
-
-## Modulstruktur
-```
-src/
-  index.js              # Haupt-Applikation (Discord Bots + Web-Server)
-  config/plans.js       # Plan-Konfiguration (Single Source of Truth)
-  core/entitlements.js  # Server-Plan & Feature-Checks
-  services/pricing.js   # Seat-basiertes Pricing
-  services/stations.js  # Station-Daten (Free/Pro JSON)
-  ui/upgradeEmbeds.js   # Discord Upgrade-Embeds (Deutsch)
-  premium-store.js      # Lizenz-Verwaltung (JSON Store)
-  bot-state.js          # Bot-State Persistenz
-  commands.js           # Slash-Command Definitionen (Deutsch)
-  stations-store.js     # Station-Lade/Filter-Logik
-  custom-stations.js    # Custom Station URLs (Ultimate)
-  email.js              # E-Mail Service
-  bot-config.js         # Bot-Konfiguration
-  premium-cli.js        # CLI fuer Lizenzverwaltung
-```
 
 ## Plan-System (3 Tiers)
 
@@ -38,38 +21,45 @@ src/
 | Reconnect | 5s | 1.5s | 0.4s |
 | Stationen | 20 Free | 20 Free + 100 Pro | Alle + Custom URLs |
 | Custom URLs | - | - | 50 pro Server |
-| Preis (1 Server) | 0€ | 2.99€/mo | 4.99€/mo |
+| Preis (1 Server) | 0 | 2.99/mo | 4.99/mo |
 
 ## Seat-basierte Lizenzierung
 - 1, 2, 3 oder 5 Server pro Lizenz
-- Seat-Preise: Pro 1=€2.99, 2=€5.49, 3=€7.49, 5=€11.49
-- Seat-Preise: Ultimate 1=€4.99, 2=€7.99, 3=€10.99, 5=€16.99
+- Pro Seats: 1=2.99, 2=5.49, 3=7.49, 5=11.49
+- Ultimate Seats: 1=4.99, 2=7.99, 3=10.99, 5=16.99
 - Jahresrabatt: 12 Monate buchen = 10 bezahlen
 
-## API Endpoints
-- `GET /api/premium/tiers` - Plan-Konfiguration
-- `GET /api/premium/pricing` - Pricing mit Upgrade-Info
-- `POST /api/premium/checkout` - Stripe Checkout Session
-- `POST /api/premium/webhook` - Stripe Webhook
-- `POST /api/premium/verify` - Payment Verification
-- `GET /api/bots` - Bot-Status
-- `GET /api/stations` - Station-Liste
-
-## Implementiert (v3.0)
-- [x] Komplett-Rebranding: RadioBot → OmniFM (Code, UI, CLI, Docker, Docs)
+## Implementiert (v3.0) - Stand: 21.02.2026
+- [x] Komplett-Rebranding: RadioBot -> OmniFM (Code, UI, CLI, Docker, Docs)
 - [x] 3-Tier Plan-System (Free/Pro/Ultimate) mit zentraler Config
 - [x] Seat-basierte Server-Lizenzierung (1/2/3/5 Seats)
-- [x] Station-Tier-System (Free: 20, Pro: 100, Ultimate: alle + custom)
+- [x] Station-Tier-System (Free/Pro Badges in UI + Filter)
 - [x] Plan-basierte Audio-Bitrate Enforcement (64k/128k/320k)
 - [x] Plan-basierte Reconnect-Prioritaet (5s/1.5s/0.4s)
-- [x] Command Permission Matrix mit Upgrade-Embeds
+- [x] Command Permission Matrix mit Upgrade-Embeds (Deutsch)
 - [x] Pricing Calculator (services/pricing.js)
-- [x] Website aktualisiert (OmniFM Branding, neue Preise)
-- [x] Upgrade-Embeds Modul (Deutsch) fuer Feature-Paywalls
+- [x] Website aktualisiert (OmniFM Branding, neue Preise, Seat-Pricing-Tabelle)
+- [x] Seat-Selektor im Checkout-Modal (1/2/3/5 Server mit Preisanzeige)
+- [x] Tier-Filter (ALLE/FREE/PRO) im Stations-Browser
+- [x] Deutsche Preisformatierung (2,99€ statt 2.99€)
+- [x] FastAPI Backend komplett aktualisiert (TIERS, SEAT_PRICING, APIs)
+- [x] React Frontend komplett aktualisiert (alle Komponenten)
 - [x] Docker + Shell-Skripte aktualisiert
-- [x] Integrationstest: Alle Module funktionsfaehig
+- [x] Testing: 100% (Backend 18/18, Frontend alle UI-Tests bestanden)
+
+## API Endpoints
+- GET /api/health - Health + OmniFM Brand
+- GET /api/bots - Bot-Status
+- GET /api/stations - Stations sortiert nach Tier
+- GET /api/stats - Statistiken
+- GET /api/commands - Slash-Commands
+- GET /api/premium/tiers - Tier-Konfiguration
+- GET /api/premium/pricing - Seat-Pricing mit Upgrade-Info
+- GET /api/premium/check - Server Premium-Status
+- POST /api/premium/checkout - Stripe Checkout (mit seats)
+- POST /api/premium/verify - Payment Verification
 
 ## Bekannte Einschraenkungen
-- Bot kann in Preview-Umgebung nicht gestartet werden (keine Discord-Tokens)
+- Discord Bot-Tokens erforderlich fuer Bot-Start
 - Stripe-Integration erfordert aktive API-Keys
 - SMTP erfordert konfigurierte Credentials
