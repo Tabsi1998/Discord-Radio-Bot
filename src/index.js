@@ -1359,7 +1359,7 @@ class BotRuntime {
       return;
     }
 
-    const unrestrictedCommands = new Set(["premium"]);
+    const unrestrictedCommands = new Set(["premium", "license"]);
     if (!unrestrictedCommands.has(interaction.commandName)) {
       const access = this.getGuildAccess(interaction.guildId);
       if (!access.allowed) {
