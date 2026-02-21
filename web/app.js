@@ -37,6 +37,7 @@ var currentTierFilter = 'all';
 
 function setTierFilter(tier) {
   currentTierFilter = tier;
+  stationsDisplayCount = STATIONS_PER_PAGE;
   var buttons = document.querySelectorAll('#tierFilter button');
   buttons.forEach(function(btn) {
     var t = btn.getAttribute('data-tier');
@@ -720,49 +721,7 @@ function updatePriceDisplay() {
 }
 
 function checkExistingLicense() {
-  var input = document.getElementById('premiumServerId');
-  var modal = document.getElementById('premiumModal');
-  var tier = modal.dataset.tier;
-  var serverId = input.value.trim();
-
-  if (!/^\d{17,22}$/.test(serverId)) return;
-
-  fetch('/api/premium/pricing?serverId=' + serverId)
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (data.currentLicense) {
-      if (data.upgrade && data.upgrade.to === tier) {
-        checkoutUpgradeInfo = data.upgrade;
-        modal.dataset.isUpgrade = 'true';
-        document.getElementById('premiumUpgradeBadge').style.display = 'flex';
-        document.getElementById('premiumUpgradeText').textContent =
-          data.upgrade.daysLeft + ' Tage Restlaufzeit - nur Aufpreis: ' + (data.upgrade.cost / 100).toFixed(2).replace('.', ',') + '\u20ac';
-        document.getElementById('premiumMonthsRow').style.display = 'none';
-        var seatRow = document.getElementById('seatSelectorRow');
-        if (seatRow) seatRow.style.display = 'none';
-        updatePriceDisplay();
-      } else if (data.currentLicense.tier === tier) {
-        checkoutUpgradeInfo = null;
-        modal.dataset.isUpgrade = 'false';
-        document.getElementById('premiumUpgradeBadge').style.display = 'none';
-        document.getElementById('premiumMonthsRow').style.display = 'block';
-        var seatRow2 = document.getElementById('seatSelectorRow');
-        if (seatRow2) seatRow2.style.display = 'block';
-        var statusEl = document.getElementById('premiumStatus');
-        statusEl.style.color = '#39FF14';
-        statusEl.textContent = 'Aktiv (' + data.currentLicense.remainingDays + ' Tage) - Neue Laufzeit wird addiert!';
-        updatePriceDisplay();
-      }
-    } else {
-      checkoutUpgradeInfo = null;
-      modal.dataset.isUpgrade = 'false';
-      document.getElementById('premiumUpgradeBadge').style.display = 'none';
-      document.getElementById('premiumMonthsRow').style.display = 'block';
-      var seatRow3 = document.getElementById('seatSelectorRow');
-      if (seatRow3) seatRow3.style.display = 'block';
-      updatePriceDisplay();
-    }
-  }).catch(function() {});
+  // Email-based checkout - no pre-check needed
 }
 
 function closePremiumModal() {
