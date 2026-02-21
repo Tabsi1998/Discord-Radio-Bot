@@ -74,6 +74,7 @@ function StationBrowser({ stations, loading }) {
   const [playingKey, setPlayingKey] = useState(null);
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(8);
   const audioRef = useRef(null);
 
   const tierFilters = [
@@ -93,6 +94,17 @@ function StationBrowser({ stations, loading }) {
       return matchSearch && matchTier;
     });
   }, [stations, search, activeTier]);
+
+  // Reset visible count when filter/search changes
+  const prevFilterRef = useRef({ search: '', activeTier: null });
+  if (prevFilterRef.current.search !== search || prevFilterRef.current.activeTier !== activeTier) {
+    prevFilterRef.current = { search, activeTier };
+    if (visibleCount !== 8) setVisibleCount(8);
+  }
+
+  const visibleStations = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const hasMore = filtered.length > visibleCount;
+  const remaining = filtered.length - visibleCount;
 
   const getAudio = useCallback(() => {
     if (!audioRef.current) {
