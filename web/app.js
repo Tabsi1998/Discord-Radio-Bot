@@ -404,7 +404,9 @@ function updateNowPlaying(station) {
 // --- Stations ---
 function renderStations(stations) {
   allStations = stations || [];
-  document.getElementById('stationCount').textContent = allStations.length + ' verfügbare Stationen. Klicke zum Vorhören oder nutze /play im Discord.';
+  var freeCount = allStations.filter(function(s) { return (s.tier || 'free') === 'free'; }).length;
+  var proCount = allStations.filter(function(s) { return (s.tier || 'free') === 'pro'; }).length;
+  document.getElementById('stationCount').textContent = allStations.length + ' Stationen (' + freeCount + ' Free, ' + proCount + ' Pro). Klicke zum Vorhoeren oder nutze /play im Discord.';
   filterStations('');
 }
 
@@ -413,6 +415,7 @@ function filterStations(query) {
   list.innerHTML = '';
   var q = (query || '').toLowerCase().trim();
   var filtered = allStations.filter(function(s) {
+    if (currentTierFilter !== 'all' && (s.tier || 'free') !== currentTierFilter) return false;
     if (!q) return true;
     return s.name.toLowerCase().indexOf(q) !== -1 || s.key.toLowerCase().indexOf(q) !== -1;
   });
