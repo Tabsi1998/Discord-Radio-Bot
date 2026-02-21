@@ -154,6 +154,13 @@
           <input type="text" class="station-search" id="stationSearch" placeholder="Station suchen..." />
         </div>
 
+        <!-- Tier Filter Buttons -->
+        <div id="tierFilter" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="tier-filter-btn active" data-tier="all" onclick="setTierFilter('all')" style="padding:6px 16px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.08);color:#fff;transition:all 0.2s;letter-spacing:0.05em">ALLE</button>
+          <button class="tier-filter-btn" data-tier="free" onclick="setTierFilter('free')" style="padding:6px 16px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(57,255,20,0.2);background:transparent;color:#39FF14;transition:all 0.2s;letter-spacing:0.05em">FREE</button>
+          <button class="tier-filter-btn" data-tier="pro" onclick="setTierFilter('pro')" style="padding:6px 16px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(255,184,0,0.2);background:transparent;color:#FFB800;transition:all 0.2s;letter-spacing:0.05em">PRO</button>
+        </div>
+
         <!-- Now Playing Bar -->
         <div id="nowPlaying" style="display:none;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 20px;border-radius:14px;margin-bottom:20px;background:rgba(0,240,255,0.06);border:1px solid rgba(0,240,255,0.15)">
         </div>
