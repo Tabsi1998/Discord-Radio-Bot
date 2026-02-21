@@ -1516,11 +1516,11 @@ class BotRuntime {
 
       const tierEmoji = { free: "", pro: " [PRO]", ultimate: " [ULTIMATE]" };
       const lines = [
-        `Premium Status${tierEmoji[tierConfig.tier] || ""}`,
+        `**${BRAND.name}** Premium Status${tierEmoji[tierConfig.tier] || ""}`,
         `Server: ${interaction.guild?.name || gid}`,
         `Server-ID: ${gid}`,
-        `Tier: ${tierConfig.name}`,
-        `Bitrate: ${tierConfig.bitrate}`,
+        `Plan: ${tierConfig.name}`,
+        `Audio: ${tierConfig.bitrate} Opus`,
         `Reconnect: ${tierConfig.reconnectMs}ms`,
         `Max Bots: ${tierConfig.maxBots}`,
       ];
@@ -1531,7 +1531,7 @@ class BotRuntime {
         lines.push(`Status: ABGELAUFEN`);
       }
       if (tierConfig.tier === "free") {
-        lines.push("", "Upgrade auf Pro/Ultimate fuer hoehere Qualitaet!");
+        lines.push("", `Upgrade auf ${BRAND.name} Pro/Ultimate fuer hoehere Qualitaet!`);
         lines.push("Infos & Support: https://discord.gg/UeRkfGS43R");
       } else {
         lines.push("", "Support: https://discord.gg/UeRkfGS43R");
