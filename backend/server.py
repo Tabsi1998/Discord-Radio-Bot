@@ -499,15 +499,15 @@ async def premium_invite_links(serverId: str = ""):
 @app.post("/api/premium/checkout")
 async def premium_checkout(body: dict):
     tier = body.get("tier", "")
-    server_id = body.get("serverId", "")
+    email = body.get("email", "").strip()
     months = body.get("months", 1)
     raw_seats = body.get("seats", 1)
     return_url = body.get("returnUrl", "")
 
     if tier not in ("pro", "ultimate"):
         return {"error": "tier muss 'pro' oder 'ultimate' sein."}
-    if not server_id or not server_id.isdigit() or len(server_id) < 17:
-        return {"error": "serverId muss 17-22 Ziffern sein."}
+    if not email or "@" not in email:
+        return {"error": "Bitte eine gueltige E-Mail-Adresse angeben."}
 
     seats = int(raw_seats) if int(raw_seats) in SEAT_OPTIONS else 1
 
@@ -519,30 +519,24 @@ async def premium_checkout(body: dict):
         import stripe
         stripe.api_key = stripe_key
 
-        upgrade_info = calculate_upgrade_price(server_id, tier)
-
-        if upgrade_info and upgrade_info["upgradeCost"] > 0:
-            price_in_cents = upgrade_info["upgradeCost"]
-            duration_months = 0
-            description = f"Upgrade {TIERS[upgrade_info['oldTier']]['name']} -> {TIERS[tier]['name']} ({upgrade_info['daysLeft']} Tage Restlaufzeit)"
+        duration_months = max(1, int(months))
+        price_in_cents = calculate_price(tier, duration_months, seats)
+        tier_name = TIERS[tier]["name"]
+        seats_label = f" ({seats} Server)" if seats > 1 else ""
+        if duration_months >= 12:
+            description = f"{tier_name}{seats_label} - {duration_months} Monate (Jahresrabatt: 2 Monate gratis!)"
         else:
-            duration_months = max(1, int(months))
-            price_in_cents = calculate_price(tier, duration_months, seats)
-            tier_name = TIERS[tier]["name"]
-            seats_label = f" ({seats} Server)" if seats > 1 else ""
-            if duration_months >= 12:
-                description = f"{tier_name}{seats_label} - {duration_months} Monate (Jahresrabatt: 2 Monate gratis!)"
-            else:
-                description = f"{tier_name}{seats_label} - {duration_months} Monat{'e' if duration_months > 1 else ''}"
+            description = f"{tier_name}{seats_label} - {duration_months} Monat{'e' if duration_months > 1 else ''}"
 
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             mode="payment",
+            customer_email=email,
             line_items=[{
                 "price_data": {
                     "currency": "eur",
                     "product_data": {
-                        "name": f"OmniFM {TIERS[tier]['name']}",
+                        "name": f"OmniFM {tier_name}",
                         "description": description,
                     },
                     "unit_amount": price_in_cents,
@@ -550,11 +544,10 @@ async def premium_checkout(body: dict):
                 "quantity": 1,
             }],
             metadata={
-                "serverId": server_id,
+                "email": email,
                 "tier": tier,
                 "seats": str(seats),
                 "months": str(duration_months),
-                "isUpgrade": "true" if upgrade_info else "false",
             },
             success_url=(return_url or "http://localhost") + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
             cancel_url=(return_url or "http://localhost") + "?payment=cancelled",
