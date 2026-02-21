@@ -29,12 +29,12 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - Ultimate Seats: 1=4.99, 2=7.99, 3=10.99, 5=16.99
 - Jahresrabatt: 12 Monate buchen = 10 bezahlen
 
-## Implementiert (v3.0) - Stand: 21.02.2026
+## Implementiert (v3.0) - Stand: 22.02.2026
 - [x] Komplett-Rebranding: RadioBot -> OmniFM (Code, UI, CLI, Docker, Docs)
 - [x] 3-Tier Plan-System (Free/Pro/Ultimate) mit zentraler Config
 - [x] Seat-basierte Server-Lizenzierung (1/2/3/5 Seats)
 - [x] Station-Tier-System (Free/Pro Badges in UI + Filter)
-- [x] Plan-basierte Audio-Bitrate Enforcement (64k/128k/320k) - FIX 22.02.2026: Transcode wird jetzt immer erzwungen wenn bitrateOverride gesetzt
+- [x] Plan-basierte Audio-Bitrate Enforcement (64k/128k/320k) - FIX 22.02.2026: Transcode wird immer erzwungen wenn bitrateOverride gesetzt
 - [x] Plan-basierte Reconnect-Prioritaet (5s/1.5s/0.4s)
 - [x] Command Permission Matrix mit Upgrade-Embeds (Deutsch)
 - [x] Pricing Calculator (services/pricing.js)
@@ -45,9 +45,12 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - [x] FastAPI Backend komplett aktualisiert (TIERS, SEAT_PRICING, APIs)
 - [x] React Frontend komplett aktualisiert (alle Komponenten)
 - [x] Docker + Shell-Skripte aktualisiert
-- [x] Testing: 100% (Backend 18/18, Frontend alle UI-Tests bestanden)
 - [x] P0 Fix: Bitrate-Enforcement via bitrateOverride in createResource (22.02.2026)
 - [x] CLI-Fix: premium-cli.js Imports nach Refactoring repariert (22.02.2026)
+- [x] E-Mail: Bestaetigungs-E-Mail mit Server-Aenderungs-Hinweis (22.02.2026)
+- [x] Rebranding-Cleanup: package.json, systemd service, README (22.02.2026)
+- [x] QA-Pass: Vollstaendiger Test aller APIs, Frontend, CLI, Code-Level (22.02.2026)
+- [x] Testing: 100% (Backend 22/22, Frontend alle UI-Tests bestanden, Iteration 24)
 
 ## API Endpoints
 - GET /api/health - Health + OmniFM Brand
