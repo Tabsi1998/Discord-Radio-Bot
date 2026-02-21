@@ -1,7 +1,7 @@
 services:
-  radio-bot:
+  omnifm:
     build: .
-    container_name: radio-bot
+    container_name: omnifm
     env_file:
       - .env
     ports:
