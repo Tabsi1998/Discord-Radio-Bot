@@ -186,6 +186,11 @@ function buildPurchaseEmail(data) {
     }
   }
   inviteHtml += `<p style="color:#666;font-size:12px;margin:12px 0 0">Premium-Bots sind servergebunden und nur fuer den lizenzierten Server ${serverId} gueltig.</p>`;
+  inviteHtml += `<div style="margin:16px 0;padding:14px;background:#1a1a1a;border-radius:10px;border:1px solid #333">
+    <p style="margin:0 0 6px;color:#A1A1AA;font-size:13px;font-weight:600">Server aendern?</p>
+    <p style="margin:0;color:#888;font-size:12px;line-height:1.6">Deine Lizenz ist an Server <code style="background:#222;padding:2px 5px;border-radius:4px">${serverId}</code> gebunden. Wenn du den Server wechseln moechtest, schreibe uns eine E-Mail oder nutze den Discord-Support${tier === "ultimate" ? " (Priority-Support fuer Ultimate)" : ""}.</p>
+    <p style="margin:8px 0 0;font-size:12px"><a href="https://discord.gg/UeRkfGS43R" style="color:${tierColor};text-decoration:none;font-weight:600">Discord Support &rarr;</a></p>
+  </div>`;
 
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:16px;overflow:hidden">
