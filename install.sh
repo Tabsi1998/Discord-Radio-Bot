@@ -105,7 +105,7 @@ echo ""
 echo -e "${CYAN}${BOLD}"
 echo "  ╔═══════════════════════════════════════════╗"
 echo "  ║                                           ║"
-echo "  ║    Discord Radio Bot - Installer v4.0     ║"
+echo "  ║    OmniFM - Installer v4.0                 ║"
 echo "  ║    Zero-Lag Audio + Premium System         ║"
 echo "  ║                                           ║"
 echo "  ╚═══════════════════════════════════════════╝"
@@ -207,7 +207,7 @@ if [[ $existing_bots -gt 0 ]]; then
         idx=$((existing_bots + i))
         echo ""
         echo -e "${YELLOW}--- Neuer Bot $idx ---${NC}"
-        name="$(prompt_default "Name" "Radio Bot $idx")"
+        name="$(prompt_default "Name" "OmniFM Bot $idx")"
         while true; do
           token="$(prompt_nonempty "Token")"
           if validate_token "$token"; then break; fi
@@ -267,7 +267,7 @@ if [[ $existing_bots -eq 0 ]]; then
     echo -e "${YELLOW}--- Bot $i von $bot_count ---${NC}"
     echo -e "${DIM}Erstelle einen Bot unter https://discord.com/developers/applications${NC}"
     echo ""
-    name="$(prompt_default "Name" "Radio Bot $i")"
+    name="$(prompt_default "Name" "OmniFM Bot $i")"
 
     while true; do
       token="$(prompt_nonempty "Token (aus Bot-Sektion im Dev-Portal)")"
@@ -310,7 +310,7 @@ echo ""
 # ====================================
 # Step 3: Stations
 # ====================================
-echo -e "${BOLD}Schritt 3/6: Radio-Stationen${NC}"
+echo -e "${BOLD}Schritt 3/6: OmniFM-Stationen${NC}"
 echo "─────────────────────────────────────"
 
 if [[ ! -f stations.json ]]; then
