@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Discord Radio Bot - Unified Management Tool v4
+# OmniFM - Unified Management Tool v4
 # ============================================================
 
 # KEIN set -e! Interaktive Scripts brechen sonst bei jedem grep-Miss ab.
@@ -185,7 +185,7 @@ echo ""
 echo -e "${CYAN}${BOLD}"
 echo "  ╔══════════════════════════════════════════════╗"
 echo "  ║                                              ║"
-echo "  ║   Discord Radio Bot - Management & Settings  ║"
+echo "  ║   OmniFM - Management & Settings            ║"
 echo "  ║                                              ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -241,9 +241,9 @@ if [[ "$MODE" == "--status" ]]; then
   echo ""
   echo -e "  ${BOLD}Letzte 20 Log-Zeilen:${NC}"
   echo ""
-  docker compose logs --tail=20 radio-bot 2>/dev/null || warn "Keine Logs verfuegbar."
+  docker compose logs --tail=20 omnifm 2>/dev/null || warn "Keine Logs verfuegbar."
   echo ""
-  echo -e "  ${DIM}Tipp: Fuer Live-Logs: docker compose logs -f radio-bot${NC}"
+  echo -e "  ${DIM}Tipp: Fuer Live-Logs: docker compose logs -f omnifm${NC}"
   exit 0
 fi
 
@@ -408,7 +408,7 @@ if [[ "$MODE" == "--email" ]]; then
       fi
 
       # Pruefen ob Container laeuft
-      if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "radio-bot"; then
+      if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then
         fail "Container nicht aktiv. Bitte zuerst starten: docker compose up -d"
         exit 1
       fi
@@ -418,7 +418,7 @@ if [[ "$MODE" == "--email" ]]; then
       info "Sende Test-Email an ${test_to}..."
 
       # Test-Email via Node.js im Container senden
-      RESULT=$(docker compose exec -T radio-bot node -e "
+      RESULT=$(docker compose exec -T omnifm node -e "
         const nm = require('nodemailer');
         const port = Number(process.env.SMTP_PORT) || 587;
         const modeRaw = String(process.env.SMTP_TLS_MODE || 'auto').toLowerCase();
@@ -448,7 +448,7 @@ if [[ "$MODE" == "--email" ]]; then
         t.sendMail({
           from: process.env.SMTP_FROM || process.env.SMTP_USER,
           to: '${test_to}',
-          subject: 'Discord Radio Bot - SMTP Test',
+          subject: 'OmniFM - SMTP Test',
           html: '<div style=\"font-family:sans-serif;padding:24px;background:#121212;color:#fff;border-radius:16px;max-width:440px\">' +
             '<h2 style=\"color:#00F0FF;margin:0 0 12px\">SMTP Test erfolgreich!</h2>' +
             '<p style=\"color:#A1A1AA\">Dein SMTP-Server ist korrekt konfiguriert. E-Mails fuer Premium-Kaeufe und Benachrichtigungen funktionieren.</p>' +
@@ -540,8 +540,8 @@ fi
 # MODE: Premium verwalten (via Docker)
 # ============================================================
 if [[ "$MODE" == "--premium" ]]; then
-  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "radio-bot"; then
-    docker compose exec radio-bot node src/premium-cli.js wizard
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then
+    docker compose exec omnifm node src/premium-cli.js wizard
   else
     warn "Container nicht aktiv."
     echo ""
@@ -549,7 +549,7 @@ if [[ "$MODE" == "--premium" ]]; then
       ensure_all_json_files
       docker compose up -d --build --remove-orphans
       sleep 3
-      docker compose exec radio-bot node src/premium-cli.js wizard
+      docker compose exec omnifm node src/premium-cli.js wizard
     else
       echo -e "  ${DIM}Starte manuell: docker compose up -d${NC}"
     fi
