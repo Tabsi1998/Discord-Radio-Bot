@@ -179,6 +179,17 @@ ensure_all_json_files() {
   fi
 }
 
+count_license_entries() {
+  local fp="$1"
+  if [[ ! -s "$fp" ]]; then
+    echo 0
+    return
+  fi
+  # Jede Lizenz hat genau ein "plan"-Feld im licenses-Block.
+  # Das reicht als robuster Guard ohne zusaetzliche Tools wie jq.
+  grep -c '"plan"[[:space:]]*:' "$fp" 2>/dev/null || echo 0
+}
+
 restart_container() {
   echo ""
   if prompt_yes_no "Container jetzt neu starten (noetig fuer Aenderungen)?" "j"; then
@@ -803,6 +814,7 @@ fi
 # Pull latest code
 info "Hole neuesten Code von ${REMOTE}/${BRANCH}..."
 update_stamp="$(date +%Y%m%d%H%M%S)"
+licenses_before_update="$(count_license_entries premium.json)"
 
 # WICHTIG: Premium-Daten IMMER sichern vor Update!
 for pf in premium.json bot-state.json custom-stations.json; do
@@ -850,11 +862,26 @@ for pf in premium.json bot-state.json custom-stations.json; do
   fi
 done
 
+# Zusätzlicher Guard: Wenn vor dem Update Lizenzen da waren, nach dem Update aber nicht mehr,
+# stelle sofort das letzte Backup wieder her.
+licenses_after_update="$(count_license_entries premium.json)"
+if [[ "${licenses_before_update:-0}" -gt 0 && "${licenses_after_update:-0}" -lt "${licenses_before_update:-0}" ]]; then
+  latest_premium_backup="$(ls -t .update-backups/premium.json.* 2>/dev/null | head -1)"
+  if [[ -n "$latest_premium_backup" && -s "$latest_premium_backup" ]]; then
+    warn "Lizenzanzahl kleiner nach Update (${licenses_before_update} -> ${licenses_after_update}) - stelle premium.json aus Backup wieder her..."
+    cp "$latest_premium_backup" premium.json
+    licenses_after_update="$(count_license_entries premium.json)"
+    ok "premium.json wiederhergestellt (Lizenzen: ${licenses_after_update})."
+  fi
+fi
+
 if [[ "$old_head" == "$new_head" ]]; then
   info "Keine neuen Commits."
 else
   ok "Code aktualisiert: ${old_head:0:8} -> ${new_head:0:8}"
 fi
+
+info "Lizenz-Check: vor Update=${licenses_before_update}, nach Update=${licenses_after_update}"
 
 # JSON-Dateien sicherstellen
 echo ""
