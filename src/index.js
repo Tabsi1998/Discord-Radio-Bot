@@ -2292,16 +2292,20 @@ function startWebServer(runtimes) {
 
     if (requestUrl.pathname === "/api/stations") {
       const stations = loadStations();
+      const stationArr = Object.entries(stations.stations).map(([key, value]) => ({
+        key,
+        name: value.name,
+        url: value.url,
+        tier: value.tier || "free",
+      }));
+      // Sort: free first, then pro, then ultimate
+      const tierOrder = { free: 0, pro: 1, ultimate: 2 };
+      stationArr.sort((a, b) => (tierOrder[a.tier] || 0) - (tierOrder[b.tier] || 0) || a.name.localeCompare(b.name));
       sendJson(res, 200, {
         defaultStationKey: stations.defaultStationKey,
         qualityPreset: stations.qualityPreset,
-        total: Object.keys(stations.stations).length,
-        stations: Object.entries(stations.stations).map(([key, value]) => ({
-          key,
-          name: value.name,
-          url: value.url,
-          tier: value.tier || "free",
-        }))
+        total: stationArr.length,
+        stations: stationArr,
       });
       return;
     }
