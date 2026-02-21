@@ -31,7 +31,7 @@ import {
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
 import {
   getServerLicense, listLicenses as listRawLicenses,
-  createLicense, linkServerToLicense, extendLicense,
+  createLicense, linkServerToLicense, unlinkServerFromLicense, getLicenseById, extendLicense,
   isSessionProcessed, markSessionProcessed, isEventProcessed, markEventProcessed,
   addLicenseForServer, patchLicenseForServer, upgradeLicenseForServer,
 } from "./premium-store.js";
