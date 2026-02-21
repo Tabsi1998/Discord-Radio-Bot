@@ -69,7 +69,7 @@ function Hero({ stats }) {
       </h1>
 
       <p data-testid="hero-subtitle" style={{ fontSize: 'clamp(16px, 2vw, 20px)', color: '#A1A1AA', maxWidth: 560, lineHeight: 1.6, marginBottom: 40 }}>
-        24/7 Radio-Bots für deinen Discord Server.
+        24/7 OmniFM-Bots für deinen Discord Server.
         Wähle deine Station, lade den Bot ein und genieße nonstop Musik.
       </p>
 

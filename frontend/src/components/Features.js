@@ -53,7 +53,7 @@ function Features() {
       <div className="section-container">
         <div style={{ textAlign: 'center', marginBottom: 56 }}>
           <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#00F0FF' }}>
-            Warum Radio Bot?
+            Warum OmniFM?
           </span>
           <h2 data-testid="features-title" style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 'clamp(24px, 4vw, 40px)', marginTop: 8 }}>
             Gebaut für Qualität

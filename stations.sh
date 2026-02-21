@@ -19,8 +19,8 @@ if [[ $# -eq 0 ]]; then
 fi
 
 running_services="$(docker compose ps --services --status running 2>/dev/null || true)"
-if printf "%s\n" "$running_services" | grep -q "^radio-bot$"; then
-  docker compose exec -T radio-bot node /app/src/stations-cli.js "$@"
+if printf "%s\n" "$running_services" | grep -q "^omnifm$"; then
+  docker compose exec -T omnifm node /app/src/stations-cli.js "$@"
 else
-  docker compose run --rm --no-deps --build radio-bot node /app/src/stations-cli.js "$@"
+  docker compose run --rm --no-deps --build omnifm node /app/src/stations-cli.js "$@"
 fi
