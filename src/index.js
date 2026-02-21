@@ -2069,9 +2069,10 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     return { success: false, status: 400, message: "session.id fehlt." };
   }
 
-  const { serverId, tier, months, isUpgrade } = session.metadata;
+  const { serverId, tier, months, seats, isUpgrade } = session.metadata;
   const cleanServerId = String(serverId || "").trim();
   const cleanTier = String(tier || "").trim().toLowerCase();
+  const cleanSeats = [1, 2, 3, 5].includes(Number(seats)) ? Number(seats) : 1;
   const upgrade = String(isUpgrade || "false").toLowerCase() === "true";
 
   if (!/^\d{17,22}$/.test(cleanServerId) || !["pro", "ultimate"].includes(cleanTier)) {
