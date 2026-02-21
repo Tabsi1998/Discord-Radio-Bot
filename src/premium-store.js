@@ -1,363 +1,265 @@
+// ============================================================
+// OmniFM - License Store (Seat-Based Licensing)
+// ============================================================
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { PLANS } from "../config/plans.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const premiumFile = path.resolve(__dirname, "..", "premium.json");
-const premiumBackupFile = path.resolve(__dirname, "..", "premium.json.bak");
+const premiumBackupFile = premiumFile + ".bak";
 
-const TIERS = {
-  free:     { name: "Free",     bitrate: "128k", reconnectMs: 3000, maxBots: 4,  pricePerMonth: 0    },
-  pro:      { name: "Pro",      bitrate: "192k", reconnectMs: 1000, maxBots: 10, pricePerMonth: 499  },
-  ultimate: { name: "Ultimate", bitrate: "320k", reconnectMs: 500,  maxBots: 20, pricePerMonth: 999  },
-};
-
-// 12 Monate = nur 10 bezahlen
-const YEARLY_DISCOUNT_MONTHS = 10;
 const MAX_PROCESSED_ENTRIES = 5000;
 
+// --- Internal helpers ---
+
 function emptyStore() {
-  return { licenses: {}, processedSessions: {}, processedEvents: {} };
+  return { licenses: {}, serverEntitlements: {}, processedSessions: {}, processedEvents: {} };
 }
 
-function isRecord(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function looksLikeLicense(value) {
-  if (!isRecord(value)) return false;
-  const tier = String(value.tier || "").toLowerCase();
-  const hasTier = ["pro", "ultimate", "free"].includes(tier);
-  const hasExpiry = typeof value.expiresAt === "string" && value.expiresAt.trim().length > 0;
-  return hasTier || hasExpiry;
-}
-
-function extractLegacyLicenses(input) {
-  if (!isRecord(input)) return {};
-  const out = {};
-  for (const [key, value] of Object.entries(input)) {
-    if (!/^\d{17,22}$/.test(String(key))) continue;
-    if (!looksLikeLicense(value)) continue;
-    out[String(key)] = value;
-  }
-  return out;
-}
-
-function normalizeLookupMap(input) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
-  const out = {};
-  for (const [key, value] of Object.entries(input)) {
-    if (!key) continue;
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      out[String(key)] = {
-        ...value,
-        processedAt: value.processedAt || new Date().toISOString(),
-      };
-    } else {
-      out[String(key)] = { processedAt: new Date().toISOString() };
-    }
-  }
-  return out;
-}
-
-function trimLookupMap(mapInput) {
-  const entries = Object.entries(mapInput || {});
-  if (entries.length <= MAX_PROCESSED_ENTRIES) return mapInput || {};
-  entries.sort((a, b) => {
-    const aTs = new Date(a[1]?.processedAt || 0).getTime();
-    const bTs = new Date(b[1]?.processedAt || 0).getTime();
-    return bTs - aTs;
-  });
-  return Object.fromEntries(entries.slice(0, MAX_PROCESSED_ENTRIES));
-}
-
-function normalizeStore(input) {
-  const base = emptyStore();
-  if (!isRecord(input)) return base;
-
-  const licenses =
-    input.licenses && typeof input.licenses === "object" && !Array.isArray(input.licenses)
-      ? input.licenses
-      : extractLegacyLicenses(input);
-
-  return {
-    licenses,
-    processedSessions: trimLookupMap(normalizeLookupMap(input.processedSessions)),
-    processedEvents: trimLookupMap(normalizeLookupMap(input.processedEvents)),
-  };
-}
-
-function readStoreFile(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  if (fs.statSync(filePath).isDirectory()) {
-    console.warn(`[premium-store] ${filePath} ist ein Verzeichnis - ueberspringe.`);
-    return null;
-  }
-
-  const raw = fs.readFileSync(filePath, "utf-8");
-  if (!raw.trim()) return emptyStore();
-  return normalizeStore(JSON.parse(raw));
+function readFileSafe(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    if (fs.statSync(filePath).isDirectory()) return null;
+    const raw = fs.readFileSync(filePath, "utf-8").trim();
+    if (!raw) return emptyStore();
+    return JSON.parse(raw);
+  } catch { return null; }
 }
 
 function load() {
-  const candidates = [premiumFile, premiumBackupFile];
-  for (const filePath of candidates) {
-    try {
-      const store = readStoreFile(filePath);
-      if (store) {
-        if (filePath === premiumBackupFile) {
-          console.warn("[premium-store] Verwende Backup-Datei premium.json.bak");
-        }
-        return store;
-      }
-    } catch (err) {
-      console.error(`[premium-store] Load error (${filePath}): ${err.message}`);
+  const data = readFileSafe(premiumFile) || readFileSafe(premiumBackupFile) || emptyStore();
+  // Ensure all fields exist
+  if (!data.licenses) data.licenses = {};
+  if (!data.serverEntitlements) data.serverEntitlements = {};
+  if (!data.processedSessions) data.processedSessions = {};
+  if (!data.processedEvents) data.processedEvents = {};
+
+  // Migrate old format: if a license key looks like a guild ID (17+ digits),
+  // convert to new format
+  for (const [key, val] of Object.entries(data.licenses)) {
+    if (/^\d{17,22}$/.test(key) && val.tier && !val.seats) {
+      // Old format: guildId -> license. Migrate to new format
+      const licId = `legacy_${key}`;
+      data.licenses[licId] = {
+        id: licId,
+        plan: val.tier,
+        seats: 1,
+        billingPeriod: "monthly",
+        active: !isExpired(val),
+        linkedServerIds: [key],
+        createdAt: val.activatedAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        expiresAt: val.expiresAt || null,
+        activatedBy: val.activatedBy || "legacy",
+        note: val.note || "",
+        contactEmail: val.contactEmail || "",
+      };
+      data.serverEntitlements[key] = { serverId: key, licenseId: licId };
+      delete data.licenses[key];
     }
   }
-  return emptyStore();
+
+  return data;
 }
 
 function save(data) {
   const tmpFile = `${premiumFile}.tmp-${process.pid}-${Date.now()}`;
   try {
-    if (fs.existsSync(premiumFile) && fs.statSync(premiumFile).isDirectory()) {
-      console.warn(`[premium-store] ${premiumFile} ist ein Verzeichnis - Speichern uebersprungen.`);
-      return;
-    }
+    if (fs.existsSync(premiumFile) && fs.statSync(premiumFile).isDirectory()) return;
 
-    const normalized = normalizeStore(data);
-    const payload = JSON.stringify(normalized, null, 2) + "\n";
-
-    if (fs.existsSync(premiumFile)) {
-      try {
-        fs.copyFileSync(premiumFile, premiumBackupFile);
-      } catch (copyErr) {
-        console.error(`[premium-store] Backup warnung: ${copyErr.message}`);
+    // Trim lookup maps
+    for (const mapKey of ["processedSessions", "processedEvents"]) {
+      const entries = Object.entries(data[mapKey] || {});
+      if (entries.length > MAX_PROCESSED_ENTRIES) {
+        entries.sort((a, b) => new Date(b[1]?.processedAt || 0) - new Date(a[1]?.processedAt || 0));
+        data[mapKey] = Object.fromEntries(entries.slice(0, MAX_PROCESSED_ENTRIES));
       }
     }
 
+    const payload = JSON.stringify(data, null, 2) + "\n";
+    if (fs.existsSync(premiumFile)) {
+      try { fs.copyFileSync(premiumFile, premiumBackupFile); } catch {}
+    }
     fs.writeFileSync(tmpFile, payload, "utf-8");
     try {
       fs.renameSync(tmpFile, premiumFile);
-    } catch (renameErr) {
-      const code = String(renameErr?.code || "");
-      if (["EBUSY", "EPERM", "EACCES", "EXDEV"].includes(code)) {
-        fs.writeFileSync(premiumFile, payload, "utf-8");
-        console.warn(`[premium-store] Atomic rename nicht moeglich (${code}), nutze direkten Write-Fallback.`);
-      } else {
-        throw renameErr;
-      }
+    } catch {
+      fs.writeFileSync(premiumFile, payload, "utf-8");
     }
   } catch (err) {
-    console.error(`[premium-store] Save error: ${err.message}`);
+    console.error(`[OmniFM] License save error: ${err.message}`);
   } finally {
-    try {
-      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
-    } catch {
-      // ignore
-    }
+    try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch {}
   }
 }
 
+// --- License CRUD ---
+
 function isExpired(license) {
-  if (!license || !license.expiresAt) return true;
+  if (!license || !license.expiresAt) return false; // No expiry = perpetual (for now)
   return new Date(license.expiresAt) <= new Date();
 }
 
 function remainingDays(license) {
-  if (!license || !license.expiresAt) return 0;
+  if (!license || !license.expiresAt) return Infinity;
   const diff = new Date(license.expiresAt) - new Date();
-  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  return Math.max(0, Math.ceil(diff / 86400000));
 }
 
-function getTier(guildId) {
+function generateLicenseId() {
+  return `lic_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function createLicense({ plan, seats = 1, billingPeriod = "monthly", months = 1, activatedBy = "admin", note = "", contactEmail = "" }) {
+  if (!PLANS[plan] || plan === "free") throw new Error("Plan must be 'pro' or 'ultimate'.");
+  if (![1, 2, 3, 5].includes(seats)) throw new Error("Seats must be 1, 2, 3, or 5.");
+
   const data = load();
-  const license = data.licenses[String(guildId)];
-  if (!license) return "free";
-  if (isExpired(license)) return "free";
-  return TIERS[license.tier] ? license.tier : "free";
+  const id = generateLicenseId();
+  const now = new Date();
+  const expiresAt = new Date(now);
+  expiresAt.setMonth(expiresAt.getMonth() + months);
+
+  data.licenses[id] = {
+    id,
+    plan,
+    seats,
+    billingPeriod,
+    active: true,
+    linkedServerIds: [],
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    durationMonths: months,
+    activatedBy,
+    note,
+    contactEmail,
+  };
+  save(data);
+  return data.licenses[id];
 }
 
-function getTierConfig(guildId) {
-  const tier = getTier(guildId);
-  return { tier, ...TIERS[tier] };
-}
-
-function getLicense(guildId) {
+export function getLicenseById(licenseId) {
   const data = load();
-  const lic = data.licenses[String(guildId)] || null;
+  const lic = data.licenses[String(licenseId)];
   if (!lic) return null;
   return {
     ...lic,
     expired: isExpired(lic),
     remainingDays: remainingDays(lic),
-    activeTier: isExpired(lic) ? "free" : lic.tier,
+    seatsUsed: (lic.linkedServerIds || []).length,
+    seatsAvailable: lic.seats - (lic.linkedServerIds || []).length,
   };
 }
 
-// Preis berechnen (in Cent)
-function calculatePrice(tier, months) {
-  const config = TIERS[tier];
-  if (!config || tier === "free") return 0;
-  const ppm = config.pricePerMonth;
-  if (months >= 12) {
-    // Jahresrabatt: 12 Monate zum Preis von 10
-    const fullYears = Math.floor(months / 12);
-    const remainingMonths = months % 12;
-    return (fullYears * YEARLY_DISCOUNT_MONTHS * ppm) + (remainingMonths * ppm);
+export function linkServerToLicense(serverId, licenseId) {
+  const data = load();
+  const lic = data.licenses[String(licenseId)];
+  if (!lic) return { ok: false, message: "License not found." };
+  if (!lic.active || isExpired(lic)) return { ok: false, message: "License is not active or has expired." };
+
+  const linked = lic.linkedServerIds || [];
+  if (linked.includes(String(serverId))) return { ok: true, message: "Server already linked." };
+  if (linked.length >= lic.seats) return { ok: false, message: `All ${lic.seats} seat(s) are occupied. Unlink a server first or upgrade.` };
+
+  lic.linkedServerIds = [...linked, String(serverId)];
+  lic.updatedAt = new Date().toISOString();
+  data.serverEntitlements[String(serverId)] = { serverId: String(serverId), licenseId: String(licenseId) };
+  save(data);
+  return { ok: true };
+}
+
+export function unlinkServerFromLicense(serverId, licenseId) {
+  const data = load();
+  const lic = data.licenses[String(licenseId)];
+  if (!lic) return { ok: false, message: "License not found." };
+
+  lic.linkedServerIds = (lic.linkedServerIds || []).filter(id => id !== String(serverId));
+  lic.updatedAt = new Date().toISOString();
+  delete data.serverEntitlements[String(serverId)];
+  save(data);
+  return { ok: true };
+}
+
+export function getServerLicense(serverId) {
+  const data = load();
+  const entitlement = data.serverEntitlements[String(serverId)];
+  if (!entitlement) return null;
+  const lic = data.licenses[entitlement.licenseId];
+  if (!lic) return null;
+  if (isExpired(lic)) return { ...lic, active: false, expired: true };
+  return { ...lic, expired: false, remainingDays: remainingDays(lic) };
+}
+
+export function getServerPlan(serverId) {
+  const lic = getServerLicense(serverId);
+  if (!lic || !lic.active || lic.expired) return "free";
+  return PLANS[lic.plan] ? lic.plan : "free";
+}
+
+export function isServerLicensed(serverId) {
+  return getServerPlan(serverId) !== "free";
+}
+
+export function listLicenses() {
+  const data = load();
+  return data.licenses;
+}
+
+export function removeLicense(licenseId) {
+  const data = load();
+  const lic = data.licenses[String(licenseId)];
+  if (!lic) return false;
+  // Unlink all servers
+  for (const sid of (lic.linkedServerIds || [])) {
+    delete data.serverEntitlements[sid];
   }
-  return months * ppm;
-}
-
-// Upgrade-Preis berechnen (Pro -> Ultimate)
-function calculateUpgradePrice(guildId, newTier) {
-  const data = load();
-  const license = data.licenses[String(guildId)];
-  if (!license || isExpired(license)) return null;
-
-  const oldTier = license.tier;
-  const oldConfig = TIERS[oldTier];
-  const newConfig = TIERS[newTier];
-  if (!oldConfig || !newConfig) return null;
-  if (newConfig.pricePerMonth <= oldConfig.pricePerMonth) return null; // Kein Downgrade
-
-  const daysLeft = remainingDays(license);
-  if (daysLeft <= 0) return null;
-
-  // Restlicher Wert des alten Plans
-  const oldDailyRate = oldConfig.pricePerMonth / 30;
-  const newDailyRate = newConfig.pricePerMonth / 30;
-  const upgradeCost = Math.round((newDailyRate - oldDailyRate) * daysLeft);
-
-  return {
-    oldTier,
-    newTier,
-    daysLeft,
-    upgradeCost, // in Cent
-    expiresAt: license.expiresAt,
-  };
-}
-
-function addLicense(guildId, tier, months, activatedBy, note) {
-  if (!TIERS[tier] || tier === "free") throw new Error("Tier muss 'pro' oder 'ultimate' sein.");
-  if (!months || months < 1) throw new Error("Mindestens 1 Monat.");
-
-  const data = load();
-  const existing = data.licenses[String(guildId)];
-  const now = new Date();
-  const contactEmail = typeof existing?.contactEmail === "string" ? existing.contactEmail.trim() : "";
-
-  let expiresAt;
-  // Wenn bereits aktive Lizenz gleichen Tiers: Laufzeit addieren
-  if (existing && !isExpired(existing) && existing.tier === tier) {
-    const currentExpiry = new Date(existing.expiresAt);
-    expiresAt = new Date(currentExpiry);
-    expiresAt.setMonth(expiresAt.getMonth() + months);
-  } else {
-    expiresAt = new Date(now);
-    expiresAt.setMonth(expiresAt.getMonth() + months);
-  }
-
-  data.licenses[String(guildId)] = {
-    tier,
-    activatedAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-    durationMonths: months,
-    activatedBy: activatedBy || "admin",
-    note: note || "",
-    ...(contactEmail ? { contactEmail } : {}),
-    _warning7ForExpiryAt: null,
-    _expiredNotifiedForExpiryAt: null,
-    _expiredNotified: false,
-  };
+  delete data.licenses[String(licenseId)];
   save(data);
-  return data.licenses[String(guildId)];
+  return true;
 }
 
-function upgradeLicense(guildId, newTier) {
+export function extendLicense(licenseId, months) {
   const data = load();
-  const license = data.licenses[String(guildId)];
-  if (!license || isExpired(license)) throw new Error("Keine aktive Lizenz zum Upgraden.");
-  if (!TIERS[newTier] || newTier === "free") throw new Error("Ungültiges Tier.");
-
-  // Behalte das gleiche Ablaufdatum, aendere nur den Tier
-  data.licenses[String(guildId)] = {
-    ...license,
-    tier: newTier,
-    upgradedAt: new Date().toISOString(),
-    upgradedFrom: license.tier,
-  };
+  const lic = data.licenses[String(licenseId)];
+  if (!lic) throw new Error("License not found.");
+  const currentExpiry = lic.expiresAt ? new Date(lic.expiresAt) : new Date();
+  const base = currentExpiry > new Date() ? currentExpiry : new Date();
+  const newExpiry = new Date(base);
+  newExpiry.setMonth(newExpiry.getMonth() + months);
+  lic.expiresAt = newExpiry.toISOString();
+  lic.updatedAt = new Date().toISOString();
+  lic.active = true;
   save(data);
-  return data.licenses[String(guildId)];
+  return lic;
 }
 
-function removeLicense(guildId) {
+// --- Dedup helpers ---
+
+export function isSessionProcessed(sessionId) {
   const data = load();
-  const existed = !!data.licenses[String(guildId)];
-  delete data.licenses[String(guildId)];
-  save(data);
-  return existed;
+  return !!data.processedSessions[String(sessionId)];
 }
 
-function listLicenses() {
-  return load().licenses;
-}
-
-function patchLicense(guildId, patch) {
-  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
-  const id = String(guildId || "").trim();
-  if (!id) return null;
+export function markSessionProcessed(sessionId, meta = {}) {
   const data = load();
-  const existing = data.licenses[id];
-  if (!existing) return null;
-  data.licenses[id] = { ...existing, ...patch };
-  save(data);
-  return data.licenses[id];
-}
-
-function isSessionProcessed(sessionId) {
-  const id = String(sessionId || "").trim();
-  if (!id) return false;
-  const data = load();
-  return Boolean(data.processedSessions[id]);
-}
-
-function markSessionProcessed(sessionId, meta = {}) {
-  const id = String(sessionId || "").trim();
-  if (!id) return;
-  const data = load();
-  data.processedSessions[id] = {
-    ...meta,
-    processedAt: new Date().toISOString(),
-  };
+  data.processedSessions[String(sessionId)] = { ...meta, processedAt: new Date().toISOString() };
   save(data);
 }
 
-function isEventProcessed(eventId) {
-  const id = String(eventId || "").trim();
-  if (!id) return false;
+export function isEventProcessed(eventId) {
   const data = load();
-  return Boolean(data.processedEvents[id]);
+  return !!data.processedEvents[String(eventId)];
 }
 
-function markEventProcessed(eventId, meta = {}) {
-  const id = String(eventId || "").trim();
-  if (!id) return;
+export function markEventProcessed(eventId, meta = {}) {
   const data = load();
-  data.processedEvents[id] = {
-    ...meta,
-    processedAt: new Date().toISOString(),
-  };
+  data.processedEvents[String(eventId)] = { ...meta, processedAt: new Date().toISOString() };
   save(data);
 }
 
-export {
-  TIERS, YEARLY_DISCOUNT_MONTHS,
-  load, save, getTier, getTierConfig,
-  getLicense, isExpired, remainingDays,
-  calculatePrice, calculateUpgradePrice,
-  addLicense, upgradeLicense,
-  removeLicense, listLicenses, patchLicense,
-  isSessionProcessed, markSessionProcessed,
-  isEventProcessed, markEventProcessed,
-};
+// Expose for entitlements module
+export { isExpired, remainingDays };
