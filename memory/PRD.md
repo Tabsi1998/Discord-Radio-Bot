@@ -1,4 +1,4 @@
-# OmniFM - Product Requirements Document v3.0
+# OmniFM - Product Requirements Document v3.1
 
 ## Produkt
 OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basierter Lizenzierung.
@@ -19,7 +19,7 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 | Max Bots | 2 | 8 | 16 |
 | Bitrate | 64k | 128k Opus | 320k Opus |
 | Reconnect | 5s | 1.5s | 0.4s |
-| Stationen | 20 Free | 20 Free + 100 Pro | Alle + Custom URLs |
+| Stationen | 20 Free | 20 Free + 104 Pro | Alle + Custom URLs |
 | Custom URLs | - | - | 50 pro Server |
 | Preis (1 Server) | 0 | 2.99/mo | 4.99/mo |
 
@@ -29,51 +29,20 @@ OmniFM - 24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basie
 - Ultimate Seats: 1=4.99, 2=7.99, 3=10.99, 5=16.99
 - Jahresrabatt: 12 Monate buchen = 10 bezahlen
 
-## Implementiert (v3.0) - Stand: 22.02.2026
-- [x] Komplett-Rebranding: RadioBot -> OmniFM (Code, UI, CLI, Docker, Docs)
-- [x] 3-Tier Plan-System (Free/Pro/Ultimate) mit zentraler Config
-- [x] Seat-basierte Server-Lizenzierung (1/2/3/5 Seats)
-- [x] Station-Tier-System (Free/Pro Badges in UI + Filter)
-- [x] Plan-basierte Audio-Bitrate Enforcement (64k/128k/320k) - FIX 22.02.2026: Transcode wird immer erzwungen wenn bitrateOverride gesetzt
-- [x] Plan-basierte Reconnect-Prioritaet (5s/1.5s/0.4s)
-- [x] Command Permission Matrix mit Upgrade-Embeds (Deutsch)
-- [x] Pricing Calculator (services/pricing.js)
-- [x] Website aktualisiert (OmniFM Branding, neue Preise, Seat-Pricing-Tabelle)
-- [x] Seat-Selektor im Checkout-Modal (1/2/3/5 Server mit Preisanzeige)
-- [x] Tier-Filter (ALLE/FREE/PRO) im Stations-Browser
-- [x] Deutsche Preisformatierung (2,99€ statt 2.99€)
-- [x] FastAPI Backend komplett aktualisiert (TIERS, SEAT_PRICING, APIs)
-- [x] React Frontend komplett aktualisiert (alle Komponenten)
-- [x] Docker + Shell-Skripte aktualisiert
-- [x] P0 Fix: Bitrate-Enforcement via bitrateOverride in createResource (22.02.2026)
-- [x] CLI-Fix: premium-cli.js Imports nach Refactoring repariert (22.02.2026)
-- [x] E-Mail: Bestaetigungs-E-Mail mit Server-Aenderungs-Hinweis (22.02.2026)
-- [x] Rebranding-Cleanup: package.json, systemd service, README (22.02.2026)
-- [x] QA-Pass: Vollstaendiger Test aller APIs, Frontend, CLI, Code-Level (22.02.2026)
-- [x] E-Mail-basierter Checkout: Server-ID durch E-Mail ersetzt (22.02.2026)
-- [x] Lizenz-Key System: OMNI-XXXX-XXXX-XXXX Format, automatische Generierung (22.02.2026)
-- [x] Server-Zuweisung per Support: E-Mail/Discord statt Checkout (22.02.2026)
-- [x] Checkout-Modal redesigned: E-Mail Input, Lizenz-Key Info-Hinweis (22.02.2026)
-- [x] Lizenz-Lookup per Key: GET /api/premium/check?licenseKey=... (22.02.2026)
-- [x] Purchase-E-Mail komplett neu: Lizenz-Key prominent, Server-Zuweisungs-Anleitung (22.02.2026)
-- [x] P0 Fix: update.sh prompt_tier ANSI-Codes in .env (echo >&2) (22.02.2026)
-- [x] /license Discord-Command: activate, info, remove Subcommands (22.02.2026)
-- [x] Self-Service Server-Zuweisung per /license activate <key> im Discord (22.02.2026)
-- [x] Final QA: 100% (Backend 26/26, Frontend alle UI-Tests bestanden, Iteration 26)
-- [x] 120 Stationen: 20 Free + 100 Pro (EDM, Techno, Trance, Hardstyle, House, Urban, Rock) (22.02.2026)
-- [x] Station-Browser Pagination: 8er Batches mit "Mehr anzeigen" Button (22.02.2026)
-- [x] Stripe Key Validierung: Klare deutsche Fehlermeldungen statt kryptische API-Fehler (22.02.2026)
-- [x] Final Test: 100% (Backend 14/14, Frontend alle UI-Tests bestanden, Iteration 28)
+## Stationen (v3.1 - 124 Total)
+- **20 Free**: Groove Salad, Drone Zone, Deep Space One, Space Station, Beat Blender, PopTron, Underground 80s, Metal Detector, Lush, The Trip, Classical Radio, Blues Radio, Jazz Radio, Reggae Radio, Ambient Radio, Techno Radio, Rock Radio, Chillout Radio, Hip Hop Radio, Lounge Radio
+- **104 Pro**: EDM (20), Tomorrowland (3), Sunshine Live (1), Techno (20), Trance (10), Hardstyle (10), House (15), Urban (15), Rock (10)
+- **Spezial-Stationen**: Tomorrowland One World Radio, Tomorrowland Daybreak, Tomorrowland DAB, Sunshine Live
 
 ## API Endpoints
 - GET /api/health - Health + OmniFM Brand
 - GET /api/bots - Bot-Status
-- GET /api/stations - Stations sortiert nach Tier
+- GET /api/stations - 124 Stationen sortiert nach Tier
 - GET /api/stats - Statistiken
 - GET /api/commands - Slash-Commands
 - GET /api/premium/tiers - Tier-Konfiguration
 - GET /api/premium/pricing - Seat-Pricing mit Upgrade-Info
-- GET /api/premium/check - Server Premium-Status
+- GET /api/premium/check - Server Premium-Status / Lizenz-Lookup
 - POST /api/premium/checkout - Stripe Checkout (mit seats)
 - POST /api/premium/verify - Payment Verification
 
