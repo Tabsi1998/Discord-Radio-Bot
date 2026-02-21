@@ -215,30 +215,34 @@ function StationBrowser({ stations, loading }) {
           </div>
         )}
 
-        {/* Search + Filters */}
+        {/* Search + Tier Filters */}
         <div style={{ marginBottom: 24 }}>
-          <div style={{ position: 'relative', maxWidth: 400, marginBottom: 16 }}>
+          <div style={{ position: 'relative', maxWidth: 400, marginBottom: 12 }}>
             <Search size={18} color="#52525B" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
             <input type="text" data-testid="station-search" className="station-search" placeholder="Station suchen..."
               value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          {genres.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <button data-testid="genre-filter-all" onClick={() => setActiveGenre(null)}
-                style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: !activeGenre ? 'rgba(0,240,255,0.15)' : 'rgba(255,255,255,0.05)', color: !activeGenre ? '#00F0FF' : '#A1A1AA' }}>
-                Alle
-              </button>
-              {genres.map((g) => (
-                <button key={g} data-testid={`genre-filter-${g.replace(/\s+/g, '-').toLowerCase()}`}
-                  onClick={() => setActiveGenre(activeGenre === g ? null : g)}
-                  style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: activeGenre === g ? 'rgba(0,240,255,0.15)' : 'rgba(255,255,255,0.05)', color: activeGenre === g ? '#00F0FF' : '#A1A1AA' }}>
-                  {g}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {tierFilters.map((f) => {
+              const isActive = activeTier === f.id;
+              return (
+                <button key={f.id || 'all'} data-testid={`tier-filter-${f.id || 'all'}`}
+                  onClick={() => setActiveTier(f.id)}
+                  style={{
+                    fontSize: 11, fontWeight: 700, padding: '6px 16px', borderRadius: 20,
+                    cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.2s',
+                    border: `1px solid ${isActive ? `${f.color}50` : `${f.color}20`}`,
+                    background: isActive ? `${f.color}12` : 'transparent',
+                    color: f.color,
+                  }}>
+                  {f.label}
                 </button>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 12, color: '#52525B', marginTop: 8 }}>
+            {stations.length} Stationen ({freeCount} Free, {proCount} Pro)
+          </p>
         </div>
 
         {/* Station list */}
