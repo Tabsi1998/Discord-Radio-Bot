@@ -2137,7 +2137,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     });
     sendMail(customerEmail, `Premium ${tierConfig.name} aktiviert!`, purchaseHtml).catch(() => {});
 
-    const invoiceId = `RB-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sessionId.slice(-8).toUpperCase()}`;
+    const invoiceId = `OF-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sessionId.slice(-8).toUpperCase()}`;
     const invoiceHtml = buildInvoiceEmail({
       invoiceId,
       sessionId,
