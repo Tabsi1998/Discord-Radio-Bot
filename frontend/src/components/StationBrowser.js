@@ -266,11 +266,34 @@ function StationBrowser({ stations, loading }) {
             <p>Keine Stationen gefunden.</p>
           </div>
         ) : (
-          <div data-testid="station-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 8, maxHeight: 520, overflowY: 'auto', padding: '4px 0' }}>
-            {filtered.map((s, i) => (
-              <StationCard key={s.key} station={s} index={i} isPlaying={playingKey === s.key} onPlay={handlePlay} onStop={handleStop} />
-            ))}
-          </div>
+          <>
+            <div data-testid="station-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 8, padding: '4px 0' }}>
+              {visibleStations.map((s, i) => (
+                <StationCard key={s.key} station={s} index={i} isPlaying={playingKey === s.key} onPlay={handlePlay} onStop={handleStop} />
+              ))}
+            </div>
+            {hasMore && (
+              <div style={{ textAlign: 'center', marginTop: 24 }}>
+                <button
+                  data-testid="load-more-stations"
+                  onClick={() => setVisibleCount(prev => prev + 8)}
+                  style={{
+                    padding: '12px 32px', borderRadius: 12, cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                    color: '#A1A1AA', fontSize: 13, fontWeight: 600, letterSpacing: '0.03em',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => { e.target.style.background = 'rgba(255,255,255,0.1)'; e.target.style.color = '#fff'; }}
+                  onMouseLeave={(e) => { e.target.style.background = 'rgba(255,255,255,0.05)'; e.target.style.color = '#A1A1AA'; }}
+                >
+                  Mehr anzeigen ({Math.min(remaining, 8)} von {remaining})
+                </button>
+                <p style={{ fontSize: 11, color: '#52525B', marginTop: 8 }}>
+                  {visibleCount} von {filtered.length} Stationen angezeigt
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>
