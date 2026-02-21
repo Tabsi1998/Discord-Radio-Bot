@@ -98,11 +98,12 @@ function buildPurchaseEmail(data) {
     tier,
     tierName,
     months,
-    serverId,
+    licenseKey,
+    seats,
+    email,
     expiresAt,
     inviteOverview,
     dashboardUrl,
-    isUpgrade,
     pricePaid,
     currency,
   } = data;
@@ -112,21 +113,6 @@ function buildPurchaseEmail(data) {
   const freeWebsiteUrl = String(
     inviteOverview?.freeWebsiteUrl || dashboardUrl || "https://discord.gg/UeRkfGS43R"
   ).trim();
-  const freeInfo = inviteOverview?.freeInfo || "Free Bots #1-#4 sind immer verfuegbar.";
-  const proBots = Array.isArray(inviteOverview?.proBots) ? inviteOverview.proBots : [];
-  const ultimateBots = Array.isArray(inviteOverview?.ultimateBots) ? inviteOverview.ultimateBots : [];
-  const includesPro = tier === "pro" || tier === "ultimate";
-  const includesUltimate = tier === "ultimate";
-
-  function renderInviteButtons(items) {
-    return items
-      .map((bot) => `
-        <div style="margin:8px 0">
-          <a href="${bot.url}" style="color:#fff;text-decoration:none;background:${tierColor};padding:8px 16px;border-radius:8px;display:inline-block;font-weight:600">${bot.name} (#${bot.index}) einladen</a>
-        </div>
-      `)
-      .join("");
-  }
 
   let tierBenefits = "";
   if (tier === "ultimate") {
@@ -148,73 +134,55 @@ function buildPurchaseEmail(data) {
       </ul>`;
   }
 
-  let inviteHtml = `
-    <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
-      <h3 style="color:${tierColor};margin:0 0 8px">Free Bots (#1-#4)</h3>
-      <p style="margin:0 0 10px;color:#A1A1AA;font-size:13px">${freeInfo}</p>
-      <a href="${freeWebsiteUrl}" style="color:#050505;text-decoration:none;background:#00F0FF;padding:8px 14px;border-radius:8px;display:inline-block;font-weight:700">Zur Bot-Webseite</a>
-      <p style="margin:10px 0 0;color:#777;font-size:12px">Premium-Features gueltig bis ${expDate}.</p>
-    </div>`;
-
-  if (includesPro) {
-    if (proBots.length > 0) {
-      inviteHtml += `
-        <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
-          <h3 style="color:${tierColor};margin:0 0 12px">Pro Bots (#5-#10)</h3>
-          ${renderInviteButtons(proBots)}
-          <p style="margin:10px 0 0;color:#777;font-size:12px">Links gueltig bis ${expDate} (Lizenzlaufzeit).</p>
-        </div>`;
-    } else {
-      inviteHtml += `
-        <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
-          <h3 style="color:${tierColor};margin:0 0 12px">Pro Bots (#5-#10)</h3>
-          <p style="margin:0;color:#FFB800;font-size:13px">Keine Pro-Bot-Links gefunden. Bitte BOT_5 bis BOT_10 in der .env pruefen (TOKEN + CLIENT_ID).</p>
-        </div>`;
-    }
-  }
-  if (includesUltimate) {
-    if (ultimateBots.length > 0) {
-      inviteHtml += `
-        <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
-          <h3 style="color:${tierColor};margin:0 0 12px">Ultimate Bots (#11-#20)</h3>
-          ${renderInviteButtons(ultimateBots)}
-          <p style="margin:10px 0 0;color:#777;font-size:12px">Links gueltig bis ${expDate} (Lizenzlaufzeit).</p>
-        </div>`;
-    } else {
-      inviteHtml += `
-        <div style="margin:20px 0;padding:16px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
-          <h3 style="color:${tierColor};margin:0 0 12px">Ultimate Bots (#11-#20)</h3>
-          <p style="margin:0;color:#FFB800;font-size:13px">Keine Ultimate-Bot-Links gefunden. Bitte BOT_11 bis BOT_20 in der .env pruefen (TOKEN + CLIENT_ID).</p>
-        </div>`;
-    }
-  }
-  inviteHtml += `<p style="color:#666;font-size:12px;margin:12px 0 0">Premium-Bots sind servergebunden und nur fuer den lizenzierten Server ${serverId} gueltig.</p>`;
-  inviteHtml += `<div style="margin:16px 0;padding:14px;background:#1a1a1a;border-radius:10px;border:1px solid #333">
-    <p style="margin:0 0 6px;color:#A1A1AA;font-size:13px;font-weight:600">Server aendern?</p>
-    <p style="margin:0;color:#888;font-size:12px;line-height:1.6">Deine Lizenz ist an Server <code style="background:#222;padding:2px 5px;border-radius:4px">${serverId}</code> gebunden. Wenn du den Server wechseln moechtest, schreibe uns eine E-Mail oder nutze den Discord-Support${tier === "ultimate" ? " (Priority-Support fuer Ultimate)" : ""}.</p>
-    <p style="margin:8px 0 0;font-size:12px"><a href="https://discord.gg/UeRkfGS43R" style="color:${tierColor};text-decoration:none;font-weight:600">Discord Support &rarr;</a></p>
-  </div>`;
-
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:16px;overflow:hidden">
       <div style="background:linear-gradient(135deg,${tierColor}22,transparent);padding:32px;text-align:center">
-        <h1 style="font-size:24px;margin:0;color:${tierColor}">Premium ${tierName} aktiviert!</h1>
+        <h1 style="font-size:24px;margin:0;color:${tierColor}">OmniFM ${tierName} - Dein Lizenz-Key</h1>
       </div>
       <div style="padding:24px 32px">
+
+        <!-- Lizenz-Key prominent -->
+        <div style="margin:0 0 24px;padding:20px;background:#111;border-radius:14px;border:2px solid ${tierColor}40;text-align:center">
+          <p style="margin:0 0 8px;color:#A1A1AA;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;font-weight:700">Dein Lizenz-Key</p>
+          <p style="margin:0;font-size:28px;font-weight:800;font-family:'Courier New',monospace;letter-spacing:3px;color:${tierColor}">${licenseKey || "---"}</p>
+          <p style="margin:8px 0 0;color:#52525B;font-size:11px">Bewahre diesen Key sicher auf!</p>
+        </div>
+
+        <!-- Details -->
         <table style="width:100%;border-collapse:collapse;margin:16px 0">
-          <tr><td style="color:#888;padding:8px 0">Server ID</td><td style="text-align:right;padding:8px 0;font-family:monospace">${serverId}</td></tr>
-          <tr><td style="color:#888;padding:8px 0">Tier</td><td style="text-align:right;padding:8px 0;color:${tierColor};font-weight:700">${tierName}</td></tr>
-          <tr><td style="color:#888;padding:8px 0">Typ</td><td style="text-align:right;padding:8px 0">${isUpgrade ? "Upgrade" : "Neukauf/Verlaengerung"}</td></tr>
-          <tr><td style="color:#888;padding:8px 0">Laufzeit</td><td style="text-align:right;padding:8px 0">${months > 0 ? `${months} Monat${months > 1 ? "e" : ""}` : "Upgrade (Restlaufzeit bleibt)"}</td></tr>
+          <tr><td style="color:#888;padding:8px 0">Plan</td><td style="text-align:right;padding:8px 0;color:${tierColor};font-weight:700">${tierName}</td></tr>
+          <tr><td style="color:#888;padding:8px 0">Server-Slots</td><td style="text-align:right;padding:8px 0;font-weight:600">${seats || 1} Server</td></tr>
+          <tr><td style="color:#888;padding:8px 0">Laufzeit</td><td style="text-align:right;padding:8px 0">${months} Monat${months > 1 ? "e" : ""}</td></tr>
           <tr><td style="color:#888;padding:8px 0">Gueltig bis</td><td style="text-align:right;padding:8px 0;font-weight:700">${expDate}</td></tr>
           <tr><td style="color:#888;padding:8px 0">Bezahlt</td><td style="text-align:right;padding:8px 0">${moneyLabel}</td></tr>
         </table>
+
+        <!-- Features -->
         <div style="margin:16px 0 8px">
           <h3 style="margin:0 0 8px;color:${tierColor};font-size:15px">Was dein Abo bringt</h3>
           ${tierBenefits}
         </div>
-        ${inviteHtml}
-        <p style="color:#888;font-size:13px;margin-top:24px;text-align:center">Support: <a href="https://discord.gg/UeRkfGS43R" style="color:${tierColor}">Discord Server</a></p>
+
+        <!-- Naechste Schritte -->
+        <div style="margin:20px 0;padding:18px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
+          <h3 style="color:${tierColor};margin:0 0 12px;font-size:15px">Naechste Schritte - Server zuweisen</h3>
+          <ol style="margin:0;padding-left:20px;color:#A1A1AA;font-size:13px;line-height:2">
+            <li>Kopiere deine Discord <strong>Server-ID(s)</strong> (Rechtsklick auf Server &rarr; Server-ID kopieren)</li>
+            <li>Sende uns die Server-ID(s) per <strong>E-Mail</strong> oder im <strong>Discord-Support</strong></li>
+            <li>Wir aktivieren deine ${seats > 1 ? `${seats} Server` : "Server"} innerhalb weniger Stunden</li>
+          </ol>
+          <p style="margin:12px 0 0;color:#52525B;font-size:11px">Du hast ${seats || 1} Server-Slot${seats > 1 ? "s" : ""} - sende uns bis zu ${seats || 1} Server-ID${seats > 1 ? "s" : ""}.</p>
+        </div>
+
+        <!-- Support Links -->
+        <div style="margin:16px 0;display:flex;gap:10px">
+          <a href="https://discord.gg/UeRkfGS43R" style="flex:1;text-align:center;color:#fff;text-decoration:none;background:${tierColor}22;border:1px solid ${tierColor}33;padding:12px;border-radius:10px;font-weight:600;font-size:13px">Discord Support</a>
+          <a href="${freeWebsiteUrl}" style="flex:1;text-align:center;color:#fff;text-decoration:none;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);padding:12px;border-radius:10px;font-weight:600;font-size:13px">OmniFM Website</a>
+        </div>
+
+        <p style="color:#52525B;font-size:11px;margin-top:20px;text-align:center;line-height:1.6">
+          Server aendern? Schreib uns jederzeit per E-Mail oder Discord${tier === "ultimate" ? " (Priority-Support fuer Ultimate)" : ""}.
+        </p>
       </div>
     </div>`;
 }
