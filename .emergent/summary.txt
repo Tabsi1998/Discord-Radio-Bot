@@ -1,174 +1,123 @@
 <analysis>**original_problem_statement:**
-The user's goal is to create a professional, multi-tiered Discord Radio Bot service. The initial requests for bug fixes and UI changes have evolved into a complete overhaul of the premium features and core functionality.
+The user has requested a complete rebranding of the existing Discord Radio Bot to a new product called OmniFM. This includes a comprehensive overhaul of the architecture and monetization model to a professional, scalable system.
 
-The most recent and critical user requests are:
-1.  **Complete Premium System Overhaul**: Implement a three-tier subscription model (Free, Pro, Ultimate) with distinct features:
-    *   **Feature Tiers**: Different bot limits, audio quality levels (128k, 192k, 320k), station access (Free, Pro, Ultimate stations), and reconnect priorities.
-    *   **Custom Stations**: Ultimate tier users must be able to add their own private station URLs via a Discord command ().
-    *   **Subscription Management**: The system must support selectable subscription durations (e.g., 1-12 months), pro-rata upgrades (e.g., Pro to Ultimate), automatic license expiration, and extending existing subscriptions.
-    *   **SMTP Integration**: Integrate a user-configurable SMTP service to send automated emails for purchase confirmations (to the customer) and sales notifications (to the admin).
-2.  **Fix Auto-Reconnect on Restart**: The bot must reliably and automatically rejoin its last active voice channel and resume playing its last station after a container restart (e.g., from an update via 
-[0;36m[1m
-  ╔══════════════════════════════════════════════╗
-  ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
-  ║                                              ║
-  ╚══════════════════════════════════════════════╝
-[0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren.). The user has explicitly stated this is not working.
-3.  **Unified Management Script**: Consolidate all administrative tasks (bot configuration, Stripe keys, SMTP settings, updates) into the 
-[0;36m[1m
-  ╔══════════════════════════════════════════════╗
-  ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
-  ║                                              ║
-  ╚══════════════════════════════════════════════╝
-[0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren. script to serve as a single, interactive command center.
+**PRODUCT REQUIREMENTS (Monetization System v3 & Rebrand):**
+1.  **Rebrand**: Systematically replace all instances of RADIOBOT with OmniFM, including UI strings, logs, and bot presence.
+2.  **Plans & Features**: Implement a strict three-tier system (free, pro, ultimate) with feature flags managed in a central config ().
+3.  **Server-Based Licensing**: Shift from a guild-based model to a server-seat bundle model. A single license can cover multiple servers (1, 2, 3, or 5 seats).
+4.  **Station Tier System**: Segment stations into                total        used        free      shared  buff/cache   available
+Mem:        16358500     4814364     5282672       45532     6584388    11544136
+Swap:              0           0           0 (20 stations) and  (100 stations). The  plan includes all stations plus server-specific custom station URLs.
+5.  **Command Permission Matrix**: Strictly enforce plan-based access for all commands, especially , , and quality settings. Deny access with a clear upgrade message.
+6.  **Reconnect Priority**: Implement tiered reconnect delays: standard for free, faster for pro, and instant for ultimate.
+7.  **Audio Quality Enforcement**: Cap audio bitrates based on the server's plan (Free: 64k, Pro: 128k, Ultimate: 320k).
+8.  **Pricing System**: Implement a pricing calculator () for different plans, seat bundles, and billing periods (monthly/yearly) with a yearly discount.
+9.  **Website Copy Update**: Update the static website to reflect the new OmniFM branding, features, and pricing tiers.
+10. **Upgrade Flow**: Create a reusable module for sending clear, helpful upgrade embeds within Discord when a user hits a feature paywall.
 
 **User's preferred language**: German. The next agent MUST respond in German.
 
 **what currently exists?**
-The application is a Node.js Discord bot using  with an integrated Express.js web server for the Stripe payment flow and a static production frontend. The previous agent has just completed a massive, but entirely untested, implementation of the new three-tier premium system. This includes new modules for managing tiered stations (), custom user stations (), the premium subscription logic (), and email notifications (). State is persisted in several JSON files (, , ).
+The agent has begun the massive rebranding and architectural refactoring from RadioBot to OmniFM. It has successfully laid the groundwork by creating several new, modular files for configuration, services, and data. The project is in a transitional, non-functional state as the core logic has not yet been updated to use these new modules. The previous critical bugs related to the  script and auto-reconnect functionality have been resolved.
 
 **Last working item**:
-- Last item agent was working: The agent finished a massive implementation sprint for the complete premium system overhaul. This involved creating new backend modules for custom stations and email, adding tier logic to stations, implementing new Discord commands (, ), integrating email notifications into the Stripe webhook, and adding an SMTP configuration option to .
+- Last item agent was working: The agent was in the middle of the OmniFM refactoring. It had just created the new modules for plans, pricing, entitlements, and station management, and was about to begin the most critical part: refactoring the monolithic  to integrate these new services and apply the new permission model and branding.
 - Status: IN PROGRESS
-- Agent Testing Done: N (The agent initiated a test run, but the job ended before the results were analyzed. The entire feature set is unverified.)
-- Which testing method agent to use? **testing agent v3 fork**. This is a large, complex feature implementation touching multiple parts of the system (Discord commands, Stripe, DB files, new integrations) and requires comprehensive E2E testing.
+- Agent Testing Done: N (The application is in a broken, mid-refactor state)
+- Which testing method agent to use? **testing agent v3 fork**. A comprehensive E2E test will be mandatory after the refactoring is complete to validate the new architecture, permissions, and branding.
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
--   Issue 1: (P0) The newly implemented Premium Tier system is completely untested.
--   Issue 2: (P1) Auto-reconnect after a server restart (e.g., via 
-[0;36m[1m
-  ╔══════════════════════════════════════════════╗
-  ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
-  ║                                              ║
-  ╚══════════════════════════════════════════════╝
-[0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren.) is not working.
+-   Issue 1: (P0) The application is non-functional due to the incomplete OmniFM rebranding and architectural refactor.
 
 Issues Detail:
--   **Issue 1: New Premium System Untested**
-    -   **Attempted fixes**: The agent wrote a large amount of code for the feature across many files (, , , , , etc.) and called the testing agent.
+-   **Issue 1: Incomplete OmniFM Refactor**
+    -   **Attempted fixes**: The agent has created the foundational files for the new architecture (, , , , , ) and updated  and .
     -   **Next debug checklist**:
-        1.  The previous agent called  at the end of its session. **Find the corresponding test report** in .
-        2.  **Analyze the report** for any failures or skipped tests.
-        3.  Systematically debug each failed test. Pay close attention to:
-            -   Tier-based command access ( for Ultimate only).
-            -   Tier-based station filtering in  and .
-            -   The Stripe checkout and webhook flow, verifying that emails are triggered.
-            -   The new SMTP setup via 
-[0;36m[1m
-  ╔══════════════════════════════════════════════╗
-  ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
-  ║                                              ║
-  ╚══════════════════════════════════════════════╝
-[0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren..
-    -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary requested feature. The application cannot be considered complete until this complex system is fully functional and verified.
+        1.  Continue the refactor of . Systematically replace old logic with calls to the new services (, , ).
+        2.  Enforce the new permission model within all Discord command handlers ( event). Use  and  helpers.
+        3.  Update the audio playback logic to enforce bitrate caps based on the server's plan.
+        4.  Update the auto-reconnect logic to use the new plan-based priority settings.
+        5.  Replace all remaining RadioBot branding with OmniFM.
+    -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary goal. Completing this will result in a professional, modular, and monetizable product as specified.
     -   **Status**: IN PROGRESS
     -   **Is recurring issue?**: N
-    -   **Should Test backend/both after fix?**: both
--   **Issue 2: Auto-Reconnect on Restart Fails**
-    -   **Attempted fixes**: The agent implemented several potential fixes: switching from the  event to , adding periodic state saving to  every 60 seconds, and ensuring the  file is properly created on startup.
-    -   **Why it didn't work**: The user's last report confirmed the feature is still broken. The agent's latest fixes have not been validated.
-    -   **Next debug checklist**:
-        1.  Add verbose logging to the entire restore process:  (file creation),  (file read), and  ( function).
-        2.  Reproduce the issue:
-            - Start the bot and play a station in a voice channel.
-            - Wait >60s for the periodic state save to occur. Confirm  is updated.
-            - Restart the container: 
-[0;36m[1m
-  ╔══════════════════════════════════════════════╗
-  ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
-  ║                                              ║
-  ╚══════════════════════════════════════════════╝
-[0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren. (select the update option).
-            - Monitor the logs () to see if the restore logic is triggered on  and if it attempts to rejoin the channel.
-        3.  Investigate potential race conditions between multiple bots starting and trying to read/write the state file.
-    -   **Why fix this issue and what will be achieved with the fix?**: This is a core, high-priority user requirement for a professional and resilient service.
-    -   **Status**: IN PROGRESS
-    -   **Is recurring issue?**: Y
-    -   **Should Test backend/both after fix?**: backend
+    -   **Should Test frontend/backend/both after fix?**: both
 
 **In progress Task List**:
--   Task 1: Testing and Debugging the Premium Tier System
-    -   Where to resume: Analyze the test report from the previous session.
-    -   What will be achieved with this?: A fully functional, multi-tier premium system as requested by the user.
+-   Task 1: Complete the RadioBot to OmniFM rebrand & v3 monetization system implementation.
+    -   Where to resume: Refactoring the main application file, , to integrate and use all the newly created modules and enforce the strict permission model.
+    -   What will be achieved with this?: A fully rebranded, modular, and professionally architected bot with a new server-seat-based licensing model, ready for market.
     -   Status: IN PROGRESS
     -   Should Test frontend/backend/both after fix?: both
 
 **Upcoming and Future Tasks**
 Upcoming Tasks:
--   (P0) Verify and fix the Premium Tier System (Issue 1).
--   (P1) Verify and fix the Auto-Reconnect on Restart functionality (Issue 2).
+-   (P0) Complete the  refactor to use new services and enforce permissions.
+-   (P1) Implement the reconnect priority logic based on plan features.
+-   (P1) Implement the audio quality/bitrate enforcement during playback.
+-   (P2) Update the static website UI/copy in  and  to match the OmniFM branding and new pricing structure.
+-   (P2) Create the  module for generating standardized upgrade messages in Discord.
 
 Future Tasks:
--   (P2) Refactor : Break down the monolithic file into smaller, single-responsibility modules (e.g., , ).
--   (P3) Automate Frontend Build: Create a build script to compile the React app in  and output the static files to , eliminating manual sync.
+-   (P3) Perform a full Quality Assurance pass to verify all plan limits, permissions, and pricing calculations are correct.
+-   (P4) Refactor the static frontend in  into a modern React application to improve maintainability.
 
 **Completed work in this session**
-- **Feature: Complete Premium System (Implementation Only)**:
-    - Implemented a 3-tier system (Free, Pro, Ultimate) with corresponding features (station access, audio quality).
-    - Created a system for guild-specific custom stations for Ultimate users, with , , and  commands.
-    - Integrated a -based SMTP system for sending purchase/renewal emails to customers and admins.
-    - Added a scheduled job to check for and send warnings about expiring licenses.
-- **Refactoring: Unified Management Script**:
-    - Overhauled 
-[0;36m[1m
-  ╔══════════════════════════════════════════════╗
-  ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
-  ║                                              ║
-  ╚══════════════════════════════════════════════╝
-[0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren. to become the central, interactive tool for all management tasks, including bot management, updates, Stripe key setup, and the new SMTP configuration.
-- **Bug Fix: Stripe Configuration**:
-    - Fixed a bug where Stripe keys weren't loading by changing the container restart command from  to .
-- **Bug Fix: Bot Tier Assignment**:
-    - Fixed issues where bots were incorrectly assigned the 'FREE' tier by adding tier selection to  and an 'edit bot' function to .
-- **UI Fix: Bot Statistics**:
-    - Re-implemented the display of bot statistics (server count, user count) on the web UI, which had been lost.
+- **Bug Fix: Critical  Failures (RESOLVED)**
+  - Fixed a bug where  would crash after a  by implementing a self-exec pattern that re-runs the script from a temporary copy.
+  - Made the script robust by ensuring  is correctly set and  is always found.
+- **Bug Fix: Auto-Reconnect on Restart (RESOLVED)**
+  - Fixed a container restart loop caused by  attempting to remove a mounted volume.
+  - Made all JSON store modules (, , etc.) and shell scripts (, ) robust against files being replaced by directory mounts from Docker.
+  - Verified via logs that the auto-reconnect feature is now fully functional.
+- **Bug Fix: Email self-signed certificate (RESOLVED)**
+  - Added the  option to  to allow connections to a local mail server with self-signed certificates.
+- **Feature: OmniFM Refactor (IN PROGRESS)**
+  - Created new config files for the v3 monetization system:  and .
+  - Created new core modules for entitlements and station management:  and .
+  - Created new tiered station data files:  and .
+  - Updated  to support the new seat-based licensing model.
+  - Updated  to rebrand commands to OmniFM.
 
 **Earlier issues found/mentioned but not fixed**
-- The two core issues (Premium System functionality and Auto-Reconnect) are captured in the All Pending/In progress Issue list.
+- None. All previously reported user issues were addressed before the current refactoring task began.
 
 **Known issue recurrence from previous fork**
 - **Issue recurrence in previous fork**: Auto-Reconnect functionality.
 - **Recurrence count**: 3+
-- **Status**: IN PROGRESS
+- **Status**: RESOLVED. Logs confirmed the feature now works reliably after fixing the underlying container restart-loop issue.
 
 **Code Architecture**
+The architecture is being refactored into a more modular structure:
 
 
 **Key Technical Concepts**
-- **Backend**: Node.js, , , Express.js.
-- **State Persistence**: Flat-file database using , , .
-- **Payments**: Stripe for tiered subscriptions and upgrades.
-- **Email**:  for transactional emails via a user-provided SMTP server.
-- **Management**: A master  bash script orchestrating Docker Compose and Node scripts.
+- **Backend**: Node.js, , Express.js
+- **State Persistence**: Flat-file database using JSON files (, , ).
+- **Architecture**: Refactoring from a monolithic  to a modular, service-oriented architecture with centralized configuration.
+- **Monetization**: Implementing a seat-based licensing model with tiered features and pricing.
 
 **key DB schema**
--   ****: 
--   ****: 
+The  schema is being updated to support the new model:
+-   ** (New Target Schema)**: 
 -   ****: 
 -   ****: 
 
 **changes in tech stack**
--   Added  for SMTP integration.
+- No new technologies, but a major architectural refactor is in progress.
 
 **All files of reference**
--   : Heavily modified to include new command handlers, scheduled jobs, and integration of new modules. **(CRITICAL)**
--   : New file containing the entire logic for the tiered subscription system. **(CRITICAL)**
--   : New file for the Ultimate-tier custom station feature. **(CRITICAL)**
--   : New file for SMTP email functionality. **(CRITICAL)**
--   
+*   **New/Created Files**:
+    *   : Defines features for each subscription tier.
+    *   : Defines pricing for plans, seats, and billing periods.
+    *   : Core logic for checking a server's plan and feature access.
+    *   : Manages access to stations based on plan.
+    *    & : New tiered station lists.
+*   **Critically Modified Files**:
+    *   : The main application file, currently being refactored. **(CRITICAL)**
+    *   : Updated to handle the new seat-based license structure.
+    *   
 [0;36m[1m
   ╔══════════════════════════════════════════════╗
   ║                                              ║
@@ -176,63 +125,65 @@ Future Tasks:
   ║                                              ║
   ╚══════════════════════════════════════════════╝
 [0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren.: Overhauled to be the single entry point for all management. **(CRITICAL)**
--   : Core file for the broken auto-reconnect feature.
--   : Modified to handle creation of new JSON files.
+  [0;31m[FAIL][0m docker fehlt. Bitte installieren. & 
+[0;36m[1m
+  ╔═══════════════════════════════════════════╗
+  ║                                           ║
+  ║    Discord Radio Bot - Installer v4.0     ║
+  ║    Zero-Lag Audio + Premium System         ║
+  ║                                           ║
+  ╚═══════════════════════════════════════════╝
+[0m
+
+[1mSchritt 1/6: Docker pruefen[0m
+─────────────────────────────────────
+[0;33m[WARN][0m Docker nicht gefunden.
+[0;36m[INFO][0m Installiere Docker...
+[0;32m[OK][0m   Docker installiert.
+[0;31m[FAIL][0m docker compose Plugin fehlt.
+  Installiere es mit: sudo apt-get install docker-compose-plugin: Made significantly more robust to handle updates and file system issues.
+    *   : Fixed to prevent container restart loops.
 
 **Areas that need refactoring**:
--    remains a monolith. The recent additions of command handlers and a scheduled job have made it even more complex. It needs to be broken down into smaller files.
+-    is the primary focus of the current refactoring effort.
+-   The static frontend in  is a candidate for a future upgrade to a modern framework like React.
 
 **key api endpoints**
--   : Updated to handle tiers, durations, and upgrades.
--   : Updated to use the new  logic and trigger emails.
--   : Returns detailed license information, including expiry dates.
--   **New Discord Commands**: , , .
+-   : Will need to be updated to use the new  service.
+-   : Will need to be updated to use the new  logic for creating/updating seat-based licenses.
 
 **Critical Info for New Agent**
-1.  **PRIORITY 0: TEST AND FIX THE PREMIUM SYSTEM**. Your first action must be to locate and analyze the test report from the previous agent's final action. The entire premium feature set is coded but unverified. Fix all bugs found in the report to deliver the user's main requested feature.
-2.  **PRIORITY 1: FIX AUTO-RECONNECT ON RESTART**. This is a recurring, high-priority user complaint. The bot does not rejoin its channel after a restart. You must reproduce the issue, diagnose why the previous agent's fixes were insufficient, and implement a robust solution.
-3.  **DO NOT DEVIATE**. The user has approved a clear, two-step plan: 1. Fix auto-reconnect. 2. Finalize the premium system. Address both of these, in order, starting with an  to confirm priorities.
-4.  **Communicate exclusively in German.**
+1.  **TOP PRIORITY**: You are in the middle of a massive refactoring and rebranding task. Your first and foremost goal is to complete it by modifying  to use all the new services and configs. The application is currently **non-functional**.
+2.  **Follow the PRD**: The user's message #240 is the complete Product Requirements Document for this OmniFM task. Adhere to it strictly.
+3.  **Language**: You MUST communicate with the user in **German**.
+4.  **Resolved Issues**: The previously critical, recurring Auto-Reconnect and  script bugs are **FIXED**. Do not spend time investigating them. The user has confirmed the fixes.
 
 **documents and test reports created in this job**
--   /app/memory/PRD.md
--   Multiple test reports in . The most recent one is crucial for debugging Issue #1.
+- /app/memory/PRD.md (will need a major update after the refactor is complete)
+- Test reports were generated for previous bug fixes but are not relevant to the current refactoring task.
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User (273)**: Approves the agent's detailed plan for the premium overhaul, specifying requirements like own SMTP, ~50 stations, and dual email notifications (admin/customer).
-2.  **User (271)**: Lays out the full product requirements for the Free/Pro/Ultimate tiers, including features, pricing, and the need for SMTP integration for invites and receipts.
-3.  **User (179)**: Confirms subscription logic details, including discounts for annual plans and extending existing subscriptions.
-4.  **User (177)**: Agrees with the plan to first fix auto-reconnect, then build the new premium system.
-5.  **User (176)**: **(CRITICAL PENDING MESSAGE)** Reports that auto-reconnect on restart is completely broken and simultaneously requests the massive premium system overhaul.
-6.  **User (141)**: Requests consolidating all settings into 
-[0;36m[1m
-  ╔══════════════════════════════════════════════╗
-  ║                                              ║
-  ║   Discord Radio Bot - Management & Settings  ║
-  ║                                              ║
-  ╚══════════════════════════════════════════════╝
-[0m
-  [0;31m[FAIL][0m docker fehlt. Bitte installieren. and reports a bug where Stripe appears not configured. **(Completed)**
-7.  **User (112)**: Clarifies UI requirements: bot stats (server count) on the website, but now-playing info only on Discord. **(Completed)**
-8.  **User (105)**: Sends a screenshot of a broken UI element. **(Completed)**
-9.  **User (92)**: Asks for the now-playing status to be server-specific. **(Completed)**
-10. **User (51)**: Expresses major frustration about multiple bugs in the scripts and premium logic. **(Completed)**
+- **User (240)**: Provided a detailed, multi-page PRD for a complete rebranding to OmniFM and a new v3 monetization system. This is the current source of truth for all work. **(IN PROGRESS)**
+- **User (232-238)**: Instructed the agent to pull the latest code from a specific GitHub repository. **(Completed)**
+- **User (226)**: Asked the agent to get the latest git state before giving further instructions. **(Completed)**
+- **User (217-225)**: Reported a self-signed certificate error with the email test and confirmed the agent's proposed fix. **(Completed)**
+- **User (216)**: Confirmed the  script seems to work now but reported the email test is failing. **(Partially Completed)**
+- **User (209-215)**: Pointed out that the  script fix was incorrect, leading the agent to identify the  bug and resolve it. Also noted that the auto-reconnect now works. **(Completed)**
+- **User (208)**: Provided logs showing the bot container was not active according to , despite logs showing the bot was running. This led to the discovery of the  bug. **(Completed)**
 
 **Project Health Check:**
--   **Broken**: The auto-reconnect-on-restart feature, a critical user requirement, is non-functional.
--   **Mocked**: The entire new premium tier system is coded but completely unverified and likely contains numerous bugs.
+-   **Broken**: The application is in a non-functional state mid-refactor. The core  file is out of sync with the new modular architecture.
 
 **3rd Party Integrations**
--   **Discord**:  - Requires User API Keys ().
--   **Stripe**:  - Requires User API Keys (configured via ).
--   **Nodemailer**: For SMTP - Requires User SMTP credentials (configured via ).
+-   **Discord**:  - Requires user-provided bot tokens.
+-   **Stripe**:  - Logic only for pricing; no active integration.
+-   **Nodemailer**: For SMTP emails, requires user-provided SMTP credentials.
 
 **Testing status**
--   Testing agent used after significant changes: YES, but the final and most critical run was not analyzed.
+-   Testing agent used after significant changes: NO (Not yet, as the refactor is incomplete).
 -   Troubleshoot agent used after agent stuck in loop: NO
 -   Test files created: None.
--   Known regressions: The auto-reconnect feature is a persistent regression.
+-   Known regressions: None. The main regression (auto-reconnect) was fixed.
 
 **Credentials to test flow:**
 -   Bot credentials must be set in the  file.
@@ -256,5 +207,4 @@ Future Tasks:
   [0;31m[FAIL][0m docker fehlt. Bitte installieren..
 
 **What agent forgot to execute**
--   The agent failed to analyze the test results of its largest and most critical implementation (the premium system), leaving it in an unknown and unstable state.
--   The agent did not definitively verify its fixes for the auto-reconnect issue, which the user continues to report as broken.</analysis>
+- The agent has not forgotten anything; it is simply in the middle of a very large, multi-step task and has correctly identified the next step (refactoring ).</analysis>
