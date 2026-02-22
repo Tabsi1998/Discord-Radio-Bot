@@ -4,6 +4,7 @@ import { getPermissionCommandChoices } from "./config/command-permissions.js";
 export function buildCommandBuilders() {
   const permissionChoices = getPermissionCommandChoices();
   return [
+    new SlashCommandBuilder().setName("help").setDescription("Zeigt alle Befehle und kurze Erklaerungen"),
     new SlashCommandBuilder()
       .setName("play")
       .setDescription("Starte einen Radio-Stream in deinem Voice-Channel")

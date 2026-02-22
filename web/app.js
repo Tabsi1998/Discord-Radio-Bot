@@ -44,6 +44,7 @@ function tr(deText, enText) {
 }
 
 var COMMANDS_DE = [
+  { name: '/help',          args: '',                     desc: 'Zeigt alle Commands und Erklaerungen direkt im Bot' },
   { name: '/play',          args: '[station] [channel]', desc: 'Startet einen Radio-Stream im Voice-Channel' },
   { name: '/pause',         args: '',                     desc: 'Pausiert die aktuelle Wiedergabe' },
   { name: '/resume',        args: '',                     desc: 'Setzt die Wiedergabe fort' },
@@ -64,6 +65,7 @@ var COMMANDS_DE = [
 ];
 
 var COMMANDS_EN = [
+  { name: '/help',          args: '',                     desc: 'Shows all commands and explanations in Discord' },
   { name: '/play',          args: '[station] [channel]', desc: 'Starts a radio stream in a voice channel' },
   { name: '/pause',         args: '',                     desc: 'Pauses current playback' },
   { name: '/resume',        args: '',                     desc: 'Resumes playback' },
@@ -451,10 +453,11 @@ function setEqActive(active) {
 }
 
 // --- Commands ---
-(function renderCommands() {
+function renderCommands(commands) {
   var list = document.getElementById('commandsList');
+  if (!list) return;
   list.innerHTML = '';
-  COMMANDS.forEach(function(cmd) {
+  (commands || []).forEach(function(cmd) {
     var row = document.createElement('div');
     row.className = 'cmd-row';
     var badge = document.createElement('span');
@@ -473,7 +476,52 @@ function setEqActive(active) {
     row.appendChild(desc);
     list.appendChild(row);
   });
-})();
+}
+
+function commandFallbackMap() {
+  var map = {};
+  COMMANDS.forEach(function(cmd) {
+    map[cmd.name] = cmd;
+  });
+  return map;
+}
+
+function normalizeApiCommands(commands) {
+  if (!Array.isArray(commands)) return [];
+  var fallbackByName = commandFallbackMap();
+
+  return commands
+    .map(function(cmd) {
+      var name = String(cmd && cmd.name || '').trim();
+      if (!name || name.charAt(0) !== '/') return null;
+      var fallback = fallbackByName[name] || null;
+      var args = String((cmd && cmd.args) || (fallback && fallback.args) || '').trim();
+      var desc = String((fallback && fallback.desc) || (cmd && cmd.description) || (cmd && cmd.desc) || '').trim();
+      return { name: name, args: args, desc: desc };
+    })
+    .filter(Boolean);
+}
+
+function loadAndRenderCommands() {
+  fetch('/api/commands', { cache: 'no-store' })
+    .then(function(res) {
+      if (!res.ok) throw new Error('api commands status ' + res.status);
+      return res.json();
+    })
+    .then(function(data) {
+      var apiCommands = normalizeApiCommands(data && data.commands);
+      if (apiCommands.length > 0) {
+        renderCommands(apiCommands);
+        return;
+      }
+      renderCommands(COMMANDS);
+    })
+    .catch(function() {
+      renderCommands(COMMANDS);
+    });
+}
+
+loadAndRenderCommands();
 
 // --- Copy helper ---
 function copyText(text, btn) {

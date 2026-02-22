@@ -449,15 +449,53 @@ function sanitizeLicenseForApi(license, includeSensitive = false) {
   return safe;
 }
 
+const COMMAND_ARG_OPTION_TYPES = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11]);
+
+function formatCommandArgToken(option) {
+  const name = String(option?.name || "").trim();
+  if (!name) return "";
+  return option.required ? `<${name}>` : `[${name}]`;
+}
+
+function buildCommandArgsFromOptions(options) {
+  if (!Array.isArray(options) || !options.length) return "";
+
+  const subcommands = options.filter((opt) => opt?.type === 1 && opt?.name);
+  if (subcommands.length) {
+    const parts = subcommands.map((sub) => {
+      const subArgs = buildCommandArgsFromOptions(sub.options);
+      return subArgs ? `${sub.name} ${subArgs}` : sub.name;
+    });
+    return `<${parts.join(" | ")}>`;
+  }
+
+  const subcommandGroups = options.filter((opt) => opt?.type === 2 && opt?.name);
+  if (subcommandGroups.length) {
+    const parts = subcommandGroups.map((group) => {
+      const nestedSubs = Array.isArray(group.options)
+        ? group.options.filter((opt) => opt?.type === 1 && opt?.name)
+        : [];
+      if (!nestedSubs.length) return String(group.name);
+      const nested = nestedSubs.map((sub) => {
+        const subArgs = buildCommandArgsFromOptions(sub.options);
+        return subArgs ? `${sub.name} ${subArgs}` : sub.name;
+      });
+      return `${group.name} ${nested.join(" | ")}`;
+    });
+    return `<${parts.join(" | ")}>`;
+  }
+
+  return options
+    .filter((opt) => COMMAND_ARG_OPTION_TYPES.has(opt?.type))
+    .map((opt) => formatCommandArgToken(opt))
+    .filter(Boolean)
+    .join(" ");
+}
+
 function buildApiCommands() {
   return buildCommandBuilders().map((builder) => {
     const json = builder.toJSON();
-    const args = Array.isArray(json.options)
-      ? json.options
-          .filter((opt) => opt.type === 3 || opt.type === 4)
-          .map((opt) => (opt.required ? `<${opt.name}>` : `[${opt.name}]`))
-          .join(" ")
-      : "";
+    const args = buildCommandArgsFromOptions(json.options);
 
     return {
       name: `/${json.name}`,
@@ -1279,6 +1317,88 @@ class BotRuntime {
     return this.isGuildOwner(interaction) || this.hasGuildManagePermissions(interaction);
   }
 
+  resolveInteractionLanguage(interaction) {
+    const raw = String(interaction?.locale || interaction?.guildLocale || "").trim();
+    return normalizeLanguage(raw, getDefaultLanguage());
+  }
+
+  buildHelpMessage(interaction) {
+    const language = this.resolveInteractionLanguage(interaction);
+    const isDe = language === "de";
+    const guildId = interaction?.guildId;
+    const tierConfig = guildId ? getTierConfig(guildId) : PLANS.free;
+
+    if (isDe) {
+      const lines = [
+        `**${BRAND.name} Hilfe**`,
+        `Server: ${interaction.guild?.name || guildId || "-"}`,
+        `Plan: ${tierConfig.name} | Audio: ${tierConfig.bitrate} | Max Bots: ${tierConfig.maxBots}`,
+        "",
+        "**Schnellstart**",
+        "1) `/play [station] [channel]` startet Musik im Voice-Channel.",
+        "2) `/stations` zeigt alle verfuegbaren Sender fuer deinen Plan.",
+        "3) `/stop` beendet den Stream und verlaesst den Channel.",
+        "",
+        "**Basis-Commands**",
+        "`/help` Hilfe anzeigen",
+        "`/play [station] [channel]` Sender starten",
+        "`/pause` `/resume` Pause/Fortsetzen",
+        "`/stop` Stream stoppen",
+        "`/setvolume <0-100>` Lautstaerke setzen",
+        "`/stations` und `/list [page]` Sender anzeigen",
+        "`/now` aktuelle Wiedergabe",
+        "`/status`, `/health`, `/diag` Bot- und Stream-Status",
+        "`/premium` Premium-Status",
+        "`/license activate|info|remove` Lizenz verwalten",
+        "",
+        "**Pro/Ultimate**",
+        "`/perm allow|deny|remove|list|reset` Rollenrechte pro Command (Berechtigung: Server verwalten)",
+        "",
+        "**Ultimate**",
+        "`/addstation <key> <name> <url>` eigene Station hinzufuegen",
+        "`/removestation <key>` eigene Station entfernen",
+        "`/mystations` eigene Stationen anzeigen",
+        "",
+        "Support: https://discord.gg/UeRkfGS43R",
+      ];
+      return lines.join("\n");
+    }
+
+    const lines = [
+      `**${BRAND.name} Help**`,
+      `Server: ${interaction.guild?.name || guildId || "-"}`,
+      `Plan: ${tierConfig.name} | Audio: ${tierConfig.bitrate} | Max bots: ${tierConfig.maxBots}`,
+      "",
+      "**Quick start**",
+      "1) `/play [station] [channel]` starts radio in your voice channel.",
+      "2) `/stations` shows available stations for your plan.",
+      "3) `/stop` ends playback and leaves the channel.",
+      "",
+      "**Core commands**",
+      "`/help` show this help",
+      "`/play [station] [channel]` start station",
+      "`/pause` `/resume` pause/resume",
+      "`/stop` stop stream",
+      "`/setvolume <0-100>` set volume",
+      "`/stations` and `/list [page]` browse stations",
+      "`/now` current playback",
+      "`/status`, `/health`, `/diag` bot/stream status",
+      "`/premium` premium status",
+      "`/license activate|info|remove` license management",
+      "",
+      "**Pro/Ultimate**",
+      "`/perm allow|deny|remove|list|reset` role permissions per command (requires: Manage Server)",
+      "",
+      "**Ultimate**",
+      "`/addstation <key> <name> <url>` add custom station",
+      "`/removestation <key>` remove custom station",
+      "`/mystations` list custom stations",
+      "",
+      "Support: https://discord.gg/UeRkfGS43R",
+    ];
+    return lines.join("\n");
+  }
+
   getInteractionRoleIds(interaction) {
     const ids = new Set();
     const rawRoles = interaction?.member?.roles;
@@ -1809,13 +1929,18 @@ class BotRuntime {
       return;
     }
 
-    const unrestrictedCommands = new Set(["premium", "license"]);
+    const unrestrictedCommands = new Set(["help", "premium", "license"]);
     if (!unrestrictedCommands.has(interaction.commandName)) {
       const access = this.getGuildAccess(interaction.guildId);
       if (!access.allowed) {
         await this.replyAccessDenied(interaction, access);
         return;
       }
+    }
+
+    if (interaction.commandName === "help") {
+      await interaction.reply({ content: this.buildHelpMessage(interaction), ephemeral: true });
+      return;
     }
 
     if (interaction.commandName === "perm") {
