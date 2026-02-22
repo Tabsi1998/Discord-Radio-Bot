@@ -934,8 +934,10 @@ class BotRuntime {
   async refreshGuildCommandsOnReady() {
     await this.cleanupGlobalCommands();
     if (this.isGuildCommandCleanupEnabled()) {
-      log("INFO", `[${this.config.name}] CLEAN_GUILD_COMMANDS_ON_BOOT=1 -> bereinige Guild-Commands vor Sync.`);
-      await this.cleanupGuildCommands();
+      log(
+        "INFO",
+        `[${this.config.name}] CLEAN_GUILD_COMMANDS_ON_BOOT=1 erkannt, Cleanup wird im Schutzmodus uebersprungen. Es erfolgt ein direkter Voll-Sync.`
+      );
     }
     await this.syncGuildCommands("startup");
   }
@@ -2182,7 +2184,11 @@ class BotRuntime {
         const badge = available[k].tier !== "free" ? ` [${available[k].tier.toUpperCase()}]` : "";
         return `\`${k}\` - ${available[k].name}${badge}`;
       }).join("\n");
-      await interaction.reply({ content: `**Stationen (Seite ${page}/${totalPages}):**\n${list}`, ephemeral: true });
+      await this.respondLongInteraction(
+        interaction,
+        `**Stationen (Seite ${page}/${totalPages}):**\n${list}`,
+        { ephemeral: true }
+      );
       return;
     }
 
@@ -2211,13 +2217,12 @@ class BotRuntime {
 
       const meta = state.currentMeta;
       if (meta && (meta.name || meta.description)) {
-        lines.push(`Meta: ${meta.name || "-"}${meta.description ? ` | ${meta.description}` : ""}`);
+        const metaName = clipText(meta.name || "-", 120);
+        const metaDesc = clipText(meta.description || "", 240);
+        lines.push(`Meta: ${metaName}${metaDesc ? ` | ${metaDesc}` : ""}`);
       }
 
-      await interaction.reply({
-        content: lines.join("\n"),
-        ephemeral: false
-      });
+      await this.respondLongInteraction(interaction, lines.join("\n"), { ephemeral: false });
       return;
     }
 
@@ -2882,7 +2887,8 @@ function sendJson(res, status, payload) {
 function sendStaticFile(res, filePath) {
   const resolved = path.resolve(filePath);
   const resolvedWebDir = path.resolve(webDir);
-  if (!resolved.startsWith(resolvedWebDir)) {
+  const relativePath = path.relative(resolvedWebDir, resolved);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -2943,6 +2949,24 @@ function getBotAccessForTier(botConfig, tierConfig) {
   };
 }
 
+function resolveRuntimeClientId(runtimeOrConfig) {
+  if (!runtimeOrConfig) return "";
+  if (typeof runtimeOrConfig.getApplicationId === "function") {
+    const runtimeId = String(runtimeOrConfig.getApplicationId() || "").trim();
+    if (runtimeId) return runtimeId;
+  }
+  const config = runtimeOrConfig.config || runtimeOrConfig;
+  return String(config?.clientId || "").trim();
+}
+
+function buildInviteUrlForRuntime(runtimeOrConfig) {
+  const config = runtimeOrConfig?.config || runtimeOrConfig;
+  if (!config) return null;
+  const resolvedClientId = resolveRuntimeClientId(runtimeOrConfig);
+  if (!resolvedClientId) return null;
+  return buildInviteUrl({ ...config, clientId: resolvedClientId });
+}
+
 function resolvePublicWebsiteUrl() {
   const raw = String(process.env.PUBLIC_WEB_URL || "").trim();
   if (!raw) return "https://discord.gg/UeRkfGS43R";
@@ -2977,10 +3001,12 @@ function buildInviteOverviewForTier(runtimes, tier) {
     const seen = bucket === "ultimate" ? seenUltimate : seenPro;
     if (seen.has(index)) continue;
     seen.add(index);
+    const inviteUrl = buildInviteUrlForRuntime(runtime);
+    if (!inviteUrl) continue;
     target.push({
       index: Number(runtime.config.index || 0),
       name: runtime.config.name,
-      url: buildInviteUrl(runtime.config),
+      url: inviteUrl,
     });
   }
 
@@ -3369,7 +3395,7 @@ function startWebServer(runtimes) {
           requiredTier: botTier,
           hasAccess: access.hasAccess,
           blockedReason: access.reason,
-          inviteUrl: access.hasAccess ? buildInviteUrl(rt.config) : null,
+          inviteUrl: access.hasAccess ? buildInviteUrlForRuntime(rt) : null,
         };
       });
 
@@ -3781,6 +3807,36 @@ setInterval(() => {
     }
   }
 }, 60_000);
+
+const periodicGuildSyncIntervalRaw = Number.parseInt(String(process.env.PERIODIC_GUILD_COMMAND_SYNC_MS ?? "1800000"), 10);
+const periodicGuildSyncIntervalMs = Number.isFinite(periodicGuildSyncIntervalRaw) && periodicGuildSyncIntervalRaw >= 60_000
+  ? periodicGuildSyncIntervalRaw
+  : 0;
+let periodicGuildSyncRunning = false;
+
+if (periodicGuildSyncIntervalMs > 0) {
+  log("INFO", `Periodischer Guild-Command-Sync aktiv: alle ${Math.round(periodicGuildSyncIntervalMs / 1000)}s.`);
+  setInterval(() => {
+    if (periodicGuildSyncRunning) return;
+    periodicGuildSyncRunning = true;
+    (async () => {
+      for (const runtime of runtimes) {
+        if (!runtime.client.isReady()) continue;
+        if (!runtime.isGuildCommandSyncEnabled()) continue;
+        // eslint-disable-next-line no-await-in-loop
+        await runtime.syncGuildCommands("periodic");
+      }
+    })()
+      .catch((err) => {
+        log("ERROR", `[GuildSync] Periodischer Sync fehlgeschlagen: ${err?.message || err}`);
+      })
+      .finally(() => {
+        periodicGuildSyncRunning = false;
+      });
+  }, periodicGuildSyncIntervalMs);
+} else {
+  log("INFO", "Periodischer Guild-Command-Sync deaktiviert (PERIODIC_GUILD_COMMAND_SYNC_MS=0).");
+}
 
 // Lizenz-Ablauf pruefen (alle 6 Stunden)
 setInterval(async () => {

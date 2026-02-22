@@ -259,6 +259,7 @@ if [[ $existing_bots -eq 0 ]]; then
   write_env_line "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1"
   write_env_line "GUILD_COMMAND_SYNC_RETRIES" "3"
   write_env_line "GUILD_COMMAND_SYNC_RETRY_MS" "1200"
+  write_env_line "PERIODIC_GUILD_COMMAND_SYNC_MS" "1800000"
   write_env_line "LOG_MAX_MB" "5"
   write_env_line "LOG_MAX_FILES" "30"
   write_env_line "LOG_MAX_DAYS" "14"

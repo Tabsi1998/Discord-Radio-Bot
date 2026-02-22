@@ -17,20 +17,30 @@ try {
   process.exit(1);
 }
 
+const failedBots = [];
+
 for (const bot of bots) {
   try {
     const rest = new REST({ version: "10" }).setToken(bot.token);
+    const me = await rest.get(Routes.user("@me"));
+    const runtimeClientId = String(me?.id || bot.clientId || "").trim();
+    if (!runtimeClientId) {
+      throw new Error("Application ID konnte nicht aufgeloest werden.");
+    }
+    if (runtimeClientId !== String(bot.clientId || "").trim()) {
+      console.warn(`[WARN] ${bot.name}: CLIENT_ID mismatch (env=${bot.clientId}, runtime=${runtimeClientId}). Nutze runtime-ID.`);
+    }
     if (syncGuildCommands) {
-      console.log(`Loesche globale Slash-Commands fuer ${bot.name} (${bot.clientId}) (Guild-Sync aktiv)...`);
-      await rest.put(Routes.applicationCommands(bot.clientId), { body: [] });
+      console.log(`Loesche globale Slash-Commands fuer ${bot.name} (${runtimeClientId}) (Guild-Sync aktiv)...`);
+      await rest.put(Routes.applicationCommands(runtimeClientId), { body: [] });
     } else {
-      console.log(`Registriere globale Slash-Commands fuer ${bot.name} (${bot.clientId})...`);
-      await rest.put(Routes.applicationCommands(bot.clientId), { body: commands });
+      console.log(`Registriere globale Slash-Commands fuer ${bot.name} (${runtimeClientId})...`);
+      await rest.put(Routes.applicationCommands(runtimeClientId), { body: commands });
     }
     console.log("Fertig.");
   } catch (err) {
-    console.error(`Fehler bei ${bot.name}:`, err);
-    process.exit(1);
+    failedBots.push(bot.name);
+    console.error(`Fehler bei ${bot.name}:`, err?.message || err);
   }
 }
 
@@ -38,4 +48,9 @@ if (syncGuildCommands) {
   console.log("Globale Commands wurden geloescht. Guild-Commands werden beim Bot-Start synchronisiert.");
 } else {
   console.log("Alle Bot-Commands registriert (globale Commands koennen bis zu 1h fuer volle Sichtbarkeit brauchen).");
+}
+
+if (failedBots.length > 0) {
+  console.error(`[WARN] Command-Deploy unvollstaendig. Fehlgeschlagen fuer: ${failedBots.join(", ")}`);
+  process.exitCode = 1;
 }

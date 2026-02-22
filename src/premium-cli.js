@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import dotenv from "dotenv";
+import { REST } from "@discordjs/rest";
+import { Routes } from "discord.js";
 import { PLANS } from "./config/plans.js";
 import { getDefaultLanguage, getLocaleForLanguage, normalizeLanguage } from "./i18n.js";
 import {
@@ -154,10 +156,30 @@ function buildInviteOverviewForTier(botConfigs, tier) {
   return overview;
 }
 
-function getInviteOverviewForTier(tier) {
+async function resolveRuntimeClientId(botConfig) {
+  try {
+    const rest = new REST({ version: "10" }).setToken(botConfig.token);
+    const me = await rest.get(Routes.user("@me"));
+    const runtimeId = String(me?.id || "").trim();
+    if (runtimeId && runtimeId !== String(botConfig.clientId || "").trim()) {
+      info(`CLIENT_ID mismatch bei ${botConfig.name}: env=${botConfig.clientId}, runtime=${runtimeId}`);
+    }
+    return runtimeId || String(botConfig.clientId || "").trim();
+  } catch {
+    return String(botConfig.clientId || "").trim();
+  }
+}
+
+async function getInviteOverviewForTier(tier) {
   try {
     const botConfigs = loadBotConfigs(process.env);
-    return buildInviteOverviewForTier(botConfigs, tier);
+    const resolved = [];
+    for (const botConfig of botConfigs) {
+      // eslint-disable-next-line no-await-in-loop
+      const runtimeClientId = await resolveRuntimeClientId(botConfig);
+      resolved.push({ ...botConfig, clientId: runtimeClientId });
+    }
+    return buildInviteOverviewForTier(resolved, tier);
   } catch {
     return { freeWebsiteUrl: resolvePublicWebsiteUrl(), proBots: [], ultimateBots: [] };
   }
@@ -471,7 +493,7 @@ async function run() {
       case "9":
       case "resend": {
         if (!isEmailConfigured()) {
-          fail("SMTP ist nicht konfiguriert. Nutze zuerst: ./update.sh --email-settings");
+          fail("SMTP ist nicht konfiguriert. Nutze zuerst: ./update.sh --email");
           break;
         }
 
@@ -513,7 +535,7 @@ async function run() {
           }
         }
 
-        const inviteOverview = getInviteOverviewForTier(tier);
+        const inviteOverview = await getInviteOverviewForTier(tier);
         const mailLanguage = normalizeLanguage(license.preferredLanguage || license.language, getDefaultLanguage());
         const html = buildResendEmailHtml({
           license,
