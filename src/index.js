@@ -275,6 +275,49 @@ function clipText(value, max = 100) {
   return text.length > max ? `${text.slice(0, Math.max(0, max - 1))}...` : text;
 }
 
+function splitTextForDiscord(content, maxLength = 1900) {
+  const text = String(content ?? "");
+  if (!text) return [""];
+
+  const lines = text.split("\n");
+  const chunks = [];
+  let current = "";
+
+  const flushCurrent = () => {
+    if (!current) return;
+    chunks.push(current);
+    current = "";
+  };
+
+  for (const rawLine of lines) {
+    const line = String(rawLine ?? "");
+
+    if (line.length > maxLength) {
+      flushCurrent();
+      for (let i = 0; i < line.length; i += maxLength) {
+        chunks.push(line.slice(i, i + maxLength));
+      }
+      continue;
+    }
+
+    if (!current) {
+      current = line;
+      continue;
+    }
+
+    if ((current.length + 1 + line.length) > maxLength) {
+      flushCurrent();
+      current = line;
+      continue;
+    }
+
+    current += `\n${line}`;
+  }
+
+  flushCurrent();
+  return chunks.length ? chunks : [""];
+}
+
 function formatStationPage(stations, pageInput, perPage = 10) {
   const entries = Object.entries(stations.stations);
   if (entries.length === 0) {
@@ -678,8 +721,18 @@ class BotRuntime {
     });
 
     this.client.on("interactionCreate", (interaction) => {
-      this.handleInteraction(interaction).catch((err) => {
+      this.handleInteraction(interaction).catch(async (err) => {
         log("ERROR", `[${this.config.name}] interaction error: ${err?.stack || err}`);
+        try {
+          if (!interaction.isRepliable || !interaction.isRepliable()) return;
+          if (interaction.deferred || interaction.replied) {
+            await interaction.editReply({ content: "Es ist ein Fehler aufgetreten. Bitte versuche es erneut." });
+          } else {
+            await interaction.reply({ content: "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.", ephemeral: true });
+          }
+        } catch {
+          // ignore secondary reply failures
+        }
       });
     });
 
@@ -1588,7 +1641,7 @@ class BotRuntime {
       const header = command
         ? `Regeln fuer \`/${command}\`:`
         : `Aktive Command-Rollenregeln (${lines.length}):`;
-      await interaction.reply({ content: `${header}\n${lines.join("\n")}`, ephemeral: true });
+      await this.respondLongInteraction(interaction, `${header}\n${lines.join("\n")}`, { ephemeral: true });
       return;
     }
 
@@ -1605,6 +1658,19 @@ class BotRuntime {
       return interaction.editReply(editPayload);
     }
     return interaction.reply(payload);
+  }
+
+  async respondLongInteraction(interaction, content, { ephemeral = true } = {}) {
+    const chunks = splitTextForDiscord(content, 1900);
+    if (!chunks.length) {
+      await this.respondInteraction(interaction, { content: "-", ephemeral });
+      return;
+    }
+
+    await this.respondInteraction(interaction, { content: chunks[0], ephemeral });
+    for (let i = 1; i < chunks.length; i++) {
+      await interaction.followUp({ content: chunks[i], ephemeral });
+    }
   }
 
   async connectToVoice(interaction, targetChannel = null, { silent = false } = {}) {
@@ -1939,7 +2005,7 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "help") {
-      await interaction.reply({ content: this.buildHelpMessage(interaction), ephemeral: true });
+      await this.respondLongInteraction(interaction, this.buildHelpMessage(interaction), { ephemeral: true });
       return;
     }
 
@@ -1969,7 +2035,7 @@ class BotRuntime {
       const customList = Object.entries(custom).map(([k, v]) => `\`${k}\` - ${v.name} [CUSTOM]`).join("\n");
       let content = `**Verfuegbare Stationen${tierLabel} (${Object.keys(available).length}):**\n${list}`;
       if (customList) content += `\n\n**Custom Stationen (${Object.keys(custom).length}):**\n${customList}`;
-      await interaction.reply({ content, ephemeral: true });
+      await this.respondLongInteraction(interaction, content, { ephemeral: true });
       return;
     }
 
@@ -2232,7 +2298,11 @@ class BotRuntime {
         await interaction.reply({ content: "Keine Custom Stationen. Nutze `/addstation` um eine hinzuzufuegen.", ephemeral: true });
       } else {
         const list = keys.map(k => `\`${k}\` - ${custom[k].name}`).join("\n");
-        await interaction.reply({ content: `**Custom Stationen (${keys.length}/${MAX_STATIONS_PER_GUILD}):**\n${list}`, ephemeral: true });
+        await this.respondLongInteraction(
+          interaction,
+          `**Custom Stationen (${keys.length}/${MAX_STATIONS_PER_GUILD}):**\n${list}`,
+          { ephemeral: true }
+        );
       }
       return;
     }

@@ -5,6 +5,7 @@ import { PLANS } from "./config/plans.js";
 import { getDefaultLanguage, getLocaleForLanguage, normalizeLanguage } from "./i18n.js";
 import {
   getServerLicense, listLicenses, addLicenseForServer, removeLicense,
+  extendLicense, unlinkServerFromLicense,
   upgradeLicenseForServer,
 } from "./premium-store.js";
 import { isConfigured as isEmailConfigured, sendMail } from "./email.js";
@@ -333,7 +334,7 @@ async function run() {
         const price = calculatePrice(lic.plan, months);
         info(`Preis: ${centsToEur(price)} fuer ${months} Monat${months > 1 ? "e" : ""}`);
 
-        const updated = addLicenseForServer(serverId, lic.plan, months, "admin-cli", `Verlaengerung +${months}M`);
+        const updated = extendLicense(lic.id, months);
         ok(`Laufzeit verlaengert bis ${formatDate(updated.expiresAt)}.`);
         break;
       }
@@ -366,8 +367,26 @@ async function run() {
         const serverId = await ask("Server ID");
         const lic = getServerLicense(serverId);
         if (lic && lic.id) {
-          removeLicense(lic.id);
-          ok(`Lizenz fuer ${serverId} entfernt.`);
+          const modeRaw = (await ask("Aktion (server/lizenz, Enter=server)")).trim().toLowerCase();
+          const mode = modeRaw || "server";
+
+          if (mode === "lizenz" || mode === "license") {
+            const confirmDelete = (await ask("Wirklich KOMPLETTE Lizenz loeschen? (j/n)")).trim().toLowerCase();
+            if (confirmDelete === "j" || confirmDelete === "y") {
+              removeLicense(lic.id);
+              ok(`Komplette Lizenz ${lic.id} geloescht.`);
+            } else {
+              info("Abgebrochen.");
+            }
+            break;
+          }
+
+          const result = unlinkServerFromLicense(serverId, lic.id);
+          if (result.ok) {
+            ok(`Server ${serverId} von Lizenz ${lic.id} entfernt.`);
+          } else {
+            fail(`Fehler beim Entfernen: ${result.message}`);
+          }
         } else {
           fail("Keine Lizenz gefunden.");
         }

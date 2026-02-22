@@ -167,30 +167,52 @@ export function getLicenseById(licenseId) {
 }
 
 export function linkServerToLicense(serverId, licenseId) {
+  const sid = String(serverId);
+  const lid = String(licenseId);
   const data = load();
-  const lic = data.licenses[String(licenseId)];
+  const lic = data.licenses[lid];
   if (!lic) return { ok: false, message: "License not found." };
   if (!lic.active || isExpired(lic)) return { ok: false, message: "License is not active or has expired." };
 
+  // If server is linked to a different license, release that seat first.
+  const currentEntitlement = data.serverEntitlements[sid];
+  const currentLicenseId = String(currentEntitlement?.licenseId || "");
+  if (currentLicenseId && currentLicenseId !== lid) {
+    const oldLicense = data.licenses[currentLicenseId];
+    if (oldLicense) {
+      oldLicense.linkedServerIds = (oldLicense.linkedServerIds || []).filter((id) => id !== sid);
+      oldLicense.updatedAt = new Date().toISOString();
+    }
+  }
+
   const linked = lic.linkedServerIds || [];
-  if (linked.includes(String(serverId))) return { ok: true, message: "Server already linked." };
+  if (linked.includes(sid)) {
+    data.serverEntitlements[sid] = { serverId: sid, licenseId: lid };
+    save(data);
+    return { ok: true, message: "Server already linked." };
+  }
   if (linked.length >= lic.seats) return { ok: false, message: `All ${lic.seats} seat(s) are occupied. Unlink a server first or upgrade.` };
 
-  lic.linkedServerIds = [...linked, String(serverId)];
+  lic.linkedServerIds = [...linked, sid];
   lic.updatedAt = new Date().toISOString();
-  data.serverEntitlements[String(serverId)] = { serverId: String(serverId), licenseId: String(licenseId) };
+  data.serverEntitlements[sid] = { serverId: sid, licenseId: lid };
   save(data);
   return { ok: true };
 }
 
 export function unlinkServerFromLicense(serverId, licenseId) {
+  const sid = String(serverId);
+  const lid = String(licenseId);
   const data = load();
-  const lic = data.licenses[String(licenseId)];
+  const lic = data.licenses[lid];
   if (!lic) return { ok: false, message: "License not found." };
 
-  lic.linkedServerIds = (lic.linkedServerIds || []).filter(id => id !== String(serverId));
+  lic.linkedServerIds = (lic.linkedServerIds || []).filter(id => id !== sid);
   lic.updatedAt = new Date().toISOString();
-  delete data.serverEntitlements[String(serverId)];
+  const entitlement = data.serverEntitlements[sid];
+  if (entitlement && String(entitlement.licenseId || "") === lid) {
+    delete data.serverEntitlements[sid];
+  }
   save(data);
   return { ok: true };
 }
