@@ -275,6 +275,11 @@ function clipText(value, max = 100) {
   return text.length > max ? `${text.slice(0, Math.max(0, max - 1))}...` : text;
 }
 
+function waitMs(ms) {
+  const delay = Math.max(0, Number(ms) || 0);
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
 function splitTextForDiscord(content, maxLength = 1900) {
   const text = String(content ?? "");
   if (!text) return [""];
@@ -711,6 +716,13 @@ class BotRuntime {
     this.client.once("clientReady", () => {
       this.readyAt = Date.now();
       log("INFO", `[${this.config.name}] Eingeloggt als ${this.client.user.tag}`);
+      const runtimeAppId = this.getApplicationId();
+      if (runtimeAppId && runtimeAppId !== String(this.config.clientId || "")) {
+        log(
+          "INFO",
+          `[${this.config.name}] CLIENT_ID mismatch erkannt (env=${this.config.clientId}, runtime=${runtimeAppId}). Command-Sync nutzt runtime-ID.`
+        );
+      }
       this.updatePresence();
       this.enforcePremiumGuildScope("startup").catch((err) => {
         log("ERROR", `[${this.config.name}] Premium-Guild-Scope Pruefung fehlgeschlagen: ${err?.message || err}`);
@@ -877,7 +889,10 @@ class BotRuntime {
 
   async refreshGuildCommandsOnReady() {
     await this.cleanupGlobalCommands();
-    await this.cleanupGuildCommands();
+    if (this.isGuildCommandCleanupEnabled()) {
+      log("INFO", `[${this.config.name}] CLEAN_GUILD_COMMANDS_ON_BOOT=1 -> bereinige Guild-Commands vor Sync.`);
+      await this.cleanupGuildCommands();
+    }
     await this.syncGuildCommands("startup");
   }
 
@@ -889,17 +904,74 @@ class BotRuntime {
     return buildCommandBuilders().map((builder) => builder.toJSON());
   }
 
+  getApplicationId() {
+    return String(this.client.user?.id || this.config.clientId || "").trim();
+  }
+
   isGlobalCommandCleanupEnabled() {
     if (!this.isGuildCommandSyncEnabled()) return false;
     return String(process.env.CLEAN_GLOBAL_COMMANDS_ON_BOOT ?? "1") !== "0";
   }
 
+  isGuildCommandCleanupEnabled() {
+    if (!this.isGuildCommandSyncEnabled()) return false;
+    return String(process.env.CLEAN_GUILD_COMMANDS_ON_BOOT ?? "0") !== "0";
+  }
+
+  getGuildCommandSyncRetryConfig() {
+    const attemptsRaw = Number.parseInt(String(process.env.GUILD_COMMAND_SYNC_RETRIES ?? "3"), 10);
+    const baseDelayRaw = Number.parseInt(String(process.env.GUILD_COMMAND_SYNC_RETRY_MS ?? "1200"), 10);
+    return {
+      attempts: Number.isFinite(attemptsRaw) && attemptsRaw > 0 ? attemptsRaw : 3,
+      baseDelayMs: Number.isFinite(baseDelayRaw) && baseDelayRaw > 0 ? baseDelayRaw : 1200,
+    };
+  }
+
   async syncGuildCommandForGuild(guildId, source = "sync", commandPayload = null) {
     if (!this.isGuildCommandSyncEnabled()) return false;
     if (!guildId) return false;
+    const applicationId = this.getApplicationId();
+    if (!applicationId) throw new Error("Application ID fehlt fuer Guild-Command-Sync.");
     const payload = commandPayload || this.buildGuildCommandPayload();
-    await this.rest.put(Routes.applicationGuildCommands(this.config.clientId, guildId), { body: payload });
-    return true;
+    const retryConfig = this.getGuildCommandSyncRetryConfig();
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= retryConfig.attempts; attempt++) {
+      try {
+        await this.rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: payload });
+        if (attempt > 1) {
+          log(
+            "INFO",
+            `[${this.config.name}] Guild-Command-Sync wiederhergestellt (guild=${guildId}, attempt=${attempt}/${retryConfig.attempts}, source=${source}).`
+          );
+        }
+        return true;
+      } catch (err) {
+        lastError = err;
+        if (attempt >= retryConfig.attempts) break;
+
+        const retryAfterSeconds = Number(
+          err?.rawError?.retry_after
+          ?? err?.data?.retry_after
+          ?? err?.retry_after
+          ?? 0
+        );
+        const retryAfterMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+          ? Math.ceil(retryAfterSeconds * 1000) + 250
+          : 0;
+        const backoffMs = retryConfig.baseDelayMs * attempt;
+        const delayMs = retryAfterMs > 0 ? Math.max(retryConfig.baseDelayMs, retryAfterMs) : backoffMs;
+
+        log(
+          "INFO",
+          `[${this.config.name}] Guild-Command-Sync retry (guild=${guildId}, attempt=${attempt}/${retryConfig.attempts}, wait=${delayMs}ms, source=${source}): ${err?.message || err}`
+        );
+        // eslint-disable-next-line no-await-in-loop
+        await waitMs(delayMs);
+      }
+    }
+
+    throw lastError || new Error("Guild command sync failed.");
   }
 
   async syncGuildCommands(source = "sync") {
@@ -932,9 +1004,14 @@ class BotRuntime {
 
   async cleanupGlobalCommands() {
     if (!this.isGlobalCommandCleanupEnabled()) return;
+    const applicationId = this.getApplicationId();
+    if (!applicationId) {
+      log("ERROR", `[${this.config.name}] Global-Command-Cleanup uebersprungen: Application ID fehlt.`);
+      return;
+    }
 
     try {
-      await this.rest.put(Routes.applicationCommands(this.config.clientId), { body: [] });
+      await this.rest.put(Routes.applicationCommands(applicationId), { body: [] });
       log("INFO", `[${this.config.name}] Globale Commands bereinigt (Vermeidung doppelter Commands).`);
     } catch (err) {
       log("ERROR", `[${this.config.name}] Global-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
@@ -1108,8 +1185,12 @@ class BotRuntime {
   }
 
   async cleanupGuildCommands() {
-    const enabled = String(process.env.CLEAN_GUILD_COMMANDS_ON_BOOT ?? "1") !== "0";
-    if (!enabled) return;
+    if (!this.isGuildCommandCleanupEnabled()) return;
+    const applicationId = this.getApplicationId();
+    if (!applicationId) {
+      log("ERROR", `[${this.config.name}] Guild-Command-Cleanup uebersprungen: Application ID fehlt.`);
+      return;
+    }
 
     const guildIds = [...this.client.guilds.cache.keys()];
     if (!guildIds.length) return;
@@ -1120,7 +1201,7 @@ class BotRuntime {
 
     for (const guildId of guildIds) {
       try {
-        await this.rest.put(Routes.applicationGuildCommands(this.config.clientId, guildId), { body: [] });
+        await this.rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: [] });
         cleaned += 1;
       } catch (err) {
         failed += 1;
@@ -2579,6 +2660,7 @@ class BotRuntime {
 
   getPublicStatus() {
     const stats = this.collectStats();
+    const resolvedClientId = this.getApplicationId() || this.config.clientId;
     // Per-guild details: was spielt wo
     const guildDetails = [];
     for (const [guildId, state] of this.guildState.entries()) {
@@ -2600,8 +2682,8 @@ class BotRuntime {
     return {
       id: this.config.id,
       name: this.config.name,
-      clientId: isPremiumBot ? null : this.config.clientId,
-      inviteUrl: isPremiumBot ? null : buildInviteUrl(this.config),
+      clientId: isPremiumBot ? null : resolvedClientId,
+      inviteUrl: isPremiumBot ? null : buildInviteUrl({ ...this.config, clientId: resolvedClientId }),
       requiredTier: this.config.requiredTier || "free",
       ready: this.client.isReady(),
       userTag: this.client.user?.tag || null,
@@ -3594,6 +3676,29 @@ try {
 
 const runtimes = botConfigs.map((config) => new BotRuntime(config));
 const startResults = await Promise.all(runtimes.map((runtime) => runtime.start()));
+const startedRuntimes = [];
+const failedRuntimes = [];
+
+for (let index = 0; index < runtimes.length; index++) {
+  if (startResults[index]) {
+    startedRuntimes.push(runtimes[index]);
+  } else {
+    failedRuntimes.push(runtimes[index]);
+  }
+}
+
+log(
+  "INFO",
+  `Bot-Startup abgeschlossen: started=${startedRuntimes.length}/${runtimes.length}, failed=${failedRuntimes.length}/${runtimes.length}`
+);
+
+for (const failedRuntime of failedRuntimes) {
+  const errText = failedRuntime.startError?.message || String(failedRuntime.startError || "unbekannt");
+  log(
+    "ERROR",
+    `[${failedRuntime.config.name}] Start fehlgeschlagen. Dieser Bot liefert keine Slash-Commands, bis der Login/Token-Fehler behoben ist. Grund: ${errText}`
+  );
+}
 
 if (!startResults.some(Boolean)) {
   log("ERROR", "Kein Bot konnte gestartet werden. Backend wird beendet.");
@@ -3602,7 +3707,7 @@ if (!startResults.some(Boolean)) {
 
 // Auto-Restore: Vorherigen Zustand wiederherstellen (Voice Channels + Stationen)
 const stations = loadStations();
-for (const runtime of runtimes) {
+for (const runtime of startedRuntimes) {
   // Use clientReady (not deprecated "ready") and handle both cases
   const doRestore = () => {
     log("INFO", `[${runtime.config.name}] Starte Auto-Restore...`);
@@ -3626,7 +3731,7 @@ const webServer = startWebServer(runtimes);
 
 // Periodisches Speichern des Bot-State (alle 60s) als Backup
 setInterval(() => {
-  for (const runtime of runtimes) {
+  for (const runtime of startedRuntimes) {
     if (runtime.client.isReady()) {
       runtime.persistState();
     }

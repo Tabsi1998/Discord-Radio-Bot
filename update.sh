@@ -244,6 +244,19 @@ fi
 
 ensure_env_default "SYNC_GUILD_COMMANDS_ON_BOOT" "1"
 ensure_env_default "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1"
+ensure_env_default "CLEAN_GUILD_COMMANDS_ON_BOOT" "0"
+ensure_env_default "GUILD_COMMAND_SYNC_RETRIES" "3"
+ensure_env_default "GUILD_COMMAND_SYNC_RETRY_MS" "1200"
+
+# Einmalige Migration: fruehere Defaults hatten CLEAN_GUILD_COMMANDS_ON_BOOT=1.
+# Das kann bei transienten API-Fehlern Commands entfernen.
+if [[ "$(read_env "CLEAN_GUILD_COMMANDS_ON_BOOT_MIGRATED" "0")" != "1" ]]; then
+  if [[ "$(read_env "CLEAN_GUILD_COMMANDS_ON_BOOT" "0")" == "1" ]]; then
+    warn "Migration: CLEAN_GUILD_COMMANDS_ON_BOOT von 1 auf 0 gesetzt (stabilerer Command-Sync)."
+    write_env_line "CLEAN_GUILD_COMMANDS_ON_BOOT" "0"
+  fi
+  write_env_line "CLEAN_GUILD_COMMANDS_ON_BOOT_MIGRATED" "1"
+fi
 
 # ============================================================
 # Mode selection
