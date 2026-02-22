@@ -170,7 +170,7 @@
     },
     "pro_schlager_01": {
       "name": "Schlager",
-      "url": "https://stream.schlagerradio.de/schlagerradio/mp3-192/",
+      "url": "https://stream.regenbogen.de/exschlager/mp3-192/",
       "tier": "pro"
     },
     "pro_edm_10": {
@@ -180,7 +180,7 @@
     },
     "pro_malle_01": {
       "name": "Mallorca Party",
-      "url": "https://stream.antenne.de/mallorca-party/stream/mp3",
+      "url": "https://n17a-eu.rcs.revma.com/fmmmpr?rj-ttl=5&rj-tok=AAABnIY51kkAmUHAFcAIi5ej2w",
       "tier": "pro"
     },
     "pro_edm_13": {
