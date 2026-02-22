@@ -168,9 +168,9 @@
       "url": "http://streams.bigfm.de/bigfm-dance-128-mp3",
       "tier": "pro"
     },
-    "pro_edm_09": {
-      "name": "Summer Dance",
-      "url": "https://streams.ilovemusic.de/iloveradio15.mp3",
+    "pro_schlager_01": {
+      "name": "Schlager",
+      "url": "https://stream.schlagerradio.de/schlagerradio/mp3-192/",
       "tier": "pro"
     },
     "pro_edm_10": {
@@ -178,9 +178,9 @@
       "url": "https://stream.technolovers.fm/ibiza-house?ref=radiobrowser",
       "tier": "pro"
     },
-    "pro_edm_11": {
-      "name": "Dance Reloaded",
-      "url": "https://streams.ilovemusic.de/iloveradio36.mp3",
+    "pro_malle_01": {
+      "name": "Mallorca Party",
+      "url": "https://stream.antenne.de/mallorca-party/stream/mp3",
       "tier": "pro"
     },
     "pro_edm_13": {
