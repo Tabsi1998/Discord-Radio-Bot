@@ -1561,13 +1561,13 @@ class BotRuntime {
         await interaction.reply({ content: `Fehler: ${result.message}`, ephemeral: true });
         return;
       }
-      await interaction.reply({
-        content:
-          `Rolle ${role.toString()} ist jetzt fuer \`/${command}\` ${sub === "allow" ? "erlaubt" : "gesperrt"}.\n` +
+      await this.respondLongInteraction(
+        interaction,
+        `Rolle ${role.toString()} ist jetzt fuer \`/${command}\` ${sub === "allow" ? "erlaubt" : "gesperrt"}.\n` +
           `Allow: ${this.formatPermissionRoleMentions(result.rule.allowRoleIds)}\n` +
           `Deny: ${this.formatPermissionRoleMentions(result.rule.denyRoleIds)}`,
-        ephemeral: true,
-      });
+        { ephemeral: true }
+      );
       return;
     }
 
@@ -1578,13 +1578,13 @@ class BotRuntime {
         await interaction.reply({ content: `Fehler: ${result.message}`, ephemeral: true });
         return;
       }
-      await interaction.reply({
-        content:
-          `Regel fuer ${role.toString()} bei \`/${command}\` ${result.changed ? "entfernt" : "war nicht gesetzt"}.\n` +
+      await this.respondLongInteraction(
+        interaction,
+        `Regel fuer ${role.toString()} bei \`/${command}\` ${result.changed ? "entfernt" : "war nicht gesetzt"}.\n` +
           `Allow: ${this.formatPermissionRoleMentions(result.rule.allowRoleIds)}\n` +
           `Deny: ${this.formatPermissionRoleMentions(result.rule.denyRoleIds)}`,
-        ephemeral: true,
-      });
+        { ephemeral: true }
+      );
       return;
     }
 

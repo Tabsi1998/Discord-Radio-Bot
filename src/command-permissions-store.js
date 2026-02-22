@@ -87,11 +87,16 @@ function normalizeStore(rawStore) {
 }
 
 function readFileSafe(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  if (fs.statSync(filePath).isDirectory()) return null;
-  const raw = fs.readFileSync(filePath, "utf8");
-  if (!raw.trim()) return emptyStore();
-  return JSON.parse(raw);
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    if (fs.statSync(filePath).isDirectory()) return null;
+    const raw = fs.readFileSync(filePath, "utf8");
+    if (!raw.trim()) return emptyStore();
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error(`[command-permissions] Load error (${filePath}): ${err.message}`);
+    return null;
+  }
 }
 
 function load() {
