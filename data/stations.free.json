@@ -139,7 +139,7 @@
   {
     "id": "reggaeradio",
     "name": "Reggae Radio",
-    "streamURL": "https://streaming.radionomy.com/Reggae141",
+    "streamURL": "http://streams.bigfm.de/bigfm-reggaevibes-128-mp3",
     "requiredPlan": "free",
     "bitrate": 128,
     "tags": [
@@ -179,7 +179,7 @@
   {
     "id": "chilloutradio",
     "name": "Chillout Radio",
-    "streamURL": "https://streams.ilovemusic.de/iloveradio7.mp3",
+    "streamURL": "https://streams.ilovemusic.de/iloveradio10.mp3",
     "requiredPlan": "free",
     "bitrate": 128,
     "tags": [

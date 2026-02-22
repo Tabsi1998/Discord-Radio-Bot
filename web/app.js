@@ -12,27 +12,102 @@ var BOT_COLORS = [
 var STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '#FF2A2A'];
 var BOT_IMAGES = ['/img/bot-1.png', '/img/bot-2.png', '/img/bot-3.png', '/img/bot-4.png'];
 
-var COMMANDS = [
+function detectAppLanguage() {
+  var queryLang = '';
+  try {
+    var params = new URLSearchParams(window.location.search || '');
+    queryLang = String(params.get('lang') || '').toLowerCase();
+  } catch (_) {}
+
+  if (queryLang === 'de' || queryLang === 'en') {
+    try { localStorage.setItem('omnifm_lang', queryLang); } catch (_) {}
+    return queryLang;
+  }
+
+  try {
+    var stored = String(localStorage.getItem('omnifm_lang') || '').toLowerCase();
+    if (stored === 'de' || stored === 'en') return stored;
+  } catch (_) {}
+
+  var browserLang = String(navigator.language || navigator.userLanguage || '').toLowerCase();
+  if (browserLang.indexOf('de') === 0) return 'de';
+  return 'en';
+}
+
+var APP_LANG = detectAppLanguage();
+var APP_IS_DE = APP_LANG === 'de';
+var APP_LOCALE = APP_IS_DE ? 'de-DE' : 'en-US';
+document.documentElement.lang = APP_LANG;
+
+function tr(deText, enText) {
+  return APP_IS_DE ? deText : enText;
+}
+
+var COMMANDS_DE = [
   { name: '/play',          args: '[station] [channel]', desc: 'Startet einen Radio-Stream im Voice-Channel' },
   { name: '/pause',         args: '',                     desc: 'Pausiert die aktuelle Wiedergabe' },
   { name: '/resume',        args: '',                     desc: 'Setzt die Wiedergabe fort' },
-  { name: '/stop',          args: '',                     desc: 'Stoppt die Wiedergabe und verlässt den Channel' },
-  { name: '/stations',      args: '',                     desc: 'Zeigt alle verfügbaren Radio-Stationen (nach Tier gefiltert)' },
+  { name: '/stop',          args: '',                     desc: 'Stoppt die Wiedergabe und verlaesst den Channel' },
+  { name: '/stations',      args: '',                     desc: 'Zeigt alle verfuegbaren Radio-Stationen (nach Tier gefiltert)' },
   { name: '/list',          args: '[page]',               desc: 'Listet Stationen paginiert auf' },
   { name: '/now',           args: '',                     desc: 'Zeigt die aktuelle Station und Metadaten' },
-  { name: '/setvolume',     args: '<0-100>',              desc: 'Setzt die Lautstärke' },
+  { name: '/setvolume',     args: '<0-100>',              desc: 'Setzt die Lautstaerke' },
   { name: '/status',        args: '',                     desc: 'Zeigt Bot-Status, Uptime und Last' },
   { name: '/health',        args: '',                     desc: 'Zeigt Stream-Health und Reconnect-Info' },
-  { name: '/diag',          args: '',                     desc: 'Zeigt ffmpeg/Audio Diagnose-Werte fuer Troubleshooting' },
+  { name: '/diag',          args: '',                     desc: 'Zeigt ffmpeg/Audio-Diagnose fuer Troubleshooting' },
   { name: '/premium',       args: '',                     desc: 'Zeigt den Premium-Status dieses Servers' },
-  { name: '/addstation',    args: '<key> <name> <url>',   desc: '[Ultimate] Eigene Station hinzufügen' },
+  { name: '/addstation',    args: '<key> <name> <url>',   desc: '[Ultimate] Eigene Station hinzufuegen' },
   { name: '/removestation', args: '<key>',                desc: '[Ultimate] Eigene Station entfernen' },
-  { name: '/mystations',    args: '',                     desc: '[Ultimate] Zeigt deine Custom Stationen' },
+  { name: '/mystations',    args: '',                     desc: '[Ultimate] Zeigt deine Custom-Stationen' },
   { name: '/license',       args: '<activate|info|remove>', desc: 'Lizenz verwalten: aktivieren, anzeigen oder entfernen' },
 ];
 
-var fmt = new Intl.NumberFormat('de-DE');
+var COMMANDS_EN = [
+  { name: '/play',          args: '[station] [channel]', desc: 'Starts a radio stream in a voice channel' },
+  { name: '/pause',         args: '',                     desc: 'Pauses current playback' },
+  { name: '/resume',        args: '',                     desc: 'Resumes playback' },
+  { name: '/stop',          args: '',                     desc: 'Stops playback and leaves the channel' },
+  { name: '/stations',      args: '',                     desc: 'Shows all available stations (tier-filtered)' },
+  { name: '/list',          args: '[page]',               desc: 'Lists stations with pagination' },
+  { name: '/now',           args: '',                     desc: 'Shows current station and metadata' },
+  { name: '/setvolume',     args: '<0-100>',              desc: 'Sets playback volume' },
+  { name: '/status',        args: '',                     desc: 'Shows bot status, uptime, and load' },
+  { name: '/health',        args: '',                     desc: 'Shows stream health and reconnect info' },
+  { name: '/diag',          args: '',                     desc: 'Shows ffmpeg/audio diagnostics' },
+  { name: '/premium',       args: '',                     desc: 'Shows premium status for this server' },
+  { name: '/addstation',    args: '<key> <name> <url>',   desc: '[Ultimate] Adds a custom station' },
+  { name: '/removestation', args: '<key>',                desc: '[Ultimate] Removes a custom station' },
+  { name: '/mystations',    args: '',                     desc: '[Ultimate] Lists your custom stations' },
+  { name: '/license',       args: '<activate|info|remove>', desc: 'Manage license: activate, view, or remove' },
+];
+
+var COMMANDS = APP_IS_DE ? COMMANDS_DE : COMMANDS_EN;
+
+var fmt = new Intl.NumberFormat(APP_LOCALE);
 function fmtInt(v) { return fmt.format(Number(v) || 0); }
+function fmtDec2(v) {
+  var value = Number(v || 0);
+  if (!Number.isFinite(value)) value = 0;
+  var raw = value.toFixed(2);
+  return APP_IS_DE ? raw.replace('.', ',') : raw;
+}
+function formatEuroFromCents(cents) {
+  var amount = fmtDec2((Number(cents || 0) / 100));
+  return APP_IS_DE ? amount + '\u20ac' : '\u20ac' + amount;
+}
+function formatEuroFromValue(value) {
+  var amount = fmtDec2(Number(value || 0));
+  return APP_IS_DE ? amount + '\u20ac' : '\u20ac' + amount;
+}
+function monthWord(count) {
+  return APP_IS_DE
+    ? ('Monat' + (count > 1 ? 'e' : ''))
+    : ('month' + (count > 1 ? 's' : ''));
+}
+function serverWord(count) {
+  if (APP_IS_DE) return 'Server';
+  return count === 1 ? 'server' : 'servers';
+}
 
 var allStations = [];
 var currentTierFilter = 'all';
@@ -96,6 +171,246 @@ window.addEventListener('scroll', function() {
     });
   });
 })();
+
+function setTrailingText(el, text) {
+  if (!el) return;
+  for (var i = el.childNodes.length - 1; i >= 0; i--) {
+    var node = el.childNodes[i];
+    if (node && node.nodeType === 3 && String(node.nodeValue || '').trim()) {
+      node.nodeValue = ' ' + text;
+      return;
+    }
+  }
+  el.appendChild(document.createTextNode(' ' + text));
+}
+
+function applyStaticEnglishTranslations() {
+  if (APP_IS_DE) return;
+
+  var metaDesc = document.querySelector('meta[name=\"description\"]');
+  if (metaDesc) {
+    metaDesc.setAttribute('content', 'OmniFM - 24/7 radio streams for your Discord server');
+  }
+
+  var navLinks = document.querySelectorAll('#navLinks a');
+  if (navLinks[0]) navLinks[0].textContent = 'Bots';
+  if (navLinks[1]) navLinks[1].textContent = 'Features';
+  if (navLinks[2]) navLinks[2].textContent = 'Stations';
+  if (navLinks[3]) navLinks[3].textContent = 'Commands';
+  if (navLinks[4]) navLinks[4].textContent = 'Premium';
+
+  var navMobile = document.querySelectorAll('#navMobile a');
+  if (navMobile[0]) navMobile[0].textContent = 'Bots';
+  if (navMobile[1]) navMobile[1].textContent = 'Features';
+  if (navMobile[2]) navMobile[2].textContent = 'Stations';
+  if (navMobile[3]) navMobile[3].textContent = 'Commands';
+  if (navMobile[4]) navMobile[4].textContent = 'Premium';
+  if (navMobile[5]) navMobile[5].innerHTML = navMobile[5].innerHTML.replace('Discord Community', 'Discord Community');
+
+  var heroTitle = document.querySelector('.hero-title');
+  if (heroTitle) heroTitle.innerHTML = 'Turn the <span class=\"glow-cyan\">volume</span> up';
+
+  var heroSub = document.querySelector('.hero-sub');
+  if (heroSub) heroSub.textContent = '24/7 streaming for your Discord server. Pick a station, invite the bot, and enjoy nonstop music.';
+
+  var heroActions = document.querySelectorAll('.hero-actions a');
+  if (heroActions[0]) setTrailingText(heroActions[0], 'Invite bot');
+  if (heroActions[1]) setTrailingText(heroActions[1], 'Browse stations');
+
+  var heroStatLabels = document.querySelectorAll('#heroStats .stat-label');
+  if (heroStatLabels[0]) heroStatLabels[0].textContent = 'SERVERS';
+  if (heroStatLabels[1]) heroStatLabels[1].textContent = 'STATIONS';
+  if (heroStatLabels[2]) heroStatLabels[2].textContent = 'BOTS';
+
+  var botsEyebrow = document.querySelector('#bots .section-eyebrow');
+  if (botsEyebrow) botsEyebrow.textContent = 'Choose your frequency';
+  var botsTitle = document.querySelector('#bots .section-title');
+  if (botsTitle) botsTitle.textContent = 'Our OmniFM Bots';
+  var botsSub = document.querySelector('#bots .section-sub');
+  if (botsSub) botsSub.textContent = 'Each bot is an independent worker. Invite as many as you want for maximum coverage.';
+  var botGridMuted = document.querySelector('#botGrid .muted');
+  if (botGridMuted && botGridMuted.textContent.indexOf('Lade') !== -1) botGridMuted.textContent = 'Loading bots...';
+
+  var featuresEyebrow = document.querySelector('#features .section-eyebrow');
+  if (featuresEyebrow) featuresEyebrow.textContent = 'Why OmniFM?';
+  var featuresTitle = document.querySelector('#features .section-title');
+  if (featuresTitle) featuresTitle.textContent = 'Built for quality';
+  var featureTitles = document.querySelectorAll('#features .feature-card h3');
+  var featureTexts = document.querySelectorAll('#features .feature-card p');
+  var featureTitleMap = ['24/7 streaming', 'Multi-bot system', 'Ready instantly', 'HQ audio', 'Auto reconnect', 'Unlimited scaling'];
+  var featureTextMap = [
+    'Nonstop radio around the clock. Your server never sleeps.',
+    'Up to 20 bots in parallel. Every bot can play in its own channel.',
+    'Slash commands. No prefix needed. Just /play and go.',
+    'Opus transcoding with configurable bitrate for crystal clear sound.',
+    'If the connection drops, the bot reconnects automatically.',
+    'Add as many bots as you need. Every bot runs independently and stable.'
+  ];
+  featureTitles.forEach(function(el, i) { if (featureTitleMap[i]) el.textContent = featureTitleMap[i]; });
+  featureTexts.forEach(function(el, i) { if (featureTextMap[i]) el.textContent = featureTextMap[i]; });
+
+  var stationsEyebrow = document.querySelector('#stations .section-eyebrow');
+  if (stationsEyebrow) stationsEyebrow.textContent = 'Live station directory';
+  var stationsTitle = document.querySelector('#stations .section-title');
+  if (stationsTitle) stationsTitle.textContent = 'OmniFM Stations';
+  var stationCount = document.getElementById('stationCount');
+  if (stationCount && stationCount.textContent.indexOf('Lade') !== -1) stationCount.textContent = 'Loading stations...';
+  var stationListMuted = document.querySelector('#stationList .muted');
+  if (stationListMuted && stationListMuted.textContent.indexOf('Lade') !== -1) stationListMuted.textContent = 'Loading stations...';
+
+  var stationSearch = document.getElementById('stationSearch');
+  if (stationSearch) stationSearch.placeholder = 'Search station...';
+  var allBtn = document.querySelector('#tierFilter [data-tier=\"all\"]');
+  if (allBtn) allBtn.textContent = 'ALL';
+
+  var commandsEyebrow = document.querySelector('#commands .section-eyebrow');
+  if (commandsEyebrow) commandsEyebrow.textContent = 'Slash commands';
+  var commandsTitle = document.querySelector('#commands .section-title');
+  if (commandsTitle) commandsTitle.textContent = 'Control';
+
+  var premiumEyebrow = document.querySelector('#premium .section-eyebrow');
+  if (premiumEyebrow) premiumEyebrow.textContent = 'Premium';
+  var premiumTitle = document.querySelector('#premium .section-title');
+  if (premiumTitle) premiumTitle.textContent = 'Upgrade your experience';
+  var premiumSub = document.querySelector('#premium .section-sub');
+  if (premiumSub) premiumSub.textContent = 'More quality, exclusive features, and priority support.';
+  var premiumPeriods = document.querySelectorAll('.premium-period');
+  premiumPeriods.forEach(function(p) { p.textContent = '/month'; });
+  var premiumAmounts = document.querySelectorAll('.premium-amount');
+  if (premiumAmounts[1]) premiumAmounts[1].innerHTML = 'from 2.99&euro;';
+  if (premiumAmounts[2]) premiumAmounts[2].innerHTML = 'from 4.99&euro;';
+
+  var freeBtn = document.querySelector('.free-btn');
+  if (freeBtn) freeBtn.textContent = 'Get started';
+  var proBtn = document.querySelector('.pro-btn');
+  if (proBtn) proBtn.textContent = 'Upgrade to Pro';
+  var ultimateBtn = document.querySelector('.ultimate-btn');
+  if (ultimateBtn) ultimateBtn.textContent = 'Upgrade to Ultimate';
+  var freeFeatures = document.querySelectorAll('.premium-card:nth-child(1) .premium-features li');
+  var proFeatures = document.querySelectorAll('.premium-card:nth-child(2) .premium-features li');
+  var ultimateFeatures = document.querySelectorAll('.premium-card:nth-child(3) .premium-features li');
+  var freeMap = [
+    'Up to 2 bots',
+    '20 free stations',
+    'Standard audio (64k)',
+    'Auto reconnect (5s)',
+    'Premium stations',
+    'Custom station URLs'
+  ];
+  var proMap = [
+    'Up to 8 bots',
+    '20 free + 100 pro stations',
+    'HQ audio (128k Opus)',
+    'Priority reconnect (1.5s)',
+    'Server license (1/2/3/5 servers)',
+    'Email support + invoice',
+    'Custom station URLs'
+  ];
+  var ultimateMap = [
+    'Up to 16 bots',
+    'All stations + custom URLs',
+    'Ultra HQ audio (320k)',
+    'Instant reconnect (0.4s)',
+    'Server license bundles (1/2/3/5)',
+    'Custom station URLs (50 per server)',
+    'Priority Discord support + invoice'
+  ];
+  freeFeatures.forEach(function(li, i) { if (freeMap[i]) setTrailingText(li, freeMap[i]); });
+  proFeatures.forEach(function(li, i) { if (proMap[i]) setTrailingText(li, proMap[i]); });
+  ultimateFeatures.forEach(function(li, i) { if (ultimateMap[i]) setTrailingText(li, ultimateMap[i]); });
+
+  var infoHeaders = document.querySelectorAll('.premium-info-card h4');
+  if (infoHeaders[0]) infoHeaders[0].textContent = 'Server license bundles';
+  if (infoHeaders[1]) infoHeaders[1].textContent = 'Seat-based licensing';
+  if (infoHeaders[2]) infoHeaders[2].textContent = 'Yearly discount';
+  var infoTableHeaders = document.querySelectorAll('.premium-info-card th');
+  if (infoTableHeaders[0]) infoTableHeaders[0].textContent = 'Servers';
+  if (infoTableHeaders[1]) infoTableHeaders[1].textContent = 'Pro/mo';
+  if (infoTableHeaders[2]) infoTableHeaders[2].textContent = 'Ultimate/mo';
+  var infoTableRows = document.querySelectorAll('.premium-info-card tbody tr td:first-child');
+  if (infoTableRows[0]) infoTableRows[0].textContent = '1 server';
+  if (infoTableRows[1]) infoTableRows[1].textContent = '2 servers';
+  if (infoTableRows[2]) infoTableRows[2].textContent = '3 servers';
+  if (infoTableRows[3]) infoTableRows[3].textContent = '5 servers';
+
+  var infoParagraphs = document.querySelectorAll('.premium-info-card p');
+  if (infoParagraphs[0]) infoParagraphs[0].textContent = 'Each license covers a fixed number of servers. Link and unlink servers flexibly in your dashboard.';
+  if (infoParagraphs[1]) infoParagraphs[1].innerHTML = 'Pay for 12 months and only pay for 10. <strong style=\"color:#39FF14\">2 months free</strong> with yearly billing.';
+
+  var checkHeading = document.querySelector('#premium h3');
+  if (checkHeading) checkHeading.textContent = 'Check premium status';
+  var checkInput = document.getElementById('premiumCheckInput');
+  if (checkInput) checkInput.placeholder = 'Enter Discord server ID...';
+  var checkButton = document.querySelector('#premium button[onclick=\"checkPremiumStatus()\"]');
+  if (checkButton) checkButton.textContent = 'Check';
+
+  var supportBannerLink = Array.from(document.querySelectorAll('#premium a[href=\"https://discord.gg/UeRkfGS43R\"]'))
+    .find(function(link) { return String(link.textContent || '').indexOf('Melde dich') !== -1; });
+  if (supportBannerLink) {
+    supportBannerLink.textContent = 'Join our Discord';
+    var supportBannerSpan = supportBannerLink.parentElement;
+    if (supportBannerSpan && supportBannerSpan.tagName === 'SPAN') {
+      var supportLeadText = supportBannerSpan.childNodes[0];
+      if (supportLeadText && supportLeadText.nodeType === 3) {
+        supportLeadText.nodeValue = 'Questions about your plan or issues? ';
+      }
+    }
+  }
+
+  var premiumModal = document.getElementById('premiumModal');
+  if (premiumModal) {
+    var emailInput = document.getElementById('premiumEmail');
+    if (emailInput) {
+      var emailBlock = emailInput.parentElement;
+      var emailLabel = emailBlock ? emailBlock.querySelector('div') : null;
+      var emailHint = emailBlock ? emailBlock.querySelector('p') : null;
+      if (emailLabel) emailLabel.textContent = 'EMAIL ADDRESS';
+      if (emailHint) emailHint.textContent = 'Your license key and invoice will be sent to this address.';
+      emailInput.placeholder = 'you@example.com';
+    }
+
+    var seatRow = document.getElementById('seatSelectorRow');
+    if (seatRow) {
+      var seatLabel = seatRow.querySelector('div');
+      var seatHint = seatRow.querySelector('p');
+      if (seatLabel) seatLabel.textContent = 'NUMBER OF SERVERS';
+      if (seatHint) seatHint.textContent = 'License multiple servers with one subscription - the more servers, the lower the price per server.';
+    }
+
+    var monthsRow = document.getElementById('premiumMonthsRow');
+    if (monthsRow) {
+      var monthsLabel = monthsRow.querySelector('div');
+      if (monthsLabel) monthsLabel.textContent = 'BILLING PERIOD';
+    }
+
+    var upgradeText = document.getElementById('premiumUpgradeText');
+    if (upgradeText) upgradeText.textContent = 'Upgrade path detected for this account.';
+    var upgradeTitle = premiumModal.querySelector('#premiumUpgradeBadge div div');
+    if (upgradeTitle) upgradeTitle.textContent = 'Upgrade detected';
+
+    var licenseHint = premiumModal.querySelector('div[style*=\"rgba(255,184,0,0.06)\"] p');
+    if (licenseHint) {
+      licenseHint.innerHTML = 'After purchase, you will receive your <strong style=\"color:#FFB800\">license key</strong> by email. Use <strong style=\"color:#00F0FF\">/license activate</strong> in Discord to link your server.';
+    }
+
+    var cancelBtn = premiumModal.querySelector('button[onclick=\"closePremiumModal()\"]');
+    if (cancelBtn) cancelBtn.textContent = 'Cancel';
+  }
+
+  var footerLove = document.querySelector('.footer-love');
+  if (footerLove) {
+    var heart = footerLove.querySelector('svg');
+    if (heart) {
+      var clone = heart.cloneNode(true);
+      footerLove.innerHTML = '';
+      footerLove.appendChild(document.createTextNode('Built with '));
+      footerLove.appendChild(clone);
+      footerLove.appendChild(document.createTextNode(' for Discord'));
+    }
+  }
+}
+
+applyStaticEnglishTranslations();
 
 // --- Dynamic Equalizer ---
 var eqBars = [];
@@ -175,7 +490,7 @@ function renderBots(bots) {
   var grid = document.getElementById('botGrid');
   grid.innerHTML = '';
   if (!bots || bots.length === 0) {
-    grid.innerHTML = '<p class="muted">Keine Bots konfiguriert.</p>';
+    grid.innerHTML = '<p class="muted">' + tr('Keine Bots konfiguriert.', 'No bots configured.') + '</p>';
     return;
   }
   bots.forEach(function(bot, i) {
@@ -210,14 +525,14 @@ function renderBots(bots) {
     name.textContent = bot.name || 'Bot';
     var tag = document.createElement('div');
     tag.className = 'bot-tag';
-    tag.textContent = bot.userTag || 'Bereit';
+    tag.textContent = bot.userTag || tr('Bereit', 'Ready');
     info.appendChild(name); info.appendChild(tag);
     var status = document.createElement('div');
     status.className = 'bot-status';
     var dot = document.createElement('div');
     dot.className = 'bot-status-dot ' + (bot.ready ? 'online' : 'offline');
     status.appendChild(dot);
-    status.appendChild(document.createTextNode(bot.ready ? 'Online' : 'Konfigurierbar'));
+    status.appendChild(document.createTextNode(bot.ready ? tr('Online', 'Online') : tr('Konfigurierbar', 'Configurable')));
     info.appendChild(status);
     head.appendChild(icon); head.appendChild(info);
     card.appendChild(head);
@@ -230,16 +545,16 @@ function renderBots(bots) {
     var statsTitle = document.createElement('div');
     statsTitle.className = 'stats-title';
     statsTitle.style.color = c.accent;
-    statsTitle.textContent = 'BOT STATISTIKEN';
+    statsTitle.textContent = tr('BOT STATISTIKEN', 'BOT STATS');
     statsBox.appendChild(statsTitle);
 
     var statsGrid = document.createElement('div');
     statsGrid.className = 'stats-grid';
     var statsData = [
-      { label: 'Server', value: bot.servers || bot.guilds || 0 },
-      { label: 'Nutzer', value: bot.users || 0 },
-      { label: 'Verbindungen', value: bot.connections || 0 },
-      { label: 'Zuhoerer', value: bot.listeners || 0 }
+      { label: tr('Server', 'Servers'), value: bot.servers || bot.guilds || 0 },
+      { label: tr('Nutzer', 'Users'), value: bot.users || 0 },
+      { label: tr('Verbindungen', 'Connections'), value: bot.connections || 0 },
+      { label: tr('Zuhoerer', 'Listeners'), value: bot.listeners || 0 }
     ];
     statsData.forEach(function(s) {
       var item = document.createElement('div');
@@ -248,7 +563,7 @@ function renderBots(bots) {
       label.textContent = s.label;
       var val = document.createElement('div');
       val.className = 'stat-value';
-      val.textContent = new Intl.NumberFormat('de-DE').format(s.value);
+      val.textContent = new Intl.NumberFormat(APP_LOCALE).format(s.value);
       item.appendChild(label);
       item.appendChild(val);
       statsGrid.appendChild(item);
@@ -274,13 +589,13 @@ function renderBots(bots) {
       var lockBtn = document.createElement('a');
       lockBtn.className = 'invite-btn'; lockBtn.href = '#premium';
       lockBtn.style.cssText = 'background:' + (tierColors[bot.requiredTier] || '#FFB800') + '15;color:' + (tierColors[bot.requiredTier] || '#FFB800') + ';border:1px solid ' + (tierColors[bot.requiredTier] || '#FFB800') + '30';
-      lockBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> ' + (bot.requiredTier === 'ultimate' ? 'Ultimate' : 'Pro') + ' erforderlich';
+      lockBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> ' + (bot.requiredTier === 'ultimate' ? 'Ultimate' : 'Pro') + ' ' + tr('erforderlich', 'required');
       actions.appendChild(lockBtn);
     } else {
       var invBtn = document.createElement('a');
       invBtn.className = 'invite-btn'; invBtn.href = url; invBtn.target = '_blank'; invBtn.rel = 'noopener noreferrer';
       invBtn.style.background = c.accent;
-      invBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg> Einladen';
+      invBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg> ' + tr('Einladen', 'Invite');
       actions.appendChild(invBtn);
       var cpBtn = document.createElement('button');
       cpBtn.className = 'copy-btn'; cpBtn.type = 'button';
@@ -412,7 +727,9 @@ function renderStations(stations) {
   allStations = stations || [];
   var freeCount = allStations.filter(function(s) { return (s.tier || 'free') === 'free'; }).length;
   var proCount = allStations.filter(function(s) { return (s.tier || 'free') === 'pro'; }).length;
-  document.getElementById('stationCount').textContent = allStations.length + ' Stationen (' + freeCount + ' Free, ' + proCount + ' Pro). Klicke zum Vorhoeren oder nutze /play im Discord.';
+  document.getElementById('stationCount').textContent = APP_IS_DE
+    ? (allStations.length + ' Stationen (' + freeCount + ' Free, ' + proCount + ' Pro). Klicke zum Vorhoeren oder nutze /play im Discord.')
+    : (allStations.length + ' stations (' + freeCount + ' free, ' + proCount + ' pro). Click to preview or use /play in Discord.');
   stationsDisplayCount = STATIONS_PER_PAGE;
   filterStations('');
 }
@@ -429,7 +746,7 @@ function filterStations(query) {
   });
 
   if (filtered.length === 0) {
-    list.innerHTML = '<p class="muted" style="padding:40px;text-align:center">Keine Stationen gefunden.</p>';
+    list.innerHTML = '<p class="muted" style="padding:40px;text-align:center">' + tr('Keine Stationen gefunden.', 'No stations found.') + '</p>';
     if (pagination) pagination.innerHTML = '';
     return;
   }
@@ -510,7 +827,9 @@ function filterStations(query) {
     if (remaining > 0) {
       var btn = document.createElement('button');
       btn.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#A1A1AA;padding:14px 40px;border-radius:14px;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.2s';
-      btn.textContent = 'Mehr anzeigen (' + remaining + ' weitere)';
+      btn.textContent = APP_IS_DE
+        ? ('Mehr anzeigen (' + remaining + ' weitere)')
+        : ('Show more (' + remaining + ' more)');
       btn.onmouseenter = function() { btn.style.background = 'rgba(255,255,255,0.1)'; btn.style.borderColor = 'rgba(255,255,255,0.2)'; };
       btn.onmouseleave = function() { btn.style.background = 'rgba(255,255,255,0.06)'; btn.style.borderColor = 'rgba(255,255,255,0.12)'; };
       btn.onclick = function() {
@@ -521,7 +840,9 @@ function filterStations(query) {
     }
     var countText = document.createElement('p');
     countText.style.cssText = 'color:#52525B;font-size:12px;margin-top:8px';
-    countText.textContent = visible.length + ' von ' + filtered.length + ' Stationen angezeigt';
+    countText.textContent = APP_IS_DE
+      ? (visible.length + ' von ' + filtered.length + ' Stationen angezeigt')
+      : ('Showing ' + visible.length + ' of ' + filtered.length + ' stations');
     pagination.appendChild(countText);
   }
 }
@@ -569,7 +890,7 @@ function renderSeatButtons(tier) {
 
   SEAT_OPTIONS.forEach(function(seats) {
     var pricePerMonth = getSeatPricePerMonth(tier, seats);
-    var priceLabel = (pricePerMonth / 100).toFixed(2).replace('.', ',') + '\u20ac';
+    var priceLabel = formatEuroFromCents(pricePerMonth);
     var isActive = seats === currentSeats;
     var btn = document.createElement('button');
     btn.type = 'button';
@@ -579,7 +900,7 @@ function renderSeatButtons(tier) {
       'color:' + (isActive ? color : '#A1A1AA');
     btn.innerHTML = '<div style="font-size:15px;font-weight:700;font-family:JetBrains Mono,monospace">' + seats + '</div>' +
       '<div style="font-size:10px;opacity:0.7">Server</div>' +
-      '<div style="font-size:9px;margin-top:2px;color:' + (isActive ? color : '#52525B') + '">' + priceLabel + '/mo</div>';
+      '<div style="font-size:9px;margin-top:2px;color:' + (isActive ? color : '#52525B') + '">' + priceLabel + '/' + tr('Monat', 'mo') + '</div>';
     if (seats >= 5) {
       btn.innerHTML += '<div style="position:absolute;top:-8px;right:-4px;background:#39FF14;color:#050505;font-size:7px;font-weight:800;padding:2px 4px;border-radius:4px;font-family:Orbitron,sans-serif">BEST</div>';
       btn.style.position = 'relative';
@@ -654,9 +975,9 @@ function renderMonthButtons(tier) {
       'border:1px solid ' + (isActive ? color + '40' : 'rgba(255,255,255,0.08)') + ';' +
       'color:' + (isActive ? color : '#A1A1AA');
     btn.innerHTML = '<div style="font-size:15px;font-weight:700;font-family:JetBrains Mono,monospace">' + m + '</div>' +
-      '<div style="font-size:10px;opacity:0.7">Monat' + (m > 1 ? 'e' : '') + '</div>';
+      '<div style="font-size:10px;opacity:0.7">' + monthWord(m) + '</div>';
     if (m >= 12) {
-      btn.innerHTML += '<div style="position:absolute;top:-8px;right:-4px;background:#39FF14;color:#050505;font-size:8px;font-weight:800;padding:2px 5px;border-radius:4px;font-family:Orbitron,sans-serif">-2 GRATIS</div>';
+      btn.innerHTML += '<div style="position:absolute;top:-8px;right:-4px;background:#39FF14;color:#050505;font-size:8px;font-weight:800;padding:2px 5px;border-radius:4px;font-family:Orbitron,sans-serif">' + (APP_IS_DE ? '-2 GRATIS' : '2 FREE') + '</div>';
     }
     btn.onclick = function() {
       modal.dataset.months = String(m);
@@ -686,17 +1007,17 @@ function updatePriceDisplay() {
     hasDiscount = months >= 12 && regularCents > totalCents;
   }
 
-  var priceStr = (totalCents / 100).toFixed(2).replace('.', ',');
+  var totalValue = totalCents / 100;
   var priceEl = document.getElementById('premiumPrice');
-  priceEl.textContent = priceStr + '\u20ac';
+  priceEl.textContent = formatEuroFromValue(totalValue);
 
   var priceLabel = document.getElementById('premiumPriceLabel');
-  var seatsLabel = seats > 1 ? ' (' + seats + ' Server)' : '';
-  priceLabel.textContent = checkoutUpgradeInfo ? 'Upgrade-Preis' : months + ' Monat' + (months > 1 ? 'e' : '') + seatsLabel;
+  var seatsLabel = seats > 1 ? ' (' + seats + ' ' + serverWord(seats) + ')' : '';
+  priceLabel.textContent = checkoutUpgradeInfo ? tr('Upgrade-Preis', 'Upgrade price') : (months + ' ' + monthWord(months) + seatsLabel);
 
   var oldPriceEl = document.getElementById('premiumPriceOld');
   if (hasDiscount) {
-    oldPriceEl.textContent = (regularCents / 100).toFixed(2).replace('.', ',') + '\u20ac';
+    oldPriceEl.textContent = formatEuroFromCents(regularCents);
     oldPriceEl.style.display = 'inline';
   } else {
     oldPriceEl.style.display = 'none';
@@ -704,8 +1025,10 @@ function updatePriceDisplay() {
 
   var discountEl = document.getElementById('premiumDiscount');
   if (hasDiscount) {
-    var saved = ((regularCents - totalCents) / 100).toFixed(2).replace('.', ',');
-    discountEl.textContent = '2 Monate gratis! Du sparst ' + saved + '\u20ac';
+    var saved = formatEuroFromCents(regularCents - totalCents);
+    discountEl.textContent = APP_IS_DE
+      ? ('2 Monate gratis! Du sparst ' + saved)
+      : ('2 months free! You save ' + saved);
     discountEl.style.display = 'block';
   } else {
     discountEl.style.display = 'none';
@@ -713,14 +1036,16 @@ function updatePriceDisplay() {
 
   var perMonthEl = document.getElementById('premiumPerMonth');
   if (!checkoutUpgradeInfo && months > 1) {
-    perMonthEl.textContent = '= ' + (totalCents / months / 100).toFixed(2).replace('.', ',') + '\u20ac/Monat' + seatsLabel;
+    perMonthEl.textContent = '= ' + formatEuroFromValue(totalCents / months / 100) + '/' + tr('Monat', 'month') + seatsLabel;
     perMonthEl.style.display = 'block';
   } else {
     perMonthEl.style.display = 'none';
   }
 
   var submitBtn = document.getElementById('premiumSubmit');
-  submitBtn.textContent = priceStr + '\u20ac bezahlen';
+  submitBtn.textContent = APP_IS_DE
+    ? (formatEuroFromValue(totalValue) + ' bezahlen')
+    : ('Pay ' + formatEuroFromValue(totalValue));
 }
 
 function checkExistingLicense() {
@@ -743,32 +1068,32 @@ function submitPremiumCheckout() {
   var email = input.value.trim();
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    statusEl.textContent = 'Bitte eine gueltige E-Mail-Adresse eingeben!';
+    statusEl.textContent = tr('Bitte eine gueltige E-Mail-Adresse eingeben!', 'Please enter a valid email address!');
     statusEl.style.color = '#FF2A2A';
     return;
   }
 
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Wird geladen...';
+  submitBtn.textContent = tr('Wird geladen...', 'Loading...');
 
   fetch('/api/premium/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tier: tier, email: email, months: months, seats: seats, returnUrl: window.location.origin })
+    body: JSON.stringify({ tier: tier, email: email, months: months, seats: seats, returnUrl: window.location.origin, language: APP_LANG })
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.url) {
       window.location.href = data.url;
     } else {
-      statusEl.textContent = data.error || 'Fehler beim Erstellen der Zahlung.';
+      statusEl.textContent = data.error || tr('Fehler beim Erstellen der Zahlung.', 'Error while creating payment.');
       statusEl.style.color = '#FF2A2A';
       submitBtn.disabled = false;
       updatePriceDisplay();
     }
   })
   .catch(function(err) {
-    statusEl.textContent = 'Verbindungsfehler: ' + err.message;
+    statusEl.textContent = tr('Verbindungsfehler: ', 'Connection error: ') + err.message;
     statusEl.style.color = '#FF2A2A';
     submitBtn.disabled = false;
     updatePriceDisplay();
@@ -794,9 +1119,11 @@ function submitPremiumCheckout() {
         banner.style.display = 'flex';
         banner.style.background = 'rgba(57,255,20,0.1)';
         banner.style.borderColor = 'rgba(57,255,20,0.3)';
-        var msg = data.message || 'Premium aktiviert!';
+        var msg = data.message || tr('Premium aktiviert!', 'Premium activated!');
         if (data.licenseKey) {
-          msg += ' Dein Lizenz-Key: ' + data.licenseKey;
+          msg += APP_IS_DE
+            ? (' Dein Lizenz-Key: ' + data.licenseKey)
+            : (' Your license key: ' + data.licenseKey);
         }
         banner.querySelector('span').textContent = msg;
         banner.querySelector('span').style.color = '#39FF14';
@@ -804,7 +1131,7 @@ function submitPremiumCheckout() {
         banner.style.display = 'flex';
         banner.style.background = 'rgba(255,42,42,0.1)';
         banner.style.borderColor = 'rgba(255,42,42,0.3)';
-        banner.querySelector('span').textContent = data.message || 'Zahlung fehlgeschlagen.';
+        banner.querySelector('span').textContent = data.message || tr('Zahlung fehlgeschlagen.', 'Payment failed.');
         banner.querySelector('span').style.color = '#FF2A2A';
       }
     }).catch(function() {});
@@ -818,7 +1145,7 @@ function submitPremiumCheckout() {
     banner.style.display = 'flex';
     banner.style.background = 'rgba(255,184,0,0.1)';
     banner.style.borderColor = 'rgba(255,184,0,0.3)';
-    banner.querySelector('span').textContent = 'Zahlung abgebrochen.';
+    banner.querySelector('span').textContent = tr('Zahlung abgebrochen.', 'Payment cancelled.');
     banner.querySelector('span').style.color = '#FFB800';
     window.history.replaceState({}, '', window.location.pathname);
   }
@@ -831,12 +1158,12 @@ function checkPremiumStatus() {
   var serverId = input.value.trim();
 
   if (!/^\d{17,22}$/.test(serverId)) {
-    result.textContent = 'Server ID muss 17-22 Ziffern sein!';
+    result.textContent = tr('Server ID muss 17-22 Ziffern sein!', 'Server ID must be 17-22 digits!');
     result.style.color = '#FF2A2A';
     return;
   }
 
-  result.textContent = 'Pruefe...';
+  result.textContent = tr('Pruefe...', 'Checking...');
   result.style.color = '#A1A1AA';
 
   fetch('/api/premium/check?serverId=' + serverId)
@@ -847,22 +1174,28 @@ function checkPremiumStatus() {
 
     if (data.license && !data.license.expired) {
       var expires = new Date(data.license.expiresAt);
-      var expStr = expires.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-      result.innerHTML = '<strong>' + data.name + '</strong> | ' +
-        'Bitrate: ' + data.bitrate + ' | ' +
-        'Reconnect: ' + data.reconnectMs + 'ms | ' +
-        'Max Bots: ' + (data.maxBots || 0) + '<br>' +
-        '<span style="font-size:12px;color:#A1A1AA">Laeuft ab: ' + expStr +
-        ' (' + data.license.remainingDays + ' Tage uebrig), servergebunden auf diese Server-ID.</span>';
+      var expStr = expires.toLocaleDateString(APP_LOCALE, { day: '2-digit', month: '2-digit', year: 'numeric' });
+      result.innerHTML = '<strong>' + data.name + '</strong> | '
+        + tr('Bitrate', 'Bitrate') + ': ' + data.bitrate + ' | '
+        + tr('Reconnect', 'Reconnect') + ': ' + data.reconnectMs + 'ms | '
+        + tr('Max Bots', 'Max bots') + ': ' + (data.maxBots || 0) + '<br>'
+        + '<span style="font-size:12px;color:#A1A1AA">'
+        + tr('Laeuft ab', 'Expires') + ': ' + expStr
+        + (APP_IS_DE
+          ? (' (' + data.license.remainingDays + ' Tage uebrig), servergebunden auf diese Server-ID.')
+          : (' (' + data.license.remainingDays + ' days left), bound to this server ID.'))
+        + '</span>';
     } else if (data.license && data.license.expired) {
-      result.innerHTML = '<strong style="color:#FF2A2A">Abgelaufen!</strong> ' +
-        '<span style="font-size:12px;color:#A1A1AA">Ehemals: ' + (data.license.tier || 'unbekannt') + '</span>';
+      result.innerHTML = '<strong style="color:#FF2A2A">' + tr('Abgelaufen!', 'Expired!') + '</strong> '
+        + '<span style="font-size:12px;color:#A1A1AA">' + tr('Ehemals', 'Formerly') + ': ' + (data.license.tier || tr('unbekannt', 'unknown')) + '</span>';
     } else {
-      result.textContent = 'Tier: ' + data.name + ' | Bitrate: ' + data.bitrate + ' | Max Bots: ' + (data.maxBots || 0);
+      result.textContent = tr('Tier', 'Tier') + ': ' + data.name + ' | '
+        + tr('Bitrate', 'Bitrate') + ': ' + data.bitrate + ' | '
+        + tr('Max Bots', 'Max bots') + ': ' + (data.maxBots || 0);
     }
   })
   .catch(function() {
-    result.textContent = 'Fehler beim Pruefen.';
+    result.textContent = tr('Fehler beim Pruefen.', 'Error while checking.');
     result.style.color = '#FF2A2A';
   });
 }
@@ -871,10 +1204,10 @@ function checkPremiumStatus() {
 function renderFooterStats(data) {
   var el = document.getElementById('footerStats');
   var items = [
-    { label: 'Server', value: data.servers || 0, color: '#00F0FF' },
-    { label: 'Nutzer', value: data.users || 0, color: '#39FF14' },
-    { label: 'Bots', value: data.bots || 0, color: '#EC4899' },
-    { label: 'Stationen', value: data.stations || 0, color: '#FFB800' },
+    { label: tr('Server', 'Servers'), value: data.servers || 0, color: '#00F0FF' },
+    { label: tr('Nutzer', 'Users'), value: data.users || 0, color: '#39FF14' },
+    { label: tr('Bots', 'Bots'), value: data.bots || 0, color: '#EC4899' },
+    { label: tr('Stationen', 'Stations'), value: data.stations || 0, color: '#FFB800' },
   ];
   el.innerHTML = '';
   items.forEach(function(s) {
@@ -916,7 +1249,7 @@ async function refresh() {
     document.getElementById('statStations').textContent = fmtInt(stationsRes.total || stations.length);
     document.getElementById('statBots').textContent = fmtInt(bots.length);
   } catch (e) {
-    console.error('API Fehler:', e);
+    console.error(tr('API Fehler:', 'API error:'), e);
   }
 }
 

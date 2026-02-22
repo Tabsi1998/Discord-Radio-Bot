@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLANS } from "./config/plans.js";
+import { getDefaultLanguage, normalizeLanguage } from "./i18n.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const premiumFile = path.resolve(__dirname, "..", "premium.json");
@@ -113,7 +114,16 @@ function generateLicenseId() {
   return `lic_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function createLicense({ plan, seats = 1, billingPeriod = "monthly", months = 1, activatedBy = "admin", note = "", contactEmail = "" }) {
+export function createLicense({
+  plan,
+  seats = 1,
+  billingPeriod = "monthly",
+  months = 1,
+  activatedBy = "admin",
+  note = "",
+  contactEmail = "",
+  preferredLanguage = getDefaultLanguage(),
+}) {
   if (!PLANS[plan] || plan === "free") throw new Error("Plan must be 'pro' or 'ultimate'.");
   if (![1, 2, 3, 5].includes(seats)) throw new Error("Seats must be 1, 2, 3, or 5.");
 
@@ -137,6 +147,7 @@ export function createLicense({ plan, seats = 1, billingPeriod = "monthly", mont
     activatedBy,
     note,
     contactEmail,
+    preferredLanguage: normalizeLanguage(preferredLanguage, getDefaultLanguage()),
   };
   save(data);
   return data.licenses[id];

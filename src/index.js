@@ -39,6 +39,7 @@ import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
 import { buildCommandBuilders } from "./commands.js";
 import { loadStations, resolveStation, filterStationsByTier, getFallbackKey } from "./stations-store.js";
 import { getGuildStations, addGuildStation, removeGuildStation, countGuildStations, MAX_STATIONS_PER_GUILD, validateCustomStationUrl } from "./custom-stations.js";
+import { normalizeLanguage, resolveLanguageFromAcceptLanguage, getDefaultLanguage } from "./i18n.js";
 
 dotenv.config();
 
@@ -2436,23 +2437,32 @@ function buildInviteOverviewForTier(runtimes, tier) {
 }
 
 async function activatePaidStripeSession(session, runtimes, source = "verify") {
+  const fallbackLanguage = normalizeLanguage(session?.metadata?.language, getDefaultLanguage());
+  const t = (de, en) => (fallbackLanguage === "de" ? de : en);
   if (!session || session.payment_status !== "paid" || !session.metadata) {
-    return { success: false, status: 400, message: "Zahlung nicht abgeschlossen oder ungueltig." };
+    return { success: false, status: 400, message: t("Zahlung nicht abgeschlossen oder ungueltig.", "Payment not completed or invalid.") };
   }
 
   const sessionId = String(session.id || "").trim();
   if (!sessionId) {
-    return { success: false, status: 400, message: "session.id fehlt." };
+    return { success: false, status: 400, message: t("session.id fehlt.", "session.id is missing.") };
   }
 
-  const { email: metaEmail, tier, months, seats } = session.metadata;
+  const { email: metaEmail, tier, months, seats, language } = session.metadata;
   const customerEmail = String(metaEmail || session.customer_details?.email || "").trim().toLowerCase();
   const cleanTier = String(tier || "").trim().toLowerCase();
   const cleanSeats = [1, 2, 3, 5].includes(Number(seats)) ? Number(seats) : 1;
   const durationMonths = Math.max(1, parseInt(months, 10) || 1);
+  const customerLanguage = normalizeLanguage(language, fallbackLanguage);
 
   if (!customerEmail || !["pro", "ultimate"].includes(cleanTier)) {
-    return { success: false, status: 400, message: "Session-Metadaten sind ungueltig (email oder tier fehlt)." };
+    return {
+      success: false,
+      status: 400,
+      message: customerLanguage === "de"
+        ? "Session-Metadaten sind ungueltig (email oder tier fehlt)."
+        : "Session metadata is invalid (email or tier missing).",
+    };
   }
 
   if (isSessionProcessed(sessionId)) {
@@ -2461,7 +2471,9 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       replay: true,
       email: customerEmail,
       tier: cleanTier,
-      message: `Session ${sessionId} wurde bereits verarbeitet.`,
+      message: customerLanguage === "de"
+        ? `Session ${sessionId} wurde bereits verarbeitet.`
+        : `Session ${sessionId} has already been processed.`,
     };
   }
 
@@ -2475,6 +2487,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       activatedBy: "stripe",
       note: `Session: ${sessionId}`,
       contactEmail: customerEmail,
+      preferredLanguage: customerLanguage,
     });
   } catch (err) {
     return { success: false, status: 400, message: err.message || String(err) };
@@ -2486,6 +2499,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     licenseId: license.id,
     source,
     expiresAt: license.expiresAt,
+    language: customerLanguage,
   });
 
   // Send license key email
@@ -2507,8 +2521,12 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       isUpgrade: false,
       pricePaid: amountPaid,
       currency: session.currency || "eur",
+      language: customerLanguage,
     });
-    sendMail(customerEmail, `OmniFM ${tierConfig.name} - Dein Lizenz-Key`, purchaseHtml).catch(() => {});
+    const purchaseSubject = customerLanguage === "de"
+      ? `OmniFM ${tierConfig.name} - Dein Lizenz-Key`
+      : `OmniFM ${tierConfig.name} - Your license key`;
+    sendMail(customerEmail, purchaseSubject, purchaseHtml).catch(() => {});
 
     const invoiceId = `OF-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sessionId.slice(-8).toUpperCase()}`;
     const invoiceHtml = buildInvoiceEmail({
@@ -2523,8 +2541,12 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       currency: session.currency || "eur",
       licenseKey: license.id,
       expiresAt: license.expiresAt,
+      language: customerLanguage,
     });
-    sendMail(customerEmail, `OmniFM Rechnung ${invoiceId}`, invoiceHtml).catch(() => {});
+    const invoiceSubject = customerLanguage === "de"
+      ? `OmniFM Rechnung ${invoiceId}`
+      : `OmniFM Invoice ${invoiceId}`;
+    sendMail(customerEmail, invoiceSubject, invoiceHtml).catch(() => {});
   }
 
   log("INFO", `[License] Erstellt: ${license.id} fuer ${customerEmail} (${cleanTier}, ${cleanSeats} Seats, ${durationMonths}mo) via ${source}`);
@@ -2536,7 +2558,10 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     licenseKey: license.id,
     expiresAt: license.expiresAt,
     seats: cleanSeats,
-    message: `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`,
+    language: customerLanguage,
+    message: customerLanguage === "de"
+      ? `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+      : `${TIERS[cleanTier].name} activated! License key: ${license.id} - Check your email (${customerEmail}).`,
   };
 }
 
@@ -2807,17 +2832,24 @@ function startWebServer(runtimes) {
     if (requestUrl.pathname === "/api/premium/checkout" && req.method === "POST") {
       try {
         const body = await readJsonBody();
-        const { tier, email, months, seats: rawSeats, returnUrl } = body;
+        const { tier, email, months, seats: rawSeats, returnUrl, language: rawLanguage } = body;
+        const acceptLanguage = req.headers["accept-language"];
+        const checkoutLanguage = normalizeLanguage(
+          rawLanguage,
+          resolveLanguageFromAcceptLanguage(acceptLanguage, getDefaultLanguage())
+        );
+        const isDe = checkoutLanguage === "de";
+        const t = (de, en) => (isDe ? de : en);
         if (!tier || !email) {
-          sendJson(res, 400, { error: "tier und email erforderlich." });
+          sendJson(res, 400, { error: t("tier und email erforderlich.", "tier and email are required.") });
           return;
         }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-          sendJson(res, 400, { error: "Bitte eine gueltige E-Mail-Adresse eingeben." });
+          sendJson(res, 400, { error: t("Bitte eine gueltige E-Mail-Adresse eingeben.", "Please enter a valid email address.") });
           return;
         }
         if (tier !== "pro" && tier !== "ultimate") {
-          sendJson(res, 400, { error: "tier muss 'pro' oder 'ultimate' sein." });
+          sendJson(res, 400, { error: t("tier muss 'pro' oder 'ultimate' sein.", "tier must be 'pro' or 'ultimate'.") });
           return;
         }
 
@@ -2825,23 +2857,27 @@ function startWebServer(runtimes) {
 
         const stripeKey = getStripeSecretKey();
         if (!stripeKey) {
-          sendJson(res, 503, { error: "Stripe nicht konfiguriert. Nutze: ./update.sh --stripe" });
+          sendJson(res, 503, { error: t("Stripe nicht konfiguriert. Nutze: ./update.sh --stripe", "Stripe is not configured. Use: ./update.sh --stripe") });
           return;
         }
 
         const durationMonths = Math.max(1, parseInt(months) || 1);
         const priceInCents = calculatePrice(tier, durationMonths, seats);
         if (priceInCents <= 0) {
-          sendJson(res, 400, { error: "Ungueltige Preisberechnung fuer die gewaehlte Kombination." });
+          sendJson(res, 400, { error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination.") });
           return;
         }
         const tierName = TIERS[tier].name;
-        const seatsLabel = seats > 1 ? ` (${seats} Server)` : "";
+        const seatsLabel = seats > 1 ? (isDe ? ` (${seats} Server)` : ` (${seats} server${seats > 1 ? "s" : ""})`) : "";
         let description;
         if (durationMonths >= 12) {
-          description = `${tierName}${seatsLabel} - ${durationMonths} Monate (Jahresrabatt: 2 Monate gratis!)`;
+          description = isDe
+            ? `${tierName}${seatsLabel} - ${durationMonths} Monate (Jahresrabatt: 2 Monate gratis!)`
+            : `${tierName}${seatsLabel} - ${durationMonths} months (yearly discount: 2 months free!)`;
         } else {
-          description = `${tierName}${seatsLabel} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`;
+          description = isDe
+            ? `${tierName}${seatsLabel} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`
+            : `${tierName}${seatsLabel} - ${durationMonths} month${durationMonths > 1 ? "s" : ""}`;
         }
 
         const stripe = await import("stripe");
@@ -2867,6 +2903,7 @@ function startWebServer(runtimes) {
             tier,
             seats: String(seats),
             months: String(durationMonths),
+            language: checkoutLanguage,
             isUpgrade: "false",
             checkoutCreatedAt: new Date().toISOString(),
           },
@@ -2877,7 +2914,12 @@ function startWebServer(runtimes) {
         sendJson(res, 200, { sessionId: session.id, url: session.url });
       } catch (err) {
         log("ERROR", `Stripe checkout error: ${err.message}`);
-        sendJson(res, 500, { error: "Checkout fehlgeschlagen: " + err.message });
+        const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
+        sendJson(res, 500, {
+          error: fallbackLanguage === "de"
+            ? "Checkout fehlgeschlagen: " + err.message
+            : "Checkout failed: " + err.message,
+        });
       }
       return;
     }
@@ -3171,12 +3213,22 @@ setInterval(async () => {
       if (!lic.expiresAt) continue;
       const daysLeft = Math.max(0, Math.ceil((new Date(lic.expiresAt) - new Date()) / 86400000));
       const tierName = TIERS[lic.tier]?.name || lic.tier;
+      const emailLanguage = normalizeLanguage(lic.preferredLanguage || lic.language, getDefaultLanguage());
 
       // Warnung bei 7 Tagen
       const warningAlreadySent = lic._warning7ForExpiryAt === lic.expiresAt;
       if (daysLeft === 7 && lic.contactEmail && !warningAlreadySent) {
-        const html = buildExpiryWarningEmail({ tierName, serverId, expiresAt: lic.expiresAt, daysLeft });
-        const result = await sendMail(lic.contactEmail, `Premium ${tierName} laeuft in 7 Tagen ab!`, html);
+        const html = buildExpiryWarningEmail({
+          tierName,
+          serverId,
+          expiresAt: lic.expiresAt,
+          daysLeft,
+          language: emailLanguage,
+        });
+        const warningSubject = emailLanguage === "de"
+          ? `Premium ${tierName} laeuft in 7 Tagen ab!`
+          : `Premium ${tierName} expires in 7 days!`;
+        const result = await sendMail(lic.contactEmail, warningSubject, html);
         if (result?.success) {
           patchLicense(serverId, { _warning7ForExpiryAt: lic.expiresAt });
           log("INFO", `[Email] Ablauf-Warnung gesendet an ${lic.contactEmail} fuer ${serverId}`);
@@ -3189,8 +3241,11 @@ setInterval(async () => {
       const expiredAlreadyNotified =
         lic._expiredNotifiedForExpiryAt === lic.expiresAt || lic._expiredNotified === true;
       if (daysLeft === 0 && lic.contactEmail && !expiredAlreadyNotified) {
-        const html = buildExpiryEmail({ tierName, serverId });
-        const result = await sendMail(lic.contactEmail, `Premium ${tierName} abgelaufen`, html);
+        const html = buildExpiryEmail({ tierName, serverId, language: emailLanguage });
+        const expiredSubject = emailLanguage === "de"
+          ? `Premium ${tierName} abgelaufen`
+          : `Premium ${tierName} expired`;
+        const result = await sendMail(lic.contactEmail, expiredSubject, html);
         if (result?.success) {
           patchLicense(serverId, { _expiredNotifiedForExpiryAt: lic.expiresAt, _expiredNotified: true });
           log("INFO", `[Email] Ablauf-Benachrichtigung gesendet an ${lic.contactEmail} fuer ${serverId}`);

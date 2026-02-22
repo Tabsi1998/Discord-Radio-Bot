@@ -75,7 +75,7 @@
     },
     "reggaeradio": {
       "name": "Reggae Radio",
-      "url": "https://streaming.radionomy.com/Reggae141",
+      "url": "http://streams.bigfm.de/bigfm-reggaevibes-128-mp3",
       "tier": "free"
     },
     "ambientradio": {
@@ -95,7 +95,7 @@
     },
     "chilloutradio": {
       "name": "Chillout Radio",
-      "url": "https://streams.ilovemusic.de/iloveradio7.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio10.mp3",
       "tier": "free"
     },
     "hiphopradio": {
@@ -110,17 +110,17 @@
     },
     "pro_edm_01": {
       "name": "Festival Anthems",
-      "url": "https://streams.ilovemusic.de/iloveradio8.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio22.mp3",
       "tier": "pro"
     },
     "pro_edm_02": {
       "name": "Big Room Arena",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "url": "http://streams.bigfm.de/nitrox-128-mp3",
       "tier": "pro"
     },
     "pro_edm_03": {
       "name": "Mainstage Energy",
-      "url": "https://streams.ilovemusic.de/iloveradio8.mp3",
+      "url": "http://stream.sunshine-live.de/edm/mp3-192/stream.sunshine-live.de/",
       "tier": "pro"
     },
     "pro_tml_01": {
@@ -129,12 +129,12 @@
       "tier": "pro"
     },
     "pro_tml_02": {
-      "name": "Tomorrowland - Daybreak",
+      "name": "Tomorrowland - Daybreak Sessions",
       "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAYBREAK.mp3",
       "tier": "pro"
     },
     "pro_tml_03": {
-      "name": "Tomorrowland - DAB",
+      "name": "Tomorrowland - Anthems",
       "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/OWR_DAB.mp3",
       "tier": "pro"
     },
@@ -145,117 +145,117 @@
     },
     "pro_edm_04": {
       "name": "EDM Hits",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "url": "http://streams.bigfm.de/bigfm-nitroxedm-128-aac",
       "tier": "pro"
     },
     "pro_edm_05": {
       "name": "Progressive Arena",
-      "url": "https://ice4.somafm.com/thetrip-128-mp3",
+      "url": "https://stream.technolovers.fm/electro-house?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_edm_06": {
       "name": "Future Dance",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio103.mp3",
       "tier": "pro"
     },
     "pro_edm_07": {
       "name": "Club Bangers",
-      "url": "https://streams.ilovemusic.de/iloveradio8.mp3",
+      "url": "https://dancewave.online/dance.mp3",
       "tier": "pro"
     },
     "pro_edm_08": {
       "name": "Peak Time EDM",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "url": "http://streams.bigfm.de/bigfm-dance-128-mp3",
       "tier": "pro"
     },
     "pro_edm_09": {
       "name": "Summer Dance",
-      "url": "https://streams.ilovemusic.de/iloveradio11.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio15.mp3",
       "tier": "pro"
     },
     "pro_edm_10": {
       "name": "Ibiza Vibes",
-      "url": "https://ice4.somafm.com/beatblender-128-mp3",
+      "url": "https://stream.technolovers.fm/ibiza-house?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_edm_11": {
       "name": "Dance Reloaded",
-      "url": "https://streams.ilovemusic.de/iloveradio8.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio36.mp3",
       "tier": "pro"
     },
     "pro_edm_13": {
       "name": "Festival Classics",
-      "url": "https://streams.ilovemusic.de/iloveradio14.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio26.mp3",
       "tier": "pro"
     },
     "pro_edm_14": {
       "name": "Aftermovie Sound",
-      "url": "https://streams.ilovemusic.de/iloveradio8.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio28.mp3",
       "tier": "pro"
     },
     "pro_edm_15": {
       "name": "Rave Essentials",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "url": "https://breakz-high.rautemusik.fm/?ref=radiobrowser-top100-djcharts",
       "tier": "pro"
     },
     "pro_edm_18": {
       "name": "Hard EDM",
-      "url": "https://streams.ilovemusic.de/iloveradio16.mp3",
+      "url": "https://stream.sunshine-live.de/hard/mp3-192/stream.sunshine-live.de/",
       "tier": "pro"
     },
     "pro_edm_19": {
       "name": "EDM Workout",
-      "url": "https://streams.ilovemusic.de/iloveradio8.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio23.mp3",
       "tier": "pro"
     },
     "pro_tech_01": {
       "name": "Peak Time Techno",
-      "url": "https://listen.technobase.fm/tunein-mp3-pls",
+      "url": "http://stream.sunshine-live.de/techno/mp3-192/stream.sunshine-live.de/",
       "tier": "pro"
     },
     "pro_tech_02": {
       "name": "Hard Techno",
-      "url": "https://streams.ilovemusic.de/iloveradio12.mp3",
+      "url": "https://stream.technolovers.fm/hypertechno?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_tech_03": {
       "name": "Minimal Techno",
-      "url": "https://ice4.somafm.com/cliqhop-128-mp3",
+      "url": "https://stream.technolovers.fm/minimal?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_tech_04": {
       "name": "Melodic Techno",
-      "url": "https://ice4.somafm.com/thetrip-128-mp3",
+      "url": "https://stream.technolovers.fm/melodic-house-techno?ref=radiobrowser-2",
       "tier": "pro"
     },
     "pro_tech_05": {
       "name": "Industrial Techno",
-      "url": "https://streams.ilovemusic.de/iloveradio12.mp3",
+      "url": "http://79.120.12.130:8000/industrialtechno",
       "tier": "pro"
     },
     "pro_tech_06": {
       "name": "Warehouse Berlin",
-      "url": "https://listen.technobase.fm/tunein-mp3-pls",
+      "url": "http://streams.90s90s.de/techno/mp3-192/radiode/",
       "tier": "pro"
     },
     "pro_tech_07": {
       "name": "Afterhours Techno",
-      "url": "https://ice4.somafm.com/beatblender-128-mp3",
+      "url": "https://stream.technolovers.fm/techhouse?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_tech_08": {
       "name": "Detroit Techno",
-      "url": "https://ice4.somafm.com/digitalis-128-mp3",
+      "url": "http://79.120.77.11:8000/techno",
       "tier": "pro"
     },
     "pro_tech_09": {
       "name": "Dark Techno",
-      "url": "https://ice4.somafm.com/scanner-128-mp3",
+      "url": "http://79.111.14.76:8000/darktechno",
       "tier": "pro"
     },
     "pro_tech_10": {
       "name": "Acid Techno",
-      "url": "https://streams.ilovemusic.de/iloveradio12.mp3",
+      "url": "https://streams.rautemusik.fm/techno/mp3-192?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_tech_11": {
@@ -265,37 +265,37 @@
     },
     "pro_tech_12": {
       "name": "Raw Techno",
-      "url": "https://streams.ilovemusic.de/iloveradio12.mp3",
+      "url": "https://stream.technolovers.fm/techno?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_tech_13": {
       "name": "Hypnotic Techno",
-      "url": "https://ice4.somafm.com/thetrip-128-mp3",
+      "url": "http://strm112.1.fm/deeptech_mobile_mp3",
       "tier": "pro"
     },
     "pro_tech_14": {
       "name": "Hardgroove",
-      "url": "https://streams.ilovemusic.de/iloveradio12.mp3",
+      "url": "http://79.111.119.111:8000/mintechhouse",
       "tier": "pro"
     },
     "pro_tech_15": {
       "name": "Rave Techno",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "url": "http://lw2.mp3.tb-group.fm/tb.mp3",
       "tier": "pro"
     },
     "pro_tech_16": {
       "name": "Deep Underground",
-      "url": "https://ice4.somafm.com/beatblender-128-mp3",
+      "url": "https://stream.bigfm.de/deeptechhouse/mp3-128/radio-browser",
       "tier": "pro"
     },
     "pro_tech_17": {
       "name": "Techno Classics",
-      "url": "https://streams.ilovemusic.de/iloveradio14.mp3",
+      "url": "https://stream.laut.fm/techno_classics",
       "tier": "pro"
     },
     "pro_tech_18": {
       "name": "Peak Rave",
-      "url": "https://streams.ilovemusic.de/iloveradio8.mp3",
+      "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/Q_DANCE.mp3",
       "tier": "pro"
     },
     "pro_tech_19": {
@@ -310,127 +310,127 @@
     },
     "pro_trance_01": {
       "name": "Uplifting Trance",
-      "url": "https://listen.trancebase.fm/tunein-mp3-pls",
+      "url": "https://stream.technolovers.fm/uplifting-trance?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_trance_02": {
       "name": "Vocal Trance",
-      "url": "https://listen.trancebase.fm/tunein-mp3-pls",
+      "url": "https://stream.technolovers.fm/vocal-trance?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_trance_03": {
       "name": "Classic Trance",
-      "url": "https://listen.trancebase.fm/tunein-mp3-pls",
+      "url": "http://listen.trancebase.fm/tunein-aac-hd-pls",
       "tier": "pro"
     },
     "pro_trance_04": {
       "name": "Progressive Trance",
-      "url": "https://listen.trancebase.fm/tunein-mp3-pls",
+      "url": "https://stream.laut.fm/progressive-trance-mix",
       "tier": "pro"
     },
     "pro_trance_05": {
       "name": "Psy Trance",
-      "url": "https://streams.ilovemusic.de/iloveradio12.mp3",
+      "url": "https://stream.technolovers.fm/psytrance?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_trance_06": {
       "name": "Goa Trance",
-      "url": "https://ice4.somafm.com/suburbsofgoa-128-mp3",
+      "url": "http://cast.magicstreams.gr:9111/stream",
       "tier": "pro"
     },
     "pro_trance_07": {
       "name": "Tech Trance",
-      "url": "https://listen.trancebase.fm/tunein-mp3-pls",
+      "url": "https://stream.technolovers.fm/trance?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_trance_08": {
       "name": "Trance Anthems",
-      "url": "https://listen.trancebase.fm/tunein-mp3-pls",
+      "url": "http://cast.streams.ovh:8008/stream",
       "tier": "pro"
     },
     "pro_trance_09": {
       "name": "Melodic Trance",
-      "url": "https://listen.trancebase.fm/tunein-mp3-pls",
+      "url": "https://radiorecord.hostingradio.ru/trancehouse96.aacp",
       "tier": "pro"
     },
     "pro_trance_10": {
       "name": "Trance Reloaded",
-      "url": "https://listen.trancebase.fm/tunein-mp3-pls",
+      "url": "https://radiorecord.hostingradio.ru/trancehits96.aacp",
       "tier": "pro"
     },
     "pro_hard_01": {
       "name": "Hardstyle Arena",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "https://stream.technolovers.fm/hardstyle?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_hard_02": {
       "name": "Rawstyle",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "https://radiorecord.hostingradio.ru/teo96.aacp",
       "tier": "pro"
     },
     "pro_hard_03": {
       "name": "Hardcore",
-      "url": "https://listen.technobase.fm/tunein-mp3-pls",
+      "url": "http://shoutcast1.hardcoreradio.nl/",
       "tier": "pro"
     },
     "pro_hard_04": {
       "name": "Frenchcore",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "https://stream.technolovers.fm/frenchcore?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_hard_05": {
       "name": "Uptempo",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "https://stream.technolovers.fm/gabber?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_hard_06": {
       "name": "Hard Dance",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "http://mp3.stream.tb-group.fm/hb.mp3?",
       "tier": "pro"
     },
     "pro_hard_07": {
       "name": "Reverse Bass",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "https://streams.ilovemusic.de/iloveradio21.mp3",
       "tier": "pro"
     },
     "pro_hard_08": {
       "name": "Jumpstyle",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "https://stream.realhardstyle.nl/",
       "tier": "pro"
     },
     "pro_hard_09": {
       "name": "Defqon Style",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "http://listen.hardbase.fm/tunein-aac-hd-pls",
       "tier": "pro"
     },
     "pro_hard_10": {
       "name": "Harder Reloaded",
-      "url": "https://listen.hardbase.fm/tunein-mp3-pls",
+      "url": "http://79.111.14.76:8002/hardstyle",
       "tier": "pro"
     },
     "pro_house_01": {
       "name": "Deep House Lounge",
-      "url": "https://ice4.somafm.com/beatblender-128-mp3",
+      "url": "https://stream.technolovers.fm/deep-house?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_house_02": {
       "name": "Tech House Club",
-      "url": "https://ice4.somafm.com/thetrip-128-mp3",
+      "url": "http://stream.sunshine-live.de/sp4/mp3-192/stream.sunshine-live.de/",
       "tier": "pro"
     },
     "pro_house_03": {
       "name": "Afro House",
-      "url": "https://ice4.somafm.com/beatblender-128-mp3",
+      "url": "https://stream.technolovers.fm/afro-house?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_house_04": {
       "name": "Tropical House",
-      "url": "https://streams.ilovemusic.de/iloveradio11.mp3",
+      "url": "https://stream.technolovers.fm/tropical-house?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_house_05": {
       "name": "Ibiza Sunset",
-      "url": "https://ice4.somafm.com/groovesalad-128-mp3",
+      "url": "http://streams.bigfm.de/bigfm-sunsetlounge-128-mp3",
       "tier": "pro"
     },
     "pro_house_06": {
@@ -440,132 +440,132 @@
     },
     "pro_house_07": {
       "name": "Disco House",
-      "url": "https://ice4.somafm.com/poptron-128-mp3",
+      "url": "https://stream1.468.gr/8004/stream",
       "tier": "pro"
     },
     "pro_house_08": {
       "name": "French House",
-      "url": "https://ice4.somafm.com/digitalis-128-mp3",
+      "url": "https://stream.technolovers.fm/funky-house?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_house_09": {
       "name": "Minimal House",
-      "url": "https://ice4.somafm.com/cliqhop-128-mp3",
+      "url": "http://orion.shoutca.st:8750/",
       "tier": "pro"
     },
     "pro_house_10": {
       "name": "Latin House",
-      "url": "https://ice4.somafm.com/bagel-128-mp3",
+      "url": "https://stream.technolovers.fm/latinhouse?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_house_11": {
       "name": "Organic House",
-      "url": "https://ice4.somafm.com/thetrip-128-mp3",
+      "url": "https://dfm-organichouse.hostingradio.ru/organichouse96.aacp",
       "tier": "pro"
     },
     "pro_house_12": {
       "name": "Club House",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "url": "https://radio.edm1.fm/proxy/15_clubhouse?mp=/stream",
       "tier": "pro"
     },
     "pro_house_13": {
       "name": "Future House",
-      "url": "https://streams.ilovemusic.de/iloveradio2.mp3",
+      "url": "https://stream.technolovers.fm/future-house?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_house_14": {
       "name": "Vocal House",
-      "url": "https://ice4.somafm.com/lush-128-mp3",
+      "url": "https://stream.technolovers.fm/house?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_house_15": {
       "name": "House Classics",
-      "url": "https://streams.ilovemusic.de/iloveradio14.mp3",
+      "url": "http://listen.housetime.fm/tunein-aac-hd-pls",
       "tier": "pro"
     },
     "pro_urban_01": {
       "name": "HipHop US",
-      "url": "https://streams.ilovemusic.de/iloveradio3.mp3",
+      "url": "http://streams.bigfm.de/bigfm-usrap-128-aac",
       "tier": "pro"
     },
     "pro_urban_02": {
       "name": "Deutschrap",
-      "url": "https://streams.ilovemusic.de/iloveradio6.mp3",
+      "url": "http://streams.bigfm.de/bigfm-deutschrap-128-mp3",
       "tier": "pro"
     },
     "pro_urban_03": {
       "name": "Trap Nation",
-      "url": "https://streams.ilovemusic.de/iloveradio3.mp3",
+      "url": "https://stream.technolovers.fm/trap?ref=radiobrowser",
       "tier": "pro"
     },
     "pro_urban_04": {
       "name": "Drill Beats",
-      "url": "https://streams.ilovemusic.de/iloveradio3.mp3",
+      "url": "http://streams.bigfm.de/bigfm-rapfeature-128-mp3?usid=0-0-H-M-D-60",
       "tier": "pro"
     },
     "pro_urban_05": {
       "name": "R&B Smooth",
-      "url": "https://ice4.somafm.com/7soul-128-mp3",
+      "url": "http://streams.bigfm.de/bigfm-rnb-128-mp3",
       "tier": "pro"
     },
     "pro_urban_06": {
       "name": "Afrobeats",
-      "url": "https://ice4.somafm.com/reggae-128-mp3",
+      "url": "https://stream.bigfm.de/dancehall/mp3-128/radio-browser",
       "tier": "pro"
     },
     "pro_urban_07": {
       "name": "Reggaeton",
-      "url": "https://ice4.somafm.com/bagel-128-mp3",
+      "url": "http://latinareggaeton.ice.infomaniak.ch/latinareggaeton.mp3",
       "tier": "pro"
     },
     "pro_urban_08": {
       "name": "Oldschool HipHop",
-      "url": "https://ice4.somafm.com/fluid-128-mp3",
+      "url": "http://streams.bigfm.de/bigfm-oldschool-128-mp3",
       "tier": "pro"
     },
     "pro_urban_09": {
       "name": "LoFi Beats",
-      "url": "https://streams.ilovemusic.de/iloveradio17.mp3",
+      "url": "https://stream.bigfm.de/lofifocus/mp3-128/radiobrowser",
       "tier": "pro"
     },
     "pro_urban_10": {
       "name": "Latin Urban",
-      "url": "https://ice4.somafm.com/bagel-128-mp3",
+      "url": "http://streams.bigfm.de/bigfm-latinbeats-128-mp3",
       "tier": "pro"
     },
     "pro_urban_11": {
       "name": "Urban Charts",
-      "url": "https://streams.ilovemusic.de/iloveradio109.mp3",
+      "url": "http://streams.bigfm.de/bigfm-urbanclubbeats-128-mp3",
       "tier": "pro"
     },
     "pro_urban_12": {
       "name": "Smooth Grooves",
-      "url": "https://ice4.somafm.com/illstreet-128-mp3",
+      "url": "http://streams.bigfm.de/bigfm-groovenight-128-mp3",
       "tier": "pro"
     },
     "pro_urban_13": {
       "name": "Bass & Trap",
-      "url": "https://streams.ilovemusic.de/iloveradio16.mp3",
+      "url": "https://streams.ilovemusic.de/iloveradio29.mp3",
       "tier": "pro"
     },
     "pro_urban_14": {
       "name": "Chill R&B",
-      "url": "https://ice4.somafm.com/lush-128-mp3",
+      "url": "https://stream.bigfm.de/slowjamz/mp3-128/radiobrowser",
       "tier": "pro"
     },
     "pro_urban_15": {
       "name": "Street Vibes",
-      "url": "https://streams.ilovemusic.de/iloveradio3.mp3",
+      "url": "http://listen.181fm.com/181-beat_128k.mp3",
       "tier": "pro"
     },
     "pro_rock_01": {
       "name": "Classic Rock",
-      "url": "https://streams.ilovemusic.de/iloveradio4.mp3",
+      "url": "http://streams.radiobob.de/bob-classicrock/mp3-192/streams.radiobob.de/",
       "tier": "pro"
     },
     "pro_rock_02": {
       "name": "Hard Rock",
-      "url": "https://streams.ilovemusic.de/iloveradio4.mp3",
+      "url": "http://streams.radiobob.de/bob-hartesaite/mp3-192/streams.radiobob.de/",
       "tier": "pro"
     },
     "pro_rock_03": {
@@ -575,37 +575,37 @@
     },
     "pro_rock_04": {
       "name": "Alternative",
-      "url": "https://ice4.somafm.com/poptron-128-mp3",
+      "url": "http://streams.radiobob.de/bob-alternative/mp3-192/streams.radiobob.de/",
       "tier": "pro"
     },
     "pro_rock_05": {
       "name": "Metal Arena",
-      "url": "https://ice4.somafm.com/metal-128-mp3",
+      "url": "http://streams.radiobob.de/bob-metal/mp3-192/streams.radiobob.de/",
       "tier": "pro"
     },
     "pro_rock_06": {
       "name": "Nu Metal",
-      "url": "https://ice4.somafm.com/metal-128-mp3",
+      "url": "https://streams.radiobob.de/numetal/mp3-192/",
       "tier": "pro"
     },
     "pro_rock_07": {
       "name": "Pop Punk",
-      "url": "https://ice4.somafm.com/indiepop-128-mp3",
+      "url": "http://streams.radiobob.de/bob-punk/mp3-192/streams.radiobob.de/",
       "tier": "pro"
     },
     "pro_rock_08": {
       "name": "Grunge",
-      "url": "https://ice4.somafm.com/indiepop-128-mp3",
+      "url": "http://streams.radiobob.de/bob-grunge/mp3-192/streams.radiobob.de/",
       "tier": "pro"
     },
     "pro_rock_09": {
       "name": "Prog Rock",
-      "url": "https://ice4.somafm.com/poptron-128-mp3",
+      "url": "https://streams.radiobob.de/progrock/mp3-192/",
       "tier": "pro"
     },
     "pro_rock_10": {
       "name": "Rock Classics",
-      "url": "https://streams.ilovemusic.de/iloveradio21.mp3",
+      "url": "http://streams.radiobob.de/bob-bestofrock/mp3-192/streams.radiobob.de/",
       "tier": "pro"
     }
   }

@@ -2,6 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import dotenv from "dotenv";
 import { PLANS } from "./config/plans.js";
+import { getDefaultLanguage, getLocaleForLanguage, normalizeLanguage } from "./i18n.js";
 import {
   getServerLicense, listLicenses, addLicenseForServer, removeLicense,
   upgradeLicenseForServer,
@@ -165,15 +166,17 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 }
 
-function renderInviteList(title, bots) {
+function renderInviteList(title, bots, language = "de") {
+  const lang = normalizeLanguage(language, getDefaultLanguage());
+  const isDe = lang === "de";
   if (!bots.length) {
     return `
       <h3 style="margin:18px 0 8px;font-size:15px;color:#A1A1AA">${escapeHtml(title)}</h3>
-      <p style="margin:0;color:#52525B;font-size:12px">Keine direkten Bot-Links verfuegbar.</p>`;
+      <p style="margin:0;color:#52525B;font-size:12px">${isDe ? "Keine direkten Bot-Links verfuegbar." : "No direct bot links available."}</p>`;
   }
 
   const rows = bots
-    .map((bot) => `<li style="margin:6px 0"><a href="${escapeHtml(bot.url)}" style="color:#00F0FF;text-decoration:none">Bot #${escapeHtml(bot.index)} - ${escapeHtml(bot.name || "Bot")}</a></li>`)
+    .map((bot) => `<li style="margin:6px 0"><a href="${escapeHtml(bot.url)}" style="color:#00F0FF;text-decoration:none">${isDe ? "Bot" : "Bot"} #${escapeHtml(bot.index)} - ${escapeHtml(bot.name || "Bot")}</a></li>`)
     .join("");
 
   return `
@@ -181,44 +184,47 @@ function renderInviteList(title, bots) {
     <ul style="margin:0;padding-left:18px;color:#A1A1AA;line-height:1.6">${rows}</ul>`;
 }
 
-function buildResendEmailHtml({ license, tierName, inviteOverview }) {
+function buildResendEmailHtml({ license, tierName, inviteOverview, language }) {
+  const lang = normalizeLanguage(language || license?.preferredLanguage || license?.language, getDefaultLanguage());
+  const isDe = lang === "de";
+  const locale = getLocaleForLanguage(lang);
   const expDate = license.expiresAt
-    ? new Date(license.expiresAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
-    : "Unbegrenzt";
+    ? new Date(license.expiresAt).toLocaleDateString(locale, { day: "2-digit", month: "2-digit", year: "numeric" })
+    : (isDe ? "Unbegrenzt" : "Unlimited");
   const tier = String(license.plan || "pro").toLowerCase();
   const tierColor = tier === "ultimate" ? "#BD00FF" : "#FFB800";
   const seats = Number(license.seats || 1);
   const linkedServerIds = Array.isArray(license.linkedServerIds) ? license.linkedServerIds : [];
 
-  const proList = renderInviteList("Pro Bots", inviteOverview.proBots || []);
+  const proList = renderInviteList(isDe ? "Pro Bots" : "Pro bots", inviteOverview.proBots || [], lang);
   const ultimateList = tier === "ultimate"
-    ? renderInviteList("Ultimate Bots", inviteOverview.ultimateBots || [])
+    ? renderInviteList(isDe ? "Ultimate Bots" : "Ultimate bots", inviteOverview.ultimateBots || [], lang)
     : "";
 
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:680px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:16px;overflow:hidden">
       <div style="background:linear-gradient(135deg,${tierColor}22,transparent);padding:32px;text-align:center">
-        <h1 style="font-size:24px;margin:0;color:${tierColor}">OmniFM ${escapeHtml(tierName)} - Lizenzdaten (Resend)</h1>
+        <h1 style="font-size:24px;margin:0;color:${tierColor}">OmniFM ${escapeHtml(tierName)} - ${isDe ? "Lizenzdaten (Resend)" : "License details (resend)"}</h1>
       </div>
       <div style="padding:24px 32px">
         <div style="margin:0 0 18px;padding:18px;background:#111;border-radius:12px;border:1px solid ${tierColor}40;text-align:center">
-          <p style="margin:0 0 6px;color:#A1A1AA;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;font-weight:700">Lizenz-Key</p>
+          <p style="margin:0 0 6px;color:#A1A1AA;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;font-weight:700">${isDe ? "Lizenz-Key" : "License key"}</p>
           <p style="margin:0;font-size:24px;font-weight:800;font-family:'Courier New',monospace;color:${tierColor}">${escapeHtml(license.id || "-")}</p>
         </div>
 
         <table style="width:100%;border-collapse:collapse;margin:10px 0 18px">
           <tr><td style="color:#888;padding:7px 0">Plan</td><td style="text-align:right;padding:7px 0;color:${tierColor};font-weight:700">${escapeHtml(tierName)}</td></tr>
-          <tr><td style="color:#888;padding:7px 0">Server-Slots</td><td style="text-align:right;padding:7px 0">${escapeHtml(linkedServerIds.length)}/${escapeHtml(seats)}</td></tr>
-          <tr><td style="color:#888;padding:7px 0">Gueltig bis</td><td style="text-align:right;padding:7px 0">${escapeHtml(expDate)}</td></tr>
-          <tr><td style="color:#888;padding:7px 0">Kontakt-E-Mail</td><td style="text-align:right;padding:7px 0">${escapeHtml(license.contactEmail || "-")}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">${isDe ? "Server-Slots" : "Server seats"}</td><td style="text-align:right;padding:7px 0">${escapeHtml(linkedServerIds.length)}/${escapeHtml(seats)}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">${isDe ? "Gueltig bis" : "Valid until"}</td><td style="text-align:right;padding:7px 0">${escapeHtml(expDate)}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">${isDe ? "Kontakt-E-Mail" : "Contact email"}</td><td style="text-align:right;padding:7px 0">${escapeHtml(license.contactEmail || "-")}</td></tr>
         </table>
 
         <div style="padding:14px;background:#1a1a1a;border-radius:12px;border:1px solid rgba(255,255,255,0.08)">
-          <p style="margin:0 0 8px;color:#A1A1AA">Server zuweisen:</p>
+          <p style="margin:0 0 8px;color:#A1A1AA">${isDe ? "Server zuweisen:" : "Assign server:"}</p>
           <ol style="margin:0;padding-left:20px;color:#A1A1AA;line-height:1.8">
-            <li>Im Zielserver: <code>/license activate ${escapeHtml(license.id || "")}</code></li>
-            <li>Status pruefen: <code>/license info</code></li>
-            <li>Invite-Links unten verwenden.</li>
+            <li>${isDe ? "Im Zielserver" : "In the target server"}: <code>/license activate ${escapeHtml(license.id || "")}</code></li>
+            <li>${isDe ? "Status pruefen" : "Check status"}: <code>/license info</code></li>
+            <li>${isDe ? "Invite-Links unten verwenden." : "Use the invite links below."}</li>
           </ol>
         </div>
 
@@ -226,7 +232,7 @@ function buildResendEmailHtml({ license, tierName, inviteOverview }) {
         ${ultimateList}
 
         <p style="margin:18px 0 0;color:#A1A1AA;font-size:12px">
-          Weitere Links: <a href="${escapeHtml(inviteOverview.freeWebsiteUrl || resolvePublicWebsiteUrl())}" style="color:#00F0FF;text-decoration:none">${escapeHtml(inviteOverview.freeWebsiteUrl || resolvePublicWebsiteUrl())}</a><br/>
+          ${isDe ? "Weitere Links" : "More links"}: <a href="${escapeHtml(inviteOverview.freeWebsiteUrl || resolvePublicWebsiteUrl())}" style="color:#00F0FF;text-decoration:none">${escapeHtml(inviteOverview.freeWebsiteUrl || resolvePublicWebsiteUrl())}</a><br/>
           Support: <a href="${escapeHtml(SUPPORT_URL)}" style="color:#00F0FF;text-decoration:none">${escapeHtml(SUPPORT_URL)}</a>
         </p>
       </div>
@@ -489,13 +495,17 @@ async function run() {
         }
 
         const inviteOverview = getInviteOverviewForTier(tier);
+        const mailLanguage = normalizeLanguage(license.preferredLanguage || license.language, getDefaultLanguage());
         const html = buildResendEmailHtml({
           license,
           tierName,
           inviteOverview,
+          language: mailLanguage,
         });
 
-        const subject = `OmniFM ${tierName} - Lizenz-Key & Invite-Links (Resend)`;
+        const subject = mailLanguage === "de"
+          ? `OmniFM ${tierName} - Lizenz-Key & Invite-Links (Resend)`
+          : `OmniFM ${tierName} - License key & invite links (resend)`;
         const result = await sendMail(targetEmail, subject, html);
         if (result?.success) {
           ok(`Resend erfolgreich an ${targetEmail} gesendet.`);
