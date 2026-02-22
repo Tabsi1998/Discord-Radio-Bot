@@ -215,9 +215,19 @@ const logsDir = path.join(rootDir, "logs");
 const logFile = path.join(logsDir, "bot.log");
 const maxLogSizeBytes = Number(process.env.LOG_MAX_MB || "5") * 1024 * 1024;
 const logRotateCheckIntervalMs = Number(process.env.LOG_ROTATE_CHECK_MS || "5000");
+const logPruneCheckIntervalMs = Number(process.env.LOG_PRUNE_CHECK_MS || "600000");
+const maxRotatedLogFiles = Math.max(
+  1,
+  Number.parseInt(String(process.env.LOG_MAX_FILES || "30"), 10) || 30
+);
+const maxRotatedLogDays = Math.max(
+  1,
+  Number.parseInt(String(process.env.LOG_MAX_DAYS || "14"), 10) || 14
+);
 const appStartTime = Date.now();
 let logWriteQueue = Promise.resolve();
 let lastLogRotateCheckAt = 0;
+let lastLogPruneCheckAt = 0;
 
 async function ensureLogsDir() {
   await fs.promises.mkdir(logsDir, { recursive: true });
@@ -241,11 +251,45 @@ async function rotateLogIfNeeded() {
   }
 }
 
+async function pruneRotatedLogsIfNeeded() {
+  const now = Date.now();
+  if (now - lastLogPruneCheckAt < logPruneCheckIntervalMs) return;
+  lastLogPruneCheckAt = now;
+
+  const retentionMs = maxRotatedLogDays * 24 * 60 * 60 * 1000;
+  try {
+    const entries = await fs.promises.readdir(logsDir, { withFileTypes: true }).catch(() => []);
+    const files = [];
+    for (const entry of entries) {
+      if (!entry?.isFile?.()) continue;
+      if (!/^bot-.*\.log$/i.test(entry.name)) continue;
+      const filePath = path.join(logsDir, entry.name);
+      // eslint-disable-next-line no-await-in-loop
+      const stat = await fs.promises.stat(filePath).catch(() => null);
+      if (!stat) continue;
+      files.push({ filePath, mtimeMs: stat.mtimeMs });
+    }
+
+    files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    for (let index = 0; index < files.length; index++) {
+      const info = files[index];
+      const olderThanLimit = now - info.mtimeMs > retentionMs;
+      const exceedsCountLimit = index >= maxRotatedLogFiles;
+      if (!olderThanLimit && !exceedsCountLimit) continue;
+      // eslint-disable-next-line no-await-in-loop
+      await fs.promises.unlink(info.filePath).catch(() => null);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function queueLogWrite(line) {
   logWriteQueue = logWriteQueue
     .then(async () => {
       await ensureLogsDir();
       await rotateLogIfNeeded();
+      await pruneRotatedLogsIfNeeded();
       await fs.promises.appendFile(logFile, `${line}\n`, "utf8");
     })
     .catch(() => {

@@ -210,6 +210,62 @@ prune_update_backups() {
   done
 }
 
+cleanup_rotated_logs() {
+  local keep days
+  keep="$(read_env "LOG_MAX_FILES" "30")"
+  days="$(read_env "LOG_MAX_DAYS" "14")"
+
+  if [[ ! "$keep" =~ ^[0-9]+$ ]] || (( keep < 1 )); then
+    keep=30
+  fi
+  if [[ ! "$days" =~ ^[0-9]+$ ]] || (( days < 1 )); then
+    days=14
+  fi
+
+  mkdir -p logs
+
+  mapfile -t files < <(ls -1t logs/bot-*.log 2>/dev/null || true)
+  if (( ${#files[@]} > keep )); then
+    local i
+    for (( i=keep; i<${#files[@]}; i++ )); do
+      rm -f "${files[$i]}" 2>/dev/null || true
+    done
+  fi
+
+  find logs -maxdepth 1 -type f -name "bot-*.log" -mtime +"$days" -delete 2>/dev/null || true
+}
+
+cleanup_docker_cache() {
+  local until
+  until="$(read_env "DOCKER_BUILDER_PRUNE_UNTIL" "168h")"
+  info "Raeume Docker Build-Cache auf (older than ${until})..."
+  docker builder prune -f --filter "until=${until}" >/dev/null 2>&1 || warn "docker builder prune fehlgeschlagen."
+
+  info "Entferne ungenutzte Docker-Images (dangling)..."
+  docker image prune -f >/dev/null 2>&1 || warn "docker image prune fehlgeschlagen."
+}
+
+show_storage_overview() {
+  echo ""
+  echo -e "  ${BOLD}Speicher-Check:${NC}"
+  if command -v df >/dev/null 2>&1; then
+    df -h . 2>/dev/null | tail -1 | awk '{printf("    RootFS: %s genutzt (%s / %s)\n", $5, $3, $2)}'
+  fi
+
+  if command -v du >/dev/null 2>&1; then
+    local logs_size backups_size
+    logs_size="$(du -sh logs 2>/dev/null | awk '{print $1}')"
+    backups_size="$(du -sh .update-backups 2>/dev/null | awk '{print $1}')"
+    echo -e "    logs/:           ${CYAN}${logs_size:-0}${NC}"
+    echo -e "    .update-backups: ${CYAN}${backups_size:-0}${NC}"
+  fi
+
+  if docker system df >/dev/null 2>&1; then
+    echo ""
+    docker system df 2>/dev/null | sed 's/^/    /'
+  fi
+}
+
 restart_container() {
   echo ""
   if prompt_yes_no "Container jetzt neu starten (noetig fuer Aenderungen)?" "j"; then
@@ -247,6 +303,13 @@ ensure_env_default "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1"
 ensure_env_default "CLEAN_GUILD_COMMANDS_ON_BOOT" "0"
 ensure_env_default "GUILD_COMMAND_SYNC_RETRIES" "3"
 ensure_env_default "GUILD_COMMAND_SYNC_RETRY_MS" "1200"
+ensure_env_default "LOG_MAX_MB" "5"
+ensure_env_default "LOG_MAX_FILES" "30"
+ensure_env_default "LOG_MAX_DAYS" "14"
+ensure_env_default "LOG_PRUNE_CHECK_MS" "600000"
+ensure_env_default "UPDATE_BUILD_NO_CACHE" "0"
+ensure_env_default "AUTO_DOCKER_PRUNE" "1"
+ensure_env_default "DOCKER_BUILDER_PRUNE_UNTIL" "168h"
 
 # Einmalige Migration: fruehere Defaults hatten CLEAN_GUILD_COMMANDS_ON_BOOT=1.
 # Das kann bei transienten API-Fehlern Commands entfernen.
@@ -274,8 +337,9 @@ if [[ -z "$MODE" ]]; then
   echo -e "    ${DIM}5${NC})  E-Mail (SMTP)     - E-Mail-Versand konfigurieren"
   echo -e "    ${DIM}6${NC})  Einstellungen     - Port, Domain und mehr"
   echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"
+  echo -e "    ${DIM}8${NC})  Speicher cleanup  - Logs/Backups/Docker-Cache aufraeumen"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-7]${NC}: ")" MODE_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-8]${NC}: ")" MODE_CHOICE
   case "${MODE_CHOICE:-}" in
     1) MODE="--update" ;;
     2) MODE="--bots" ;;
@@ -284,6 +348,7 @@ if [[ -z "$MODE" ]]; then
     5) MODE="--email" ;;
     6) MODE="--settings" ;;
     7) MODE="--status" ;;
+    8) MODE="--cleanup" ;;
     *) MODE="--update" ;;
   esac
 fi
@@ -300,8 +365,30 @@ if [[ "$MODE" == "--status" ]]; then
   echo -e "  ${BOLD}Letzte 20 Log-Zeilen:${NC}"
   echo ""
   docker compose logs --tail=20 omnifm 2>/dev/null || warn "Keine Logs verfuegbar."
+  show_storage_overview
   echo ""
   echo -e "  ${DIM}Tipp: Fuer Live-Logs: docker compose logs -f omnifm${NC}"
+  echo -e "  ${DIM}Tipp: Speicher aufraeumen: ./update.sh --cleanup${NC}"
+  exit 0
+fi
+
+# ============================================================
+# MODE: Speicher cleanup
+# ============================================================
+if [[ "$MODE" == "--cleanup" ]]; then
+  echo ""
+  echo -e "  ${BOLD}Speicher cleanup${NC}"
+  echo "  ------------------------------------"
+
+  prune_update_backups
+  cleanup_rotated_logs
+  if [[ "$(read_env "AUTO_DOCKER_PRUNE" "1")" != "0" ]]; then
+    cleanup_docker_cache
+  else
+    warn "AUTO_DOCKER_PRUNE=0 - Docker cleanup uebersprungen."
+  fi
+  show_storage_overview
+  ok "Cleanup abgeschlossen."
   exit 0
 fi
 
@@ -925,11 +1012,25 @@ ensure_all_json_files
 
 # Container rebuild
 info "Baue Container neu..."
-docker compose build --no-cache 2>&1 | tail -5
+build_no_cache="$(read_env "UPDATE_BUILD_NO_CACHE" "0")"
+if [[ "$build_no_cache" == "1" ]]; then
+  warn "UPDATE_BUILD_NO_CACHE=1 - baue ohne Cache (langsamer, mehr Speicherverbrauch)."
+  docker compose build --no-cache 2>&1 | tail -5
+else
+  docker compose build 2>&1 | tail -5
+fi
 docker compose up -d --remove-orphans 2>&1 | tail -3
+
+# Housekeeping nach Update
+prune_update_backups
+cleanup_rotated_logs
+if [[ "$(read_env "AUTO_DOCKER_PRUNE" "1")" != "0" ]]; then
+  cleanup_docker_cache
+fi
 
 echo ""
 ok "Update abgeschlossen!"
+show_storage_overview
 echo ""
 
 # Zusammenfassung
@@ -949,5 +1050,6 @@ echo -e "    Premium:          ${GREEN}./update.sh --premium${NC}"
 echo -e "    E-Mail Setup:     ${GREEN}./update.sh --email${NC}"
 echo -e "    Einstellungen:    ${GREEN}./update.sh --settings${NC}"
 echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
+echo -e "    Speicher cleanup: ${GREEN}./update.sh --cleanup${NC}"
 echo -e "    Dieses Menue:     ${GREEN}./update.sh${NC}"
 echo ""
