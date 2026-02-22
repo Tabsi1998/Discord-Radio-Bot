@@ -1,6 +1,8 @@
 import { SlashCommandBuilder } from "discord.js";
+import { getPermissionCommandChoices } from "./config/command-permissions.js";
 
 export function buildCommandBuilders() {
+  const permissionChoices = getPermissionCommandChoices();
   return [
     new SlashCommandBuilder()
       .setName("play")
@@ -49,6 +51,75 @@ export function buildCommandBuilders() {
       )
       .addSubcommand((sub) =>
         sub.setName("remove").setDescription("Diesen Server von der Lizenz entfernen")
+      ),
+    // Command permissions (Pro+)
+    new SlashCommandBuilder()
+      .setName("perm")
+      .setDescription("[Pro] Rollenrechte fuer Commands verwalten")
+      .addSubcommand((sub) =>
+        sub.setName("allow")
+          .setDescription("Erlaubt eine Rolle fuer einen Command")
+          .addStringOption((o) =>
+            o.setName("command")
+              .setDescription("Command ohne /")
+              .setRequired(true)
+              .addChoices(...permissionChoices)
+          )
+          .addRoleOption((o) =>
+            o.setName("role")
+              .setDescription("Rolle, die den Command nutzen darf")
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("deny")
+          .setDescription("Sperrt eine Rolle fuer einen Command")
+          .addStringOption((o) =>
+            o.setName("command")
+              .setDescription("Command ohne /")
+              .setRequired(true)
+              .addChoices(...permissionChoices)
+          )
+          .addRoleOption((o) =>
+            o.setName("role")
+              .setDescription("Rolle, die gesperrt werden soll")
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("remove")
+          .setDescription("Entfernt eine Rollenregel fuer einen Command")
+          .addStringOption((o) =>
+            o.setName("command")
+              .setDescription("Command ohne /")
+              .setRequired(true)
+              .addChoices(...permissionChoices)
+          )
+          .addRoleOption((o) =>
+            o.setName("role")
+              .setDescription("Rolle, deren Regel entfernt werden soll")
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("list")
+          .setDescription("Zeigt die aktuellen Command-Rollenregeln")
+          .addStringOption((o) =>
+            o.setName("command")
+              .setDescription("Optional: nur einen Command anzeigen")
+              .setRequired(false)
+              .addChoices(...permissionChoices)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("reset")
+          .setDescription("Setzt Regeln zurueck (ein Command oder alle)")
+          .addStringOption((o) =>
+            o.setName("command")
+              .setDescription("Optional: nur diesen Command zuruecksetzen")
+              .setRequired(false)
+              .addChoices(...permissionChoices)
+          )
       ),
   ];
 }

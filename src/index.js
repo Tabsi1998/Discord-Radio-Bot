@@ -40,6 +40,15 @@ import { buildCommandBuilders } from "./commands.js";
 import { loadStations, resolveStation, filterStationsByTier, getFallbackKey } from "./stations-store.js";
 import { getGuildStations, addGuildStation, removeGuildStation, countGuildStations, MAX_STATIONS_PER_GUILD, validateCustomStationUrl } from "./custom-stations.js";
 import { normalizeLanguage, resolveLanguageFromAcceptLanguage, getDefaultLanguage } from "./i18n.js";
+import {
+  evaluateCommandPermission,
+  getGuildCommandPermissionRules,
+  getSupportedPermissionCommands,
+  removeCommandRolePermission,
+  resetCommandPermissions,
+  setCommandRolePermission,
+} from "./command-permissions-store.js";
+import { isPermissionManagedCommand, normalizePermissionCommandName } from "./config/command-permissions.js";
 
 dotenv.config();
 
@@ -1260,6 +1269,212 @@ class BotRuntime {
     return interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) || false;
   }
 
+  isGuildOwner(interaction) {
+    const ownerId = String(interaction?.guild?.ownerId || "").trim();
+    const userId = String(interaction?.user?.id || "").trim();
+    return Boolean(ownerId && userId && ownerId === userId);
+  }
+
+  hasPermissionAdminBypass(interaction) {
+    return this.isGuildOwner(interaction) || this.hasGuildManagePermissions(interaction);
+  }
+
+  getInteractionRoleIds(interaction) {
+    const ids = new Set();
+    const rawRoles = interaction?.member?.roles;
+
+    if (rawRoles?.cache && typeof rawRoles.cache.keys === "function") {
+      for (const roleId of rawRoles.cache.keys()) {
+        const id = String(roleId || "").trim();
+        if (/^\d{17,22}$/.test(id)) ids.add(id);
+      }
+    } else if (Array.isArray(rawRoles)) {
+      for (const roleId of rawRoles) {
+        const id = String(roleId || "").trim();
+        if (/^\d{17,22}$/.test(id)) ids.add(id);
+      }
+    } else if (Array.isArray(rawRoles?.value)) {
+      for (const roleId of rawRoles.value) {
+        const id = String(roleId || "").trim();
+        if (/^\d{17,22}$/.test(id)) ids.add(id);
+      }
+    }
+
+    if (interaction?.guildId) {
+      ids.add(String(interaction.guildId));
+    }
+    return [...ids];
+  }
+
+  formatPermissionRoleMentions(roleIds) {
+    const ids = Array.isArray(roleIds) ? roleIds.filter((id) => /^\d{17,22}$/.test(String(id || "").trim())) : [];
+    if (!ids.length) return "-";
+    return ids.map((id) => `<@&${id}>`).join(", ");
+  }
+
+  checkCommandRolePermission(interaction, commandName) {
+    const guildId = interaction?.guildId;
+    const command = normalizePermissionCommandName(commandName);
+    if (!guildId || !isPermissionManagedCommand(command)) {
+      return { ok: true, enforced: false };
+    }
+
+    const feature = requireFeature(guildId, "commandPermissions");
+    if (!feature.ok) {
+      return { ok: true, enforced: false };
+    }
+
+    if (this.hasPermissionAdminBypass(interaction)) {
+      return { ok: true, enforced: true, bypass: true };
+    }
+
+    const roleIds = this.getInteractionRoleIds(interaction);
+    const decision = evaluateCommandPermission(guildId, command, roleIds);
+    if (decision.allowed) {
+      return { ok: true, enforced: decision.configured, decision };
+    }
+
+    if (decision.reason === "deny") {
+      const blocked = this.formatPermissionRoleMentions(decision.matchedRoleIds || decision.denyRoleIds);
+      return {
+        ok: false,
+        enforced: true,
+        decision,
+        message: `Du darfst \`/${command}\` nicht nutzen. Deine Rolle ist dafuer gesperrt (${blocked}).`,
+      };
+    }
+
+    const requiredRoles = this.formatPermissionRoleMentions(decision.allowRoleIds);
+    return {
+      ok: false,
+      enforced: true,
+      decision,
+      message: `Du darfst \`/${command}\` nicht nutzen. Erlaubte Rollen: ${requiredRoles}.`,
+    };
+  }
+
+  async handlePermissionCommand(interaction) {
+    const guildId = interaction.guildId;
+
+    if (!this.hasGuildManagePermissions(interaction)) {
+      await interaction.reply({
+        content: "Du brauchst die Berechtigung `Server verwalten` fuer `/perm`.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const feature = requireFeature(guildId, "commandPermissions");
+    if (!feature.ok) {
+      await interaction.reply({
+        content: `${feature.message}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const sub = interaction.options.getSubcommand();
+    const rawCommand = interaction.options.getString("command");
+    const command = rawCommand ? normalizePermissionCommandName(rawCommand) : null;
+    if (command && !isPermissionManagedCommand(command)) {
+      await interaction.reply({ content: `Unbekannter Command: \`${rawCommand}\``, ephemeral: true });
+      return;
+    }
+
+    if (sub === "allow" || sub === "deny") {
+      const role = interaction.options.getRole("role", true);
+      const result = setCommandRolePermission(guildId, command, role.id, sub);
+      if (!result.ok) {
+        await interaction.reply({ content: `Fehler: ${result.message}`, ephemeral: true });
+        return;
+      }
+      await interaction.reply({
+        content:
+          `Rolle ${role.toString()} ist jetzt fuer \`/${command}\` ${sub === "allow" ? "erlaubt" : "gesperrt"}.\n` +
+          `Allow: ${this.formatPermissionRoleMentions(result.rule.allowRoleIds)}\n` +
+          `Deny: ${this.formatPermissionRoleMentions(result.rule.denyRoleIds)}`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (sub === "remove") {
+      const role = interaction.options.getRole("role", true);
+      const result = removeCommandRolePermission(guildId, command, role.id);
+      if (!result.ok) {
+        await interaction.reply({ content: `Fehler: ${result.message}`, ephemeral: true });
+        return;
+      }
+      await interaction.reply({
+        content:
+          `Regel fuer ${role.toString()} bei \`/${command}\` ${result.changed ? "entfernt" : "war nicht gesetzt"}.\n` +
+          `Allow: ${this.formatPermissionRoleMentions(result.rule.allowRoleIds)}\n` +
+          `Deny: ${this.formatPermissionRoleMentions(result.rule.denyRoleIds)}`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (sub === "reset") {
+      const result = resetCommandPermissions(guildId, command || null);
+      if (!result.ok) {
+        await interaction.reply({ content: `Fehler: ${result.message}`, ephemeral: true });
+        return;
+      }
+
+      if (command) {
+        await interaction.reply({
+          content: result.changed
+            ? `Regeln fuer \`/${command}\` wurden zurueckgesetzt.`
+            : `Fuer \`/${command}\` waren keine Regeln gesetzt.`,
+          ephemeral: true,
+        });
+      } else {
+        await interaction.reply({
+          content: result.changed
+            ? "Alle Command-Regeln fuer diesen Server wurden zurueckgesetzt."
+            : "Es waren keine Command-Regeln gesetzt.",
+          ephemeral: true,
+        });
+      }
+      return;
+    }
+
+    if (sub === "list") {
+      const rulesByCommand = getGuildCommandPermissionRules(guildId);
+      const commands = command ? [command] : getSupportedPermissionCommands();
+      const lines = [];
+
+      for (const name of commands) {
+        const rule = rulesByCommand[name] || { allowRoleIds: [], denyRoleIds: [] };
+        const allowCount = rule.allowRoleIds.length;
+        const denyCount = rule.denyRoleIds.length;
+        if (!command && allowCount === 0 && denyCount === 0) continue;
+        lines.push(
+          `\`/${name}\` -> Allow: ${this.formatPermissionRoleMentions(rule.allowRoleIds)} | Deny: ${this.formatPermissionRoleMentions(rule.denyRoleIds)}`
+        );
+      }
+
+      if (!lines.length) {
+        await interaction.reply({
+          content: command
+            ? `Fuer \`/${command}\` sind keine Rollenregeln gesetzt.`
+            : "Keine Command-Rollenregeln gesetzt.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const header = command
+        ? `Regeln fuer \`/${command}\`:`
+        : `Aktive Command-Rollenregeln (${lines.length}):`;
+      await interaction.reply({ content: `${header}\n${lines.join("\n")}`, ephemeral: true });
+      return;
+    }
+
+    await interaction.reply({ content: "Unbekannte /perm Aktion.", ephemeral: true });
+  }
+
   async respondInteraction(interaction, payload) {
     if (interaction.deferred || interaction.replied) {
       const editPayload = { ...payload };
@@ -1475,6 +1690,12 @@ class BotRuntime {
         }
       }
 
+      const commandPermission = this.checkCommandRolePermission(interaction, interaction.commandName);
+      if (!commandPermission.ok) {
+        await interaction.respond([]);
+        return;
+      }
+
       const focused = interaction.options.getFocused(true);
 
       if (focused.name === "station") {
@@ -1595,6 +1816,17 @@ class BotRuntime {
         await this.replyAccessDenied(interaction, access);
         return;
       }
+    }
+
+    if (interaction.commandName === "perm") {
+      await this.handlePermissionCommand(interaction);
+      return;
+    }
+
+    const commandPermission = this.checkCommandRolePermission(interaction, interaction.commandName);
+    if (!commandPermission.ok) {
+      await interaction.reply({ content: commandPermission.message, ephemeral: true });
+      return;
     }
 
     const stations = loadStations();
@@ -3093,6 +3325,7 @@ function startWebServer(runtimes) {
               "120 Stationen (Free + Pro)",
               "Priority Reconnect (1,5s)",
               "Server-Lizenz (1/2/3/5 Server)",
+              "Rollenbasierte Command-Berechtigungen",
             ]
           },
           ultimate: {
@@ -3106,6 +3339,7 @@ function startWebServer(runtimes) {
               "Alle Stationen + Custom URLs",
               "Instant Reconnect (0,4s)",
               "Server-Lizenz Bundles",
+              "Rollenbasierte Command-Berechtigungen",
             ]
           },
         },

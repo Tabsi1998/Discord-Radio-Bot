@@ -19,6 +19,7 @@ export const PLANS = {
       instantReconnect: false,
       premiumStations: false,
       customStationURLs: false,
+      commandPermissions: false,
     },
   },
   pro: {
@@ -35,6 +36,7 @@ export const PLANS = {
       instantReconnect: false,
       premiumStations: true,
       customStationURLs: false,
+      commandPermissions: true,
     },
   },
   ultimate: {
@@ -51,6 +53,7 @@ export const PLANS = {
       instantReconnect: true,
       premiumStations: true,
       customStationURLs: true,
+      commandPermissions: true,
     },
   },
 };
@@ -62,6 +65,7 @@ export const FEATURE_LABELS = {
   instantReconnect:   "Instant Reconnect",
   premiumStations:    "100+ Premium Stations",
   customStationURLs:  "Custom Station URLs",
+  commandPermissions: "Rollenbasierte Command-Berechtigungen",
 };
 
 export const BRAND = {

@@ -9,6 +9,8 @@ premium.json
 premium.json.bak
 custom-stations.json
 custom-stations.json.bak
+command-permissions.json
+command-permissions.json.bak
 
 # Emergent Platform (nicht Teil des Bot-Repos)
 backend/

@@ -60,6 +60,7 @@ var COMMANDS_DE = [
   { name: '/removestation', args: '<key>',                desc: '[Ultimate] Eigene Station entfernen' },
   { name: '/mystations',    args: '',                     desc: '[Ultimate] Zeigt deine Custom-Stationen' },
   { name: '/license',       args: '<activate|info|remove>', desc: 'Lizenz verwalten: aktivieren, anzeigen oder entfernen' },
+  { name: '/perm',          args: '<allow|deny|remove|list|reset>', desc: '[Pro] Rollenrechte fuer Commands verwalten' },
 ];
 
 var COMMANDS_EN = [
@@ -79,6 +80,7 @@ var COMMANDS_EN = [
   { name: '/removestation', args: '<key>',                desc: '[Ultimate] Removes a custom station' },
   { name: '/mystations',    args: '',                     desc: '[Ultimate] Lists your custom stations' },
   { name: '/license',       args: '<activate|info|remove>', desc: 'Manage license: activate, view, or remove' },
+  { name: '/perm',          args: '<allow|deny|remove|list|reset>', desc: '[Pro] Manage role permissions for commands' },
 ];
 
 var COMMANDS = APP_IS_DE ? COMMANDS_DE : COMMANDS_EN;

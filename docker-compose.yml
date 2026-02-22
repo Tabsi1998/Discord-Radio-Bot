@@ -11,5 +11,6 @@ services:
       - ./premium.json:/app/premium.json
       - ./bot-state.json:/app/bot-state.json
       - ./custom-stations.json:/app/custom-stations.json
+      - ./command-permissions.json:/app/command-permissions.json
       - ./logs:/app/logs
     restart: unless-stopped

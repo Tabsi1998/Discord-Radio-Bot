@@ -35,6 +35,7 @@ init_json_file() {
 
 init_json_file "/app/bot-state.json"
 init_json_file "/app/custom-stations.json"
+init_json_file "/app/command-permissions.json"
 init_json_file "/app/premium.json"
 init_json_file "/app/stations.json"
 

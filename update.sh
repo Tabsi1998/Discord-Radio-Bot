@@ -170,6 +170,7 @@ ensure_all_json_files() {
   ensure_json_file "premium.json"         '{"licenses":{}}'
   ensure_json_file "bot-state.json"       '{}'
   ensure_json_file "custom-stations.json" '{}'
+  ensure_json_file "command-permissions.json" '{"guilds":{}}'
   # stations.json nur erstellen wenn komplett fehlend
   if [[ -d "stations.json" ]]; then
     rm -rf "stations.json" 2>/dev/null || true
@@ -197,7 +198,7 @@ prune_update_backups() {
   fi
 
   local prefix
-  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json"; do
+  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json" "command-permissions.json"; do
     mapfile -t files < <(ls -1t ".update-backups/${prefix}."* 2>/dev/null || true)
     if (( ${#files[@]} <= keep )); then
       continue
@@ -837,7 +838,7 @@ update_stamp="$(date +%Y%m%d%H%M%S)"
 licenses_before_update="$(count_license_entries premium.json)"
 
 # WICHTIG: Premium-Daten IMMER sichern vor Update!
-for pf in premium.json bot-state.json custom-stations.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json; do
   if [[ -f "$pf" ]]; then
     cp "$pf" ".update-backups/${pf}.${update_stamp}" 2>/dev/null || true
   fi
@@ -857,11 +858,12 @@ git clean -fd \
   -e premium.json \
   -e bot-state.json \
   -e custom-stations.json \
+  -e command-permissions.json \
   -e docker-compose.override.yml 2>/dev/null || true
 
 # Laufzeitdaten immer aus dem VOR-Update Snapshot wiederherstellen,
 # damit git reset keine produktiven JSON-Daten ueberschreibt.
-for pf in premium.json bot-state.json custom-stations.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json; do
   snapshot=".update-backups/${pf}.${update_stamp}"
   if [[ -s "$snapshot" ]]; then
     if ! cmp -s "$snapshot" "$pf" 2>/dev/null; then
@@ -872,7 +874,7 @@ for pf in premium.json bot-state.json custom-stations.json; do
 done
 
 # Sicherheitscheck: Premium-Daten duerfen NICHT leer sein nach Update
-for pf in premium.json bot-state.json custom-stations.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json; do
   if [[ -f "$pf" ]] && [[ ! -s "$pf" ]]; then
     latest_backup=$(ls -t ".update-backups/${pf}."* 2>/dev/null | head -1)
     if [[ -n "$latest_backup" ]] && [[ -s "$latest_backup" ]]; then
