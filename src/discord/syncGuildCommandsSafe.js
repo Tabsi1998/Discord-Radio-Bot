@@ -40,6 +40,18 @@ function extractGuildIds(collection) {
   return [];
 }
 
+function uniqueGuildIds(ids) {
+  const out = [];
+  const seen = new Set();
+  for (const rawId of ids || []) {
+    const guildId = String(rawId || "").trim();
+    if (!guildId || seen.has(guildId)) continue;
+    seen.add(guildId);
+    out.push(guildId);
+  }
+  return out;
+}
+
 async function ensureClientReady(client) {
   if (client?.isReady?.()) return;
   await once(client, "clientReady");
@@ -116,17 +128,18 @@ export async function syncGuildCommandsSafe({
     }
 
     const fetchedGuildIds = extractGuildIds(fetchedGuilds);
-    const guildIds = [...client.guilds.cache.keys()];
-    const missingGuildIds = fetchedGuildIds.filter((guildId) => !client.guilds.cache.has(guildId));
+    const cacheGuildIds = [...client.guilds.cache.keys()];
+    const guildIds = uniqueGuildIds([...fetchedGuildIds, ...cacheGuildIds]);
     const guildCount = guildIds.length;
-    const fetchedCount = fetchedGuildIds.length || guildCount;
+    const fetchedCount = fetchedGuildIds.length;
+    const cacheCount = cacheGuildIds.length;
     const applicationId = resolveApplicationId(client);
 
     emit(logFn, "INFO", `[${label}] Ready -> Guilds fetched: ${fetchedCount}`);
     emit(
       logFn,
       "INFO",
-      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} guildIds=${guildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} attempt=${attempt}/${maxTries}`
+      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${guildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} attempt=${attempt}/${maxTries}`
     );
 
     if (!applicationId) {
@@ -142,10 +155,8 @@ export async function syncGuildCommandsSafe({
       return { ok: 0, failed: guildCount, attempts: attempt, skipped: true, reason: "missing-application-id" };
     }
 
-    if (guildCount === 0 || missingGuildIds.length > 0) {
-      const reason = guildCount === 0
-        ? "guild-cache-empty"
-        : `missing-guilds=${missingGuildIds.join(",")}`;
+    if (guildCount === 0) {
+      const reason = "no-guild-ids-after-fetch";
       emit(
         logFn,
         "ERROR",
