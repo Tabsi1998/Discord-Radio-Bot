@@ -86,14 +86,14 @@ function resolveSyncDelayMs(syncSource) {
   if (source === "join") {
     const fixedJoinDelayRaw = process.env.GUILD_COMMAND_SYNC_JOIN_DELAY_MS;
     if (fixedJoinDelayRaw !== undefined && fixedJoinDelayRaw !== null && String(fixedJoinDelayRaw).trim() !== "") {
-      return Math.max(0, toInt(fixedJoinDelayRaw, 4000));
+      return Math.max(0, toInt(fixedJoinDelayRaw, 12000));
     }
 
     return resolveDelayMsRange(
       process.env.GUILD_COMMAND_SYNC_JOIN_DELAY_MIN_MS,
       process.env.GUILD_COMMAND_SYNC_JOIN_DELAY_MAX_MS,
-      3000,
-      6000
+      10000,
+      20000
     );
   }
 
@@ -205,19 +205,26 @@ export async function syncGuildCommandsSafe({
 
   const label = botLabel || "Bot";
   const syncSource = source || "sync";
+  const isJoinSync = String(syncSource).toLowerCase() === "join";
   const payload = Array.isArray(commands) ? commands : [];
   const syncDelayMs = resolveSyncDelayMs(syncSource);
   const retryDelayMs = Math.max(
-    1000,
+    5000,
     toInt(process.env.GUILD_COMMAND_SYNC_RETRY_DELAY_MS ?? process.env.GUILD_COMMAND_SYNC_RETRY_MS, 10000)
   );
+  const requestTimeoutRaw = isJoinSync
+    ? (process.env.GUILD_COMMAND_SYNC_JOIN_REQUEST_TIMEOUT_MS ?? process.env.GUILD_COMMAND_SYNC_REQUEST_TIMEOUT_MS)
+    : process.env.GUILD_COMMAND_SYNC_REQUEST_TIMEOUT_MS;
   const requestTimeoutMs = Math.max(
-    1000,
-    toInt(process.env.GUILD_COMMAND_SYNC_REQUEST_TIMEOUT_MS, 10000)
+    5000,
+    toInt(requestTimeoutRaw, isJoinSync ? 30000 : 15000)
   );
+  const triesRaw = isJoinSync
+    ? (process.env.GUILD_COMMAND_SYNC_JOIN_TRIES ?? process.env.GUILD_COMMAND_SYNC_TRIES ?? process.env.GUILD_COMMAND_SYNC_RETRIES)
+    : (process.env.GUILD_COMMAND_SYNC_TRIES ?? process.env.GUILD_COMMAND_SYNC_RETRIES);
   const configuredTries = toInt(
-    process.env.GUILD_COMMAND_SYNC_TRIES ?? process.env.GUILD_COMMAND_SYNC_RETRIES,
-    3
+    triesRaw,
+    isJoinSync ? 2 : 3
   );
   const maxTries = Math.min(3, Math.max(1, configuredTries));
 
@@ -278,7 +285,7 @@ export async function syncGuildCommandsSafe({
     emit(
       logFn,
       "INFO",
-      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} discoveredGuildCount=${discoveredGuildCount} requestedGuildCount=${requestedGuildIds.length} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${targetGuildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} syncDelayMs=${syncDelayMs} attempt=${attempt}/${maxTries}`
+      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} discoveredGuildCount=${discoveredGuildCount} requestedGuildCount=${requestedGuildIds.length} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${targetGuildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} syncDelayMs=${syncDelayMs} requestTimeoutMs=${requestTimeoutMs} retryDelayMs=${retryDelayMs} attempt=${attempt}/${maxTries}`
     );
 
     if (!applicationId) {
