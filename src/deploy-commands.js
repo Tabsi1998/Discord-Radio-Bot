@@ -31,8 +31,7 @@ for (const bot of bots) {
       console.warn(`[WARN] ${bot.name}: CLIENT_ID mismatch (env=${bot.clientId}, runtime=${runtimeClientId}). Nutze runtime-ID.`);
     }
     if (syncGuildCommands) {
-      console.log(`Loesche globale Slash-Commands fuer ${bot.name} (${runtimeClientId}) (Guild-Sync aktiv)...`);
-      await rest.put(Routes.applicationCommands(runtimeClientId), { body: [] });
+      console.log(`Ueberspringe globale Slash-Commands fuer ${bot.name} (${runtimeClientId}) (nur Guild-Sync aktiv).`);
     } else {
       console.log(`Registriere globale Slash-Commands fuer ${bot.name} (${runtimeClientId})...`);
       await rest.put(Routes.applicationCommands(runtimeClientId), { body: commands });
@@ -45,7 +44,7 @@ for (const bot of bots) {
 }
 
 if (syncGuildCommands) {
-  console.log("Globale Commands wurden geloescht. Guild-Commands werden beim Bot-Start synchronisiert.");
+  console.log("Global-Command-Deploy uebersprungen (nur Guild-Sync). Guild-Commands werden beim Bot-Start synchronisiert.");
 } else {
   console.log("Alle Bot-Commands registriert (globale Commands koennen bis zu 1h fuer volle Sichtbarkeit brauchen).");
 }

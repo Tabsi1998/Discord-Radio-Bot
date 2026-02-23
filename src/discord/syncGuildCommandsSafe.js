@@ -58,6 +58,28 @@ function uniqueGuildIds(ids) {
   return out;
 }
 
+function resolveStartupDelayMs(shouldDelayAfterReady) {
+  if (!shouldDelayAfterReady) return 0;
+
+  const fixedDelayRaw = process.env.GUILD_COMMAND_SYNC_READY_DELAY_MS ?? process.env.GUILD_COMMAND_READY_DELAY_MS;
+  if (fixedDelayRaw !== undefined && fixedDelayRaw !== null && String(fixedDelayRaw).trim() !== "") {
+    return Math.max(0, toInt(fixedDelayRaw, 7000));
+  }
+
+  const minDelayMs = Math.max(
+    0,
+    toInt(process.env.GUILD_COMMAND_SYNC_READY_DELAY_MIN_MS ?? process.env.GUILD_COMMAND_SYNC_STARTUP_DELAY_MIN_MS, 5000)
+  );
+  const maxDelayCandidate = toInt(
+    process.env.GUILD_COMMAND_SYNC_READY_DELAY_MAX_MS ?? process.env.GUILD_COMMAND_SYNC_STARTUP_DELAY_MAX_MS,
+    10000
+  );
+  const maxDelayMs = Math.max(minDelayMs, maxDelayCandidate);
+
+  if (maxDelayMs <= minDelayMs) return minDelayMs;
+  return minDelayMs + Math.floor(Math.random() * (maxDelayMs - minDelayMs + 1));
+}
+
 async function ensureClientReady(client) {
   if (client?.isReady?.()) return;
   await once(client, "clientReady");
@@ -164,10 +186,7 @@ export async function syncGuildCommandsSafe({
   const syncSource = source || "sync";
   const shouldDelayAfterReady = String(syncSource).toLowerCase() === "startup";
   const payload = Array.isArray(commands) ? commands : [];
-  const readyDelayMs = Math.max(
-    0,
-    toInt(process.env.GUILD_COMMAND_SYNC_READY_DELAY_MS ?? process.env.GUILD_COMMAND_READY_DELAY_MS, 7000)
-  );
+  const startupDelayMs = resolveStartupDelayMs(shouldDelayAfterReady);
   const retryDelayMs = Math.max(
     1000,
     toInt(process.env.GUILD_COMMAND_SYNC_RETRY_DELAY_MS ?? process.env.GUILD_COMMAND_SYNC_RETRY_MS, 10000)
@@ -236,7 +255,7 @@ export async function syncGuildCommandsSafe({
     emit(
       logFn,
       "INFO",
-      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${guildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} attempt=${attempt}/${maxTries}`
+      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${guildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} startupDelayMs=${startupDelayMs} attempt=${attempt}/${maxTries}`
     );
 
     if (!applicationId) {
@@ -268,8 +287,9 @@ export async function syncGuildCommandsSafe({
       return { ok: 0, failed: guildCount, attempts: attempt, skipped: true, reason };
     }
 
-    if (shouldDelayAfterReady && readyDelayMs > 0) {
-      await waitMs(readyDelayMs);
+    if (startupDelayMs > 0) {
+      emit(logFn, "INFO", `[${label}] Startup delay before command sync: ${startupDelayMs}ms`);
+      await waitMs(startupDelayMs);
     }
 
     const result = await runExclusive(async () => {

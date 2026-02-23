@@ -49,7 +49,6 @@ import {
   setCommandRolePermission,
 } from "./command-permissions-store.js";
 import { isPermissionManagedCommand, normalizePermissionCommandName } from "./config/command-permissions.js";
-import { runExclusive } from "./utils/commandSyncGuard.js";
 import { syncGuildCommandsSafe } from "./discord/syncGuildCommandsSafe.js";
 
 dotenv.config();
@@ -227,7 +226,6 @@ const maxRotatedLogDays = Math.max(
   Number.parseInt(String(process.env.LOG_MAX_DAYS || "14"), 10) || 14
 );
 const appStartTime = Date.now();
-const cleanedGlobalCommandApplications = new Set();
 let logWriteQueue = Promise.resolve();
 let lastLogRotateCheckAt = 0;
 let lastLogPruneCheckAt = 0;
@@ -935,7 +933,6 @@ class BotRuntime {
   }
 
   async refreshGuildCommandsOnReady() {
-    await this.cleanupGlobalCommands();
     if (this.isGuildCommandCleanupEnabled()) {
       log(
         "INFO",
@@ -957,11 +954,6 @@ class BotRuntime {
     return String(this.client.user?.id || this.config.clientId || "").trim();
   }
 
-  isGlobalCommandCleanupEnabled() {
-    if (!this.isGuildCommandSyncEnabled()) return false;
-    return String(process.env.CLEAN_GLOBAL_COMMANDS_ON_BOOT ?? "1") !== "0";
-  }
-
   isGuildCommandCleanupEnabled() {
     if (!this.isGuildCommandSyncEnabled()) return false;
     return String(process.env.CLEAN_GUILD_COMMANDS_ON_BOOT ?? "0") !== "0";
@@ -978,33 +970,6 @@ class BotRuntime {
       botLabel: `${this.config.name}`,
       source,
       logFn: (level, message) => log(level, message),
-    });
-  }
-
-  async cleanupGlobalCommands() {
-    if (!this.isGlobalCommandCleanupEnabled()) return;
-    const applicationId = this.getApplicationId();
-    if (!applicationId) {
-      log("ERROR", `[${this.config.name}] Global-Command-Cleanup uebersprungen: Application ID fehlt.`);
-      return;
-    }
-
-    await runExclusive(async () => {
-      if (cleanedGlobalCommandApplications.has(applicationId)) {
-        log(
-          "INFO",
-          `[${this.config.name}] Global-Command-Cleanup uebersprungen (bereits erledigt, applicationId=${applicationId}).`
-        );
-        return;
-      }
-
-      try {
-        await this.rest.put(Routes.applicationCommands(applicationId), { body: [] });
-        cleanedGlobalCommandApplications.add(applicationId);
-        log("INFO", `[${this.config.name}] Globale Commands bereinigt (Vermeidung doppelter Commands).`);
-      } catch (err) {
-        log("ERROR", `[${this.config.name}] Global-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
-      }
     });
   }
 
