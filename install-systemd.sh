@@ -2,11 +2,12 @@
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICE_SRC="$APP_DIR/omnifm.service"
-SERVICE_DST="/etc/systemd/system/omnifm.service"
+SERVICE_NAME="${SERVICE_NAME:-radio-bot.service}"
+SERVICE_SRC="$APP_DIR/$SERVICE_NAME"
+SERVICE_DST="/etc/systemd/system/$SERVICE_NAME"
 
 if [[ ! -f "$SERVICE_SRC" ]]; then
-  echo "omnifm.service nicht gefunden." >&2
+  echo "$SERVICE_NAME nicht gefunden." >&2
   exit 1
 fi
 
@@ -18,9 +19,9 @@ fi
 sed "s|__APP_DIR__|$APP_DIR|g" "$SERVICE_SRC" > "$SERVICE_DST"
 
 systemctl daemon-reload
-systemctl enable omnifm.service
-systemctl start omnifm.service
+systemctl enable "$SERVICE_NAME"
+systemctl start "$SERVICE_NAME"
 
-systemctl status --no-pager omnifm.service || true
+systemctl status --no-pager "$SERVICE_NAME" || true
 
-echo "Systemd Service installiert."
+echo "Systemd Service installiert: $SERVICE_NAME"

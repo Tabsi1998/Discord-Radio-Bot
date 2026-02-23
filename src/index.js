@@ -49,6 +49,8 @@ import {
   setCommandRolePermission,
 } from "./command-permissions-store.js";
 import { isPermissionManagedCommand, normalizePermissionCommandName } from "./config/command-permissions.js";
+import { runExclusive } from "./utils/commandSyncGuard.js";
+import { syncGuildCommandsSafe } from "./discord/syncGuildCommandsSafe.js";
 
 dotenv.config();
 
@@ -225,6 +227,7 @@ const maxRotatedLogDays = Math.max(
   Number.parseInt(String(process.env.LOG_MAX_DAYS || "14"), 10) || 14
 );
 const appStartTime = Date.now();
+const cleanedGlobalCommandApplications = new Set();
 let logWriteQueue = Promise.resolve();
 let lastLogRotateCheckAt = 0;
 let lastLogPruneCheckAt = 0;
@@ -799,7 +802,7 @@ class BotRuntime {
     this.client.on("guildCreate", (guild) => {
       this.handleGuildJoin(guild).then((allowed) => {
         if (!allowed) return;
-        this.syncGuildCommandForGuild(guild.id, "join").catch((err) => {
+        this.syncGuildCommands("join").catch((err) => {
           log("ERROR", `[${this.config.name}] Guild-Command-Sync (join) fehlgeschlagen: ${err?.message || err}`);
         });
       }).catch((err) => {
@@ -964,88 +967,18 @@ class BotRuntime {
     return String(process.env.CLEAN_GUILD_COMMANDS_ON_BOOT ?? "0") !== "0";
   }
 
-  getGuildCommandSyncRetryConfig() {
-    const attemptsRaw = Number.parseInt(String(process.env.GUILD_COMMAND_SYNC_RETRIES ?? "3"), 10);
-    const baseDelayRaw = Number.parseInt(String(process.env.GUILD_COMMAND_SYNC_RETRY_MS ?? "1200"), 10);
-    return {
-      attempts: Number.isFinite(attemptsRaw) && attemptsRaw > 0 ? attemptsRaw : 3,
-      baseDelayMs: Number.isFinite(baseDelayRaw) && baseDelayRaw > 0 ? baseDelayRaw : 1200,
-    };
-  }
-
-  async syncGuildCommandForGuild(guildId, source = "sync", commandPayload = null) {
-    if (!this.isGuildCommandSyncEnabled()) return false;
-    if (!guildId) return false;
-    const applicationId = this.getApplicationId();
-    if (!applicationId) throw new Error("Application ID fehlt fuer Guild-Command-Sync.");
-    const payload = commandPayload || this.buildGuildCommandPayload();
-    const retryConfig = this.getGuildCommandSyncRetryConfig();
-    let lastError = null;
-
-    for (let attempt = 1; attempt <= retryConfig.attempts; attempt++) {
-      try {
-        await this.rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: payload });
-        if (attempt > 1) {
-          log(
-            "INFO",
-            `[${this.config.name}] Guild-Command-Sync wiederhergestellt (guild=${guildId}, attempt=${attempt}/${retryConfig.attempts}, source=${source}).`
-          );
-        }
-        return true;
-      } catch (err) {
-        lastError = err;
-        if (attempt >= retryConfig.attempts) break;
-
-        const retryAfterSeconds = Number(
-          err?.rawError?.retry_after
-          ?? err?.data?.retry_after
-          ?? err?.retry_after
-          ?? 0
-        );
-        const retryAfterMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-          ? Math.ceil(retryAfterSeconds * 1000) + 250
-          : 0;
-        const backoffMs = retryConfig.baseDelayMs * attempt;
-        const delayMs = retryAfterMs > 0 ? Math.max(retryConfig.baseDelayMs, retryAfterMs) : backoffMs;
-
-        log(
-          "INFO",
-          `[${this.config.name}] Guild-Command-Sync retry (guild=${guildId}, attempt=${attempt}/${retryConfig.attempts}, wait=${delayMs}ms, source=${source}): ${err?.message || err}`
-        );
-        // eslint-disable-next-line no-await-in-loop
-        await waitMs(delayMs);
-      }
-    }
-
-    throw lastError || new Error("Guild command sync failed.");
-  }
-
   async syncGuildCommands(source = "sync") {
     if (!this.isGuildCommandSyncEnabled()) return;
-
-    const guildIds = [...this.client.guilds.cache.keys()];
-    if (!guildIds.length) return;
-
     const payload = this.buildGuildCommandPayload();
-    let synced = 0;
-    let failed = 0;
-    log("INFO", `[${this.config.name}] Synchronisiere Guild-Commands in ${guildIds.length} Servern (source=${source})...`);
-
-    for (const guildId of guildIds) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await this.syncGuildCommandForGuild(guildId, source, payload);
-        synced += 1;
-      } catch (err) {
-        failed += 1;
-        log(
-          "ERROR",
-          `[${this.config.name}] Guild-Command-Sync fehlgeschlagen (guild=${guildId}, source=${source}): ${err?.message || err}`
-        );
-      }
-    }
-
-    log("INFO", `[${this.config.name}] Guild-Command-Sync fertig: ok=${synced}, failed=${failed}`);
+    await syncGuildCommandsSafe({
+      client: this.client,
+      rest: this.rest,
+      routes: Routes,
+      commands: payload,
+      botLabel: `${this.config.name}`,
+      source,
+      logFn: (level, message) => log(level, message),
+    });
   }
 
   async cleanupGlobalCommands() {
@@ -1056,12 +989,23 @@ class BotRuntime {
       return;
     }
 
-    try {
-      await this.rest.put(Routes.applicationCommands(applicationId), { body: [] });
-      log("INFO", `[${this.config.name}] Globale Commands bereinigt (Vermeidung doppelter Commands).`);
-    } catch (err) {
-      log("ERROR", `[${this.config.name}] Global-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
-    }
+    await runExclusive(async () => {
+      if (cleanedGlobalCommandApplications.has(applicationId)) {
+        log(
+          "INFO",
+          `[${this.config.name}] Global-Command-Cleanup uebersprungen (bereits erledigt, applicationId=${applicationId}).`
+        );
+        return;
+      }
+
+      try {
+        await this.rest.put(Routes.applicationCommands(applicationId), { body: [] });
+        cleanedGlobalCommandApplications.add(applicationId);
+        log("INFO", `[${this.config.name}] Globale Commands bereinigt (Vermeidung doppelter Commands).`);
+      } catch (err) {
+        log("ERROR", `[${this.config.name}] Global-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
+      }
+    });
   }
 
   clearReconnectTimer(state) {
@@ -2483,18 +2427,19 @@ class BotRuntime {
           return;
         }
 
-        const planName = PLANS[lic.plan]?.name || lic.plan;
-        const expDate = lic.expiresAt ? new Date(lic.expiresAt).toLocaleDateString("de-DE") : "Unbegrenzt";
-        const usedSeats = (lic.linkedServerIds?.length || 0) + 1;
+        const refreshedLicense = getLicenseById(resolvedKey) || lic;
+        const planName = PLANS[refreshedLicense.plan]?.name || refreshedLicense.plan;
+        const expDate = refreshedLicense.expiresAt ? new Date(refreshedLicense.expiresAt).toLocaleDateString("de-DE") : "Unbegrenzt";
+        const usedSeats = refreshedLicense.linkedServerIds?.length || 0;
         await interaction.reply({
           embeds: [{
-            color: lic.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
+            color: refreshedLicense.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
             title: "Lizenz aktiviert!",
             description: `Dieser Server wurde erfolgreich mit deiner **${planName}**-Lizenz verknuepft.`,
             fields: [
               { name: "Lizenz-Key", value: `\`${resolvedKey}\``, inline: true },
               { name: "Plan", value: planName, inline: true },
-              { name: "Server-Slots", value: `${usedSeats}/${lic.seats}`, inline: true },
+              { name: "Server-Slots", value: `${usedSeats}/${refreshedLicense.seats}`, inline: true },
               { name: "Gueltig bis", value: expDate, inline: true },
             ],
             footer: { text: "OmniFM Premium" },
@@ -3843,8 +3788,16 @@ setInterval(async () => {
   if (!isEmailConfigured()) return;
   try {
     const all = listLicenses();
+    const handledLicenseIds = new Set();
     for (const [serverId, lic] of Object.entries(all)) {
+      const licenseId = String(lic.id || "");
+      if (licenseId) {
+        if (handledLicenseIds.has(licenseId)) continue;
+        handledLicenseIds.add(licenseId);
+      }
+
       if (!lic.expiresAt) continue;
+      const patchServerId = lic.linkedServerIds?.[0] || serverId;
       const daysLeft = Math.max(0, Math.ceil((new Date(lic.expiresAt) - new Date()) / 86400000));
       const tierName = TIERS[lic.tier]?.name || lic.tier;
       const emailLanguage = normalizeLanguage(lic.preferredLanguage || lic.language, getDefaultLanguage());
@@ -3864,7 +3817,7 @@ setInterval(async () => {
           : `Premium ${tierName} expires in 7 days!`;
         const result = await sendMail(lic.contactEmail, warningSubject, html);
         if (result?.success) {
-          patchLicense(serverId, { _warning7ForExpiryAt: lic.expiresAt });
+          patchLicense(patchServerId, { _warning7ForExpiryAt: lic.expiresAt });
           log("INFO", `[Email] Ablauf-Warnung gesendet an ${lic.contactEmail} fuer ${serverId}`);
         } else {
           log("ERROR", `[Email] Ablauf-Warnung fehlgeschlagen fuer ${serverId}: ${result?.error || "Unbekannter Fehler"}`);
@@ -3881,7 +3834,7 @@ setInterval(async () => {
           : `Premium ${tierName} expired`;
         const result = await sendMail(lic.contactEmail, expiredSubject, html);
         if (result?.success) {
-          patchLicense(serverId, { _expiredNotifiedForExpiryAt: lic.expiresAt, _expiredNotified: true });
+          patchLicense(patchServerId, { _expiredNotifiedForExpiryAt: lic.expiresAt, _expiredNotified: true });
           log("INFO", `[Email] Ablauf-Benachrichtigung gesendet an ${lic.contactEmail} fuer ${serverId}`);
         } else {
           log("ERROR", `[Email] Ablauf-Benachrichtigung fehlgeschlagen fuer ${serverId}: ${result?.error || "Unbekannter Fehler"}`);
