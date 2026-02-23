@@ -973,6 +973,7 @@ class BotRuntime {
       routes: Routes,
       commands: payload,
       guildIds: targetGuildIds,
+      botToken: this.config.token,
       botLabel: `${this.config.name}`,
       source,
       logFn: (level, message) => log(level, message),

@@ -16,6 +16,14 @@ function toErrorMessage(err) {
   return String(err?.message || err);
 }
 
+function ensureDiscordApiUrl(route) {
+  const rawRoute = String(route || "").trim();
+  if (!rawRoute) return "https://discord.com/api/v10";
+  if (rawRoute.startsWith("http://") || rawRoute.startsWith("https://")) return rawRoute;
+  if (rawRoute.startsWith("/")) return `https://discord.com/api/v10${rawRoute}`;
+  return `https://discord.com/api/v10/${rawRoute}`;
+}
+
 function defaultLog(level, message) {
   const ts = new Date().toISOString();
   console.log(`[${ts}] [${level}] ${message}`);
@@ -184,6 +192,74 @@ async function putGuildCommandsWithTimeout({
   }
 }
 
+async function putGuildCommandsViaFetchWithTimeout({
+  route,
+  payload,
+  timeoutMs,
+  botToken,
+}) {
+  if (typeof fetch !== "function") {
+    throw new Error("Guild command sync fetch transport: fetch ist in dieser Node-Version nicht verfuegbar.");
+  }
+
+  if (!botToken || !String(botToken).trim()) {
+    throw new Error("Guild command sync fetch transport: botToken fehlt.");
+  }
+
+  const endpoint = ensureDiscordApiUrl(route);
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  let timeoutHandle = null;
+
+  if (controller && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    timeoutHandle = setTimeout(() => {
+      try {
+        controller.abort();
+      } catch {
+        // ignore abort errors
+      }
+    }, timeoutMs);
+  }
+
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bot ${String(botToken).trim()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (err) {
+    const aborted = controller?.signal?.aborted || err?.name === "AbortError";
+    if (aborted) {
+      const timeoutError = new Error(`Guild command sync timeout after ${timeoutMs}ms`);
+      timeoutError.code = "SYNC_TIMEOUT";
+      timeoutError.cause = err;
+      throw timeoutError;
+    }
+    throw err;
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok) {
+    const err = new Error(body?.message || `Discord API status=${response.status}`);
+    err.status = response.status;
+    err.rawError = body;
+    err.data = body;
+    throw err;
+  }
+}
+
 function logSyncDone(logFn, label, ok, failed, source, reason = "") {
   const reasonSuffix = reason ? ` reason=${reason}` : "";
   emit(logFn, "INFO", `[${label}] Command Sync done: ok=${ok} failed=${failed} source=${source}${reasonSuffix}`);
@@ -195,6 +271,7 @@ export async function syncGuildCommandsSafe({
   routes,
   commands,
   guildIds = null,
+  botToken = null,
   botLabel,
   source,
   logFn = null,
@@ -206,6 +283,12 @@ export async function syncGuildCommandsSafe({
   const label = botLabel || "Bot";
   const syncSource = source || "sync";
   const isJoinSync = String(syncSource).toLowerCase() === "join";
+  const joinTransport = String(process.env.GUILD_COMMAND_SYNC_JOIN_TRANSPORT || "fetch").trim().toLowerCase();
+  const fetchAvailable = typeof fetch === "function";
+  const useFetchForJoin = isJoinSync
+    && joinTransport !== "rest"
+    && fetchAvailable
+    && Boolean(String(botToken || "").trim());
   const payload = Array.isArray(commands) ? commands : [];
   const syncDelayMs = resolveSyncDelayMs(syncSource);
   const retryDelayMs = Math.max(
@@ -235,6 +318,14 @@ export async function syncGuildCommandsSafe({
   }
 
   let lastResult = { ok: 0, failed: 0, attempts: 0 };
+
+  if (isJoinSync && joinTransport !== "rest" && !useFetchForJoin) {
+    emit(
+      logFn,
+      "INFO",
+      `[${label}] Join-Sync transport fallback: rest (fetchAvailable=${fetchAvailable} hasBotToken=${Boolean(String(botToken || "").trim())})`
+    );
+  }
 
   for (let attempt = 1; attempt <= maxTries; attempt++) {
     try {
@@ -285,7 +376,7 @@ export async function syncGuildCommandsSafe({
     emit(
       logFn,
       "INFO",
-      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} discoveredGuildCount=${discoveredGuildCount} requestedGuildCount=${requestedGuildIds.length} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${targetGuildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} syncDelayMs=${syncDelayMs} requestTimeoutMs=${requestTimeoutMs} retryDelayMs=${retryDelayMs} attempt=${attempt}/${maxTries}`
+      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} discoveredGuildCount=${discoveredGuildCount} requestedGuildCount=${requestedGuildIds.length} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${targetGuildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} transport=${useFetchForJoin ? "fetch" : "rest"} syncDelayMs=${syncDelayMs} requestTimeoutMs=${requestTimeoutMs} retryDelayMs=${retryDelayMs} attempt=${attempt}/${maxTries}`
     );
 
     if (!applicationId) {
@@ -331,13 +422,24 @@ export async function syncGuildCommandsSafe({
         for (const guildId of targetGuildIds) {
           emit(logFn, "INFO", `[${label}] Syncing guild ${guildId}...`);
           try {
-            // eslint-disable-next-line no-await-in-loop
-            await putGuildCommandsWithTimeout({
-              rest,
-              route: routes.applicationGuildCommands(applicationId, guildId),
-              payload,
-              timeoutMs: requestTimeoutMs,
-            });
+            const route = routes.applicationGuildCommands(applicationId, guildId);
+            if (useFetchForJoin) {
+              // eslint-disable-next-line no-await-in-loop
+              await putGuildCommandsViaFetchWithTimeout({
+                route,
+                payload,
+                timeoutMs: requestTimeoutMs,
+                botToken,
+              });
+            } else {
+              // eslint-disable-next-line no-await-in-loop
+              await putGuildCommandsWithTimeout({
+                rest,
+                route,
+                payload,
+                timeoutMs: requestTimeoutMs,
+              });
+            }
             ok += 1;
             emit(logFn, "INFO", `[${label}] Guild ${guildId} success`);
           } catch (err) {
@@ -350,7 +452,9 @@ export async function syncGuildCommandsSafe({
                 `[${label}] Guild ${guildId} failed: rate_limit status=${rateLimitMeta.status || 429} retry_after=${rateLimitMeta.retryAfterSeconds}s global=${rateLimitMeta.isGlobal} error=${toErrorMessage(err)}`
               );
             } else {
-              emit(logFn, "ERROR", `[${label}] Guild ${guildId} failed: ${toErrorMessage(err)}`);
+              const status = Number(err?.status ?? err?.statusCode ?? 0);
+              const statusSuffix = Number.isFinite(status) && status > 0 ? ` status=${status}` : "";
+              emit(logFn, "ERROR", `[${label}] Guild ${guildId} failed:${statusSuffix} error=${toErrorMessage(err)}`);
             }
           }
         }
