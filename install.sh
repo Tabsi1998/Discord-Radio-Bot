@@ -218,7 +218,7 @@ if [[ $existing_bots -gt 0 ]]; then
           if validate_client_id "$client_id"; then break; fi
           echo -e "  ${RED}Client ID muss 17-22 Ziffern sein. Bitte pruefen.${NC}"
         done
-        perms="$(prompt_default "Permissions" "3145728")"
+        perms="$(prompt_default "Permissions" "35186522836032")"
         echo ""
         echo -e "  ${DIM}Bot-Tier bestimmt ob dieser Bot frei oder Premium ist:${NC}"
         echo -e "    ${DIM}free${NC}     = Jeder kann einladen (Standard)"
@@ -228,7 +228,7 @@ if [[ $existing_bots -gt 0 ]]; then
         write_env_line "BOT_${idx}_NAME" "$name"
         write_env_line "BOT_${idx}_TOKEN" "$token"
         write_env_line "BOT_${idx}_CLIENT_ID" "$client_id"
-        write_env_line "BOT_${idx}_PERMISSIONS" "${perms:-3145728}"
+        write_env_line "BOT_${idx}_PERMISSIONS" "${perms:-35186522836032}"
         write_env_line "BOT_${idx}_TIER" "${bot_tier:-free}"
         ok "Bot $idx konfiguriert (Tier: ${bot_tier:-free})."
       done
@@ -297,7 +297,7 @@ if [[ $existing_bots -eq 0 ]]; then
       warn "Client ID muss 17-22 Ziffern sein. Nochmal versuchen."
     done
 
-    perms="$(prompt_default "Permissions (Standard: 3145728)" "3145728")"
+    perms="$(prompt_default "Permissions (Standard: 35186522836032)" "35186522836032")"
 
     echo ""
     echo -e "  ${DIM}Bot-Tier bestimmt ob dieser Bot frei oder Premium ist:${NC}"

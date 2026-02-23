@@ -7,6 +7,16 @@ function sanitizeNumberString(raw) {
   return /^[0-9]+$/.test(value) ? value : null;
 }
 
+const LEGACY_INVITE_PERMISSIONS = "3145728";
+const DEFAULT_INVITE_PERMISSIONS = "35186522836032";
+const DEFAULT_INTEGRATION_TYPE = "0";
+
+function normalizeInvitePermissions(raw) {
+  const value = sanitizeNumberString(raw);
+  if (!value || value === LEGACY_INVITE_PERMISSIONS) return DEFAULT_INVITE_PERMISSIONS;
+  return value;
+}
+
 function loadNumberedBots(env) {
   const bots = [];
   for (let i = 1; i <= 20; i++) {
@@ -22,7 +32,7 @@ function loadNumberedBots(env) {
       name: sanitizeName(env[`BOT_${i}_NAME`], `OmniFM Bot ${i}`),
       token,
       clientId,
-      permissions: sanitizeNumberString(env[`BOT_${i}_PERMISSIONS`]) || null,
+      permissions: normalizeInvitePermissions(env[`BOT_${i}_PERMISSIONS`]),
       requiredTier: String(env[`BOT_${i}_TIER`] || "free").toLowerCase().trim(),
     });
   }
@@ -39,7 +49,7 @@ function loadLegacySingleBot(env) {
     name: sanitizeName(env.BOT_NAME, "OmniFM Bot"),
     token,
     clientId,
-    permissions: sanitizeNumberString(env.BOT_PERMISSIONS) || null,
+    permissions: normalizeInvitePermissions(env.BOT_PERMISSIONS),
     requiredTier: "free",
   }];
 }
@@ -64,9 +74,11 @@ export function buildInviteUrl(bot) {
   const clientId = sanitizeNumberString(bot?.clientId);
   if (!clientId) return "https://discord.com/oauth2/authorize";
 
-  const params = [`client_id=${encodeURIComponent(clientId)}`];
-  const permissions = sanitizeNumberString(bot?.permissions);
-  if (permissions) params.push(`permissions=${encodeURIComponent(permissions)}`);
+  const params = [
+    `client_id=${encodeURIComponent(clientId)}`,
+    `permissions=${encodeURIComponent(normalizeInvitePermissions(bot?.permissions))}`,
+    `integration_type=${encodeURIComponent(DEFAULT_INTEGRATION_TYPE)}`,
+  ];
   params.push(`scope=${encodeURIComponent("bot applications.commands")}`);
 
   return `https://discord.com/oauth2/authorize?${params.join("&")}`;

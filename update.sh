@@ -746,7 +746,7 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
         echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC} $(tier_badge "$tier")"
         echo -e "       Client ID: ${DIM}${cid}${NC}"
         if [[ "$tier" == "free" ]]; then
-          echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&scope=bot%20applications.commands&permissions=3145728${NC}"
+          echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands${NC}"
         else
           echo -e "       Invite:    ${DIM}Nur fuer ${tier}-Abonnenten${NC}"
         fi
@@ -769,7 +769,7 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     bot_name="$(prompt_default "Bot Name" "OmniFM Bot ${new_index}")"
     bot_token="$(prompt_nonempty "Token")"
     bot_client_id="$(prompt_nonempty "Client ID")"
-    bot_perms="$(prompt_default "Permissions" "3145728")"
+    bot_perms="$(prompt_default "Permissions" "35186522836032")"
     bot_tier="$(prompt_tier "free")"
 
     write_env_line "BOT_${new_index}_NAME" "$bot_name"

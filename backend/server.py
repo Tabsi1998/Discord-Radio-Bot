@@ -92,7 +92,7 @@ def load_bots_from_env():
             "name": name,
             "clientId": cid or f"0000000000000000{i:02d}",
             "inviteUrl": None if is_premium_bot else (
-                f"https://discord.com/oauth2/authorize?client_id={cid}&scope=bot%20applications.commands&permissions=3145728" if cid else ""
+                f"https://discord.com/oauth2/authorize?client_id={cid}&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands" if cid else ""
             ),
             "requiredTier": required_tier,
             "color": color,
@@ -517,7 +517,7 @@ async def premium_invite_links(serverId: str = ""):
         invite = None
         if has_access:
             cid = bot.get("clientId", "")
-            invite = f"https://discord.com/oauth2/authorize?client_id={cid}&scope=bot%20applications.commands&permissions=3145728" if cid else None
+            invite = f"https://discord.com/oauth2/authorize?client_id={cid}&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands" if cid else None
         links.append({
             "botId": bot["botId"],
             "name": bot["name"],

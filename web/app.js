@@ -545,7 +545,7 @@ function renderBots(bots) {
   }
   bots.forEach(function(bot, i) {
     var c = BOT_COLORS[i % BOT_COLORS.length];
-    var url = bot.inviteUrl || ('https://discord.com/oauth2/authorize?client_id=' + bot.clientId + '&permissions=3145728&scope=bot%20applications.commands');
+    var url = bot.inviteUrl || ('https://discord.com/oauth2/authorize?client_id=' + bot.clientId + '&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands');
     var botImg = bot.avatarUrl || BOT_IMAGES[i % BOT_IMAGES.length];
 
     var card = document.createElement('article');
