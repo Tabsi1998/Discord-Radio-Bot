@@ -800,7 +800,7 @@ class BotRuntime {
     this.client.on("guildCreate", (guild) => {
       this.handleGuildJoin(guild).then((allowed) => {
         if (!allowed) return;
-        this.syncGuildCommands("join").catch((err) => {
+        this.syncGuildCommands("join", { guildId: guild?.id }).catch((err) => {
           log("ERROR", `[${this.config.name}] Guild-Command-Sync (join) fehlgeschlagen: ${err?.message || err}`);
         });
       }).catch((err) => {
@@ -959,14 +959,20 @@ class BotRuntime {
     return String(process.env.CLEAN_GUILD_COMMANDS_ON_BOOT ?? "0") !== "0";
   }
 
-  async syncGuildCommands(source = "sync") {
+  async syncGuildCommands(source = "sync", options = {}) {
     if (!this.isGuildCommandSyncEnabled()) return;
     const payload = this.buildGuildCommandPayload();
+    const targetGuildIds = Array.isArray(options?.guildIds)
+      ? options.guildIds
+      : options?.guildId
+        ? [options.guildId]
+        : null;
     await syncGuildCommandsSafe({
       client: this.client,
       rest: this.rest,
       routes: Routes,
       commands: payload,
+      guildIds: targetGuildIds,
       botLabel: `${this.config.name}`,
       source,
       logFn: (level, message) => log(level, message),

@@ -58,26 +58,46 @@ function uniqueGuildIds(ids) {
   return out;
 }
 
-function resolveStartupDelayMs(shouldDelayAfterReady) {
-  if (!shouldDelayAfterReady) return 0;
-
-  const fixedDelayRaw = process.env.GUILD_COMMAND_SYNC_READY_DELAY_MS ?? process.env.GUILD_COMMAND_READY_DELAY_MS;
-  if (fixedDelayRaw !== undefined && fixedDelayRaw !== null && String(fixedDelayRaw).trim() !== "") {
-    return Math.max(0, toInt(fixedDelayRaw, 7000));
-  }
-
-  const minDelayMs = Math.max(
-    0,
-    toInt(process.env.GUILD_COMMAND_SYNC_READY_DELAY_MIN_MS ?? process.env.GUILD_COMMAND_SYNC_STARTUP_DELAY_MIN_MS, 5000)
-  );
-  const maxDelayCandidate = toInt(
-    process.env.GUILD_COMMAND_SYNC_READY_DELAY_MAX_MS ?? process.env.GUILD_COMMAND_SYNC_STARTUP_DELAY_MAX_MS,
-    10000
-  );
+function resolveDelayMsRange(minRaw, maxRaw, fallbackMin, fallbackMax) {
+  const minDelayMs = Math.max(0, toInt(minRaw, fallbackMin));
+  const maxDelayCandidate = toInt(maxRaw, fallbackMax);
   const maxDelayMs = Math.max(minDelayMs, maxDelayCandidate);
-
   if (maxDelayMs <= minDelayMs) return minDelayMs;
   return minDelayMs + Math.floor(Math.random() * (maxDelayMs - minDelayMs + 1));
+}
+
+function resolveSyncDelayMs(syncSource) {
+  const source = String(syncSource || "").toLowerCase();
+
+  if (source === "startup") {
+    const fixedDelayRaw = process.env.GUILD_COMMAND_SYNC_READY_DELAY_MS ?? process.env.GUILD_COMMAND_READY_DELAY_MS;
+    if (fixedDelayRaw !== undefined && fixedDelayRaw !== null && String(fixedDelayRaw).trim() !== "") {
+      return Math.max(0, toInt(fixedDelayRaw, 7000));
+    }
+
+    return resolveDelayMsRange(
+      process.env.GUILD_COMMAND_SYNC_READY_DELAY_MIN_MS ?? process.env.GUILD_COMMAND_SYNC_STARTUP_DELAY_MIN_MS,
+      process.env.GUILD_COMMAND_SYNC_READY_DELAY_MAX_MS ?? process.env.GUILD_COMMAND_SYNC_STARTUP_DELAY_MAX_MS,
+      5000,
+      10000
+    );
+  }
+
+  if (source === "join") {
+    const fixedJoinDelayRaw = process.env.GUILD_COMMAND_SYNC_JOIN_DELAY_MS;
+    if (fixedJoinDelayRaw !== undefined && fixedJoinDelayRaw !== null && String(fixedJoinDelayRaw).trim() !== "") {
+      return Math.max(0, toInt(fixedJoinDelayRaw, 4000));
+    }
+
+    return resolveDelayMsRange(
+      process.env.GUILD_COMMAND_SYNC_JOIN_DELAY_MIN_MS,
+      process.env.GUILD_COMMAND_SYNC_JOIN_DELAY_MAX_MS,
+      3000,
+      6000
+    );
+  }
+
+  return 0;
 }
 
 async function ensureClientReady(client) {
@@ -174,6 +194,7 @@ export async function syncGuildCommandsSafe({
   rest,
   routes,
   commands,
+  guildIds = null,
   botLabel,
   source,
   logFn = null,
@@ -184,9 +205,8 @@ export async function syncGuildCommandsSafe({
 
   const label = botLabel || "Bot";
   const syncSource = source || "sync";
-  const shouldDelayAfterReady = String(syncSource).toLowerCase() === "startup";
   const payload = Array.isArray(commands) ? commands : [];
-  const startupDelayMs = resolveStartupDelayMs(shouldDelayAfterReady);
+  const syncDelayMs = resolveSyncDelayMs(syncSource);
   const retryDelayMs = Math.max(
     1000,
     toInt(process.env.GUILD_COMMAND_SYNC_RETRY_DELAY_MS ?? process.env.GUILD_COMMAND_SYNC_RETRY_MS, 10000)
@@ -245,8 +265,11 @@ export async function syncGuildCommandsSafe({
 
     const fetchedGuildIds = extractGuildIds(fetchedGuilds);
     const cacheGuildIds = [...client.guilds.cache.keys()];
-    const guildIds = uniqueGuildIds([...fetchedGuildIds, ...cacheGuildIds]);
-    const guildCount = guildIds.length;
+    const discoveredGuildIds = uniqueGuildIds([...fetchedGuildIds, ...cacheGuildIds]);
+    const requestedGuildIds = uniqueGuildIds(Array.isArray(guildIds) ? guildIds : []);
+    const targetGuildIds = requestedGuildIds.length ? requestedGuildIds : discoveredGuildIds;
+    const guildCount = targetGuildIds.length;
+    const discoveredGuildCount = discoveredGuildIds.length;
     const fetchedCount = fetchedGuildIds.length;
     const cacheCount = cacheGuildIds.length;
     const applicationId = resolveApplicationId(client);
@@ -255,7 +278,7 @@ export async function syncGuildCommandsSafe({
     emit(
       logFn,
       "INFO",
-      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${guildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} startupDelayMs=${startupDelayMs} attempt=${attempt}/${maxTries}`
+      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} discoveredGuildCount=${discoveredGuildCount} requestedGuildCount=${requestedGuildIds.length} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${targetGuildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} syncDelayMs=${syncDelayMs} attempt=${attempt}/${maxTries}`
     );
 
     if (!applicationId) {
@@ -273,7 +296,7 @@ export async function syncGuildCommandsSafe({
     }
 
     if (guildCount === 0) {
-      const reason = "no-guild-ids-after-fetch";
+      const reason = requestedGuildIds.length ? "no-target-guild-ids" : "no-guild-ids-after-fetch";
       emit(
         logFn,
         "ERROR",
@@ -287,9 +310,9 @@ export async function syncGuildCommandsSafe({
       return { ok: 0, failed: guildCount, attempts: attempt, skipped: true, reason };
     }
 
-    if (startupDelayMs > 0) {
-      emit(logFn, "INFO", `[${label}] Startup delay before command sync: ${startupDelayMs}ms`);
-      await waitMs(startupDelayMs);
+    if (syncDelayMs > 0) {
+      emit(logFn, "INFO", `[${label}] Sync delay before command sync: ${syncDelayMs}ms (source=${syncSource})`);
+      await waitMs(syncDelayMs);
     }
 
     const result = await runExclusive(async () => {
@@ -298,7 +321,7 @@ export async function syncGuildCommandsSafe({
       emit(logFn, "INFO", `[${label}] Command Sync start: guilds=${guildCount} commands=${payload.length} source=${syncSource}`);
 
       try {
-        for (const guildId of guildIds) {
+        for (const guildId of targetGuildIds) {
           emit(logFn, "INFO", `[${label}] Syncing guild ${guildId}...`);
           try {
             // eslint-disable-next-line no-await-in-loop
