@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { Search, Radio, Music, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 
 const STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '#FF2A2A'];
@@ -95,12 +95,9 @@ function StationBrowser({ stations, loading }) {
     });
   }, [stations, search, activeTier]);
 
-  // Reset visible count when filter/search changes
-  const prevFilterRef = useRef({ search: '', activeTier: null });
-  if (prevFilterRef.current.search !== search || prevFilterRef.current.activeTier !== activeTier) {
-    prevFilterRef.current = { search, activeTier };
-    if (visibleCount !== 8) setVisibleCount(8);
-  }
+  useEffect(() => {
+    setVisibleCount(8);
+  }, [search, activeTier]);
 
   const visibleStations = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
   const hasMore = filtered.length > visibleCount;

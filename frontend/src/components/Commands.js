@@ -1,8 +1,9 @@
 import React from 'react';
 import { Terminal } from 'lucide-react';
 
-function Commands({ commands }) {
-  if (!commands || commands.length === 0) return null;
+function Commands({ commands, loading }) {
+  const items = Array.isArray(commands) ? commands : [];
+  const hasCommands = items.length > 0;
 
   return (
     <section
@@ -77,9 +78,21 @@ function Commands({ commands }) {
 
           {/* Commands list */}
           <div style={{ padding: '8px 0' }}>
-            {commands.map((cmd, i) => (
+            {loading && (
+              <div style={{ padding: '14px 20px', color: '#52525B', fontSize: 14 }}>
+                Lade Commands...
+              </div>
+            )}
+
+            {!loading && !hasCommands && (
+              <div style={{ padding: '14px 20px', color: '#52525B', fontSize: 14 }}>
+                Keine Commands verfuegbar.
+              </div>
+            )}
+
+            {!loading && hasCommands && items.map((cmd, i) => (
               <div
-                key={cmd.name}
+                key={`${cmd.name || 'cmd'}-${i}`}
                 data-testid={`command-item-${i}`}
                 style={{
                   display: 'flex',

@@ -1,7 +1,13 @@
 .env
+*.env
 *.env.*
+
 node_modules/
+frontend/node_modules/
+frontend/build/
 npm-debug.log
+yarn.lock
+
 logs/
 .update-backups/
 bot-state.json
@@ -12,96 +18,11 @@ custom-stations.json.bak
 command-permissions.json
 command-permissions.json.bak
 
-# Emergent Platform (nicht Teil des Bot-Repos)
-backend/
-frontend/
-design_guidelines.json
-backend_test.py
+.pytest_cache/
+backend/__pycache__/
 test_reports/
 memory/
-yarn.lock
+
+design_guidelines.json
+backend_test.py
 .gitconfig
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*

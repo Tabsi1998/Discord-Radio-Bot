@@ -202,7 +202,7 @@ function BotDirectory({ bots, loading }) {
         ) : (
           <div data-testid="bot-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
             {bots.map((bot, i) => (
-              <BotCard key={bot.bot_id || i} bot={bot} index={i} />
+              <BotCard key={bot.id || bot.botId || bot.bot_id || bot.clientId || i} bot={bot} index={i} />
             ))}
           </div>
         )}

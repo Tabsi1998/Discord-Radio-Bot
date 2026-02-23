@@ -24,7 +24,7 @@
 ```bash
 ./update.sh           # Update & Management CLI
 ./update.sh --stripe  # Stripe API Key konfigurieren
-./update.sh --email-settings  # SMTP konfigurieren
+./update.sh --email   # SMTP konfigurieren
 ```
 
 ## Docker
