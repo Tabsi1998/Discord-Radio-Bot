@@ -61,11 +61,15 @@ function ensureUniqueTokens(bots) {
 }
 
 export function buildInviteUrl(bot) {
-  const base = new URL("https://discord.com/oauth2/authorize");
-  base.searchParams.set("client_id", bot.clientId);
-  base.searchParams.set("scope", "bot applications.commands");
-  if (bot.permissions) base.searchParams.set("permissions", bot.permissions);
-  return base.toString();
+  const clientId = sanitizeNumberString(bot?.clientId);
+  if (!clientId) return "https://discord.com/oauth2/authorize";
+
+  const params = [`client_id=${encodeURIComponent(clientId)}`];
+  const permissions = sanitizeNumberString(bot?.permissions);
+  if (permissions) params.push(`permissions=${encodeURIComponent(permissions)}`);
+  params.push(`scope=${encodeURIComponent("bot applications.commands")}`);
+
+  return `https://discord.com/oauth2/authorize?${params.join("&")}`;
 }
 
 export function loadBotConfigs(env = process.env) {
