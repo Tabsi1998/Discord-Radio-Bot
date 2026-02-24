@@ -547,6 +547,18 @@ export function patchLicenseForServer(serverId, patch) {
   return lic;
 }
 
+export function patchLicenseById(licenseId, patch) {
+  const lid = String(licenseId || "");
+  if (!lid) return null;
+  const data = load();
+  const lic = data.licenses[lid];
+  if (!lic) return null;
+  Object.assign(lic, patch);
+  lic.updatedAt = new Date().toISOString();
+  save(data);
+  return lic;
+}
+
 export function upgradeLicenseForServer(serverId, newPlan) {
   const data = load();
   const entitlement = data.serverEntitlements[String(serverId)];

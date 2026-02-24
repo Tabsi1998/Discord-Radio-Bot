@@ -67,6 +67,7 @@ web/
 | `CORS_ALLOWED_ORIGINS` | Komma-Liste erlaubter Web-Origin URLs (API CORS) |
 | `CHECKOUT_RETURN_ORIGINS` | Komma-Liste erlaubter Return-URLs fuer Stripe Checkout |
 | `PRO_TRIAL_ENABLED` | `1` = Pro-Testmonat (1 Monat, 1x pro E-Mail) aktiv, `0` = deaktiviert |
+| `LICENSE_EXPIRY_REMINDER_DAYS` | Komma-Liste der Erinnerungen vor Ablauf (Default: `30,14,7,1`) |
 | `API_ADMIN_TOKEN` | Optionales Admin-Token fuer sensible API-Felder |
 | `TRUST_PROXY_HEADERS` | `1` wenn der Bot hinter einem Reverse Proxy laeuft (nutzt `X-Forwarded-*` fuer Origin/IP) |
 | `API_RATE_STATE_MAX_ENTRIES` | Maximale Anzahl Rate-Limit-Eintraege im Speicher (Default: `50000`) |

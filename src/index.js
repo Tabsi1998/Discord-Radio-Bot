@@ -34,8 +34,8 @@ import {
   getServerLicense, listLicenses as listRawLicenses,
   createLicense, linkServerToLicense, unlinkServerFromLicense, getLicenseById,
   isSessionProcessed, markSessionProcessed, isEventProcessed, markEventProcessed,
-  patchLicenseForServer, reserveTrialClaim, finalizeTrialClaim, releaseTrialClaim,
-  createOrExtendLicenseForEmail, listLicensesByContactEmail,
+  reserveTrialClaim, finalizeTrialClaim, releaseTrialClaim,
+  createOrExtendLicenseForEmail, listLicensesByContactEmail, patchLicenseById,
 } from "./premium-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
 import { buildCommandBuilders } from "./commands.js";
@@ -63,6 +63,7 @@ setLicenseProvider(getServerLicense);
 const YEARLY_DISCOUNT_MONTHS = 10;
 const PRO_TRIAL_MONTHS = 1;
 const PRO_TRIAL_SEATS = 1;
+const DEFAULT_EXPIRY_REMINDER_DAYS = [30, 14, 7, 1];
 const SEAT_OPTIONS = [1, 2, 3, 5];
 const SEAT_PRICING_CENTS = {
   pro: { 1: 299, 2: 549, 3: 749, 5: 1149 },
@@ -81,6 +82,20 @@ function isValidEmailAddress(email) {
 function isProTrialEnabled() {
   return String(process.env.PRO_TRIAL_ENABLED ?? "1").trim() !== "0";
 }
+
+function parseExpiryReminderDays(raw) {
+  const values = String(raw || "")
+    .split(",")
+    .map((entry) => Number.parseInt(String(entry).trim(), 10))
+    .filter((day) => Number.isInteger(day) && day > 0 && day <= 3650);
+
+  const unique = [...new Set(values)].sort((a, b) => b - a);
+  return unique.length > 0 ? unique : [...DEFAULT_EXPIRY_REMINDER_DAYS];
+}
+
+const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(
+  process.env.LICENSE_EXPIRY_REMINDER_DAYS || DEFAULT_EXPIRY_REMINDER_DAYS.join(",")
+);
 
 function getSeatPricePerMonthCents(tier, seats = 1) {
   if (tier === "free") return 0;
@@ -107,10 +122,6 @@ function getTier(serverId) {
 
 function getLicense(serverId) {
   return getServerLicense(serverId);
-}
-
-function patchLicense(serverId, patch) {
-  return patchLicenseForServer(serverId, patch);
 }
 
 function calculatePrice(tier, months, seats = 1) {
@@ -201,16 +212,6 @@ function shouldLogFfmpegStderrLine(line) {
     || lc.includes("reconnect");
 }
 
-function listLicenses() {
-  const raw = listRawLicenses();
-  const byServer = {};
-  for (const [, lic] of Object.entries(raw)) {
-    for (const sid of (lic.linkedServerIds || [])) {
-      byServer[sid] = { ...lic, tier: lic.plan };
-    }
-  }
-  return byServer;
-}
 // ============================================================
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -4689,60 +4690,69 @@ if (periodicGuildSyncIntervalMs > 0) {
 }
 
 // Lizenz-Ablauf pruefen (alle 6 Stunden)
+log("INFO", `Lizenz-Reminder aktiv fuer: ${EXPIRY_REMINDER_DAYS.join(", ")} Tage vor Ablauf + abgelaufen.`);
 setInterval(async () => {
   if (!isEmailConfigured()) return;
   try {
-    const all = listLicenses();
-    const handledLicenseIds = new Set();
-    for (const [serverId, lic] of Object.entries(all)) {
-      const licenseId = String(lic.id || "");
-      if (licenseId) {
-        if (handledLicenseIds.has(licenseId)) continue;
-        handledLicenseIds.add(licenseId);
-      }
+    const all = listRawLicenses();
+    for (const [rawLicenseId, lic] of Object.entries(all)) {
+      if (!lic?.expiresAt) continue;
 
-      if (!lic.expiresAt) continue;
-      const patchServerId = lic.linkedServerIds?.[0] || serverId;
-      const daysLeft = Math.max(0, Math.ceil((new Date(lic.expiresAt) - new Date()) / 86400000));
-      const tierName = TIERS[lic.tier]?.name || lic.tier;
+      const licenseId = String(lic.id || rawLicenseId || "").trim();
+      const serverId = String((lic.linkedServerIds || [])[0] || "-");
+      const tierKey = String(lic.plan || lic.tier || "free");
+      const tierName = TIERS[tierKey]?.name || tierKey;
       const emailLanguage = normalizeLanguage(lic.preferredLanguage || lic.language, getDefaultLanguage());
+      const contactEmail = String(lic.contactEmail || "").trim().toLowerCase();
+      const daysUntilExpiry = Math.ceil((new Date(lic.expiresAt) - new Date()) / 86400000);
 
-      // Warnung bei 7 Tagen
-      const warningAlreadySent = lic._warning7ForExpiryAt === lic.expiresAt;
-      if (daysLeft === 7 && lic.contactEmail && !warningAlreadySent) {
-        const html = buildExpiryWarningEmail({
-          tierName,
-          serverId,
-          expiresAt: lic.expiresAt,
-          daysLeft,
-          language: emailLanguage,
-        });
-        const warningSubject = emailLanguage === "de"
-          ? `Premium ${tierName} laeuft in 7 Tagen ab!`
-          : `Premium ${tierName} expires in 7 days!`;
-        const result = await sendMail(lic.contactEmail, warningSubject, html);
-        if (result?.success) {
-          patchLicense(patchServerId, { _warning7ForExpiryAt: lic.expiresAt });
-          log("INFO", `[Email] Ablauf-Warnung gesendet an ${lic.contactEmail} fuer ${serverId}`);
-        } else {
-          log("ERROR", `[Email] Ablauf-Warnung fehlgeschlagen fuer ${serverId}: ${result?.error || "Unbekannter Fehler"}`);
+      if (daysUntilExpiry > 0) {
+        for (let idx = 0; idx < EXPIRY_REMINDER_DAYS.length; idx++) {
+          const reminderDay = EXPIRY_REMINDER_DAYS[idx];
+          const nextLowerDay = EXPIRY_REMINDER_DAYS[idx + 1] ?? 0;
+          const withinWindow = daysUntilExpiry <= reminderDay && daysUntilExpiry > nextLowerDay;
+          if (!withinWindow) continue;
+
+          const warningFlagField = `_warning${reminderDay}ForExpiryAt`;
+          const warningAlreadySent = lic[warningFlagField] === lic.expiresAt;
+          if (warningAlreadySent) break;
+          if (!contactEmail) break;
+
+          const html = buildExpiryWarningEmail({
+            tierName,
+            serverId,
+            expiresAt: lic.expiresAt,
+            daysLeft: Math.max(1, daysUntilExpiry),
+            language: emailLanguage,
+          });
+          const warningSubject = emailLanguage === "de"
+            ? `Premium ${tierName} laeuft in ${Math.max(1, daysUntilExpiry)} ${Math.max(1, daysUntilExpiry) === 1 ? "Tag" : "Tagen"} ab!`
+            : `Premium ${tierName} expires in ${Math.max(1, daysUntilExpiry)} day${Math.max(1, daysUntilExpiry) === 1 ? "" : "s"}!`;
+          const result = await sendMail(contactEmail, warningSubject, html);
+          if (result?.success) {
+            patchLicenseById(licenseId, { [warningFlagField]: lic.expiresAt });
+            log("INFO", `[Email] Ablauf-Warnung (${reminderDay}d) gesendet an ${contactEmail} fuer Lizenz ${licenseId} (Server ${serverId})`);
+          } else {
+            log("ERROR", `[Email] Ablauf-Warnung (${reminderDay}d) fehlgeschlagen fuer Lizenz ${licenseId}: ${result?.error || "Unbekannter Fehler"}`);
+          }
+          break;
         }
       }
 
       // Abgelaufen
       const expiredAlreadyNotified =
         lic._expiredNotifiedForExpiryAt === lic.expiresAt || lic._expiredNotified === true;
-      if (daysLeft === 0 && lic.contactEmail && !expiredAlreadyNotified) {
+      if (daysUntilExpiry <= 0 && contactEmail && !expiredAlreadyNotified) {
         const html = buildExpiryEmail({ tierName, serverId, language: emailLanguage });
         const expiredSubject = emailLanguage === "de"
           ? `Premium ${tierName} abgelaufen`
           : `Premium ${tierName} expired`;
-        const result = await sendMail(lic.contactEmail, expiredSubject, html);
+        const result = await sendMail(contactEmail, expiredSubject, html);
         if (result?.success) {
-          patchLicense(patchServerId, { _expiredNotifiedForExpiryAt: lic.expiresAt, _expiredNotified: true });
-          log("INFO", `[Email] Ablauf-Benachrichtigung gesendet an ${lic.contactEmail} fuer ${serverId}`);
+          patchLicenseById(licenseId, { _expiredNotifiedForExpiryAt: lic.expiresAt, _expiredNotified: true });
+          log("INFO", `[Email] Ablauf-Benachrichtigung gesendet an ${contactEmail} fuer Lizenz ${licenseId} (Server ${serverId})`);
         } else {
-          log("ERROR", `[Email] Ablauf-Benachrichtigung fehlgeschlagen fuer ${serverId}: ${result?.error || "Unbekannter Fehler"}`);
+          log("ERROR", `[Email] Ablauf-Benachrichtigung fehlgeschlagen fuer Lizenz ${licenseId}: ${result?.error || "Unbekannter Fehler"}`);
         }
       }
     }
