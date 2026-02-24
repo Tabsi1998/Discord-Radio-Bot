@@ -69,3 +69,16 @@ web/
 | `API_RATE_STATE_MAX_ENTRIES` | Maximale Anzahl Rate-Limit-Eintraege im Speicher (Default: `50000`) |
 | `STRIPE_SECRET_KEY` | Stripe Secret Key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe Webhook Secret |
+
+### Netzwerk/Reconnect Tuning (optional)
+
+| Variable | Default | Beschreibung |
+|----------|---------|--------------|
+| `STREAM_STABLE_RESET_MS` | `15000` | Nach dieser stabilen Laufzeit werden Stream-Fehlerzaehler zurueckgesetzt |
+| `STREAM_RESTART_BASE_MS` | `1000` | Basis-Delay fuer Stream-Restarts bei Fehlern |
+| `STREAM_RESTART_MAX_MS` | `120000` | Maximaler Stream-Restart-Delay (Backoff-Cap) |
+| `STREAM_ERROR_COOLDOWN_THRESHOLD` | `8` | Ab wie vielen Fehlern in Reihe ein harter Cooldown greift |
+| `STREAM_ERROR_COOLDOWN_MS` | `60000` | Harter Cooldown bei vielen Stream-Fehlern |
+| `VOICE_RECONNECT_MAX_MS` | `120000` | Maximaler Voice-Reconnect-Delay (Backoff-Cap) |
+| `NETWORK_COOLDOWN_BASE_MS` | `10000` | Start-Cooldown bei erkannten DNS/Netzwerkfehlern |
+| `NETWORK_COOLDOWN_MAX_MS` | `180000` | Maximaler globaler Netzwerk-Cooldown |

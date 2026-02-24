@@ -333,6 +333,116 @@ function waitMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
+function parseEnvInt(name, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  const parsed = Number.parseInt(String(process.env[name] ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function applyJitter(baseMs, ratio = 0.2) {
+  const ms = Math.max(0, Number(baseMs) || 0);
+  if (ms <= 0) return 0;
+  const spread = Math.max(0, Math.min(0.9, Number(ratio) || 0));
+  const factor = 1 - spread + (Math.random() * spread * 2);
+  return Math.max(0, Math.round(ms * factor));
+}
+
+function isLikelyNetworkFailureLine(line) {
+  const text = String(line || "").trim().toLowerCase();
+  if (!text) return false;
+
+  if (text.includes("failed to resolve hostname")) return true;
+  if (text.includes("temporary failure in name resolution")) return true;
+  if (text.includes("name or service not known")) return true;
+  if (text.includes("network is unreachable")) return true;
+  if (text.includes("no route to host")) return true;
+  if (text.includes("could not resolve host")) return true;
+
+  return false;
+}
+
+const STREAM_STABLE_RESET_MS = parseEnvInt("STREAM_STABLE_RESET_MS", 15_000, 1_000, 10 * 60_000);
+const STREAM_RESTART_BASE_MS = parseEnvInt("STREAM_RESTART_BASE_MS", 1_000, 250, 120_000);
+const STREAM_RESTART_MAX_MS = parseEnvInt("STREAM_RESTART_MAX_MS", 120_000, 1_000, 30 * 60_000);
+const STREAM_PROCESS_FAILURE_WINDOW_MS = parseEnvInt("STREAM_PROCESS_FAILURE_WINDOW_MS", 12_000, 1_000, 300_000);
+const STREAM_ERROR_COOLDOWN_THRESHOLD = parseEnvInt("STREAM_ERROR_COOLDOWN_THRESHOLD", 8, 2, 100);
+const STREAM_ERROR_COOLDOWN_MS = parseEnvInt("STREAM_ERROR_COOLDOWN_MS", 60_000, 1_000, 30 * 60_000);
+const VOICE_RECONNECT_MAX_MS = parseEnvInt("VOICE_RECONNECT_MAX_MS", 120_000, 1_000, 30 * 60_000);
+const VOICE_RECONNECT_EXP_STEPS = parseEnvInt("VOICE_RECONNECT_EXP_STEPS", 10, 1, 20);
+const NETWORK_COOLDOWN_BASE_MS = parseEnvInt("NETWORK_COOLDOWN_BASE_MS", 10_000, 1_000, 10 * 60_000);
+const NETWORK_COOLDOWN_MAX_MS = parseEnvInt("NETWORK_COOLDOWN_MAX_MS", 180_000, 10_000, 60 * 60_000);
+const NETWORK_FAILURE_RESET_MS = parseEnvInt("NETWORK_FAILURE_RESET_MS", 45_000, 1_000, 10 * 60_000);
+
+class NetworkRecoveryCoordinator {
+  constructor() {
+    this.failureStreak = 0;
+    this.cooldownUntil = 0;
+    this.lastFailureAt = 0;
+    this.recoveryHandlers = new Set();
+  }
+
+  getRecoveryDelayMs(now = Date.now()) {
+    return Math.max(0, this.cooldownUntil - now);
+  }
+
+  noteFailure(source, detail = "") {
+    const now = Date.now();
+    if (now - this.lastFailureAt > NETWORK_FAILURE_RESET_MS) {
+      this.failureStreak = 0;
+    }
+    const previousHoldMs = this.getRecoveryDelayMs(now);
+
+    this.failureStreak += 1;
+    this.lastFailureAt = now;
+
+    const exp = Math.min(this.failureStreak - 1, 8);
+    const cooldownMs = Math.min(NETWORK_COOLDOWN_MAX_MS, NETWORK_COOLDOWN_BASE_MS * Math.pow(2, exp));
+    const jittered = applyJitter(cooldownMs, 0.15);
+    const nextCooldownUntil = now + jittered;
+    const extended = nextCooldownUntil > this.cooldownUntil;
+    if (extended) {
+      this.cooldownUntil = nextCooldownUntil;
+    }
+
+    const holdIncreaseMs = this.getRecoveryDelayMs(now) - previousHoldMs;
+    if (this.failureStreak === 1 || this.failureStreak % 5 === 0 || holdIncreaseMs >= 5_000) {
+      const msg = clipText(detail || source || "-", 160);
+      log(
+        "INFO",
+        `[Net] Stoerung erkannt (streak=${this.failureStreak}, holdMs=${this.getRecoveryDelayMs(now)}): ${msg}`
+      );
+    }
+  }
+
+  noteSuccess(source = "success") {
+    const now = Date.now();
+    const wasInCooldown = this.getRecoveryDelayMs(now) > 0;
+    const previousStreak = this.failureStreak;
+    this.failureStreak = 0;
+    this.lastFailureAt = 0;
+    this.cooldownUntil = 0;
+
+    if (!wasInCooldown) return;
+
+    log("INFO", `[Net] Verbindung stabilisiert (${clipText(source, 120)}), Cooldown beendet.`);
+    for (const handler of this.recoveryHandlers) {
+      try {
+        handler({ source, previousStreak });
+      } catch (err) {
+        log("ERROR", `[Net] Recovery-Handler fehlgeschlagen: ${err?.message || err}`);
+      }
+    }
+  }
+
+  onRecovered(handler) {
+    if (typeof handler !== "function") return () => {};
+    this.recoveryHandlers.add(handler);
+    return () => this.recoveryHandlers.delete(handler);
+  }
+}
+
+const networkRecoveryCoordinator = new NetworkRecoveryCoordinator();
+
 function splitTextForDiscord(content, maxLength = 1900) {
   const text = String(content ?? "");
   if (!text) return [""];
@@ -721,9 +831,16 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       stderrBuffer = lines.pop() || "";
       for (const line of lines) {
         const trimmed = line.trim();
+        if (isLikelyNetworkFailureLine(trimmed)) {
+          networkRecoveryCoordinator.noteFailure(`${botName} ffmpeg`, trimmed);
+        }
         if (!shouldLogFfmpegStderrLine(trimmed)) continue;
         log("INFO", `[${botName}] ffmpeg: ${clipText(trimmed, 500)}`);
       }
+    });
+
+    ffmpeg.stdout.once("data", () => {
+      networkRecoveryCoordinator.noteSuccess(`${botName} ffmpeg audio`);
     });
 
     ffmpeg.on("error", (err) => {
@@ -751,6 +868,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
   }
 
   const stream = Readable.fromWeb(res.body);
+  networkRecoveryCoordinator.noteSuccess(`${botName} fetch-stream`);
   const probe = await demuxProbe(stream);
   const resource = createAudioResource(probe.stream, { inputType: probe.type, inlineVolume: true });
   if (resource.volume) {
@@ -772,6 +890,9 @@ class BotRuntime {
     this.startedAt = Date.now();
     this.readyAt = null;
     this.startError = null;
+    this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered(() => {
+      this.handleNetworkRecovered();
+    });
 
     this.client.once("clientReady", () => {
       this.readyAt = Date.now();
@@ -842,6 +963,7 @@ class BotRuntime {
         lastChannelId: null,
         volume: 100,
         currentProcess: null,
+        streamStableTimer: null,
         lastStreamErrorAt: null,
         reconnectCount: 0,
         lastReconnectAt: null,
@@ -851,6 +973,9 @@ class BotRuntime {
         shouldReconnect: false,
         streamErrorCount: 0,
         lastStreamStartAt: null,
+        lastProcessExitCode: null,
+        lastProcessExitAt: 0,
+        lastNetworkFailureAt: 0,
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
@@ -1004,6 +1129,14 @@ class BotRuntime {
       clearTimeout(state.streamRestartTimer);
       state.streamRestartTimer = null;
     }
+    this.clearStreamStabilityTimer(state);
+  }
+
+  clearStreamStabilityTimer(state) {
+    if (state.streamStableTimer) {
+      clearTimeout(state.streamStableTimer);
+      state.streamStableTimer = null;
+    }
   }
 
   clearCurrentProcess(state) {
@@ -1017,22 +1150,68 @@ class BotRuntime {
     }
   }
 
-  trackProcessLifecycle(state, process) {
+  armStreamStabilityReset(guildId, state) {
+    this.clearStreamStabilityTimer(state);
+    state.streamStableTimer = setTimeout(() => {
+      state.streamStableTimer = null;
+      if (!state.currentStationKey) return;
+      state.streamErrorCount = 0;
+      state.lastProcessExitCode = null;
+      state.lastProcessExitAt = 0;
+      state.lastNetworkFailureAt = 0;
+      networkRecoveryCoordinator.noteSuccess(`${this.config.name} stable-stream guild=${guildId}`);
+    }, STREAM_STABLE_RESET_MS);
+  }
+
+  trackProcessLifecycle(guildId, state, process) {
     if (!process) return;
+    let stderrBuffer = "";
+
+    if (process.stderr?.on) {
+      process.stderr.on("data", (chunk) => {
+        stderrBuffer += chunk.toString();
+        const lines = stderrBuffer.split("\n");
+        stderrBuffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!isLikelyNetworkFailureLine(trimmed)) continue;
+          state.lastNetworkFailureAt = Date.now();
+        }
+      });
+    }
+
     process.on("close", (code) => {
       if (state.currentProcess === process) {
         state.currentProcess = null;
       }
+      state.lastProcessExitAt = Date.now();
+      state.lastProcessExitCode = Number.isFinite(code) ? Number(code) : null;
       if (code && code !== 0) {
-        log("INFO", `[${this.config.name}] ffmpeg exited with code ${code}`);
+        state.lastStreamErrorAt = new Date().toISOString();
+        log("INFO", `[${this.config.name}] ffmpeg exited with code ${code} (guild=${guildId})`);
       }
     });
     process.on("error", (err) => {
       log("ERROR", `[${this.config.name}] ffmpeg process error: ${err?.message || err}`);
+      state.lastStreamErrorAt = new Date().toISOString();
       if (state.currentProcess === process) {
         state.currentProcess = null;
       }
     });
+  }
+
+  scheduleStreamRestart(guildId, state, delayMs, reason = "restart") {
+    if (state.streamRestartTimer) {
+      clearTimeout(state.streamRestartTimer);
+    }
+
+    const delay = applyJitter(Math.max(250, Number(delayMs) || 0), 0.15);
+    state.streamRestartTimer = setTimeout(() => {
+      state.streamRestartTimer = null;
+      this.restartCurrentStation(state, guildId).catch((err) => {
+        log("ERROR", `[${this.config.name}] Stream restart failed (${reason}): ${err?.message || err}`);
+      });
+    }, delay);
   }
 
   handleStreamEnd(guildId, state, reason) {
@@ -1040,13 +1219,17 @@ class BotRuntime {
     // Don't restart stream if there's no voice connection (reconnect handler will deal with it)
     if (!state.connection) return;
 
-    const streamLifetimeMs = state.lastStreamStartAt ? (Date.now() - state.lastStreamStartAt) : 0;
+    const now = Date.now();
+    const streamLifetimeMs = state.lastStreamStartAt ? (now - state.lastStreamStartAt) : 0;
     const earlyIdle = reason === "idle" && streamLifetimeMs > 0 && streamLifetimeMs < 5000;
+    const recentProcessFailure = (state.lastProcessExitCode ?? 0) !== 0
+      && state.lastProcessExitAt > 0
+      && (now - state.lastProcessExitAt) <= STREAM_PROCESS_FAILURE_WINDOW_MS;
+    const recentNetworkFailure = state.lastNetworkFailureAt > 0
+      && (now - state.lastNetworkFailureAt) <= Math.max(60_000, STREAM_RESTART_MAX_MS);
+    const treatAsError = reason === "error" || earlyIdle || recentProcessFailure;
 
-    if (reason === "error") {
-      state.streamErrorCount = (state.streamErrorCount || 0) + 1;
-    } else if (earlyIdle) {
-      // Early idle shortly after start usually means upstream hiccup, not a clean end.
+    if (treatAsError) {
       state.streamErrorCount = (state.streamErrorCount || 0) + 1;
     } else {
       state.streamErrorCount = 0;
@@ -1054,34 +1237,44 @@ class BotRuntime {
 
     const errorCount = state.streamErrorCount || 0;
     const tierConfig = getTierConfig(guildId);
-    let delay;
+    let delay = Math.max(1_000, tierConfig.reconnectMs);
 
-    if (reason === "error" || earlyIdle) {
-      // Exponential backoff: 1s, 2s, 4s, 8s, max 15s
-      delay = Math.min(15000, 1000 * Math.pow(2, Math.min(errorCount - 1, 4)));
+    if (treatAsError) {
+      const exp = Math.min(Math.max(errorCount - 1, 0), 8);
+      delay = Math.min(STREAM_RESTART_MAX_MS, STREAM_RESTART_BASE_MS * Math.pow(2, exp));
     } else {
-      delay = Math.max(1000, tierConfig.reconnectMs);
+      delay = Math.max(delay, STREAM_RESTART_BASE_MS);
     }
 
-    // Too many consecutive errors: cool down for 30s
-    if (errorCount >= 10) {
-      delay = 30000;
-      log("INFO", `[${this.config.name}] Too many stream errors (${errorCount}) guild=${guildId}, cooling down 30s`);
+    if (recentNetworkFailure) {
+      const penalty = Math.min(STREAM_RESTART_MAX_MS, STREAM_RESTART_BASE_MS * Math.pow(2, Math.min(errorCount + 1, 8)));
+      delay = Math.max(delay, penalty);
     }
 
-    const reasonLabel = earlyIdle ? "idle-early" : reason;
-    log("INFO", `[${this.config.name}] Stream ${reasonLabel} guild=${guildId} lifetimeMs=${streamLifetimeMs} errors=${errorCount}, restart in ${delay}ms`);
-
-    if (state.streamRestartTimer) {
-      clearTimeout(state.streamRestartTimer);
+    if (errorCount >= STREAM_ERROR_COOLDOWN_THRESHOLD) {
+      delay = Math.max(delay, STREAM_ERROR_COOLDOWN_MS);
+      log(
+        "INFO",
+        `[${this.config.name}] Viele Stream-Fehler (${errorCount}) guild=${guildId}, Cooldown ${STREAM_ERROR_COOLDOWN_MS}ms`
+      );
     }
 
-    state.streamRestartTimer = setTimeout(() => {
-      state.streamRestartTimer = null;
-      this.restartCurrentStation(state, guildId).catch((err) => {
-        log("ERROR", `[${this.config.name}] Stream restart failed: ${err?.message || err}`);
-      });
-    }, delay);
+    const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs(now);
+    if (networkCooldownMs > 0) {
+      delay = Math.max(delay, networkCooldownMs);
+    }
+
+    const reasonLabel = recentProcessFailure && reason === "idle"
+      ? "idle-after-ffmpeg-exit"
+      : earlyIdle
+        ? "idle-early"
+        : reason;
+    log(
+      "INFO",
+      `[${this.config.name}] Stream ${reasonLabel} guild=${guildId} lifetimeMs=${streamLifetimeMs} errors=${errorCount}, restart in ${Math.round(delay)}ms`
+    );
+
+    this.scheduleStreamRestart(guildId, state, delay, reasonLabel);
   }
 
   async playStation(state, stations, key, guildId) {
@@ -1106,13 +1299,16 @@ class BotRuntime {
     );
 
     state.currentProcess = process;
-    this.trackProcessLifecycle(state, process);
+    this.trackProcessLifecycle(guildId, state, process);
 
     state.player.play(resource);
     state.currentStationKey = key;
     state.currentStationName = station.name || key;
     state.currentMeta = null;
     state.lastStreamStartAt = Date.now();
+    state.lastProcessExitCode = null;
+    state.lastProcessExitAt = 0;
+    this.armStreamStabilityReset(guildId, state);
     this.updatePresence();
     this.persistState();
 
@@ -1140,10 +1336,15 @@ class BotRuntime {
       return;
     }
 
+    const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+    if (networkCooldownMs > 0) {
+      this.scheduleStreamRestart(guildId, state, Math.max(1_000, networkCooldownMs), "network-cooldown");
+      return;
+    }
+
     try {
       this.clearCurrentProcess(state);
       await this.playStation(state, stations, key, guildId);
-      state.streamErrorCount = 0;
       log("INFO", `[${this.config.name}] Stream restarted: ${key}`);
     } catch (err) {
       state.lastStreamErrorAt = new Date().toISOString();
@@ -1253,7 +1454,7 @@ class BotRuntime {
   buildPresenceActivity() {
     const activeStations = [];
     for (const state of this.guildState.values()) {
-      if (!state.currentStationKey) continue;
+      if (!state.currentStationKey || !state.connection) continue;
       activeStations.push(clipText(state.currentStationName || state.currentStationKey, 96));
     }
 
@@ -1350,7 +1551,7 @@ class BotRuntime {
         `[${this.config.name}] Voice lost (Guild ${guildId}, Channel ${oldChannelId}). Scheduling auto-reconnect...`
       );
       // scheduleReconnect has built-in dedup (checks reconnectTimer)
-      this.scheduleReconnect(guildId);
+      this.scheduleReconnect(guildId, { reason: "voice-lost" });
       return;
     }
 
@@ -1408,7 +1609,7 @@ class BotRuntime {
       log("ERROR", `[${this.config.name}] VoiceConnection error: ${err?.message || err}`);
       markDisconnected();
       if (!state.shouldReconnect) return;
-      this.scheduleReconnect(guildId);
+      this.scheduleReconnect(guildId, { reason: "voice-error" });
     });
   }
 
@@ -1806,6 +2007,7 @@ class BotRuntime {
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
     this.clearReconnectTimer(state);
+    networkRecoveryCoordinator.noteSuccess(`${this.config.name} voice-ready guild=${guildId}`);
 
     this.attachConnectionHandlers(guildId, connection);
     return { connection, error: null };
@@ -1814,6 +2016,15 @@ class BotRuntime {
   async tryReconnect(guildId) {
     const state = this.getState(guildId);
     if (!state.shouldReconnect || !state.lastChannelId) return;
+
+    const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+    if (networkCooldownMs > 0) {
+      log(
+        "INFO",
+        `[${this.config.name}] Reconnect fuer guild=${guildId} verschoben (Netz-Cooldown ${Math.round(networkCooldownMs)}ms)`
+      );
+      return;
+    }
 
     const guild = this.client.guilds.cache.get(guildId);
     if (!guild) return;
@@ -1838,6 +2049,7 @@ class BotRuntime {
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-timeout`, `guild=${guildId}`);
       try { connection.destroy(); } catch {}
       return;
     }
@@ -1848,10 +2060,10 @@ class BotRuntime {
     state.lastReconnectAt = new Date().toISOString();
     this.clearReconnectTimer(state);
     this.attachConnectionHandlers(guildId, connection);
+    networkRecoveryCoordinator.noteSuccess(`${this.config.name} rejoin-ready guild=${guildId}`);
 
     // Always restart station on reconnect (stream is stale after disconnect)
     if (state.currentStationKey) {
-      state.streamErrorCount = 0;
       try {
         await this.restartCurrentStation(state, guildId);
         log("INFO", `[${this.config.name}] Reconnect successful: guild=${guildId}`);
@@ -1861,27 +2073,60 @@ class BotRuntime {
     }
   }
 
-  scheduleReconnect(guildId) {
+  handleNetworkRecovered() {
+    for (const [guildId, state] of this.guildState.entries()) {
+      if (!state.shouldReconnect || !state.currentStationKey || !state.lastChannelId) continue;
+
+      if (!state.connection) {
+        if (state.reconnectTimer) {
+          clearTimeout(state.reconnectTimer);
+          state.reconnectTimer = null;
+        }
+        this.scheduleReconnect(guildId, { resetAttempts: true, reason: "network-recovered" });
+        continue;
+      }
+
+      if (state.player.state.status === AudioPlayerStatus.Idle && !state.streamRestartTimer) {
+        this.scheduleStreamRestart(guildId, state, 750, "network-recovered");
+      }
+    }
+  }
+
+  scheduleReconnect(guildId, options = {}) {
     const state = this.getState(guildId);
     if (!state.shouldReconnect || !state.lastChannelId) return;
+    if (options.resetAttempts) {
+      state.reconnectAttempts = 0;
+    }
     if (state.reconnectTimer) return;
 
     const attempt = state.reconnectAttempts + 1;
     state.reconnectAttempts = attempt;
 
-    // Plan-based reconnect: use tier's reconnectMs as base, with exponential backoff
     const tierConfig = getTierConfig(guildId);
-    const baseDelay = tierConfig.reconnectMs || 5000;
-    const delay = Math.min(30_000, baseDelay * Math.pow(1.5, Math.min(attempt - 1, 5)));
+    const baseDelay = Math.max(400, tierConfig.reconnectMs || 5_000);
+    const exp = Math.min(attempt - 1, VOICE_RECONNECT_EXP_STEPS);
+    let delay = Math.min(VOICE_RECONNECT_MAX_MS, baseDelay * Math.pow(1.8, exp));
 
-    log("INFO", `[${this.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms (attempt ${attempt}, plan=${tierConfig.tier})`);
+    const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+    if (networkCooldownMs > 0) {
+      delay = Math.max(delay, networkCooldownMs);
+    }
+
+    delay = applyJitter(delay, 0.2);
+    const reason = String(options.reason || "auto");
+
+    log(
+      "INFO",
+      `[${this.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms (attempt ${attempt}, plan=${tierConfig.tier}, reason=${reason})`
+    );
     state.reconnectTimer = setTimeout(async () => {
       state.reconnectTimer = null;
       if (!state.shouldReconnect) return;
 
       await this.tryReconnect(guildId);
       if (state.shouldReconnect && !state.connection) {
-        this.scheduleReconnect(guildId);
+        this.scheduleReconnect(guildId, { reason: "retry" });
       }
     }, delay);
 
@@ -2250,14 +2495,17 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "health") {
+      const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
       const content = [
         `Bot: ${this.config.name}`,
         `Ready: ${this.client.isReady() ? "ja" : "nein"}`,
         `Letzter Stream-Fehler: ${state.lastStreamErrorAt || "-"}`,
         `Stream-Fehler (Reihe): ${state.streamErrorCount || 0}`,
+        `Letzter ffmpeg Exit-Code: ${state.lastProcessExitCode ?? "-"}`,
         `Reconnects: ${state.reconnectCount}`,
         `Letzter Reconnect: ${state.lastReconnectAt || "-"}`,
-        `Auto-Reconnect aktiv: ${state.shouldReconnect ? "ja" : "nein"}`
+        `Auto-Reconnect aktiv: ${state.shouldReconnect ? "ja" : "nein"}`,
+        `Netz-Cooldown: ${networkHoldMs > 0 ? `ja (${Math.round(networkHoldMs)}ms)` : "nein"}`
       ].join("\n");
 
       await interaction.reply({ content, ephemeral: true });
@@ -2271,6 +2519,7 @@ class BotRuntime {
       const diag = this.getStreamDiagnostics(interaction.guildId, state);
       const restartPending = state.streamRestartTimer ? "ja" : "nein";
       const reconnectPending = state.reconnectTimer ? "ja" : "nein";
+      const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
 
       const content = [
         `Bot: ${this.config.name}`,
@@ -2281,6 +2530,7 @@ class BotRuntime {
         `Verbunden: ${connected} | Channel: ${channelId} | Station: ${station}`,
         `Stream-Laufzeit: ${diag.streamLifetimeSec}s | Errors in Reihe: ${state.streamErrorCount || 0}`,
         `Restart geplant: ${restartPending} | Reconnect geplant: ${reconnectPending}`,
+        `Netz-Cooldown: ${networkHoldMs > 0 ? `${Math.round(networkHoldMs)}ms` : "0ms"}`,
       ].join("\n");
 
       await interaction.reply({ content, ephemeral: true });
@@ -2634,7 +2884,7 @@ class BotRuntime {
   getPlayingGuildCount() {
     let count = 0;
     for (const state of this.guildState.values()) {
-      if (state.currentStationKey) count += 1;
+      if (state.currentStationKey && state.connection) count += 1;
     }
     return count;
   }
@@ -2655,7 +2905,7 @@ class BotRuntime {
         channelId: state.lastChannelId || null,
         channelName: state.lastChannelId ? guild.channels.cache.get(state.lastChannelId)?.name || null : null,
         volume: state.volume,
-        playing: !!state.currentStationKey,
+        playing: Boolean(state.connection && state.currentStationKey),
         meta: state.currentMeta || null,
       });
     }
@@ -2682,7 +2932,9 @@ class BotRuntime {
 
   // === State Persistence: Speichert aktuellen Zustand fuer Auto-Reconnect nach Restart ===
   persistState() {
-    const activeCount = [...this.guildState.entries()].filter(([_, s]) => s.currentStationKey && s.lastChannelId).length;
+    const activeCount = [...this.guildState.entries()].filter(
+      ([_, s]) => s.currentStationKey && s.lastChannelId && s.connection
+    ).length;
     saveBotState(this.config.id, this.guildState);
     if (activeCount > 0) {
       log("INFO", `[${this.config.name}] State gespeichert (${activeCount} aktive Verbindung(en)).`);
@@ -2736,6 +2988,8 @@ class BotRuntime {
         state.volume = data.volume ?? 100;
         state.shouldReconnect = true;
         state.lastChannelId = data.channelId;
+        state.currentStationKey = stationKey;
+        state.currentStationName = stations.stations[stationKey].name || stationKey;
 
         const connection = joinVoiceChannel({
           channelId: channel.id,
@@ -2750,13 +3004,16 @@ class BotRuntime {
           await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
         } catch {
           log("ERROR", `[${this.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen (Timeout).`);
+          networkRecoveryCoordinator.noteFailure(`${this.config.name} restore-voice-timeout`, `guild=${guildId}`);
           try { connection.destroy(); } catch {}
+          this.scheduleReconnect(guildId, { reason: "restore-ready-timeout" });
           continue;
         }
 
         state.connection = connection;
         connection.subscribe(state.player);
         this.attachConnectionHandlers(guildId, connection);
+        networkRecoveryCoordinator.noteSuccess(`${this.config.name} restore-ready guild=${guildId}`);
 
         await this.playStation(state, stations, stationKey, guildId);
         log("INFO", `[${this.config.name}] Wiederhergestellt: ${guild.name} -> ${stations.stations[stationKey].name}`);
@@ -2765,11 +3022,20 @@ class BotRuntime {
         await new Promise(r => setTimeout(r, 2000));
       } catch (err) {
         log("ERROR", `[${this.config.name}] Restore fehlgeschlagen fuer Guild ${guildId}: ${err?.message || err}`);
+        const state = this.guildState.get(guildId);
+        if (state?.shouldReconnect && state.lastChannelId && state.currentStationKey) {
+          this.scheduleReconnect(guildId, { reason: "restore-error" });
+        }
       }
     }
   }
 
   async stop() {
+    if (typeof this.unsubscribeNetworkRecovery === "function") {
+      this.unsubscribeNetworkRecovery();
+      this.unsubscribeNetworkRecovery = null;
+    }
+
     for (const state of this.guildState.values()) {
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
