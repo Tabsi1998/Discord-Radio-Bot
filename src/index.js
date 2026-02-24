@@ -26,7 +26,7 @@ import { premiumStationEmbed, customStationEmbed, botLimitEmbed } from "./ui/upg
 import {
   isConfigured as isEmailConfigured,
   sendMail,
-  buildPurchaseEmail, buildInvoiceEmail,
+  buildPurchaseEmail, buildInvoiceEmail, buildAdminNotification,
   buildExpiryWarningEmail, buildExpiryEmail
 } from "./email.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
@@ -521,15 +521,64 @@ function toOrigin(rawUrl) {
   }
 }
 
-function buildAllowedReturnOrigins(publicUrl, req) {
-  const configured = String(process.env.CHECKOUT_RETURN_ORIGINS || "")
+function parseCsvEnv(rawValue) {
+  return String(rawValue || "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+function buildWebDomainOriginCandidates() {
+  const rawDomain = String(process.env.WEB_DOMAIN || "").trim();
+  if (!rawDomain) return [];
+
+  let host = rawDomain.replace(/^https?:\/\//i, "").trim();
+  host = host.replace(/\/.*$/, "").trim();
+  if (!host || /[\s/\\]/.test(host)) return [];
+
+  let hostOnly = host;
+  let portPart = "";
+  const lastColon = host.lastIndexOf(":");
+  if (lastColon > 0 && /^\d+$/.test(host.slice(lastColon + 1))) {
+    hostOnly = host.slice(0, lastColon);
+    portPart = `:${host.slice(lastColon + 1)}`;
+  }
+
+  const candidates = [`https://${host}`];
+  if (/^www\./i.test(hostOnly)) {
+    candidates.push(`https://${hostOnly.replace(/^www\./i, "")}${portPart}`);
+  } else if (hostOnly.includes(".")) {
+    candidates.push(`https://www.${hostOnly}${portPart}`);
+  }
+
+  const unique = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const origin = toOrigin(candidate);
+    if (!origin || seen.has(origin)) continue;
+    seen.add(origin);
+    unique.push(origin);
+  }
+  return unique;
+}
+
+function getConfiguredPublicOrigin(publicUrl) {
+  const explicit = toOrigin(publicUrl);
+  if (explicit) return explicit;
+  const domainOrigins = buildWebDomainOriginCandidates();
+  return domainOrigins[0] || "http://localhost";
+}
+
+function buildAllowedReturnOrigins(publicUrl, req) {
+  const configured = [
+    ...parseCsvEnv(process.env.CHECKOUT_RETURN_ORIGINS || ""),
+    ...parseCsvEnv(process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGINS || ""),
+  ];
 
   const candidates = [
     ...configured,
     publicUrl,
+    ...buildWebDomainOriginCandidates(),
     "http://localhost",
     "http://127.0.0.1"
   ];
@@ -543,7 +592,7 @@ function buildAllowedReturnOrigins(publicUrl, req) {
 }
 
 function resolveCheckoutReturnBase(returnUrl, publicUrl, req) {
-  const fallback = toOrigin(publicUrl) || "http://localhost";
+  const fallback = getConfiguredPublicOrigin(publicUrl);
   if (!returnUrl) return fallback;
 
   let parsed;
@@ -566,14 +615,12 @@ function resolveCheckoutReturnBase(returnUrl, publicUrl, req) {
 }
 
 function buildAllowedApiOrigins(publicUrl, req) {
-  const configured = String(process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGINS || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+  const configured = parseCsvEnv(process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGINS || "");
 
   const candidates = [
     ...configured,
     publicUrl,
+    ...buildWebDomainOriginCandidates(),
     getRequestOrigin(req),
     "http://localhost",
     "http://127.0.0.1",
@@ -3188,7 +3235,14 @@ function buildInviteUrlForRuntime(runtimeOrConfig) {
 
 function resolvePublicWebsiteUrl() {
   const raw = String(process.env.PUBLIC_WEB_URL || "").trim();
-  if (!raw) return "https://discord.gg/UeRkfGS43R";
+  if (!raw) {
+    const rawDomain = String(process.env.WEB_DOMAIN || "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+    if (rawDomain && !/[\s/\\]/.test(rawDomain)) {
+      const fromDomain = toOrigin(`https://${rawDomain}`);
+      if (fromDomain) return fromDomain;
+    }
+    return "https://discord.gg/UeRkfGS43R";
+  }
   try {
     return new URL(raw).toString();
   } catch {
@@ -3232,6 +3286,25 @@ function buildInviteOverviewForTier(runtimes, tier) {
   overview.proBots.sort((a, b) => Number(a.index || 0) - Number(b.index || 0));
   overview.ultimateBots.sort((a, b) => Number(a.index || 0) - Number(b.index || 0));
   return overview;
+}
+
+async function sendMailWithRetry({ to, subject, html, label, maxAttempts = 2 }) {
+  let lastError = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await sendMail(to, subject, html);
+    if (result?.success) {
+      log("INFO", `[Email] ${label} sent to ${to} (attempt ${attempt}/${maxAttempts})`);
+      return { success: true, attempts: attempt };
+    }
+
+    lastError = String(result?.error || "unknown email error");
+    log("ERROR", `[Email] ${label} failed for ${to} (attempt ${attempt}/${maxAttempts}): ${lastError}`);
+    if (attempt < maxAttempts) {
+      await waitMs(1000 * attempt);
+    }
+  }
+
+  return { success: false, error: lastError, attempts: maxAttempts };
 }
 
 async function activatePaidStripeSession(session, runtimes, source = "verify") {
@@ -3300,8 +3373,15 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     language: customerLanguage,
   });
 
-  // Send license key email
-  if (isEmailConfigured() && customerEmail) {
+  const emailDelivery = {
+    smtpConfigured: isEmailConfigured(),
+    purchaseSent: false,
+    invoiceSent: false,
+    adminSent: false,
+    errors: [],
+  };
+
+  if (emailDelivery.smtpConfigured && customerEmail) {
     const tierConfig = TIERS[cleanTier];
     const inviteOverview = buildInviteOverviewForTier(runtimes, cleanTier);
     const amountPaid = Number(session.amount_total || 0);
@@ -3324,7 +3404,6 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     const purchaseSubject = customerLanguage === "de"
       ? `OmniFM ${tierConfig.name} - Dein Lizenz-Key`
       : `OmniFM ${tierConfig.name} - Your license key`;
-    sendMail(customerEmail, purchaseSubject, purchaseHtml).catch(() => {});
 
     const invoiceId = `OF-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sessionId.slice(-8).toUpperCase()}`;
     const invoiceHtml = buildInvoiceEmail({
@@ -3344,10 +3423,87 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     const invoiceSubject = customerLanguage === "de"
       ? `OmniFM Rechnung ${invoiceId}`
       : `OmniFM Invoice ${invoiceId}`;
-    sendMail(customerEmail, invoiceSubject, invoiceHtml).catch(() => {});
+
+    const [purchaseResult, invoiceResult] = await Promise.all([
+      sendMailWithRetry({
+        to: customerEmail,
+        subject: purchaseSubject,
+        html: purchaseHtml,
+        label: "purchase-mail",
+        maxAttempts: 2,
+      }),
+      sendMailWithRetry({
+        to: customerEmail,
+        subject: invoiceSubject,
+        html: invoiceHtml,
+        label: "invoice-mail",
+        maxAttempts: 2,
+      }),
+    ]);
+
+    emailDelivery.purchaseSent = Boolean(purchaseResult?.success);
+    emailDelivery.invoiceSent = Boolean(invoiceResult?.success);
+    if (!emailDelivery.purchaseSent) emailDelivery.errors.push(`purchase:${purchaseResult?.error || "unknown"}`);
+    if (!emailDelivery.invoiceSent) emailDelivery.errors.push(`invoice:${invoiceResult?.error || "unknown"}`);
+
+    const adminEmail = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    if (adminEmail) {
+      const adminHtml = buildAdminNotification({
+        tier: cleanTier,
+        tierName: tierConfig.name,
+        months: durationMonths,
+        serverId: "-",
+        expiresAt: license.expiresAt,
+        pricePaid: amountPaid,
+        language: customerLanguage,
+      });
+      const adminSubject = customerLanguage === "de"
+        ? `OmniFM Kauf eingegangen (${tierConfig.name})`
+        : `OmniFM purchase received (${tierConfig.name})`;
+      const adminResult = await sendMailWithRetry({
+        to: adminEmail,
+        subject: adminSubject,
+        html: adminHtml,
+        label: "admin-notification",
+        maxAttempts: 1,
+      });
+      emailDelivery.adminSent = Boolean(adminResult?.success);
+      if (!emailDelivery.adminSent) emailDelivery.errors.push(`admin:${adminResult?.error || "unknown"}`);
+    }
+  } else if (!emailDelivery.smtpConfigured) {
+    emailDelivery.errors.push("smtp_not_configured");
+    log("ERROR", `[Email] SMTP nicht konfiguriert - keine Kauf-E-Mail fuer ${customerEmail} moeglich.`);
+  } else {
+    emailDelivery.errors.push("customer_email_missing");
+    log("ERROR", "[Email] Kunden-E-Mail fehlt - keine Kauf-E-Mail moeglich.");
   }
 
-  log("INFO", `[License] Erstellt: ${license.id} fuer ${customerEmail} (${cleanTier}, ${cleanSeats} Seats, ${durationMonths}mo) via ${source}`);
+  log(
+    "INFO",
+    `[License] Erstellt: ${license.id} fuer ${customerEmail} (${cleanTier}, ${cleanSeats} Seats, ${durationMonths}mo) via ${source} | email purchase=${emailDelivery.purchaseSent} invoice=${emailDelivery.invoiceSent} admin=${emailDelivery.adminSent}`
+  );
+
+  let message = customerLanguage === "de"
+    ? `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+    : `${TIERS[cleanTier].name} activated! License key: ${license.id} - Check your email (${customerEmail}).`;
+
+  if (!emailDelivery.smtpConfigured) {
+    message = customerLanguage === "de"
+      ? `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id}. Hinweis: SMTP ist aktuell nicht konfiguriert, daher wurde keine E-Mail versendet.`
+      : `${TIERS[cleanTier].name} activated! License key: ${license.id}. Note: SMTP is not configured, so no email could be sent.`;
+  } else if (!emailDelivery.purchaseSent || !emailDelivery.invoiceSent) {
+    const missingPartsDe = [
+      !emailDelivery.purchaseSent ? "Lizenz-Mail" : "",
+      !emailDelivery.invoiceSent ? "Rechnung" : "",
+    ].filter(Boolean).join(" + ");
+    const missingPartsEn = [
+      !emailDelivery.purchaseSent ? "license email" : "",
+      !emailDelivery.invoiceSent ? "invoice" : "",
+    ].filter(Boolean).join(" + ");
+    message = customerLanguage === "de"
+      ? `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id}. Achtung: ${missingPartsDe} konnte nicht zugestellt werden. Bitte Support kontaktieren.`
+      : `${TIERS[cleanTier].name} activated! License key: ${license.id}. Warning: ${missingPartsEn} could not be delivered. Please contact support.`;
+  }
 
   return {
     success: true,
@@ -3357,9 +3513,8 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     expiresAt: license.expiresAt,
     seats: cleanSeats,
     language: customerLanguage,
-    message: customerLanguage === "de"
-      ? `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
-      : `${TIERS[cleanTier].name} activated! License key: ${license.id} - Check your email (${customerEmail}).`,
+    emailStatus: emailDelivery,
+    message,
   };
 }
 

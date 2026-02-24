@@ -138,6 +138,8 @@ function buildPurchaseEmail(data) {
   const freeWebsiteUrl = String(
     inviteOverview?.freeWebsiteUrl || dashboardUrl || "https://discord.gg/UeRkfGS43R"
   ).trim();
+  const proBots = Array.isArray(inviteOverview?.proBots) ? inviteOverview.proBots : [];
+  const ultimateBots = Array.isArray(inviteOverview?.ultimateBots) ? inviteOverview.ultimateBots : [];
 
   const heading = isDe ? `OmniFM ${tierName} - Dein Lizenz-Key` : `OmniFM ${tierName} - Your license key`;
   const keyTitle = isDe ? "Dein Lizenz-Key" : "Your license key";
@@ -210,6 +212,36 @@ function buildPurchaseEmail(data) {
   const footerNote = isDe
     ? `Server aendern? Schreib uns jederzeit per E-Mail oder Discord${tier === "ultimate" ? " (Priority-Support fuer Ultimate)" : ""}.`
     : `Need to switch servers? Contact us any time via email or Discord${tier === "ultimate" ? " (priority support for Ultimate)" : ""}.`;
+  const inviteTitle = isDe ? "Direkte Bot-Invite-Links" : "Direct bot invite links";
+  const inviteHint = isDe
+    ? "Diese Links funktionieren sofort fuer dein freigeschaltetes Paket."
+    : "These links work immediately for your unlocked plan.";
+  const freeBotsHint = isDe
+    ? "Free-Bots findest du auf der Website."
+    : "You can find free bots on the website.";
+
+  const renderInviteList = (items) => items
+    .map((bot) => {
+      const label = `${bot.name || "OmniFM Bot"} (#${Number(bot.index || 0)})`;
+      return `<li style="margin:0 0 8px"><a href="${bot.url}" style="color:${tierColor};text-decoration:none;font-weight:600">${label}</a></li>`;
+    })
+    .join("");
+
+  let inviteSection = "";
+  if (proBots.length || ultimateBots.length) {
+    inviteSection = `
+      <div style="margin:18px 0;padding:18px;background:#121212;border-radius:12px;border:1px solid ${tierColor}33">
+        <h3 style="margin:0 0 6px;color:${tierColor};font-size:15px">${inviteTitle}</h3>
+        <p style="margin:0 0 12px;color:#A1A1AA;font-size:12px">${inviteHint}</p>
+        ${proBots.length ? `
+        <div style="margin:0 0 8px;color:#D4D4D8;font-size:12px;font-weight:700">${isDe ? "Pro Bots" : "Pro bots"}</div>
+        <ul style="margin:0 0 10px;padding-left:18px;color:#A1A1AA">${renderInviteList(proBots)}</ul>` : ""}
+        ${ultimateBots.length ? `
+        <div style="margin:0 0 8px;color:#D4D4D8;font-size:12px;font-weight:700">${isDe ? "Ultimate Bots" : "Ultimate bots"}</div>
+        <ul style="margin:0;padding-left:18px;color:#A1A1AA">${renderInviteList(ultimateBots)}</ul>` : ""}
+        <p style="margin:12px 0 0;color:#52525B;font-size:11px">${freeBotsHint} <a href="${freeWebsiteUrl}" style="color:#00F0FF;text-decoration:none">${websiteLabel}</a></p>
+      </div>`;
+  }
 
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:16px;overflow:hidden">
@@ -235,6 +267,8 @@ function buildPurchaseEmail(data) {
           <h3 style="margin:0 0 8px;color:${tierColor};font-size:15px">${benefitsTitle}</h3>
           ${tierBenefits}
         </div>
+
+        ${inviteSection}
 
         <div style="margin:20px 0;padding:18px;background:#1a1a1a;border-radius:12px;border:1px solid ${tierColor}33">
           <h3 style="color:${tierColor};margin:0 0 12px;font-size:15px">${nextStepsTitle}</h3>
