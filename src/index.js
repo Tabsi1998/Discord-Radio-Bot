@@ -420,7 +420,6 @@ function buildAllowedReturnOrigins(publicUrl, req) {
   const candidates = [
     ...configured,
     publicUrl,
-    getRequestOrigin(req),
     "http://localhost",
     "http://127.0.0.1"
   ];
@@ -434,7 +433,7 @@ function buildAllowedReturnOrigins(publicUrl, req) {
 }
 
 function resolveCheckoutReturnBase(returnUrl, publicUrl, req) {
-  const fallback = toOrigin(publicUrl) || toOrigin(getRequestOrigin(req)) || "http://localhost";
+  const fallback = toOrigin(publicUrl) || "http://localhost";
   if (!returnUrl) return fallback;
 
   let parsed;

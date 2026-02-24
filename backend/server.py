@@ -2,6 +2,7 @@ import os
 import json
 import re
 import hmac
+import time
 import string
 import secrets
 from pathlib import Path
@@ -101,10 +102,24 @@ SEAT_PRICING = {
 SEAT_OPTIONS = [1, 2, 3, 5]
 YEARLY_DISCOUNT_MONTHS = 10  # 12 Monate = nur 10 bezahlen
 ADMIN_API_TOKEN = (os.environ.get("API_ADMIN_TOKEN") or os.environ.get("ADMIN_API_TOKEN") or "").strip()
+TRUST_PROXY_HEADERS = (os.environ.get("TRUST_PROXY_HEADERS") or "0").strip() == "1"
+API_RATE_LIMIT_STATE = {}
+try:
+    MAX_API_RATE_STATE_ENTRIES = max(1000, int((os.environ.get("API_RATE_STATE_MAX_ENTRIES") or "50000").strip() or "50000"))
+except Exception:
+    MAX_API_RATE_STATE_ENTRIES = 50000
 
 
 def json_error(status_code, message):
     return JSONResponse(status_code=status_code, content={"error": message})
+
+
+def parse_int(value, default):
+    try:
+        parsed = int(str(value).strip())
+        return parsed
+    except Exception:
+        return default
 
 
 def is_valid_email(email):
@@ -146,6 +161,83 @@ def clip_text(value, max_len=300):
     if len(text) <= max_len:
         return text
     return text[: max_len - 3] + "..."
+
+
+def first_header_value(raw_value):
+    value = str(raw_value or "").strip()
+    if not value:
+        return ""
+    first = value.split(",")[0].strip()
+    return first
+
+
+def get_client_ip(request: Request):
+    if TRUST_PROXY_HEADERS:
+        forwarded = first_header_value(request.headers.get("x-forwarded-for"))
+        if forwarded:
+            return forwarded
+        real_ip = first_header_value(request.headers.get("x-real-ip"))
+        if real_ip:
+            return real_ip
+    client_host = getattr(request.client, "host", None)
+    return str(client_host or "unknown")
+
+
+def get_api_rate_limit_spec(scope):
+    normalized_scope = str(scope or "read").strip().lower()
+    if normalized_scope == "write":
+        window_ms = parse_int(os.environ.get("API_RATE_WRITE_WINDOW_MS"), 60000)
+        max_requests = parse_int(os.environ.get("API_RATE_WRITE_MAX"), 20)
+    else:
+        window_ms = parse_int(os.environ.get("API_RATE_READ_WINDOW_MS"), 60000)
+        max_requests = parse_int(os.environ.get("API_RATE_READ_MAX"), 120)
+
+    return {
+        "scope": "write" if normalized_scope == "write" else "read",
+        "window_ms": max(1000, window_ms),
+        "max_requests": max(1, max_requests),
+    }
+
+
+def cleanup_api_rate_limit_state(now_ms=None):
+    now = int(now_ms if now_ms is not None else (time.time() * 1000))
+    if len(API_RATE_LIMIT_STATE) < 10000 and len(API_RATE_LIMIT_STATE) <= MAX_API_RATE_STATE_ENTRIES:
+        return
+
+    expired_keys = [key for key, value in API_RATE_LIMIT_STATE.items() if not value or int(value.get("reset_at", 0)) <= now]
+    for key in expired_keys:
+        API_RATE_LIMIT_STATE.pop(key, None)
+
+    if len(API_RATE_LIMIT_STATE) > MAX_API_RATE_STATE_ENTRIES:
+        sorted_entries = sorted(API_RATE_LIMIT_STATE.items(), key=lambda entry: int(entry[1].get("reset_at", 0)))
+        remove_count = len(API_RATE_LIMIT_STATE) - MAX_API_RATE_STATE_ENTRIES
+        for key, _ in sorted_entries[:remove_count]:
+            API_RATE_LIMIT_STATE.pop(key, None)
+
+
+def enforce_api_rate_limit(request: Request, scope):
+    spec = get_api_rate_limit_spec(scope)
+    now = int(time.time() * 1000)
+    cleanup_api_rate_limit_state(now)
+
+    ip = get_client_ip(request)
+    key = f"{spec['scope']}:{request.method}:{request.url.path}:{ip}"
+    entry = API_RATE_LIMIT_STATE.get(key)
+    if not entry or int(entry.get("reset_at", 0)) <= now:
+        entry = {"count": 0, "reset_at": now + spec["window_ms"]}
+
+    entry["count"] = int(entry.get("count", 0)) + 1
+    API_RATE_LIMIT_STATE[key] = entry
+
+    if entry["count"] > spec["max_requests"]:
+        retry_after_seconds = max(1, int((entry["reset_at"] - now + 999) // 1000))
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Rate limit erreicht. Bitte spaeter erneut versuchen.", "retryAfterSeconds": retry_after_seconds},
+            headers={"Retry-After": str(retry_after_seconds)},
+        )
+
+    return None
 
 
 def is_admin_request(request: Request):
@@ -328,12 +420,16 @@ def load_premium():
         if PREMIUM_FILE.exists():
             data = json.loads(PREMIUM_FILE.read_text(encoding="utf-8"))
             # Support both old format (licenses keyed by serverId) and new format (licenses + serverEntitlements)
-            if "serverEntitlements" in data:
-                return data
+            if not isinstance(data, dict):
+                return {"licenses": {}, "processedSessions": {}}
+            if "licenses" not in data or not isinstance(data.get("licenses"), dict):
+                data["licenses"] = {}
+            if "processedSessions" not in data or not isinstance(data.get("processedSessions"), dict):
+                data["processedSessions"] = {}
             return data
-        return {"licenses": {}}
+        return {"licenses": {}, "processedSessions": {}}
     except Exception:
-        return {"licenses": {}}
+        return {"licenses": {}, "processedSessions": {}}
 
 
 def save_premium(data):
@@ -350,6 +446,37 @@ def save_premium(data):
                 tmp_file.unlink()
         except Exception:
             pass
+
+
+def get_processed_session(session_id):
+    sid = str(session_id or "").strip()
+    if not sid:
+        return None
+    data = load_premium()
+    return data.get("processedSessions", {}).get(sid)
+
+
+def mark_processed_session(session_id, payload):
+    sid = str(session_id or "").strip()
+    if not sid:
+        return
+    data = load_premium()
+    data.setdefault("processedSessions", {})[sid] = {
+        **(payload or {}),
+        "processedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Keep processedSessions bounded.
+    processed = data.get("processedSessions", {})
+    if len(processed) > 5000:
+        ordered = sorted(
+            processed.items(),
+            key=lambda entry: str(entry[1].get("processedAt", "")),
+            reverse=True,
+        )
+        data["processedSessions"] = dict(ordered[:5000])
+
+    save_premium(data)
 
 
 def is_expired(license_info):
@@ -392,6 +519,25 @@ def get_server_license(server_id):
     expired = is_expired(lic)
     return {
         **lic,
+        "expired": expired,
+        "remainingDays": remaining_days(lic),
+        "activeTier": "free" if expired else lic.get("tier", lic.get("plan", "free")),
+        "tier": lic.get("tier", lic.get("plan", "free")),
+    }
+
+
+def get_license_by_key(license_key):
+    key = str(license_key or "").strip()
+    if not key:
+        return None
+    data = load_premium()
+    lic = data.get("licenses", {}).get(key)
+    if not lic:
+        return None
+    expired = is_expired(lic)
+    return {
+        **lic,
+        "licenseKey": key,
         "expired": expired,
         "remainingDays": remaining_days(lic),
         "activeTier": "free" if expired else lic.get("tier", lic.get("plan", "free")),
@@ -521,11 +667,13 @@ def sanitize_license_for_api(license_info, include_sensitive=False):
         "remainingDays": license_info.get("remainingDays", 0),
     }
 
+    linked_server_ids = list(license_info.get("linkedServerIds", []))
+
     if include_sensitive:
-        payload["linkedServerIds"] = list(license_info.get("linkedServerIds", []))
+        payload["linkedServerIds"] = linked_server_ids
         payload["email"] = license_info.get("email", "")
     else:
-        payload["linkedServerIds"] = list(license_info.get("linkedServerIds", []))
+        payload["linkedServerCount"] = len(linked_server_ids)
         payload["emailMasked"] = mask_email(license_info.get("email", ""))
 
     return payload
@@ -623,6 +771,10 @@ async def get_commands():
 
 @app.get("/api/premium/check")
 async def check_premium(request: Request, serverId: str = "", licenseKey: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+
     include_sensitive = is_admin_request(request)
 
     # Lizenz per Key suchen
@@ -667,12 +819,19 @@ async def check_premium(request: Request, serverId: str = "", licenseKey: str = 
 
 
 @app.get("/api/premium/tiers")
-async def get_tiers():
+async def get_tiers(request: Request):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
     return {"tiers": TIERS}
 
 
 @app.get("/api/premium/pricing")
-async def get_pricing(serverId: str = ""):
+async def get_pricing(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+
     result = {
         "brand": "OmniFM",
         "tiers": {
@@ -721,7 +880,11 @@ async def get_pricing(serverId: str = ""):
 
 
 @app.get("/api/premium/invite-links")
-async def premium_invite_links(serverId: str = ""):
+async def premium_invite_links(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+
     if not is_valid_server_id(serverId):
         return json_error(400, "serverId muss 17-22 Ziffern sein.")
 
@@ -759,7 +922,11 @@ async def premium_invite_links(serverId: str = ""):
 
 
 @app.post("/api/premium/checkout")
-async def premium_checkout(body: dict):
+async def premium_checkout(request: Request, body: dict):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+
     tier = str(body.get("tier", "")).strip().lower()
     email = str(body.get("email", "")).strip().lower()
     duration_months = normalize_months(body.get("months", 1))
@@ -823,10 +990,40 @@ async def premium_checkout(body: dict):
 
 
 @app.post("/api/premium/verify")
-async def verify_premium(body: dict):
+async def verify_premium(request: Request, body: dict):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+
     session_id = str(body.get("sessionId", "")).strip()
     if not session_id:
         return json_error(400, "sessionId erforderlich.")
+
+    processed = get_processed_session(session_id)
+    if processed:
+        license_key = str(processed.get("licenseKey", "")).strip()
+        existing_license = get_license_by_key(license_key)
+        if existing_license:
+            return {
+                "success": True,
+                "replay": True,
+                "licenseKey": license_key,
+                "email": existing_license.get("email"),
+                "tier": existing_license.get("tier"),
+                "seats": existing_license.get("seats"),
+                "expiresAt": existing_license.get("expiresAt"),
+                "message": "Session wurde bereits verarbeitet.",
+            }
+        return {
+            "success": True,
+            "replay": True,
+            "licenseKey": license_key or None,
+            "email": processed.get("email"),
+            "tier": processed.get("tier"),
+            "seats": processed.get("seats"),
+            "expiresAt": processed.get("expiresAt"),
+            "message": "Session wurde bereits verarbeitet.",
+        }
 
     stripe_key = get_stripe_secret_key()
     valid, msg = validate_stripe_key(stripe_key)
@@ -839,6 +1036,22 @@ async def verify_premium(body: dict):
         session = stripe.checkout.Session.retrieve(session_id)
 
         if session.payment_status == "paid":
+            processed_race = get_processed_session(session_id)
+            if processed_race:
+                license_key = str(processed_race.get("licenseKey", "")).strip()
+                existing_license = get_license_by_key(license_key)
+                if existing_license:
+                    return {
+                        "success": True,
+                        "replay": True,
+                        "licenseKey": license_key,
+                        "email": existing_license.get("email"),
+                        "tier": existing_license.get("tier"),
+                        "seats": existing_license.get("seats"),
+                        "expiresAt": existing_license.get("expiresAt"),
+                        "message": "Session wurde bereits verarbeitet.",
+                    }
+
             metadata = session.metadata or {}
             email = str(metadata.get("email", "")).strip().lower()
             tier = str(metadata.get("tier", "")).strip().lower()
@@ -849,6 +1062,16 @@ async def verify_premium(body: dict):
             if is_valid_email(email) and tier in ("pro", "ultimate"):
                 duration_months = normalize_months(months_str)
                 license_data = add_license(email, tier, duration_months, seats, "stripe", f"Session: {session_id}")
+                mark_processed_session(
+                    session_id,
+                    {
+                        "licenseKey": license_data.get("licenseKey"),
+                        "email": email,
+                        "tier": tier,
+                        "seats": seats,
+                        "expiresAt": license_data.get("expiresAt"),
+                    },
+                )
 
                 license_key = license_data.get("licenseKey", "")
                 tier_name = TIERS[tier]["name"]
@@ -856,6 +1079,7 @@ async def verify_premium(body: dict):
 
                 return {
                     "success": True,
+                    "replay": False,
                     "licenseKey": license_key,
                     "email": email,
                     "tier": tier,
