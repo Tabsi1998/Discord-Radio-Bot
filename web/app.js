@@ -399,6 +399,8 @@ function applyStaticEnglishTranslations() {
 
     var cancelBtn = premiumModal.querySelector('button[onclick=\"closePremiumModal()\"]');
     if (cancelBtn) cancelBtn.textContent = 'Cancel';
+    var trialBtn = document.getElementById('premiumTrialBtn');
+    if (trialBtn) trialBtn.textContent = 'Start 1-month Pro trial';
   }
 
   var footerLove = document.querySelector('.footer-love');
@@ -914,6 +916,35 @@ var SEAT_PRICING = {
   ultimate: { 1: 499, 2: 799, 3: 1099, 5: 1699 }
 };
 
+function isValidEmailAddress(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function setCheckoutLoadingState(isLoading) {
+  var modal = document.getElementById('premiumModal');
+  var submitBtn = document.getElementById('premiumSubmit');
+  var trialBtn = document.getElementById('premiumTrialBtn');
+
+  if (submitBtn) {
+    submitBtn.disabled = !!isLoading;
+    if (isLoading) {
+      submitBtn.textContent = tr('Wird geladen...', 'Loading...');
+    } else if (modal && modal.dataset && modal.dataset.tier) {
+      updatePriceDisplay();
+    }
+  }
+
+  if (trialBtn) {
+    trialBtn.disabled = !!isLoading;
+    trialBtn.style.opacity = isLoading ? '0.65' : '1';
+    trialBtn.style.cursor = isLoading ? 'not-allowed' : 'pointer';
+  }
+
+  if (modal) {
+    modal.dataset.loading = isLoading ? '1' : '0';
+  }
+}
+
 function calculateCheckoutPrice(pricePerMonth, months) {
   if (months >= 12) {
     var fullYears = Math.floor(months / 12);
@@ -976,6 +1007,7 @@ function startCheckout(tier) {
   modal.dataset.months = '1';
   modal.dataset.seats = '1';
   modal.dataset.isUpgrade = 'false';
+  modal.dataset.loading = '0';
   checkoutUpgradeInfo = null;
 
   var tierColors = { pro: '#FFB800', ultimate: '#BD00FF' };
@@ -994,6 +1026,14 @@ function startCheckout(tier) {
   submitBtn.style.background = color;
   submitBtn.style.color = tier === 'ultimate' ? '#fff' : '#050505';
   submitBtn.disabled = false;
+
+  var trialBtn = document.getElementById('premiumTrialBtn');
+  if (trialBtn) {
+    trialBtn.style.display = tier === 'pro' ? 'block' : 'none';
+    trialBtn.disabled = false;
+    trialBtn.style.opacity = '1';
+    trialBtn.style.cursor = 'pointer';
+  }
 
   var priceEl = document.getElementById('premiumPrice');
   priceEl.style.color = color;
@@ -1103,6 +1143,7 @@ function checkExistingLicense() {
 }
 
 function closePremiumModal() {
+  setCheckoutLoadingState(false);
   document.getElementById('premiumModal').style.display = 'none';
   checkoutUpgradeInfo = null;
 }
@@ -1110,21 +1151,20 @@ function closePremiumModal() {
 function submitPremiumCheckout() {
   var modal = document.getElementById('premiumModal');
   var input = document.getElementById('premiumEmail');
-  var submitBtn = document.getElementById('premiumSubmit');
   var statusEl = document.getElementById('premiumStatus');
   var tier = modal.dataset.tier;
   var months = parseInt(modal.dataset.months) || 1;
   var seats = parseInt(modal.dataset.seats) || 1;
   var email = input.value.trim();
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!isValidEmailAddress(email)) {
     statusEl.textContent = tr('Bitte eine gueltige E-Mail-Adresse eingeben!', 'Please enter a valid email address!');
     statusEl.style.color = '#FF2A2A';
     return;
   }
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = tr('Wird geladen...', 'Loading...');
+  setCheckoutLoadingState(true);
+  statusEl.textContent = '';
 
   fetch('/api/premium/checkout', {
     method: 'POST',
@@ -1138,15 +1178,62 @@ function submitPremiumCheckout() {
     } else {
       statusEl.textContent = data.error || tr('Fehler beim Erstellen der Zahlung.', 'Error while creating payment.');
       statusEl.style.color = '#FF2A2A';
-      submitBtn.disabled = false;
-      updatePriceDisplay();
+      setCheckoutLoadingState(false);
     }
   })
   .catch(function(err) {
     statusEl.textContent = tr('Verbindungsfehler: ', 'Connection error: ') + err.message;
     statusEl.style.color = '#FF2A2A';
-    submitBtn.disabled = false;
-    updatePriceDisplay();
+    setCheckoutLoadingState(false);
+  });
+}
+
+function submitProTrial() {
+  var input = document.getElementById('premiumEmail');
+  var statusEl = document.getElementById('premiumStatus');
+  var email = input.value.trim();
+
+  if (!isValidEmailAddress(email)) {
+    statusEl.textContent = tr('Bitte eine gueltige E-Mail-Adresse eingeben!', 'Please enter a valid email address!');
+    statusEl.style.color = '#FF2A2A';
+    return;
+  }
+
+  setCheckoutLoadingState(true);
+  statusEl.textContent = '';
+
+  fetch('/api/premium/trial', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email, language: APP_LANG })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) {
+      closePremiumModal();
+      var banner = document.getElementById('paymentBanner');
+      var msg = data.message || tr('Pro-Testmonat aktiviert!', 'Pro trial month activated!');
+      if (data.licenseKey && msg.indexOf(data.licenseKey) === -1) {
+        msg += APP_IS_DE
+          ? (' Dein Lizenz-Key: ' + data.licenseKey)
+          : (' Your license key: ' + data.licenseKey);
+      }
+      banner.style.display = 'flex';
+      banner.style.background = 'rgba(57,255,20,0.1)';
+      banner.style.borderColor = 'rgba(57,255,20,0.3)';
+      banner.querySelector('span').textContent = msg;
+      banner.querySelector('span').style.color = '#39FF14';
+      return;
+    }
+
+    statusEl.textContent = data.message || data.error || tr('Der Testmonat konnte nicht aktiviert werden.', 'Could not activate the trial month.');
+    statusEl.style.color = '#FF2A2A';
+    setCheckoutLoadingState(false);
+  })
+  .catch(function(err) {
+    statusEl.textContent = tr('Verbindungsfehler: ', 'Connection error: ') + err.message;
+    statusEl.style.color = '#FF2A2A';
+    setCheckoutLoadingState(false);
   });
 }
 

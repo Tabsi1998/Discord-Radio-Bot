@@ -34,7 +34,7 @@ import {
   getServerLicense, listLicenses as listRawLicenses,
   createLicense, linkServerToLicense, unlinkServerFromLicense, getLicenseById,
   isSessionProcessed, markSessionProcessed, isEventProcessed, markEventProcessed,
-  patchLicenseForServer,
+  patchLicenseForServer, reserveTrialClaim, finalizeTrialClaim, releaseTrialClaim,
 } from "./premium-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
 import { buildCommandBuilders } from "./commands.js";
@@ -60,6 +60,8 @@ dotenv.config();
 setLicenseProvider(getServerLicense);
 
 const YEARLY_DISCOUNT_MONTHS = 10;
+const PRO_TRIAL_MONTHS = 1;
+const PRO_TRIAL_SEATS = 1;
 const SEAT_OPTIONS = [1, 2, 3, 5];
 const SEAT_PRICING_CENTS = {
   pro: { 1: 299, 2: 549, 3: 749, 5: 1149 },
@@ -69,6 +71,14 @@ const SEAT_PRICING_CENTS = {
 function normalizeSeats(rawSeats) {
   const seats = Number(rawSeats);
   return SEAT_OPTIONS.includes(seats) ? seats : 1;
+}
+
+function isValidEmailAddress(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
+}
+
+function isProTrialEnabled() {
+  return String(process.env.PRO_TRIAL_ENABLED ?? "1").trim() !== "0";
 }
 
 function getSeatPricePerMonthCents(tier, seats = 1) {
@@ -3518,6 +3528,192 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
   };
 }
 
+async function activateProTrial({ email, language, runtimes, source = "trial" }) {
+  const customerLanguage = normalizeLanguage(language, getDefaultLanguage());
+  const t = (de, en) => (customerLanguage === "de" ? de : en);
+  const customerEmail = String(email || "").trim().toLowerCase();
+
+  if (!isProTrialEnabled()) {
+    return {
+      success: false,
+      status: 403,
+      message: t(
+        "Der Pro-Testmonat ist aktuell deaktiviert.",
+        "The Pro trial month is currently disabled."
+      ),
+    };
+  }
+
+  if (!isValidEmailAddress(customerEmail)) {
+    return {
+      success: false,
+      status: 400,
+      message: t(
+        "Bitte eine gueltige E-Mail-Adresse eingeben.",
+        "Please enter a valid email address."
+      ),
+    };
+  }
+
+  const reserved = reserveTrialClaim(customerEmail, {
+    source,
+    preferredLanguage: customerLanguage,
+    requestedAt: new Date().toISOString(),
+  });
+
+  if (!reserved.ok) {
+    return {
+      success: false,
+      status: 409,
+      message: t(
+        "Der Pro-Testmonat wurde fuer diese E-Mail bereits genutzt.",
+        "The Pro trial month has already been used for this email."
+      ),
+    };
+  }
+
+  let license;
+  try {
+    license = createLicense({
+      plan: "pro",
+      seats: PRO_TRIAL_SEATS,
+      billingPeriod: "monthly",
+      months: PRO_TRIAL_MONTHS,
+      activatedBy: "trial",
+      note: `Trial via ${source}`,
+      contactEmail: customerEmail,
+      preferredLanguage: customerLanguage,
+    });
+  } catch (err) {
+    releaseTrialClaim(customerEmail);
+    return {
+      success: false,
+      status: 500,
+      message: t(
+        "Der Pro-Testmonat konnte nicht erstellt werden. Bitte spaeter erneut versuchen.",
+        "Could not create the Pro trial month. Please try again later."
+      ),
+      detail: err?.message || String(err),
+    };
+  }
+
+  finalizeTrialClaim(customerEmail, {
+    source,
+    licenseId: license.id,
+    tier: "pro",
+    seats: PRO_TRIAL_SEATS,
+    months: PRO_TRIAL_MONTHS,
+    expiresAt: license.expiresAt,
+    activatedBy: "trial",
+  });
+
+  const emailDelivery = {
+    smtpConfigured: isEmailConfigured(),
+    purchaseSent: false,
+    invoiceSent: false,
+    adminSent: false,
+    errors: [],
+  };
+
+  if (emailDelivery.smtpConfigured) {
+    const tierConfig = TIERS.pro;
+    const isDe = customerLanguage === "de";
+    const inviteOverview = buildInviteOverviewForTier(runtimes, "pro");
+    const purchaseHtml = buildPurchaseEmail({
+      tier: "pro",
+      tierName: isDe ? `${tierConfig.name} Testmonat` : `${tierConfig.name} Trial Month`,
+      months: PRO_TRIAL_MONTHS,
+      licenseKey: license.id,
+      seats: PRO_TRIAL_SEATS,
+      email: customerEmail,
+      expiresAt: license.expiresAt,
+      inviteOverview,
+      dashboardUrl: resolvePublicWebsiteUrl(),
+      isUpgrade: false,
+      pricePaid: 0,
+      currency: "eur",
+      language: customerLanguage,
+    });
+    const purchaseSubject = isDe
+      ? "OmniFM Pro Testmonat - Dein Lizenz-Key"
+      : "OmniFM Pro Trial Month - Your license key";
+
+    const purchaseResult = await sendMailWithRetry({
+      to: customerEmail,
+      subject: purchaseSubject,
+      html: purchaseHtml,
+      label: "trial-license-mail",
+      maxAttempts: 2,
+    });
+    emailDelivery.purchaseSent = Boolean(purchaseResult?.success);
+    if (!emailDelivery.purchaseSent) {
+      emailDelivery.errors.push(`purchase:${purchaseResult?.error || "unknown"}`);
+    }
+
+    const adminEmail = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    if (adminEmail) {
+      const adminHtml = buildAdminNotification({
+        tier: "pro",
+        tierName: isDe ? "Pro Testmonat" : "Pro Trial Month",
+        months: PRO_TRIAL_MONTHS,
+        serverId: "-",
+        expiresAt: license.expiresAt,
+        pricePaid: 0,
+        language: customerLanguage,
+      });
+      const adminSubject = isDe
+        ? "OmniFM Pro-Testmonat aktiviert"
+        : "OmniFM Pro trial activated";
+      const adminResult = await sendMailWithRetry({
+        to: adminEmail,
+        subject: adminSubject,
+        html: adminHtml,
+        label: "trial-admin-notification",
+        maxAttempts: 1,
+      });
+      emailDelivery.adminSent = Boolean(adminResult?.success);
+      if (!emailDelivery.adminSent) {
+        emailDelivery.errors.push(`admin:${adminResult?.error || "unknown"}`);
+      }
+    }
+  } else {
+    emailDelivery.errors.push("smtp_not_configured");
+    log("ERROR", `[Email] SMTP nicht konfiguriert - keine Trial-E-Mail fuer ${customerEmail} moeglich.`);
+  }
+
+  log(
+    "INFO",
+    `[Trial] Pro-Test aktiviert: ${license.id} fuer ${customerEmail} | email purchase=${emailDelivery.purchaseSent} admin=${emailDelivery.adminSent}`
+  );
+
+  let message = customerLanguage === "de"
+    ? `Pro-Testmonat aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+    : `Pro trial month activated! License key: ${license.id} - Check your email (${customerEmail}).`;
+
+  if (!emailDelivery.smtpConfigured) {
+    message = customerLanguage === "de"
+      ? `Pro-Testmonat aktiviert! Lizenz-Key: ${license.id}. Hinweis: SMTP ist nicht konfiguriert, daher wurde keine E-Mail versendet.`
+      : `Pro trial month activated! License key: ${license.id}. Note: SMTP is not configured, so no email was sent.`;
+  } else if (!emailDelivery.purchaseSent) {
+    message = customerLanguage === "de"
+      ? `Pro-Testmonat aktiviert! Lizenz-Key: ${license.id}. Achtung: Die Lizenz-Mail konnte nicht zugestellt werden. Bitte Support kontaktieren.`
+      : `Pro trial month activated! License key: ${license.id}. Warning: The license email could not be delivered. Please contact support.`;
+  }
+
+  return {
+    success: true,
+    email: customerEmail,
+    tier: "pro",
+    licenseKey: license.id,
+    expiresAt: license.expiresAt,
+    seats: PRO_TRIAL_SEATS,
+    months: PRO_TRIAL_MONTHS,
+    language: customerLanguage,
+    emailStatus: emailDelivery,
+    message,
+  };
+}
+
 const webhookEventsInFlight = new Set();
 const apiRateLimitState = new Map();
 const MAX_API_RATE_STATE_ENTRIES = Math.max(
@@ -3552,7 +3748,11 @@ function getApiRateLimitSpec(pathname) {
     };
   }
 
-  if (pathname === "/api/premium/checkout" || pathname === "/api/premium/verify") {
+  if (
+    pathname === "/api/premium/checkout"
+    || pathname === "/api/premium/verify"
+    || pathname === "/api/premium/trial"
+  ) {
     return {
       scope: "write",
       windowMs: Number(process.env.API_RATE_WRITE_WINDOW_MS || "60000"),
@@ -3857,6 +4057,96 @@ function startWebServer(runtimes) {
       return;
     }
 
+    if (requestUrl.pathname === "/api/premium/trial") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      try {
+        const body = await readJsonBody();
+        const { email, language: rawLanguage } = body;
+        const acceptLanguage = req.headers["accept-language"];
+        const trialLanguage = normalizeLanguage(
+          rawLanguage,
+          resolveLanguageFromAcceptLanguage(acceptLanguage, getDefaultLanguage())
+        );
+        const t = (de, en) => (trialLanguage === "de" ? de : en);
+
+        if (!isProTrialEnabled()) {
+          sendJson(res, 403, {
+            success: false,
+            message: t(
+              "Der Pro-Testmonat ist aktuell deaktiviert.",
+              "The Pro trial month is currently disabled."
+            ),
+          });
+          return;
+        }
+
+        if (!isValidEmailAddress(email)) {
+          sendJson(res, 400, {
+            success: false,
+            message: t(
+              "Bitte eine gueltige E-Mail-Adresse eingeben.",
+              "Please enter a valid email address."
+            ),
+          });
+          return;
+        }
+
+        const result = await activateProTrial({
+          email,
+          language: trialLanguage,
+          runtimes,
+          source: "api:trial",
+        });
+        if (!result.success) {
+          sendJson(res, result.status || 400, {
+            success: false,
+            message: result.message,
+          });
+          return;
+        }
+
+        sendJson(res, 200, {
+          success: true,
+          email: result.email,
+          tier: result.tier,
+          licenseKey: result.licenseKey,
+          expiresAt: result.expiresAt,
+          seats: result.seats,
+          months: result.months,
+          message: result.message,
+          emailStatus: result.emailStatus,
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
+          sendJson(res, status, {
+            success: false,
+            message: fallbackLanguage === "de"
+              ? status === 413
+                ? "Request-Body ist zu gross."
+                : "Ungueltiges JSON im Request-Body."
+              : status === 413
+                ? "Request body is too large."
+                : "Invalid JSON in request body.",
+          });
+          return;
+        }
+        log("ERROR", `Pro trial activation error: ${err.message}`);
+        const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
+        sendJson(res, 500, {
+          success: false,
+          message: fallbackLanguage === "de"
+            ? "Der Pro-Testmonat konnte nicht aktiviert werden."
+            : "Could not activate the Pro trial month.",
+        });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/premium/checkout") {
       if (req.method !== "POST") {
         methodNotAllowed(res, ["POST"]);
@@ -3876,7 +4166,7 @@ function startWebServer(runtimes) {
           sendJson(res, 400, { error: t("tier und email erforderlich.", "tier and email are required.") });
           return;
         }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        if (!isValidEmailAddress(email)) {
           sendJson(res, 400, { error: t("Bitte eine gueltige E-Mail-Adresse eingeben.", "Please enter a valid email address.") });
           return;
         }
@@ -4184,6 +4474,13 @@ function startWebServer(runtimes) {
         },
         yearlyDiscount: "12 Monate = 10 bezahlen (2 Monate gratis)",
         seatOptions: [...SEAT_OPTIONS],
+        trial: {
+          enabled: isProTrialEnabled(),
+          tier: "pro",
+          months: PRO_TRIAL_MONTHS,
+          seats: PRO_TRIAL_SEATS,
+          oneTimePerEmail: true,
+        },
       };
 
       if (serverId && /^\d{17,22}$/.test(serverId)) {

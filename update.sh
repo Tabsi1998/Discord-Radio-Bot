@@ -823,6 +823,7 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_public_url=$(read_env "PUBLIC_WEB_URL" "")
   cur_cors=$(read_env "CORS_ALLOWED_ORIGINS" "")
   cur_returns=$(read_env "CHECKOUT_RETURN_ORIGINS" "")
+  cur_trial=$(read_env "PRO_TRIAL_ENABLED" "1")
   bot_count=$(count_bots)
   cur_stripe=$(read_env "STRIPE_SECRET_KEY")
 
@@ -844,6 +845,11 @@ if [[ "$MODE" == "--settings" ]]; then
   else
     echo -e "  Checkout Origins:      ${RED}nicht gesetzt${NC}"
   fi
+  if [[ "$cur_trial" == "0" ]]; then
+    echo -e "  Pro-Testmonat:         ${RED}deaktiviert${NC}"
+  else
+    echo -e "  Pro-Testmonat:         ${GREEN}aktiv${NC}"
+  fi
   echo -e "  Bots konfiguriert:     ${CYAN}${bot_count}${NC}"
   if [[ -n "$cur_stripe" ]]; then
     echo -e "  Stripe:                ${GREEN}konfiguriert${NC}"
@@ -857,9 +863,10 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${CYAN}2${NC}) Domain"
   echo -e "    ${YELLOW}3${NC}) Public Web URL"
   echo -e "    ${BOLD}4${NC}) Web-Origin/CORS automatisch reparieren (empfohlen)"
-  echo -e "    ${DIM}5${NC}) Zurueck"
+  echo -e "    ${CYAN}5${NC}) Pro-Testmonat ein/aus"
+  echo -e "    ${DIM}6${NC}) Zurueck"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" SET_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-6]${NC}: ")" SET_CHOICE
 
   case "${SET_CHOICE:-}" in
     1)
@@ -886,7 +893,7 @@ if [[ "$MODE" == "--settings" ]]; then
       fi
       ;;
     3)
-      new_public="$(prompt_nonempty "Public Web URL (z.B. https://omnibot.xyz)")"
+      new_public="$(prompt_nonempty "Public Web URL (z.B. https://omnifm.xyz)")"
       normalized_public="$(extract_origin "$new_public" || true)"
       if [[ -z "$normalized_public" ]]; then
         fail "Ungueltige URL. Bitte mit http:// oder https:// eingeben."
@@ -901,6 +908,16 @@ if [[ "$MODE" == "--settings" ]]; then
       ;;
     4)
       auto_fix_web_env
+      restart_container
+      ;;
+    5)
+      if [[ "$cur_trial" == "0" ]]; then
+        write_env_line "PRO_TRIAL_ENABLED" "1"
+        ok "Pro-Testmonat aktiviert."
+      else
+        write_env_line "PRO_TRIAL_ENABLED" "0"
+        ok "Pro-Testmonat deaktiviert."
+      fi
       restart_container
       ;;
     *)

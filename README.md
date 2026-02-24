@@ -11,6 +11,7 @@
 - Priority Reconnect (5s/1.5s/0.4s)
 - Custom Station URLs (Ultimate)
 - Stripe Checkout Integration
+- Einmaliger Pro-Testmonat pro E-Mail
 - E-Mail Benachrichtigungen (Kaufbeleg, Ablauf-Warnung)
 
 ## Setup
@@ -64,6 +65,7 @@ web/
 | `PUBLIC_WEB_URL` | Oeffentliche URL der Website |
 | `CORS_ALLOWED_ORIGINS` | Komma-Liste erlaubter Web-Origin URLs (API CORS) |
 | `CHECKOUT_RETURN_ORIGINS` | Komma-Liste erlaubter Return-URLs fuer Stripe Checkout |
+| `PRO_TRIAL_ENABLED` | `1` = Pro-Testmonat (1 Monat, 1x pro E-Mail) aktiv, `0` = deaktiviert |
 | `API_ADMIN_TOKEN` | Optionales Admin-Token fuer sensible API-Felder |
 | `TRUST_PROXY_HEADERS` | `1` wenn der Bot hinter einem Reverse Proxy laeuft (nutzt `X-Forwarded-*` fuer Origin/IP) |
 | `API_RATE_STATE_MAX_ENTRIES` | Maximale Anzahl Rate-Limit-Eintraege im Speicher (Default: `50000`) |

@@ -13,11 +13,18 @@ const premiumFile = path.resolve(__dirname, "..", "premium.json");
 const premiumBackupFile = premiumFile + ".bak";
 
 const MAX_PROCESSED_ENTRIES = 5000;
+const TRIAL_RESERVATION_STALE_MS = 15 * 60 * 1000;
 
 // --- Internal helpers ---
 
 function emptyStore() {
-  return { licenses: {}, serverEntitlements: {}, processedSessions: {}, processedEvents: {} };
+  return {
+    licenses: {},
+    serverEntitlements: {},
+    processedSessions: {},
+    processedEvents: {},
+    trialClaims: {},
+  };
 }
 
 function readFileSafe(filePath) {
@@ -37,6 +44,9 @@ function load() {
   if (!data.serverEntitlements) data.serverEntitlements = {};
   if (!data.processedSessions) data.processedSessions = {};
   if (!data.processedEvents) data.processedEvents = {};
+  if (!data.trialClaims || typeof data.trialClaims !== "object" || Array.isArray(data.trialClaims)) {
+    data.trialClaims = {};
+  }
 
   // Migrate old format: if a license key looks like a guild ID (17+ digits),
   // convert to new format
@@ -292,6 +302,78 @@ export function markEventProcessed(eventId, meta = {}) {
   const data = load();
   data.processedEvents[String(eventId)] = { ...meta, processedAt: new Date().toISOString() };
   save(data);
+}
+
+// --- Trial claim helpers ---
+
+function normalizeTrialEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+export function getTrialClaimByEmail(email) {
+  const normalizedEmail = normalizeTrialEmail(email);
+  if (!normalizedEmail) return null;
+  const data = load();
+  return data.trialClaims[normalizedEmail] || null;
+}
+
+export function reserveTrialClaim(email, meta = {}) {
+  const normalizedEmail = normalizeTrialEmail(email);
+  if (!normalizedEmail) return { ok: false, message: "email is required" };
+
+  const data = load();
+  const existing = data.trialClaims[normalizedEmail];
+  if (existing) {
+    const existingCreatedAtMs = Date.parse(existing.createdAt || "");
+    const isStaleReservation = (
+      existing.status === "reserved"
+      && !existing.licenseId
+      && Number.isFinite(existingCreatedAtMs)
+      && (Date.now() - existingCreatedAtMs) > TRIAL_RESERVATION_STALE_MS
+    );
+    if (!isStaleReservation) {
+      return { ok: false, message: "trial already claimed", claim: existing };
+    }
+  }
+
+  data.trialClaims[normalizedEmail] = {
+    email: normalizedEmail,
+    status: "reserved",
+    createdAt: new Date().toISOString(),
+    ...meta,
+  };
+  save(data);
+  return { ok: true, claim: data.trialClaims[normalizedEmail] };
+}
+
+export function finalizeTrialClaim(email, patch = {}) {
+  const normalizedEmail = normalizeTrialEmail(email);
+  if (!normalizedEmail) return null;
+
+  const data = load();
+  const existing = data.trialClaims[normalizedEmail];
+  if (!existing) return null;
+
+  data.trialClaims[normalizedEmail] = {
+    ...existing,
+    ...patch,
+    email: normalizedEmail,
+    status: "claimed",
+    claimedAt: new Date().toISOString(),
+  };
+  save(data);
+  return data.trialClaims[normalizedEmail];
+}
+
+export function releaseTrialClaim(email) {
+  const normalizedEmail = normalizeTrialEmail(email);
+  if (!normalizedEmail) return false;
+
+  const data = load();
+  if (!data.trialClaims[normalizedEmail]) return false;
+  delete data.trialClaims[normalizedEmail];
+  save(data);
+  return true;
 }
 
 // --- Server-level convenience functions ---
