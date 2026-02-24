@@ -89,6 +89,134 @@ prompt_optional() {
   printf "%s" "$(echo "$val" | xargs)"
 }
 
+extract_origin() {
+  local raw trimmed
+  raw="${1:-}"
+  trimmed="$(echo "$raw" | xargs)"
+  if [[ "$trimmed" =~ ^https?://[^/[:space:]]+ ]]; then
+    printf "%s" "${BASH_REMATCH[0]}"
+    return 0
+  fi
+  return 1
+}
+
+join_unique_csv() {
+  local -a vals=("$@")
+  local -a out=()
+  local -A seen=()
+  local item
+  for item in "${vals[@]}"; do
+    item="$(echo "$item" | xargs)"
+    [[ -z "$item" ]] && continue
+    if [[ -z "${seen[$item]+x}" ]]; then
+      seen["$item"]=1
+      out+=("$item")
+    fi
+  done
+  local IFS=","
+  printf "%s" "${out[*]}"
+}
+
+merge_csv_values() {
+  local current="$1"; shift
+  local -a merged=()
+  local -a current_items=()
+  local item
+  IFS=',' read -r -a current_items <<< "${current:-}"
+  for item in "${current_items[@]}"; do
+    item="$(echo "$item" | xargs)"
+    [[ -n "$item" ]] && merged+=("$item")
+  done
+  merged+=("$@")
+  join_unique_csv "${merged[@]}"
+}
+
+build_default_origin_candidates() {
+  local public_url="$1"
+  local web_port="$2"
+  local origin scheme hostport host port
+  local -a out=()
+
+  origin="$(extract_origin "$public_url" || true)"
+  if [[ -n "$origin" ]]; then
+    out+=("$origin")
+
+    scheme="${origin%%://*}"
+    hostport="${origin#*://}"
+    host="${hostport%%:*}"
+    port=""
+    if [[ "$hostport" == *:* ]]; then
+      port=":${hostport##*:}"
+    fi
+
+    if [[ "$host" =~ ^www\. ]]; then
+      out+=("${scheme}://${host#www.}${port}")
+    elif [[ "$host" =~ [A-Za-z] && "$host" == *.* ]]; then
+      out+=("${scheme}://www.${host}${port}")
+    fi
+  fi
+
+  out+=("http://localhost" "http://127.0.0.1")
+  if [[ -n "$web_port" && "$web_port" != "80" ]]; then
+    out+=("http://localhost:${web_port}" "http://127.0.0.1:${web_port}")
+  fi
+
+  join_unique_csv "${out[@]}"
+}
+
+auto_fix_web_env() {
+  local web_port domain public_url origin defaults_csv
+  local current_cors current_returns new_cors new_returns changed=0
+
+  web_port="$(read_env "WEB_PORT" "8081")"
+  domain="$(read_env "WEB_DOMAIN" "")"
+  public_url="$(read_env "PUBLIC_WEB_URL" "")"
+
+  origin="$(extract_origin "$public_url" || true)"
+  if [[ -z "$origin" ]]; then
+    if [[ -n "$domain" ]]; then
+      origin="https://${domain}"
+    else
+      origin="http://localhost:${web_port}"
+    fi
+    write_env_line "PUBLIC_WEB_URL" "$origin"
+    public_url="$origin"
+    changed=1
+    info "PUBLIC_WEB_URL gesetzt: ${origin}"
+  fi
+
+  defaults_csv="$(build_default_origin_candidates "$public_url" "$web_port")"
+  current_cors="$(read_env "CORS_ALLOWED_ORIGINS" "")"
+  current_returns="$(read_env "CHECKOUT_RETURN_ORIGINS" "")"
+  IFS=',' read -r -a default_items <<< "$defaults_csv"
+
+  new_cors="$(merge_csv_values "$current_cors" "${default_items[@]}")"
+  new_returns="$(merge_csv_values "$current_returns" "${default_items[@]}")"
+
+  if [[ "$new_cors" != "$current_cors" ]]; then
+    write_env_line "CORS_ALLOWED_ORIGINS" "$new_cors"
+    changed=1
+    info "CORS_ALLOWED_ORIGINS aktualisiert."
+  fi
+  if [[ "$new_returns" != "$current_returns" ]]; then
+    write_env_line "CHECKOUT_RETURN_ORIGINS" "$new_returns"
+    changed=1
+    info "CHECKOUT_RETURN_ORIGINS aktualisiert."
+  fi
+
+  if [[ "$(read_env "TRUST_PROXY_HEADERS" "")" == "" ]]; then
+    write_env_line "TRUST_PROXY_HEADERS" "1"
+    changed=1
+    info "TRUST_PROXY_HEADERS=1 gesetzt."
+  fi
+
+  if (( changed == 0 )); then
+    ok "Web-Origin Konfiguration war bereits konsistent."
+  else
+    ok "Web-Origin Konfiguration repariert."
+  fi
+}
+
 strip_ansi() {
   # Entfernt alle ANSI Escape-Codes aus einem String
   printf "%s" "$1" | sed 's/\x1b\[[0-9;]*m//g; s/\x1b\[[0-9;]*[a-zA-Z]//g; s/\033\[[0-9;]*m//g'
@@ -102,6 +230,39 @@ write_env_line() {
     sed -i "s|^${key}=.*|${key}=${value}|" .env
   else
     echo "${key}=${value}" >> .env
+  fi
+}
+
+sanitize_env_structure() {
+  [[ -f .env ]] || touch .env
+
+  local tmp invalid_count line normalized changed=0
+  tmp="$(mktemp /tmp/omnifm-env-sanitize-XXXXXX)"
+  invalid_count=0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    normalized="$(strip_ansi "$line")"
+    if [[ "$normalized" =~ ^[[:space:]]*$ || "$normalized" =~ ^[[:space:]]*# ]]; then
+      echo "$normalized" >> "$tmp"
+      continue
+    fi
+    if [[ "$normalized" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      echo "$normalized" >> "$tmp"
+      continue
+    fi
+
+    echo "# INVALID_ENV_LINE: $normalized" >> "$tmp"
+    invalid_count=$((invalid_count + 1))
+    changed=1
+  done < .env
+
+  if (( changed == 1 )); then
+    mkdir -p .update-backups
+    cp .env ".update-backups/.env.invalid-lines.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+    mv "$tmp" .env
+    warn ".env enthielt ${invalid_count} ungueltige Zeile(n). Diese wurden auskommentiert."
+  else
+    rm -f "$tmp"
   fi
 }
 
@@ -278,6 +439,8 @@ restart_container() {
   fi
 }
 
+sanitize_env_structure
+
 # ============================================================
 # Header
 # ============================================================
@@ -329,30 +492,47 @@ fi
 MODE="${1:-}"
 
 if [[ -z "$MODE" ]]; then
-  echo -e "  ${BOLD}Was moechtest du tun?${NC}"
-  echo ""
-  echo -e "    ${GREEN}1${NC})  Update           - Code aktualisieren & Container rebuild"
-  echo -e "    ${CYAN}2${NC})  Bots verwalten    - Anzeigen, hinzufuegen, bearbeiten, entfernen"
-  echo -e "    ${YELLOW}3${NC})  Stripe einrichten - Zahlungs-API konfigurieren"
-  echo -e "    ${BOLD}4${NC})  Premium verwalten - Lizenzen aktivieren/entfernen"
-  echo -e "    ${DIM}5${NC})  E-Mail (SMTP)     - E-Mail-Versand konfigurieren"
-  echo -e "    ${DIM}6${NC})  Einstellungen     - Port, Domain und mehr"
-  echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"
-  echo -e "    ${DIM}8${NC})  Speicher cleanup  - Logs/Backups/Docker-Cache aufraeumen"
-  echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-8]${NC}: ")" MODE_CHOICE
-  case "${MODE_CHOICE:-}" in
-    1) MODE="--update" ;;
-    2) MODE="--bots" ;;
-    3) MODE="--stripe" ;;
-    4) MODE="--premium" ;;
-    5) MODE="--email" ;;
-    6) MODE="--settings" ;;
-    7) MODE="--status" ;;
-    8) MODE="--cleanup" ;;
-    *) MODE="--update" ;;
-  esac
+  while true; do
+    echo -e "  ${BOLD}Was moechtest du tun?${NC}"
+    echo ""
+    echo -e "    ${GREEN}1${NC})  Update           - Code aktualisieren & Container rebuild"
+    echo -e "    ${CYAN}2${NC})  Bots verwalten    - Anzeigen, hinzufuegen, bearbeiten, entfernen"
+    echo -e "    ${YELLOW}3${NC})  Stripe einrichten - Zahlungs-API konfigurieren"
+    echo -e "    ${BOLD}4${NC})  Premium verwalten - Lizenzen aktivieren/entfernen"
+    echo -e "    ${DIM}5${NC})  E-Mail (SMTP)     - E-Mail-Versand konfigurieren"
+    echo -e "    ${DIM}6${NC})  Einstellungen     - Port, Domain und mehr"
+    echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"
+    echo -e "    ${DIM}8${NC})  Speicher cleanup  - Logs/Backups/Docker-Cache aufraeumen"
+    echo -e "    ${DIM}q${NC})  Beenden"
+    echo ""
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-8/q]${NC}: ")" MODE_CHOICE
+    case "${MODE_CHOICE:-}" in
+      1) MODE="--update"; break ;;
+      2) MODE="--bots"; break ;;
+      3) MODE="--stripe"; break ;;
+      4) MODE="--premium"; break ;;
+      5) MODE="--email"; break ;;
+      6) MODE="--settings"; break ;;
+      7) MODE="--status"; break ;;
+      8) MODE="--cleanup"; break ;;
+      q|Q|exit|quit) info "Abbruch."; exit 0 ;;
+      *)
+        warn "Ungueltige Auswahl '${MODE_CHOICE}'. Bitte 1-8 oder q eingeben."
+        echo ""
+        ;;
+    esac
+  done
 fi
+
+case "$MODE" in
+  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--stripe|--premium|--email|--settings|--status|--cleanup)
+    ;;
+  *)
+    fail "Unbekannter Modus: ${MODE}"
+    echo -e "  ${DIM}Erlaubt: --update, --bots, --stripe, --premium, --email, --settings, --status, --cleanup${NC}"
+    exit 1
+    ;;
+esac
 
 # ============================================================
 # MODE: Status & Logs
@@ -640,12 +820,30 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_port=$(read_env "WEB_PORT" "8081")
   cur_iport=$(read_env "WEB_INTERNAL_PORT" "8080")
   cur_domain=$(read_env "WEB_DOMAIN" "nicht gesetzt")
+  cur_public_url=$(read_env "PUBLIC_WEB_URL" "")
+  cur_cors=$(read_env "CORS_ALLOWED_ORIGINS" "")
+  cur_returns=$(read_env "CHECKOUT_RETURN_ORIGINS" "")
   bot_count=$(count_bots)
   cur_stripe=$(read_env "STRIPE_SECRET_KEY")
 
   echo -e "  Web-Port (extern):     ${CYAN}${cur_port}${NC}"
   echo -e "  Web-Port (intern):     ${DIM}${cur_iport}${NC}"
   echo -e "  Domain:                ${CYAN}${cur_domain}${NC}"
+  if [[ -n "$cur_public_url" ]]; then
+    echo -e "  Public URL:            ${CYAN}${cur_public_url}${NC}"
+  else
+    echo -e "  Public URL:            ${RED}nicht gesetzt${NC}"
+  fi
+  if [[ -n "$cur_cors" ]]; then
+    echo -e "  CORS Origins:          ${DIM}${cur_cors}${NC}"
+  else
+    echo -e "  CORS Origins:          ${RED}nicht gesetzt${NC}"
+  fi
+  if [[ -n "$cur_returns" ]]; then
+    echo -e "  Checkout Origins:      ${DIM}${cur_returns}${NC}"
+  else
+    echo -e "  Checkout Origins:      ${RED}nicht gesetzt${NC}"
+  fi
   echo -e "  Bots konfiguriert:     ${CYAN}${bot_count}${NC}"
   if [[ -n "$cur_stripe" ]]; then
     echo -e "  Stripe:                ${GREEN}konfiguriert${NC}"
@@ -657,15 +855,20 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "  ${BOLD}Was aendern?${NC}"
   echo -e "    ${GREEN}1${NC}) Web-Port (extern)"
   echo -e "    ${CYAN}2${NC}) Domain"
-  echo -e "    ${DIM}3${NC}) Zurueck"
+  echo -e "    ${YELLOW}3${NC}) Public Web URL"
+  echo -e "    ${BOLD}4${NC}) Web-Origin/CORS automatisch reparieren (empfohlen)"
+  echo -e "    ${DIM}5${NC}) Zurueck"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-3]${NC}: ")" SET_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" SET_CHOICE
 
   case "${SET_CHOICE:-}" in
     1)
       new_port="$(prompt_default "Neuer externer Port" "$cur_port")"
       write_env_line "WEB_PORT" "$new_port"
       ok "Port geaendert: ${new_port}"
+      if prompt_yes_no "Web-Origin Einstellungen automatisch mit anpassen?" "j"; then
+        auto_fix_web_env
+      fi
       restart_container
       ;;
     2)
@@ -673,7 +876,32 @@ if [[ "$MODE" == "--settings" ]]; then
       if [[ -n "$new_domain" ]]; then
         write_env_line "WEB_DOMAIN" "$new_domain"
         ok "Domain gespeichert: ${new_domain}"
+        if prompt_yes_no "PUBLIC_WEB_URL und Origin-Listen automatisch aus Domain setzen?" "j"; then
+          write_env_line "PUBLIC_WEB_URL" "https://${new_domain}"
+          auto_fix_web_env
+        fi
+        restart_container
+      else
+        info "Keine Aenderung."
       fi
+      ;;
+    3)
+      new_public="$(prompt_nonempty "Public Web URL (z.B. https://omnibot.xyz)")"
+      normalized_public="$(extract_origin "$new_public" || true)"
+      if [[ -z "$normalized_public" ]]; then
+        fail "Ungueltige URL. Bitte mit http:// oder https:// eingeben."
+        exit 1
+      fi
+      write_env_line "PUBLIC_WEB_URL" "$normalized_public"
+      ok "PUBLIC_WEB_URL gespeichert: ${normalized_public}"
+      if prompt_yes_no "CORS/Checkout Origins automatisch synchronisieren?" "j"; then
+        auto_fix_web_env
+      fi
+      restart_container
+      ;;
+    4)
+      auto_fix_web_env
+      restart_container
       ;;
     *)
       exit 0
