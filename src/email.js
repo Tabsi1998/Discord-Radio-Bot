@@ -194,24 +194,25 @@ function buildPurchaseEmail(data) {
   }
 
   const benefitsTitle = isDe ? "Was dein Abo bringt" : "What your plan includes";
-  const nextStepsTitle = isDe ? "Naechste Schritte - Server zuweisen" : "Next steps - assign your server";
+  const activationCommand = `/license activate ${licenseKey || (isDe ? "<dein-key>" : "<your-key>")}`;
+  const nextStepsTitle = isDe ? "Naechste Schritte - Lizenz aktivieren" : "Next steps - activate your license";
   const nextStep1 = isDe
-    ? "Kopiere deine Discord <strong>Server-ID(s)</strong> (Rechtsklick auf Server &rarr; Server-ID kopieren)"
-    : "Copy your Discord <strong>server ID(s)</strong> (right-click server &rarr; copy server ID)";
+    ? "Lade einen OmniFM Bot auf deinen Ziel-Server ein (falls noch nicht geschehen)."
+    : "Invite an OmniFM bot to your target server (if not done yet).";
   const nextStep2 = isDe
-    ? "Sende uns die Server-ID(s) per <strong>E-Mail</strong> oder im <strong>Discord-Support</strong>"
-    : "Send your server ID(s) via <strong>email</strong> or through <strong>Discord support</strong>";
+    ? `Fuehre auf jedem Ziel-Server den Command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> aus.`
+    : `Run the command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> on each target server.`;
   const nextStep3 = isDe
-    ? `Wir aktivieren deine ${seatCount > 1 ? `${seatCount} Server` : "Server"} innerhalb weniger Stunden`
-    : `We activate your ${seatCount > 1 ? `${seatCount} servers` : "server"} within a few hours`;
+    ? `Aktiviere den Key auf bis zu ${seatCount} Server${seatCount > 1 ? "n" : ""} (${seatCount} Slot${seatCount > 1 ? "s" : ""}).`
+    : `Activate the key on up to ${seatCount} server${seatCount > 1 ? "s" : ""} (${seatCount} slot${seatCount > 1 ? "s" : ""}).`;
   const slotHint = isDe
-    ? `Du hast ${seatCount} Server-Slot${seatCount > 1 ? "s" : ""} - sende uns bis zu ${seatCount} Server-ID${seatCount > 1 ? "s" : ""}.`
-    : `You have ${seatCount} server slot${seatCount > 1 ? "s" : ""} - send us up to ${seatCount} server ID${seatCount > 1 ? "s" : ""}.`;
+    ? "Falls die Aktivierung nicht funktioniert, melde dich bitte im Discord-Support oder per E-Mail an contact@omnifm.xyz."
+    : "If activation does not work, contact Discord support or email contact@omnifm.xyz.";
   const supportLabel = isDe ? "Discord Support" : "Discord support";
   const websiteLabel = isDe ? "OmniFM Website" : "OmniFM website";
   const footerNote = isDe
-    ? `Server aendern? Schreib uns jederzeit per E-Mail oder Discord${tier === "ultimate" ? " (Priority-Support fuer Ultimate)" : ""}.`
-    : `Need to switch servers? Contact us any time via email or Discord${tier === "ultimate" ? " (priority support for Ultimate)" : ""}.`;
+    ? `Server wechseln oder Aktivierungsproblem? Schreib uns jederzeit per E-Mail oder Discord${tier === "ultimate" ? " (Priority-Support fuer Ultimate)" : ""}.`
+    : `Need to switch servers or have activation issues? Contact us any time via email or Discord${tier === "ultimate" ? " (priority support for Ultimate)" : ""}.`;
   const inviteTitle = isDe ? "Direkte Bot-Invite-Links" : "Direct bot invite links";
   const inviteHint = isDe
     ? "Diese Links funktionieren sofort fuer dein freigeschaltetes Paket."

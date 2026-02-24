@@ -348,17 +348,14 @@ function applyStaticEnglishTranslations() {
   var checkButton = document.querySelector('#premium button[onclick=\"checkPremiumStatus()\"]');
   if (checkButton) checkButton.textContent = 'Check';
 
-  var supportBannerLink = Array.from(document.querySelectorAll('#premium a[href=\"https://discord.gg/UeRkfGS43R\"]'))
-    .find(function(link) { return String(link.textContent || '').indexOf('Melde dich') !== -1; });
-  if (supportBannerLink) {
-    supportBannerLink.textContent = 'Join our Discord';
-    var supportBannerSpan = supportBannerLink.parentElement;
-    if (supportBannerSpan && supportBannerSpan.tagName === 'SPAN') {
-      var supportLeadText = supportBannerSpan.childNodes[0];
-      if (supportLeadText && supportLeadText.nodeType === 3) {
-        supportLeadText.nodeValue = 'Questions about your plan or issues? ';
-      }
-    }
+  var supportBannerSpan = document.querySelector('#premium span a[href=\"https://discord.gg/UeRkfGS43R\"]') ?
+    document.querySelector('#premium span a[href=\"https://discord.gg/UeRkfGS43R\"]').parentElement :
+    null;
+  if (supportBannerSpan && supportBannerSpan.tagName === 'SPAN') {
+    supportBannerSpan.innerHTML = 'Questions about your plan or issues? '
+      + '<a href=\"https://discord.gg/UeRkfGS43R\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:#5865F2;font-weight:700;text-decoration:none\">Join our Discord</a>'
+      + ' or '
+      + '<a href=\"mailto:contact@omnifm.xyz\" style=\"color:#39FF14;font-weight:700;text-decoration:none\">email us</a>';
   }
 
   var premiumModal = document.getElementById('premiumModal');
