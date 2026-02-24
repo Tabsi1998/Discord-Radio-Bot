@@ -6,6 +6,7 @@
 
 - 3-Tier System (Free / Pro / Ultimate)
 - Seat-basierte Server-Lizenzierung (1/2/3/5 Server)
+- Auto-Verlaengerung bestehender Lizenz pro E-Mail (kein neuer Key bei Renewal/Upgrade)
 - Tiered Station Access (20 Free + 100 Pro Stationen)
 - Plan-basierte Audio-Qualitaet (64k/128k/320k)
 - Priority Reconnect (5s/1.5s/0.4s)

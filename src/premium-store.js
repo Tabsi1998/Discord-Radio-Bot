@@ -14,6 +14,8 @@ const premiumBackupFile = premiumFile + ".bak";
 
 const MAX_PROCESSED_ENTRIES = 5000;
 const TRIAL_RESERVATION_STALE_MS = 15 * 60 * 1000;
+const PLAN_RANK = { free: 0, pro: 1, ultimate: 2 };
+const VALID_SEATS = [1, 2, 3, 5];
 
 // --- Internal helpers ---
 
@@ -124,6 +126,19 @@ function generateLicenseId() {
   return `lic_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeContactEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function normalizeSeatCount(rawSeats) {
+  const seats = Number(rawSeats);
+  return VALID_SEATS.includes(seats) ? seats : 1;
+}
+
+function planRank(plan) {
+  return PLAN_RANK[String(plan || "free").toLowerCase()] ?? 0;
+}
+
 export function createLicense({
   plan,
   seats = 1,
@@ -135,7 +150,7 @@ export function createLicense({
   preferredLanguage = getDefaultLanguage(),
 }) {
   if (!PLANS[plan] || plan === "free") throw new Error("Plan must be 'pro' or 'ultimate'.");
-  if (![1, 2, 3, 5].includes(seats)) throw new Error("Seats must be 1, 2, 3, or 5.");
+  if (!VALID_SEATS.includes(seats)) throw new Error("Seats must be 1, 2, 3, or 5.");
 
   const data = load();
   const id = generateLicenseId();
@@ -156,7 +171,7 @@ export function createLicense({
     durationMonths: months,
     activatedBy,
     note,
-    contactEmail,
+    contactEmail: normalizeContactEmail(contactEmail),
     preferredLanguage: normalizeLanguage(preferredLanguage, getDefaultLanguage()),
   };
   save(data);
@@ -278,6 +293,141 @@ export function extendLicense(licenseId, months) {
   lic.active = true;
   save(data);
   return lic;
+}
+
+export function listLicensesByContactEmail(email) {
+  const normalizedEmail = normalizeContactEmail(email);
+  if (!normalizedEmail) return [];
+
+  const data = load();
+  return Object.values(data.licenses)
+    .filter((lic) => normalizeContactEmail(lic.contactEmail) === normalizedEmail)
+    .map((lic) => ({
+      ...lic,
+      expired: isExpired(lic),
+      remainingDays: remainingDays(lic),
+      seatsUsed: (lic.linkedServerIds || []).length,
+      seatsAvailable: Number(lic.seats || 0) - (lic.linkedServerIds || []).length,
+    }))
+    .sort((a, b) => {
+      const aExpiry = Date.parse(a.expiresAt || "");
+      const bExpiry = Date.parse(b.expiresAt || "");
+      const aUpdated = Date.parse(a.updatedAt || a.createdAt || "");
+      const bUpdated = Date.parse(b.updatedAt || b.createdAt || "");
+      return (Number.isFinite(bExpiry) ? bExpiry : 0) - (Number.isFinite(aExpiry) ? aExpiry : 0)
+        || (Number.isFinite(bUpdated) ? bUpdated : 0) - (Number.isFinite(aUpdated) ? aUpdated : 0);
+    });
+}
+
+export function createOrExtendLicenseForEmail({
+  plan,
+  seats = 1,
+  billingPeriod = "monthly",
+  months = 1,
+  activatedBy = "admin",
+  note = "",
+  contactEmail = "",
+  preferredLanguage = getDefaultLanguage(),
+}) {
+  if (!PLANS[plan] || plan === "free") throw new Error("Plan must be 'pro' or 'ultimate'.");
+
+  const normalizedEmail = normalizeContactEmail(contactEmail);
+  if (!normalizedEmail) throw new Error("contactEmail is required.");
+
+  const normalizedSeats = normalizeSeatCount(seats);
+  const normalizedMonths = Math.max(1, Number.parseInt(String(months), 10) || 1);
+  const targetPlanRank = planRank(plan);
+  const data = load();
+
+  let candidate = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (const lic of Object.values(data.licenses)) {
+    if (normalizeContactEmail(lic.contactEmail) !== normalizedEmail) continue;
+
+    const existingPlanRank = planRank(lic.plan);
+    if (existingPlanRank > targetPlanRank) {
+      // Avoid silently downgrading or extending a higher-tier license with a lower-tier purchase.
+      continue;
+    }
+
+    let score = 0;
+    if (String(lic.plan || "") === plan) score += 1_000;
+    if (!isExpired(lic)) score += 500;
+    score += Math.min((lic.linkedServerIds || []).length, 50);
+
+    const expiryMs = Date.parse(lic.expiresAt || "");
+    if (Number.isFinite(expiryMs)) score += expiryMs / 1e12;
+
+    const updatedMs = Date.parse(lic.updatedAt || lic.createdAt || "");
+    if (Number.isFinite(updatedMs)) score += updatedMs / 1e13;
+
+    if (!candidate || score > bestScore) {
+      candidate = lic;
+      bestScore = score;
+    }
+  }
+
+  if (!candidate) {
+    const created = createLicense({
+      plan,
+      seats: normalizedSeats,
+      billingPeriod,
+      months: normalizedMonths,
+      activatedBy,
+      note,
+      contactEmail: normalizedEmail,
+      preferredLanguage,
+    });
+    const withMeta = getLicenseById(created.id) || created;
+    return {
+      license: withMeta,
+      created: true,
+      extended: false,
+      upgraded: false,
+      previousPlan: null,
+      previousExpiresAt: null,
+    };
+  }
+
+  const previousPlan = String(candidate.plan || "free");
+  const previousExpiresAt = candidate.expiresAt || null;
+  const wasExpired = isExpired(candidate);
+  const linkedCount = (candidate.linkedServerIds || []).length;
+
+  const now = new Date();
+  const currentExpiry = candidate.expiresAt ? new Date(candidate.expiresAt) : now;
+  const base = currentExpiry > now ? currentExpiry : now;
+  const newExpiry = new Date(base);
+  newExpiry.setMonth(newExpiry.getMonth() + normalizedMonths);
+
+  candidate.plan = planRank(plan) >= planRank(candidate.plan) ? plan : candidate.plan;
+  candidate.seats = Math.max(normalizedSeats, linkedCount);
+  candidate.billingPeriod = billingPeriod;
+  candidate.expiresAt = newExpiry.toISOString();
+  candidate.durationMonths = Math.max(1, Number(candidate.durationMonths || 1)) + normalizedMonths;
+  candidate.active = true;
+  candidate.updatedAt = now.toISOString();
+  candidate.activatedBy = activatedBy || candidate.activatedBy || "admin";
+  candidate.contactEmail = normalizedEmail;
+  candidate.preferredLanguage = normalizeLanguage(preferredLanguage, getDefaultLanguage());
+
+  const incomingNote = String(note || "").trim();
+  if (incomingNote) {
+    const existingNote = String(candidate.note || "").trim();
+    candidate.note = existingNote ? `${existingNote} | ${incomingNote}` : incomingNote;
+  }
+
+  save(data);
+  const withMeta = getLicenseById(candidate.id) || candidate;
+  return {
+    license: withMeta,
+    created: false,
+    extended: true,
+    upgraded: planRank(previousPlan) < planRank(withMeta.plan),
+    previousPlan,
+    previousExpiresAt,
+    wasExpired,
+  };
 }
 
 // --- Dedup helpers ---

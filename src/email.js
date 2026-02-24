@@ -126,6 +126,8 @@ function buildPurchaseEmail(data) {
     pricePaid,
     currency,
     language,
+    isRenewal = false,
+    isUpgrade = false,
   } = data;
 
   const lang = resolveLanguage(language);
@@ -141,9 +143,17 @@ function buildPurchaseEmail(data) {
   const proBots = Array.isArray(inviteOverview?.proBots) ? inviteOverview.proBots : [];
   const ultimateBots = Array.isArray(inviteOverview?.ultimateBots) ? inviteOverview.ultimateBots : [];
 
-  const heading = isDe ? `OmniFM ${tierName} - Dein Lizenz-Key` : `OmniFM ${tierName} - Your license key`;
-  const keyTitle = isDe ? "Dein Lizenz-Key" : "Your license key";
-  const keyHint = isDe ? "Bewahre diesen Key sicher auf!" : "Keep this key in a safe place.";
+  const heading = isUpgrade
+    ? (isDe ? `OmniFM ${tierName} - Upgrade bestaetigt` : `OmniFM ${tierName} - Upgrade confirmed`)
+    : isRenewal
+      ? (isDe ? `OmniFM ${tierName} - Verlaengerung bestaetigt` : `OmniFM ${tierName} - Renewal confirmed`)
+      : (isDe ? `OmniFM ${tierName} - Dein Lizenz-Key` : `OmniFM ${tierName} - Your license key`);
+  const keyTitle = isRenewal || isUpgrade
+    ? (isDe ? "Dein bestehender Lizenz-Key" : "Your existing license key")
+    : (isDe ? "Dein Lizenz-Key" : "Your license key");
+  const keyHint = isRenewal || isUpgrade
+    ? (isDe ? "Dieser Key bleibt unveraendert und wurde verlaengert." : "This key stays unchanged and was extended.")
+    : (isDe ? "Bewahre diesen Key sicher auf!" : "Keep this key in a safe place.");
   const planLabel = isDe ? "Plan" : "Plan";
   const seatsLabel = isDe ? "Server-Slots" : "Server seats";
   const durationLabel = isDe ? "Laufzeit" : "Duration";
@@ -199,9 +209,13 @@ function buildPurchaseEmail(data) {
   const nextStep1 = isDe
     ? "Lade einen OmniFM Bot auf deinen Ziel-Server ein (falls noch nicht geschehen)."
     : "Invite an OmniFM bot to your target server (if not done yet).";
-  const nextStep2 = isDe
-    ? `Fuehre auf jedem Ziel-Server den Command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> aus.`
-    : `Run the command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> on each target server.`;
+  const nextStep2 = isRenewal || isUpgrade
+    ? (isDe
+      ? "Wenn dein Lizenz-Key bereits auf den Ziel-Servern aktiv ist, musst du nichts weiter tun."
+      : "If your license key is already active on your target servers, no further action is required.")
+    : (isDe
+      ? `Fuehre auf jedem Ziel-Server den Command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> aus.`
+      : `Run the command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> on each target server.`);
   const nextStep3 = isDe
     ? `Aktiviere den Key auf bis zu ${seatCount} Server${seatCount > 1 ? "n" : ""} (${seatCount} Slot${seatCount > 1 ? "s" : ""}).`
     : `Activate the key on up to ${seatCount} server${seatCount > 1 ? "s" : ""} (${seatCount} slot${seatCount > 1 ? "s" : ""}).`;
@@ -209,6 +223,7 @@ function buildPurchaseEmail(data) {
     ? "Falls die Aktivierung nicht funktioniert, melde dich bitte im Discord-Support oder per E-Mail an contact@omnifm.xyz."
     : "If activation does not work, contact Discord support or email contact@omnifm.xyz.";
   const supportLabel = isDe ? "Discord Support" : "Discord support";
+  const emailSupportLabel = isDe ? "E-Mail Support" : "Email support";
   const websiteLabel = isDe ? "OmniFM Website" : "OmniFM website";
   const footerNote = isDe
     ? `Server wechseln oder Aktivierungsproblem? Schreib uns jederzeit per E-Mail oder Discord${tier === "ultimate" ? " (Priority-Support fuer Ultimate)" : ""}.`
@@ -283,6 +298,7 @@ function buildPurchaseEmail(data) {
 
         <div style="margin:16px 0;display:flex;gap:10px">
           <a href="https://discord.gg/UeRkfGS43R" style="flex:1;text-align:center;color:#fff;text-decoration:none;background:${tierColor}22;border:1px solid ${tierColor}33;padding:12px;border-radius:10px;font-weight:600;font-size:13px">${supportLabel}</a>
+          <a href="mailto:contact@omnifm.xyz" style="flex:1;text-align:center;color:#fff;text-decoration:none;background:rgba(57,255,20,0.12);border:1px solid rgba(57,255,20,0.35);padding:12px;border-radius:10px;font-weight:600;font-size:13px">${emailSupportLabel}</a>
           <a href="${freeWebsiteUrl}" style="flex:1;text-align:center;color:#fff;text-decoration:none;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);padding:12px;border-radius:10px;font-weight:600;font-size:13px">${websiteLabel}</a>
         </div>
 
@@ -335,10 +351,12 @@ function buildInvoiceEmail(data) {
     tier,
     months,
     isUpgrade,
+    isRenewal,
     amountPaid,
     currency,
     issuedAt,
     expiresAt,
+    licenseKey,
     customerEmail,
     customerName,
     language,
@@ -352,15 +370,18 @@ function buildInvoiceEmail(data) {
   const amount = formatMoney(amountPaid || 0, currency || "eur", lang);
   const lineText = isUpgrade
     ? (isDe ? `Upgrade auf ${tierName} (${tier})` : `Upgrade to ${tierName} (${tier})`)
-    : `${tierName} (${tier}) - ${months} ${isDe ? `Monat${months > 1 ? "e" : ""}` : `month${months > 1 ? "s" : ""}`}`;
+    : isRenewal
+      ? (isDe ? `Verlaengerung ${tierName} (${tier}) - ${months} Monat${months > 1 ? "e" : ""}` : `Renewal ${tierName} (${tier}) - ${months} month${months > 1 ? "s" : ""}`)
+      : `${tierName} (${tier}) - ${months} ${isDe ? `Monat${months > 1 ? "e" : ""}` : `month${months > 1 ? "s" : ""}`}`;
 
-  const title = isDe ? "Kaufbeleg" : "Invoice";
+  const title = isDe ? "Kaufbeleg / Rechnung" : "Invoice / Receipt";
   const subTitle = isDe ? "OmniFM Premium" : "OmniFM Premium";
   const invoiceLabel = isDe ? "Beleg-Nr" : "Invoice no.";
   const dateLabel = isDe ? "Datum" : "Date";
   const customerLabel = isDe ? "Kunde" : "Customer";
   const emailLabel = isDe ? "E-Mail" : "Email";
   const serverLabel = isDe ? "Server ID" : "Server ID";
+  const licenseLabel = isDe ? "Lizenz-Key" : "License key";
   const validUntilLabel = isDe ? "Gueltig bis" : "Valid until";
   const sessionLabel = isDe ? "Session" : "Session";
   const serviceLabel = isDe ? "Leistung" : "Service";
@@ -386,6 +407,7 @@ function buildInvoiceEmail(data) {
           <tr><td style="color:#888;padding:7px 0">${customerLabel}</td><td style="text-align:right;padding:7px 0">${customerName || "-"}</td></tr>
           <tr><td style="color:#888;padding:7px 0">${emailLabel}</td><td style="text-align:right;padding:7px 0">${customerEmail || "-"}</td></tr>
           <tr><td style="color:#888;padding:7px 0">${serverLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${serverId}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">${licenseLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${licenseKey || "-"}</td></tr>
           <tr><td style="color:#888;padding:7px 0">${validUntilLabel}</td><td style="text-align:right;padding:7px 0">${expDate}</td></tr>
           <tr><td style="color:#888;padding:7px 0">${sessionLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${sessionId || "-"}</td></tr>
         </table>
@@ -399,6 +421,9 @@ function buildInvoiceEmail(data) {
         </div>
         <div style="margin-top:14px;font-size:12px;color:#A1A1AA">
           ${hint}
+        </div>
+        <div style="margin-top:6px;font-size:12px;color:#A1A1AA">
+          ${isDe ? "Support: contact@omnifm.xyz oder Discord." : "Support: contact@omnifm.xyz or Discord."}
         </div>
       </div>
     </div>`;

@@ -35,6 +35,7 @@ import {
   createLicense, linkServerToLicense, unlinkServerFromLicense, getLicenseById,
   isSessionProcessed, markSessionProcessed, isEventProcessed, markEventProcessed,
   patchLicenseForServer, reserveTrialClaim, finalizeTrialClaim, releaseTrialClaim,
+  createOrExtendLicenseForEmail, listLicensesByContactEmail,
 } from "./premium-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
 import { buildCommandBuilders } from "./commands.js";
@@ -3359,8 +3360,9 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
   }
 
   let license;
+  let licenseChange;
   try {
-    license = createLicense({
+    licenseChange = createOrExtendLicenseForEmail({
       plan: cleanTier,
       seats: cleanSeats,
       billingPeriod: durationMonths >= 12 ? "yearly" : "monthly",
@@ -3370,13 +3372,19 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       contactEmail: customerEmail,
       preferredLanguage: customerLanguage,
     });
+    license = licenseChange.license;
   } catch (err) {
     return { success: false, status: 400, message: err.message || String(err) };
   }
 
+  const effectiveTier = String(license?.plan || cleanTier);
+  const effectiveSeats = normalizeSeats(license?.seats || cleanSeats);
+  const isUpgrade = Boolean(licenseChange?.upgraded);
+  const isRenewal = Boolean(licenseChange?.extended && !licenseChange?.upgraded);
+
   markSessionProcessed(sessionId, {
     email: customerEmail,
-    tier: cleanTier,
+    tier: effectiveTier,
     licenseId: license.id,
     source,
     expiresAt: license.expiresAt,
@@ -3392,38 +3400,52 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
   };
 
   if (emailDelivery.smtpConfigured && customerEmail) {
-    const tierConfig = TIERS[cleanTier];
-    const inviteOverview = buildInviteOverviewForTier(runtimes, cleanTier);
+    const tierConfig = TIERS[effectiveTier] || TIERS[cleanTier];
+    const inviteOverview = buildInviteOverviewForTier(runtimes, effectiveTier);
     const amountPaid = Number(session.amount_total || 0);
 
     const purchaseHtml = buildPurchaseEmail({
-      tier: cleanTier,
+      tier: effectiveTier,
       tierName: tierConfig.name,
       months: durationMonths,
       licenseKey: license.id,
-      seats: cleanSeats,
+      seats: effectiveSeats,
       email: customerEmail,
       expiresAt: license.expiresAt,
       inviteOverview,
       dashboardUrl: resolvePublicWebsiteUrl(),
-      isUpgrade: false,
+      isUpgrade,
+      isRenewal,
       pricePaid: amountPaid,
       currency: session.currency || "eur",
       language: customerLanguage,
     });
-    const purchaseSubject = customerLanguage === "de"
-      ? `OmniFM ${tierConfig.name} - Dein Lizenz-Key`
-      : `OmniFM ${tierConfig.name} - Your license key`;
+    let purchaseSubject;
+    if (isUpgrade) {
+      purchaseSubject = customerLanguage === "de"
+        ? `OmniFM ${tierConfig.name} - Upgrade bestaetigt`
+        : `OmniFM ${tierConfig.name} - Upgrade confirmed`;
+    } else if (isRenewal) {
+      purchaseSubject = customerLanguage === "de"
+        ? `OmniFM ${tierConfig.name} - Verlaengerung bestaetigt`
+        : `OmniFM ${tierConfig.name} - Renewal confirmed`;
+    } else {
+      purchaseSubject = customerLanguage === "de"
+        ? `OmniFM ${tierConfig.name} - Dein Lizenz-Key`
+        : `OmniFM ${tierConfig.name} - Your license key`;
+    }
 
-    const invoiceId = `OF-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sessionId.slice(-8).toUpperCase()}`;
+    const invoiceId = `OFM-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sessionId.slice(-8).toUpperCase()}`;
     const invoiceHtml = buildInvoiceEmail({
       invoiceId,
       sessionId,
       customerEmail,
-      tier: cleanTier,
+      tier: effectiveTier,
       tierName: tierConfig.name,
       months: durationMonths,
-      seats: cleanSeats,
+      seats: effectiveSeats,
+      isUpgrade,
+      isRenewal,
       amountPaid,
       currency: session.currency || "eur",
       licenseKey: license.id,
@@ -3459,7 +3481,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     const adminEmail = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
     if (adminEmail) {
       const adminHtml = buildAdminNotification({
-        tier: cleanTier,
+        tier: effectiveTier,
         tierName: tierConfig.name,
         months: durationMonths,
         serverId: "-",
@@ -3490,17 +3512,29 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
 
   log(
     "INFO",
-    `[License] Erstellt: ${license.id} fuer ${customerEmail} (${cleanTier}, ${cleanSeats} Seats, ${durationMonths}mo) via ${source} | email purchase=${emailDelivery.purchaseSent} invoice=${emailDelivery.invoiceSent} admin=${emailDelivery.adminSent}`
+    `[License] ${licenseChange?.created ? "Erstellt" : isUpgrade ? "Upgrade+Verlaengerung" : "Verlaengert"}: ${license.id} fuer ${customerEmail} (${effectiveTier}, ${effectiveSeats} Seats, +${durationMonths}mo) via ${source} | email purchase=${emailDelivery.purchaseSent} invoice=${emailDelivery.invoiceSent} admin=${emailDelivery.adminSent}`
   );
 
-  let message = customerLanguage === "de"
-    ? `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
-    : `${TIERS[cleanTier].name} activated! License key: ${license.id} - Check your email (${customerEmail}).`;
+  const tierNameForMessage = TIERS[effectiveTier]?.name || TIERS[cleanTier]?.name || "Premium";
+  let message;
+  if (isUpgrade) {
+    message = customerLanguage === "de"
+      ? `Upgrade auf ${tierNameForMessage} abgeschlossen! Dein Lizenz-Key bleibt: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+      : `Upgrade to ${tierNameForMessage} completed! Your license key remains: ${license.id} - Check your email (${customerEmail}).`;
+  } else if (isRenewal) {
+    message = customerLanguage === "de"
+      ? `${tierNameForMessage} verlaengert! Dein bestehender Lizenz-Key bleibt: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+      : `${tierNameForMessage} renewed! Your existing license key remains: ${license.id} - Check your email (${customerEmail}).`;
+  } else {
+    message = customerLanguage === "de"
+      ? `${tierNameForMessage} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+      : `${tierNameForMessage} activated! License key: ${license.id} - Check your email (${customerEmail}).`;
+  }
 
   if (!emailDelivery.smtpConfigured) {
-    message = customerLanguage === "de"
-      ? `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id}. Hinweis: SMTP ist aktuell nicht konfiguriert, daher wurde keine E-Mail versendet.`
-      : `${TIERS[cleanTier].name} activated! License key: ${license.id}. Note: SMTP is not configured, so no email could be sent.`;
+    message += customerLanguage === "de"
+      ? " Hinweis: SMTP ist aktuell nicht konfiguriert, daher wurde keine E-Mail versendet."
+      : " Note: SMTP is not configured, so no email could be sent.";
   } else if (!emailDelivery.purchaseSent || !emailDelivery.invoiceSent) {
     const missingPartsDe = [
       !emailDelivery.purchaseSent ? "Lizenz-Mail" : "",
@@ -3510,21 +3544,24 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       !emailDelivery.purchaseSent ? "license email" : "",
       !emailDelivery.invoiceSent ? "invoice" : "",
     ].filter(Boolean).join(" + ");
-    message = customerLanguage === "de"
-      ? `${TIERS[cleanTier].name} aktiviert! Lizenz-Key: ${license.id}. Achtung: ${missingPartsDe} konnte nicht zugestellt werden. Bitte Support kontaktieren.`
-      : `${TIERS[cleanTier].name} activated! License key: ${license.id}. Warning: ${missingPartsEn} could not be delivered. Please contact support.`;
+    message += customerLanguage === "de"
+      ? ` Achtung: ${missingPartsDe} konnte nicht zugestellt werden. Bitte Support kontaktieren.`
+      : ` Warning: ${missingPartsEn} could not be delivered. Please contact support.`;
   }
 
   return {
     success: true,
     email: customerEmail,
-    tier: cleanTier,
+    tier: effectiveTier,
     licenseKey: license.id,
     expiresAt: license.expiresAt,
-    seats: cleanSeats,
+    seats: effectiveSeats,
     language: customerLanguage,
     emailStatus: emailDelivery,
     message,
+    created: Boolean(licenseChange?.created),
+    renewed: isRenewal,
+    upgraded: isUpgrade,
   };
 }
 
@@ -3551,6 +3588,18 @@ async function activateProTrial({ email, language, runtimes, source = "trial" })
       message: t(
         "Bitte eine gueltige E-Mail-Adresse eingeben.",
         "Please enter a valid email address."
+      ),
+    };
+  }
+
+  const existingForEmail = listLicensesByContactEmail(customerEmail);
+  if (existingForEmail.length > 0) {
+    return {
+      success: false,
+      status: 409,
+      message: t(
+        "Fuer diese E-Mail existiert bereits eine Lizenz. Der Testmonat ist nur einmalig fuer Neukunden verfuegbar.",
+        "A license already exists for this email. The trial month is only available once for new customers."
       ),
     };
   }
