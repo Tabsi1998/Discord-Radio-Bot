@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { spawn } from "node:child_process";
@@ -20,20 +21,20 @@ import {
 } from "@discordjs/voice";
 import dotenv from "dotenv";
 import { BRAND, PLANS } from "./config/plans.js";
-import { setLicenseProvider, getServerPlan, getServerPlanConfig, requirePlan, requireFeature, getBitrateFlag, getReconnectDelay, getMaxBots, isBotAllowed, planAtLeast } from "./core/entitlements.js";
-import { premiumStationEmbed, hqAudioEmbed, customStationEmbed, botLimitEmbed } from "./ui/upgradeEmbeds.js";
+import { setLicenseProvider, getServerPlan, getServerPlanConfig, requireFeature, planAtLeast } from "./core/entitlements.js";
+import { premiumStationEmbed, customStationEmbed, botLimitEmbed } from "./ui/upgradeEmbeds.js";
 import {
   isConfigured as isEmailConfigured,
-  sendMail, getSmtpConfig,
-  buildPurchaseEmail, buildAdminNotification, buildInvoiceEmail,
+  sendMail,
+  buildPurchaseEmail, buildInvoiceEmail,
   buildExpiryWarningEmail, buildExpiryEmail
 } from "./email.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
 import {
   getServerLicense, listLicenses as listRawLicenses,
-  createLicense, linkServerToLicense, unlinkServerFromLicense, getLicenseById, extendLicense,
+  createLicense, linkServerToLicense, unlinkServerFromLicense, getLicenseById,
   isSessionProcessed, markSessionProcessed, isEventProcessed, markEventProcessed,
-  addLicenseForServer, patchLicenseForServer, upgradeLicenseForServer,
+  patchLicenseForServer,
 } from "./premium-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "./bot-state.js";
 import { buildCommandBuilders } from "./commands.js";
@@ -97,16 +98,8 @@ function getLicense(serverId) {
   return getServerLicense(serverId);
 }
 
-function addLicense(serverId, tier, months, activatedBy, note) {
-  return addLicenseForServer(serverId, tier, months, activatedBy, note);
-}
-
 function patchLicense(serverId, patch) {
   return patchLicenseForServer(serverId, patch);
-}
-
-function upgradeLicense(serverId, newTier) {
-  return upgradeLicenseForServer(serverId, newTier);
 }
 
 function calculatePrice(tier, months, seats = 1) {
@@ -320,6 +313,21 @@ function clipText(value, max = 100) {
   return text.length > max ? `${text.slice(0, Math.max(0, max - 1))}...` : text;
 }
 
+function sanitizeUrlForLog(rawUrl) {
+  const text = String(rawUrl || "").trim();
+  if (!text) return "-";
+  try {
+    const parsed = new URL(text);
+    if (parsed.username) parsed.username = "***";
+    if (parsed.password) parsed.password = "***";
+    if (parsed.search) parsed.search = "?...";
+    if (parsed.hash) parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return clipText(text, 180);
+  }
+}
+
 function waitMs(ms) {
   const delay = Math.max(0, Number(ms) || 0);
   return new Promise((resolve) => setTimeout(resolve, delay));
@@ -368,39 +376,28 @@ function splitTextForDiscord(content, maxLength = 1900) {
   return chunks.length ? chunks : [""];
 }
 
-function formatStationPage(stations, pageInput, perPage = 10) {
-  const entries = Object.entries(stations.stations);
-  if (entries.length === 0) {
-    return { page: 1, totalPages: 1, content: "Keine Stationen konfiguriert." };
-  }
-
-  const totalPages = Math.max(1, Math.ceil(entries.length / perPage));
-  let page = Number(pageInput) || 1;
-  if (page < 1) page = 1;
-  if (page > totalPages) page = totalPages;
-
-  const start = (page - 1) * perPage;
-  const slice = entries.slice(start, start + perPage);
-  const lines = slice.map(([key, value]) => `- ${value.name} (key: ${key})`);
-
-  return {
-    page,
-    totalPages,
-    content: `Seite ${page}/${totalPages}\n${lines.join("\n")}`
-  };
-}
-
 const TIER_RANK = { free: 0, pro: 1, ultimate: 2 };
+const TRUST_PROXY_HEADERS = String(process.env.TRUST_PROXY_HEADERS || "0") === "1";
 
 function getStripeSecretKey() {
   return String(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY || "").trim();
 }
 
+function sanitizeHostHeader(rawHost) {
+  const host = String(rawHost || "").trim();
+  if (!host) return "";
+  if (/[\s/\\]/.test(host)) return "";
+  return host;
+}
+
 function getRequestOrigin(req) {
-  const host = String(req.headers.host || "").trim();
+  const host = sanitizeHostHeader(req.headers.host);
   if (!host) return null;
-  const protoHeader = String(req.headers["x-forwarded-proto"] || "").trim().toLowerCase();
-  const proto = protoHeader === "https" ? "https" : "http";
+  const forwardedProto = TRUST_PROXY_HEADERS
+    ? String(req.headers["x-forwarded-proto"] || "").trim().toLowerCase().split(",")[0].trim()
+    : "";
+  const socketProto = req.socket?.encrypted ? "https" : "http";
+  const proto = forwardedProto === "https" || forwardedProto === "http" ? forwardedProto : socketProto;
   return `${proto}://${host}`;
 }
 
@@ -505,17 +502,29 @@ function getAdminApiToken() {
   return String(process.env.API_ADMIN_TOKEN || process.env.ADMIN_API_TOKEN || "").trim();
 }
 
+function safeTokenEquals(rawLeft, rawRight) {
+  const left = Buffer.from(String(rawLeft || ""), "utf8");
+  const right = Buffer.from(String(rawRight || ""), "utf8");
+  if (left.length === 0 || right.length === 0) return false;
+  if (left.length !== right.length) return false;
+  try {
+    return timingSafeEqual(left, right);
+  } catch {
+    return false;
+  }
+}
+
 function isAdminApiRequest(req) {
   const configuredToken = getAdminApiToken();
   if (!configuredToken) return false;
 
   const headerToken = String(req.headers["x-admin-token"] || "").trim();
-  if (headerToken && headerToken === configuredToken) return true;
+  if (headerToken && safeTokenEquals(headerToken, configuredToken)) return true;
 
   const auth = String(req.headers.authorization || "").trim();
   if (/^Bearer\s+/i.test(auth)) {
     const bearer = auth.replace(/^Bearer\s+/i, "").trim();
-    if (bearer && bearer === configuredToken) return true;
+    if (bearer && safeTokenEquals(bearer, configuredToken)) return true;
   }
 
   return false;
@@ -693,7 +702,14 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
     }
 
     log("INFO", `[${botName}] ffmpeg profile=${profile.isUltra ? "ultra-stable" : "stable"} bitrate=${profile.requestedKbps}k queue=${profile.threadQueueSize} probe=${profile.probeSize} analyzeUs=${profile.analyzeDuration}`);
-    log("INFO", `[${botName}] ffmpeg ${args.join(" ")}`);
+    const loggedArgs = args.map((value, index) => {
+      const raw = String(value || "");
+      if ((index > 0 && args[index - 1] === "-i") || /^https?:\/\//i.test(raw)) {
+        return sanitizeUrlForLog(raw);
+      }
+      return raw;
+    });
+    log("INFO", `[${botName}] ffmpeg ${loggedArgs.join(" ")}`);
     const ffmpeg = spawn("ffmpeg", args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, AV_LOG_FORCE_NOCOLOR: "1" }
@@ -2793,12 +2809,29 @@ const MIME_TYPES = {
   ".ttf": "font/ttf",
 };
 
+function getCommonSecurityHeaders() {
+  return {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+  };
+}
+
 function sendJson(res, status, payload) {
   res.writeHead(status, {
+    ...getCommonSecurityHeaders(),
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(payload));
+}
+
+function methodNotAllowed(res, allowedMethods = ["GET"]) {
+  const methods = Array.isArray(allowedMethods) && allowedMethods.length
+    ? allowedMethods
+    : ["GET"];
+  res.setHeader("Allow", methods.join(", "));
+  sendJson(res, 405, { error: `Method not allowed. Use: ${methods.join(", ")}` });
 }
 
 function sendStaticFile(res, filePath) {
@@ -2835,7 +2868,11 @@ function sendStaticFile(res, filePath) {
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
   const cacheControl = ext === ".html" ? "no-cache" : "public, max-age=86400";
 
-  res.writeHead(200, { "Content-Type": contentType, "Cache-Control": cacheControl });
+  res.writeHead(200, {
+    ...getCommonSecurityHeaders(),
+    "Content-Type": contentType,
+    "Cache-Control": cacheControl
+  });
   const stream = fs.createReadStream(resolved);
   stream.on("error", () => {
     if (!res.headersSent) {
@@ -3063,15 +3100,25 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
 
 const webhookEventsInFlight = new Set();
 const apiRateLimitState = new Map();
+const MAX_API_RATE_STATE_ENTRIES = Math.max(
+  1_000,
+  Number.parseInt(String(process.env.API_RATE_STATE_MAX_ENTRIES || "50000"), 10) || 50_000
+);
+
+function firstHeaderValue(rawHeader) {
+  const value = String(rawHeader || "").trim();
+  if (!value) return "";
+  const first = value.split(",")[0].trim();
+  return first || "";
+}
 
 function getClientIp(req) {
-  const forwardedFor = String(req.headers["x-forwarded-for"] || "").trim();
-  if (forwardedFor) {
-    const first = forwardedFor.split(",")[0].trim();
-    if (first) return first;
+  if (TRUST_PROXY_HEADERS) {
+    const forwardedFor = firstHeaderValue(req.headers["x-forwarded-for"]);
+    if (forwardedFor) return forwardedFor;
+    const realIp = firstHeaderValue(req.headers["x-real-ip"]);
+    if (realIp) return realIp;
   }
-  const realIp = String(req.headers["x-real-ip"] || "").trim();
-  if (realIp) return realIp;
   return String(req.socket?.remoteAddress || "unknown");
 }
 
@@ -3101,10 +3148,19 @@ function getApiRateLimitSpec(pathname) {
 }
 
 function cleanupRateLimitState(now = Date.now()) {
-  if (apiRateLimitState.size < 10000) return;
+  if (apiRateLimitState.size < 10_000 && apiRateLimitState.size <= MAX_API_RATE_STATE_ENTRIES) return;
   for (const [key, value] of apiRateLimitState.entries()) {
     if (!value || value.resetAt <= now) {
       apiRateLimitState.delete(key);
+    }
+  }
+
+  if (apiRateLimitState.size > MAX_API_RATE_STATE_ENTRIES) {
+    const entriesByReset = [...apiRateLimitState.entries()]
+      .sort((a, b) => Number(a[1]?.resetAt || 0) - Number(b[1]?.resetAt || 0));
+    const removeCount = apiRateLimitState.size - MAX_API_RATE_STATE_ENTRIES;
+    for (let index = 0; index < removeCount; index++) {
+      apiRateLimitState.delete(entriesByReset[index][0]);
     }
   }
 }
@@ -3113,6 +3169,8 @@ function enforceApiRateLimit(req, res, pathname) {
   const spec = getApiRateLimitSpec(pathname);
   if (!spec) return true;
 
+  const windowMs = Math.max(1_000, Number(spec.windowMs) || 60_000);
+  const maxRequests = Math.max(1, Number(spec.max) || 1);
   const now = Date.now();
   cleanupRateLimitState(now);
   const ip = getClientIp(req);
@@ -3120,13 +3178,13 @@ function enforceApiRateLimit(req, res, pathname) {
 
   let entry = apiRateLimitState.get(key);
   if (!entry || entry.resetAt <= now) {
-    entry = { count: 0, resetAt: now + spec.windowMs };
+    entry = { count: 0, resetAt: now + windowMs };
   }
 
   entry.count += 1;
   apiRateLimitState.set(key, entry);
 
-  if (entry.count > spec.max) {
+  if (entry.count > maxRequests) {
     const retryAfterSeconds = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
     res.setHeader("Retry-After", String(retryAfterSeconds));
     sendJson(res, 429, {
@@ -3146,7 +3204,13 @@ function startWebServer(runtimes) {
   const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
 
   const server = http.createServer(async (req, res) => {
-    const requestUrl = new URL(req.url || "/", "http://localhost");
+    let requestUrl;
+    try {
+      requestUrl = new URL(req.url || "/", "http://localhost");
+    } catch {
+      sendJson(res, 400, { error: "Ungueltige Request-URL." });
+      return;
+    }
 
     // CORS
     const originAllowed = applyCors(req, res, publicUrl);
@@ -3155,7 +3219,7 @@ function startWebServer(runtimes) {
         sendJson(res, 403, { error: "Origin nicht erlaubt." });
         return;
       }
-      res.writeHead(204);
+      res.writeHead(204, { ...getCommonSecurityHeaders() });
       res.end();
       return;
     }
@@ -3173,17 +3237,31 @@ function startWebServer(runtimes) {
       return new Promise((resolve, reject) => {
         const chunks = [];
         let size = 0;
+        let settled = false;
+
+        const fail = (status, message, err = null) => {
+          if (settled) return;
+          settled = true;
+          const error = err || new Error(message);
+          error.status = status;
+          reject(error);
+        };
+
         req.on("data", (chunk) => {
+          if (settled) return;
           size += chunk.length;
           if (size > maxBytes) {
-            reject(new Error("Body too large"));
-            req.destroy();
+            fail(413, "Body too large");
             return;
           }
           chunks.push(chunk);
         });
-        req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-        req.on("error", reject);
+        req.on("end", () => {
+          if (settled) return;
+          settled = true;
+          resolve(Buffer.concat(chunks).toString("utf8"));
+        });
+        req.on("error", (err) => fail(400, err?.message || "Body read error", err));
       });
     }
 
@@ -3193,12 +3271,18 @@ function startWebServer(runtimes) {
       try {
         return JSON.parse(raw);
       } catch {
-        throw new Error("Invalid JSON");
+        const err = new Error("Invalid JSON");
+        err.status = 400;
+        throw err;
       }
     }
 
     // --- API routes ---
     if (requestUrl.pathname === "/api/bots") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       const bots = runtimes.map((runtime) => runtime.getPublicStatus());
       const totals = bots.reduce(
         (acc, bot) => {
@@ -3216,11 +3300,19 @@ function startWebServer(runtimes) {
     }
 
     if (requestUrl.pathname === "/api/commands") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       sendJson(res, 200, { commands: API_COMMANDS });
       return;
     }
 
     if (requestUrl.pathname === "/api/stats") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       const bots = runtimes.map((runtime) => runtime.getPublicStatus());
       const totals = bots.reduce(
         (acc, bot) => {
@@ -3242,6 +3334,10 @@ function startWebServer(runtimes) {
     }
 
     if (requestUrl.pathname === "/api/stations") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       const stations = loadStations();
       const stationArr = Object.entries(stations.stations).map(([key, value]) => ({
         key,
@@ -3262,6 +3358,10 @@ function startWebServer(runtimes) {
     }
 
     if (requestUrl.pathname === "/api/health") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       const readyBots = runtimes.filter((runtime) => runtime.client.isReady()).length;
       sendJson(res, 200, {
         ok: true,
@@ -3273,7 +3373,11 @@ function startWebServer(runtimes) {
     }
 
     // --- Premium API ---
-    if (requestUrl.pathname === "/api/premium/check" && req.method === "GET") {
+    if (requestUrl.pathname === "/api/premium/check") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       const serverId = requestUrl.searchParams.get("serverId");
       if (!serverId || !/^\d{17,22}$/.test(serverId)) {
         sendJson(res, 400, { error: "serverId muss 17-22 Ziffern sein." });
@@ -3295,7 +3399,11 @@ function startWebServer(runtimes) {
     }
 
     // Premium Bot Invite-Links: nur fuer berechtigte Server
-    if (requestUrl.pathname === "/api/premium/invite-links" && req.method === "GET") {
+    if (requestUrl.pathname === "/api/premium/invite-links") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       const serverId = requestUrl.searchParams.get("serverId");
       if (!serverId || !/^\d{17,22}$/.test(serverId)) {
         sendJson(res, 400, { error: "serverId muss 17-22 Ziffern sein." });
@@ -3320,12 +3428,20 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (requestUrl.pathname === "/api/premium/tiers" && req.method === "GET") {
+    if (requestUrl.pathname === "/api/premium/tiers") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       sendJson(res, 200, { tiers: TIERS });
       return;
     }
 
-    if (requestUrl.pathname === "/api/premium/checkout" && req.method === "POST") {
+    if (requestUrl.pathname === "/api/premium/checkout") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
       try {
         const body = await readJsonBody();
         const { tier, email, months, seats: rawSeats, returnUrl, language: rawLanguage } = body;
@@ -3409,6 +3525,20 @@ function startWebServer(runtimes) {
 
         sendJson(res, 200, { sessionId: session.id, url: session.url });
       } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
+          sendJson(res, status, {
+            error: fallbackLanguage === "de"
+              ? status === 413
+                ? "Request-Body ist zu gross."
+                : "Ungueltiges JSON im Request-Body."
+              : status === 413
+                ? "Request body is too large."
+                : "Invalid JSON in request body.",
+          });
+          return;
+        }
         log("ERROR", `Stripe checkout error: ${err.message}`);
         const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
         sendJson(res, 500, {
@@ -3420,7 +3550,11 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (requestUrl.pathname === "/api/premium/webhook" && req.method === "POST") {
+    if (requestUrl.pathname === "/api/premium/webhook") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
       try {
         const stripeKey = getStripeSecretKey();
         const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
@@ -3498,13 +3632,21 @@ function startWebServer(runtimes) {
           webhookEventsInFlight.delete(event.id);
         }
       } catch (err) {
+        if (Number(err?.status || 0) === 413) {
+          sendJson(res, 413, { error: "Webhook-Body ist zu gross." });
+          return;
+        }
         log("ERROR", `Stripe webhook error: ${err.message}`);
         sendJson(res, 500, { error: "Webhook-Verarbeitung fehlgeschlagen: " + err.message });
       }
       return;
     }
 
-    if (requestUrl.pathname === "/api/premium/verify" && req.method === "POST") {
+    if (requestUrl.pathname === "/api/premium/verify") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
       try {
         const body = await readJsonBody();
         const { sessionId } = body;
@@ -3556,6 +3698,15 @@ function startWebServer(runtimes) {
           message: result.message,
         });
       } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, {
+            error: status === 413
+              ? "Request-Body ist zu gross."
+              : "Ungueltiges JSON im Request-Body.",
+          });
+          return;
+        }
         log("ERROR", `Stripe verify error: ${err.message}`);
         sendJson(res, 500, { error: "Verifizierung fehlgeschlagen: " + err.message });
       }
@@ -3563,7 +3714,11 @@ function startWebServer(runtimes) {
     }
 
     // --- Pricing info endpoint ---
-    if (requestUrl.pathname === "/api/premium/pricing" && req.method === "GET") {
+    if (requestUrl.pathname === "/api/premium/pricing") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
       const serverId = requestUrl.searchParams.get("serverId");
       const result = {
         brand: BRAND.name,
@@ -3636,9 +3791,21 @@ function startWebServer(runtimes) {
       return;
     }
 
+    if (requestUrl.pathname.startsWith("/api/")) {
+      sendJson(res, 404, { error: "API route not found." });
+      return;
+    }
+
+    if (req.method !== "GET") {
+      methodNotAllowed(res, ["GET"]);
+      return;
+    }
+
     // --- Static file serving from web/ ---
-    const safePath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
-    const filePath = path.join(webDir, safePath);
+    const staticPath = requestUrl.pathname === "/"
+      ? "index.html"
+      : requestUrl.pathname.replace(/^\/+/, "");
+    const filePath = path.join(webDir, staticPath);
     sendStaticFile(res, filePath);
   });
 

@@ -62,5 +62,10 @@ web/
 | `BOT_N_CLIENT_ID` | Discord Client ID |
 | `BOT_N_NAME` | Bot-Anzeigename |
 | `PUBLIC_WEB_URL` | Oeffentliche URL der Website |
+| `CORS_ALLOWED_ORIGINS` | Komma-Liste erlaubter Web-Origin URLs (API CORS) |
+| `CHECKOUT_RETURN_ORIGINS` | Komma-Liste erlaubter Return-URLs fuer Stripe Checkout |
+| `API_ADMIN_TOKEN` | Optionales Admin-Token fuer sensible API-Felder |
+| `TRUST_PROXY_HEADERS` | `1` wenn der Bot hinter einem Reverse Proxy laeuft (nutzt `X-Forwarded-*` fuer Origin/IP) |
+| `API_RATE_STATE_MAX_ENTRIES` | Maximale Anzahl Rate-Limit-Eintraege im Speicher (Default: `50000`) |
 | `STRIPE_SECRET_KEY` | Stripe Secret Key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe Webhook Secret |

@@ -80,26 +80,59 @@ function sanitizeKey(raw) {
   return String(raw || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").substring(0, 40);
 }
 
+function isPrivateIpv4(hostname) {
+  const parts = String(hostname || "").split(".").map((p) => Number.parseInt(p, 10));
+  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return false;
+  const [a, b] = parts;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
+}
+
+function legacyHostToIpv4(hostname) {
+  const host = String(hostname || "").trim().toLowerCase();
+  if (!host) return null;
+
+  let value = null;
+  if (/^\d+$/.test(host)) {
+    value = BigInt(host);
+  } else if (/^0x[0-9a-f]+$/i.test(host)) {
+    value = BigInt(host);
+  } else if (/^0[0-7]+$/.test(host) && host !== "0") {
+    value = BigInt(`0o${host.slice(1)}`);
+  }
+
+  if (value === null) return null;
+  if (value < 0n || value > 0xFFFFFFFFn) return null;
+
+  const a = Number((value >> 24n) & 0xFFn);
+  const b = Number((value >> 16n) & 0xFFn);
+  const c = Number((value >> 8n) & 0xFFn);
+  const d = Number(value & 0xFFn);
+  return `${a}.${b}.${c}.${d}`;
+}
+
 function isPrivateOrLocalHost(hostnameInput) {
   const hostname = String(hostnameInput || "").trim().toLowerCase().replace(/\.$/, "");
   if (!hostname) return true;
   if (hostname === "localhost" || hostname === "0.0.0.0") return true;
+  if (hostname.endsWith(".nip.io") || hostname.endsWith(".sslip.io")) return true;
   if (hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".lan") || hostname.endsWith(".home")) {
+    return true;
+  }
+
+  const legacyIpv4 = legacyHostToIpv4(hostname);
+  if (legacyIpv4 && isPrivateIpv4(legacyIpv4)) {
     return true;
   }
 
   const ipVersion = net.isIP(hostname);
   if (ipVersion === 4) {
-    const parts = hostname.split(".").map((p) => Number.parseInt(p, 10));
-    if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return false;
-    const [a, b] = parts;
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true;
-    return false;
+    return isPrivateIpv4(hostname);
   }
 
   if (ipVersion === 6) {

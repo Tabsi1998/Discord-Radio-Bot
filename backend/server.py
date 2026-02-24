@@ -1,37 +1,89 @@
 import os
 import json
+import re
+import hmac
 import string
 import secrets
 from pathlib import Path
+from urllib.parse import urlparse
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pymongo import MongoClient
 
 load_dotenv()
 
 app = FastAPI(title="OmniFM API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 MONGO_URL = os.environ.get("MONGO_URL")
 DB_NAME = os.environ.get("DB_NAME", "radio_bot")
-
-client = MongoClient(MONGO_URL)
-db = client[DB_NAME]
 
 STATIONS_FILE = Path(__file__).parent.parent / "stations.json"
 PREMIUM_FILE = Path(__file__).parent.parent / "premium.json"
 
 BOT_IMAGES = ["/img/bot-1.png", "/img/bot-2.png", "/img/bot-3.png", "/img/bot-4.png"]
 BOT_COLORS = ["cyan", "green", "pink", "amber", "purple", "red"]
+
+EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+SERVER_ID_REGEX = re.compile(r"^\d{17,22}$")
+
+
+def build_allowed_origins():
+    configured = (os.environ.get("CORS_ALLOWED_ORIGINS") or os.environ.get("CORS_ORIGINS") or "").strip()
+    if configured:
+        origins = [item.strip() for item in configured.split(",") if item.strip()]
+    else:
+        origins = []
+
+    if any(item == "*" for item in origins):
+        return ["*"]
+
+    public_web_url = (os.environ.get("PUBLIC_WEB_URL") or "").strip()
+    if public_web_url:
+        origins.append(public_web_url)
+
+    origins.extend(["http://localhost", "http://127.0.0.1", "http://localhost:3000", "http://127.0.0.1:3000"])
+
+    normalized = []
+    seen = set()
+    for origin in origins:
+        parsed = urlparse(origin)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            continue
+        clean = f"{parsed.scheme}://{parsed.netloc}"
+        if clean in seen:
+            continue
+        seen.add(clean)
+        normalized.append(clean)
+
+    if not normalized:
+        return ["http://localhost", "http://127.0.0.1", "http://localhost:3000", "http://127.0.0.1:3000"]
+    return normalized
+
+
+ALLOWED_ORIGINS = build_allowed_origins()
+CORS_HAS_WILDCARD = "*" in ALLOWED_ORIGINS
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if CORS_HAS_WILDCARD else ALLOWED_ORIGINS,
+    allow_credentials=not CORS_HAS_WILDCARD,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Token"],
+)
+
+client = None
+db = None
+if MONGO_URL:
+    try:
+        client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=2000)
+        db = client[DB_NAME]
+        client.admin.command("ping")
+    except Exception:
+        client = None
+        db = None
 
 # OmniFM v3 Tier-Konfiguration (identisch mit config/plans.js)
 TIERS = {
@@ -48,6 +100,106 @@ SEAT_PRICING = {
 
 SEAT_OPTIONS = [1, 2, 3, 5]
 YEARLY_DISCOUNT_MONTHS = 10  # 12 Monate = nur 10 bezahlen
+ADMIN_API_TOKEN = (os.environ.get("API_ADMIN_TOKEN") or os.environ.get("ADMIN_API_TOKEN") or "").strip()
+
+
+def json_error(status_code, message):
+    return JSONResponse(status_code=status_code, content={"error": message})
+
+
+def is_valid_email(email):
+    return bool(EMAIL_REGEX.match(str(email or "").strip()))
+
+
+def is_valid_server_id(server_id):
+    return bool(SERVER_ID_REGEX.match(str(server_id or "").strip()))
+
+
+def normalize_months(value, default=1):
+    try:
+        parsed = int(str(value).strip())
+    except Exception:
+        parsed = default
+    return max(1, parsed)
+
+
+def normalize_seats(value, default=1):
+    try:
+        parsed = int(str(value).strip())
+    except Exception:
+        parsed = default
+    return parsed if parsed in SEAT_OPTIONS else default
+
+
+def mask_email(email):
+    raw = str(email or "").strip()
+    if "@" not in raw:
+        return raw
+    local, domain = raw.split("@", 1)
+    if len(local) <= 2:
+        return "*" * len(local) + "@" + domain
+    return local[:2] + "***@" + domain
+
+
+def clip_text(value, max_len=300):
+    text = str(value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
+
+
+def is_admin_request(request: Request):
+    if not ADMIN_API_TOKEN:
+        return False
+    header_token = (request.headers.get("x-admin-token") or "").strip()
+    if header_token and hmac.compare_digest(header_token, ADMIN_API_TOKEN):
+        return True
+    auth = (request.headers.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        bearer = auth[7:].strip()
+        if bearer and hmac.compare_digest(bearer, ADMIN_API_TOKEN):
+            return True
+    return False
+
+
+def parse_origin(raw_url):
+    parsed = urlparse(str(raw_url or "").strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def build_allowed_return_origins():
+    configured = (os.environ.get("CHECKOUT_RETURN_ORIGINS") or "").strip()
+    origins = [item.strip() for item in configured.split(",") if item.strip()] if configured else []
+    public_web_url = (os.environ.get("PUBLIC_WEB_URL") or "").strip()
+    if public_web_url:
+        origins.append(public_web_url)
+    origins.extend(["http://localhost", "http://127.0.0.1"])
+
+    allowed = set()
+    for origin in origins:
+        normalized = parse_origin(origin)
+        if normalized:
+            allowed.add(normalized)
+    return allowed
+
+
+def resolve_checkout_return_base(return_url):
+    fallback = parse_origin((os.environ.get("PUBLIC_WEB_URL") or "").strip()) or "http://localhost"
+    if not return_url:
+        return fallback
+
+    parsed = urlparse(str(return_url).strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return fallback
+
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if origin not in build_allowed_return_origins():
+        return fallback
+
+    safe_path = parsed.path if parsed.path and parsed.path != "/" else ""
+    return f"{origin}{safe_path}"
 
 
 def get_stripe_secret_key():
@@ -67,10 +219,20 @@ def validate_stripe_key(key):
 
 
 def load_stations_from_file():
+    fallback = {"defaultStationKey": None, "stations": {}, "qualityPreset": "custom"}
     if not STATIONS_FILE.exists():
-        return {"defaultStationKey": None, "stations": {}, "qualityPreset": "custom"}
-    with open(STATIONS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return fallback
+    try:
+        with open(STATIONS_FILE, "r", encoding="utf-8") as f:
+            raw = f.read().strip()
+            if not raw:
+                return fallback
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                return fallback
+            return data
+    except Exception:
+        return fallback
 
 
 def load_bots_from_env():
@@ -118,36 +280,42 @@ def load_bots_from_env():
 
 
 def seed_stations_if_empty():
-    if db.stations.count_documents({}) == 0:
-        file_data = load_stations_from_file()
-        stations_list = []
-        file_stations = file_data.get("stations", {})
-        genre_map = {
-            "oneworldradio": "Electronic / Festival",
-            "tomorrowlandanthems": "Electronic / Festival",
-            "lofi": "Lo-Fi / Chill",
-            "classicrock": "Rock / Classic",
-            "chillout": "Chill / Ambient",
-            "dance": "Dance / EDM",
-            "hiphop": "Hip Hop / Rap",
-            "techno": "Techno / House",
-            "pop": "Pop / Charts",
-            "rock": "Rock / Alternative",
-            "bass": "Bass / Dubstep",
-            "deutschrap": "Deutsch Rap",
-        }
-        for key, val in file_stations.items():
-            stations_list.append({
-                "key": key,
-                "name": val.get("name", key),
-                "url": val.get("url", ""),
-                "tier": val.get("tier", "free"),
-                "genre": genre_map.get(key, "Radio"),
-                "is_default": key == file_data.get("defaultStationKey"),
-                "created_at": datetime.now(timezone.utc).isoformat()
-            })
-        if stations_list:
-            db.stations.insert_many(stations_list)
+    if db is None:
+        return
+    try:
+        if db.stations.count_documents({}) == 0:
+            file_data = load_stations_from_file()
+            stations_list = []
+            file_stations = file_data.get("stations", {})
+            genre_map = {
+                "oneworldradio": "Electronic / Festival",
+                "tomorrowlandanthems": "Electronic / Festival",
+                "lofi": "Lo-Fi / Chill",
+                "classicrock": "Rock / Classic",
+                "chillout": "Chill / Ambient",
+                "dance": "Dance / EDM",
+                "hiphop": "Hip Hop / Rap",
+                "techno": "Techno / House",
+                "pop": "Pop / Charts",
+                "rock": "Rock / Alternative",
+                "bass": "Bass / Dubstep",
+                "deutschrap": "Deutsch Rap",
+            }
+            for key, val in file_stations.items():
+                stations_list.append({
+                    "key": key,
+                    "name": val.get("name", key),
+                    "url": val.get("url", ""),
+                    "tier": val.get("tier", "free"),
+                    "genre": genre_map.get(key, "Radio"),
+                    "is_default": key == file_data.get("defaultStationKey"),
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+            if stations_list:
+                db.stations.insert_many(stations_list)
+    except Exception:
+        # Mongo is optional for this API process.
+        return
 
 
 seed_stations_if_empty()
@@ -158,7 +326,7 @@ seed_stations_if_empty()
 def load_premium():
     try:
         if PREMIUM_FILE.exists():
-            data = json.loads(PREMIUM_FILE.read_text())
+            data = json.loads(PREMIUM_FILE.read_text(encoding="utf-8"))
             # Support both old format (licenses keyed by serverId) and new format (licenses + serverEntitlements)
             if "serverEntitlements" in data:
                 return data
@@ -169,7 +337,19 @@ def load_premium():
 
 
 def save_premium(data):
-    PREMIUM_FILE.write_text(json.dumps(data, indent=2) + "\n")
+    tmp_file = PREMIUM_FILE.with_suffix(PREMIUM_FILE.suffix + ".tmp")
+    payload = json.dumps(data, indent=2) + "\n"
+    try:
+        tmp_file.write_text(payload, encoding="utf-8")
+        tmp_file.replace(PREMIUM_FILE)
+    except Exception:
+        PREMIUM_FILE.write_text(payload, encoding="utf-8")
+    finally:
+        try:
+            if tmp_file.exists():
+                tmp_file.unlink()
+        except Exception:
+            pass
 
 
 def is_expired(license_info):
@@ -232,11 +412,13 @@ def get_license(server_id):
 
 
 def get_seat_price(tier, seats):
+    seats = normalize_seats(seats)
     pricing = SEAT_PRICING.get(tier, {})
     return pricing.get(seats, pricing.get(1, 0))
 
 
 def calculate_price(tier, months, seats=1):
+    months = normalize_months(months)
     ppm = get_seat_price(tier, seats)
     if not ppm:
         return 0
@@ -279,6 +461,8 @@ def generate_license_key():
 def add_license(email, tier, months, seats=1, activated_by="stripe", note=""):
     if tier not in TIERS or tier == "free":
         raise ValueError("Tier muss 'pro' oder 'ultimate' sein.")
+    months = normalize_months(months)
+    seats = normalize_seats(seats)
     if months < 1:
         raise ValueError("Mindestens 1 Monat.")
     data = load_premium()
@@ -320,6 +504,31 @@ def upgrade_license(server_id, new_tier):
     }
     save_premium(data)
     return data["licenses"][sid]
+
+
+def sanitize_license_for_api(license_info, include_sensitive=False):
+    if not license_info:
+        return None
+
+    plan = license_info.get("tier", license_info.get("plan", "free"))
+    payload = {
+        "tier": plan,
+        "plan": plan,
+        "seats": normalize_seats(license_info.get("seats", 1)),
+        "active": not bool(license_info.get("expired")),
+        "expired": bool(license_info.get("expired")),
+        "expiresAt": license_info.get("expiresAt"),
+        "remainingDays": license_info.get("remainingDays", 0),
+    }
+
+    if include_sensitive:
+        payload["linkedServerIds"] = list(license_info.get("linkedServerIds", []))
+        payload["email"] = license_info.get("email", "")
+    else:
+        payload["linkedServerIds"] = list(license_info.get("linkedServerIds", []))
+        payload["emailMasked"] = mask_email(license_info.get("email", ""))
+
+    return payload
 
 
 # === API Routes ===
@@ -413,32 +622,48 @@ async def get_commands():
 # === Premium API ===
 
 @app.get("/api/premium/check")
-async def check_premium(serverId: str = "", licenseKey: str = ""):
+async def check_premium(request: Request, serverId: str = "", licenseKey: str = ""):
+    include_sensitive = is_admin_request(request)
+
     # Lizenz per Key suchen
     if licenseKey:
         data = load_premium()
-        lic = data.get("licenses", {}).get(licenseKey)
+        licenses = data.get("licenses", {})
+        lic = licenses.get(licenseKey)
+        resolved_key = licenseKey
         if not lic:
-            return {"error": "Lizenz-Key nicht gefunden."}
+            lower_query = licenseKey.lower()
+            for key, value in licenses.items():
+                if str(key).lower() == lower_query:
+                    lic = value
+                    resolved_key = key
+                    break
+        if not lic:
+            return json_error(404, "Lizenz-Key nicht gefunden.")
         expired = is_expired(lic)
-        return {
-            "licenseKey": licenseKey,
+        normalized = {
+            **lic,
             "tier": lic.get("tier", lic.get("plan", "free")),
-            "seats": lic.get("seats", 1),
-            "linkedServerIds": lic.get("linkedServerIds", []),
-            "email": lic.get("email", ""),
-            "expiresAt": lic.get("expiresAt"),
+            "plan": lic.get("plan", lic.get("tier", "free")),
             "expired": expired,
             "remainingDays": remaining_days(lic),
         }
+        return {"licenseKey": resolved_key, **sanitize_license_for_api(normalized, include_sensitive)}
 
     # Fallback: Server-ID basiert
-    if not serverId or not serverId.isdigit() or len(serverId) < 17:
-        return {"error": "serverId oder licenseKey erforderlich."}
-    tier = get_tier(serverId)
+    if not is_valid_server_id(serverId):
+        return json_error(400, "serverId oder licenseKey erforderlich (17-22 Ziffern).")
+
+    server_id = str(serverId).strip()
+    tier = get_tier(server_id)
     tier_config = TIERS.get(tier, TIERS["free"])
-    license_info = get_license(serverId)
-    return {"serverId": serverId, "tier": tier, **tier_config, "license": license_info}
+    license_info = get_license(server_id)
+    return {
+        "serverId": server_id,
+        "tier": tier,
+        **tier_config,
+        "license": sanitize_license_for_api(license_info, include_sensitive),
+    }
 
 
 @app.get("/api/premium/tiers")
@@ -475,8 +700,9 @@ async def get_pricing(serverId: str = ""):
         "yearlyDiscountMonths": YEARLY_DISCOUNT_MONTHS,
         "seatOptions": SEAT_OPTIONS,
     }
-    if serverId and serverId.isdigit() and len(serverId) >= 17:
-        license_info = get_license(serverId)
+    if is_valid_server_id(serverId):
+        server_id = str(serverId).strip()
+        license_info = get_license(server_id)
         if license_info and not license_info.get("expired"):
             result["currentLicense"] = {
                 "tier": license_info.get("tier", license_info.get("plan", "free")),
@@ -484,7 +710,7 @@ async def get_pricing(serverId: str = ""):
                 "remainingDays": license_info.get("remainingDays", 0),
             }
             if license_info.get("tier", "") == "pro":
-                upgrade = calculate_upgrade_price(serverId, "ultimate")
+                upgrade = calculate_upgrade_price(server_id, "ultimate")
                 if upgrade:
                     result["upgrade"] = {
                         "to": "ultimate",
@@ -496,9 +722,11 @@ async def get_pricing(serverId: str = ""):
 
 @app.get("/api/premium/invite-links")
 async def premium_invite_links(serverId: str = ""):
-    if not serverId or not serverId.isdigit() or len(serverId) < 17:
-        return {"error": "serverId muss 17-22 Ziffern sein."}
-    tier = get_tier(serverId)
+    if not is_valid_server_id(serverId):
+        return json_error(400, "serverId muss 17-22 Ziffern sein.")
+
+    server_id = str(serverId).strip()
+    tier = get_tier(server_id)
     tier_config = TIERS.get(tier, TIERS["free"])
     tier_rank = {"free": 0, "pro": 1, "ultimate": 2}
     server_rank = tier_rank.get(tier, 0)
@@ -527,41 +755,43 @@ async def premium_invite_links(serverId: str = ""):
             "blockedReason": blocked_reason,
             "inviteUrl": invite,
         })
-    return {"serverId": serverId, "serverTier": tier, "serverMaxBots": max_bots, "bots": links}
+    return {"serverId": server_id, "serverTier": tier, "serverMaxBots": max_bots, "bots": links}
 
 
 @app.post("/api/premium/checkout")
 async def premium_checkout(body: dict):
-    tier = body.get("tier", "")
-    email = body.get("email", "").strip()
-    months = body.get("months", 1)
-    raw_seats = body.get("seats", 1)
-    return_url = body.get("returnUrl", "")
+    tier = str(body.get("tier", "")).strip().lower()
+    email = str(body.get("email", "")).strip().lower()
+    duration_months = normalize_months(body.get("months", 1))
+    seats = normalize_seats(body.get("seats", 1))
+    return_url = str(body.get("returnUrl", "")).strip()
 
     if tier not in ("pro", "ultimate"):
-        return {"error": "tier muss 'pro' oder 'ultimate' sein."}
-    if not email or "@" not in email:
-        return {"error": "Bitte eine gueltige E-Mail-Adresse angeben."}
-
-    seats = int(raw_seats) if int(raw_seats) in SEAT_OPTIONS else 1
+        return json_error(400, "tier muss 'pro' oder 'ultimate' sein.")
+    if not is_valid_email(email):
+        return json_error(400, "Bitte eine gueltige E-Mail-Adresse angeben.")
 
     stripe_key = get_stripe_secret_key()
     valid, msg = validate_stripe_key(stripe_key)
     if not valid:
-        return {"error": msg}
+        return json_error(503, msg)
 
     try:
         import stripe
         stripe.api_key = stripe_key
 
-        duration_months = max(1, int(months))
         price_in_cents = calculate_price(tier, duration_months, seats)
+        if price_in_cents <= 0:
+            return json_error(400, "Ungueltige Preisberechnung.")
+
         tier_name = TIERS[tier]["name"]
         seats_label = f" ({seats} Server)" if seats > 1 else ""
         if duration_months >= 12:
             description = f"{tier_name}{seats_label} - {duration_months} Monate (Jahresrabatt: 2 Monate gratis!)"
         else:
             description = f"{tier_name}{seats_label} - {duration_months} Monat{'e' if duration_months > 1 else ''}"
+
+        return_base = resolve_checkout_return_base(return_url)
 
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -584,24 +814,24 @@ async def premium_checkout(body: dict):
                 "seats": str(seats),
                 "months": str(duration_months),
             },
-            success_url=(return_url or "http://localhost") + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
-            cancel_url=(return_url or "http://localhost") + "?payment=cancelled",
+            success_url=return_base + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=return_base + "?payment=cancelled",
         )
         return {"sessionId": session.id, "url": session.url}
     except Exception as e:
-        return {"error": f"Checkout fehlgeschlagen: {str(e)}"}
+        return json_error(500, f"Checkout fehlgeschlagen: {clip_text(e)}")
 
 
 @app.post("/api/premium/verify")
 async def verify_premium(body: dict):
-    session_id = body.get("sessionId", "")
+    session_id = str(body.get("sessionId", "")).strip()
     if not session_id:
-        return {"error": "sessionId erforderlich."}
+        return json_error(400, "sessionId erforderlich.")
 
     stripe_key = get_stripe_secret_key()
     valid, msg = validate_stripe_key(stripe_key)
     if not valid:
-        return {"error": msg}
+        return json_error(503, msg)
 
     try:
         import stripe
@@ -610,19 +840,19 @@ async def verify_premium(body: dict):
 
         if session.payment_status == "paid":
             metadata = session.metadata or {}
-            email = metadata.get("email", "")
-            tier = metadata.get("tier", "")
+            email = str(metadata.get("email", "")).strip().lower()
+            tier = str(metadata.get("tier", "")).strip().lower()
             months_str = metadata.get("months", "1")
             seats_str = metadata.get("seats", "1")
-            seats = int(seats_str) if seats_str.isdigit() and int(seats_str) in SEAT_OPTIONS else 1
+            seats = normalize_seats(seats_str)
 
-            if email and tier and tier in ("pro", "ultimate"):
-                duration_months = max(1, int(months_str))
+            if is_valid_email(email) and tier in ("pro", "ultimate"):
+                duration_months = normalize_months(months_str)
                 license_data = add_license(email, tier, duration_months, seats, "stripe", f"Session: {session_id}")
 
                 license_key = license_data.get("licenseKey", "")
                 tier_name = TIERS[tier]["name"]
-                msg = f"Lizenz {license_key} erstellt! {tier_name} fuer {seats} Server, {months_str} Monat{'e' if int(months_str) > 1 else ''}."
+                msg = f"Lizenz {license_key} erstellt! {tier_name} fuer {seats} Server, {duration_months} Monat{'e' if duration_months > 1 else ''}."
 
                 return {
                     "success": True,
@@ -636,4 +866,4 @@ async def verify_premium(body: dict):
 
         return {"success": False, "message": "Zahlung nicht abgeschlossen."}
     except Exception as e:
-        return {"error": f"Verifizierung fehlgeschlagen: {str(e)}"}
+        return json_error(500, f"Verifizierung fehlgeschlagen: {clip_text(e)}")
