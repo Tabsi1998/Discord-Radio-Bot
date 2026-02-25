@@ -188,13 +188,19 @@ function Premium() {
   return (
     <section id="premium" data-testid="premium-section" style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}>
       <div className="section-container">
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, letterSpacing: '0.15em', color: '#FFB800', textTransform: 'uppercase', fontWeight: 700 }}>
-            Premium
-          </span>
-          <h2 style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 'clamp(24px, 4vw, 40px)', marginTop: 8 }}>
-            Upgrade Dein Setup
+        <div style={{ marginBottom: 48 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <Crown size={16} color="#FFB800" />
+            <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, letterSpacing: '0.15em', color: '#FFB800', textTransform: 'uppercase', fontWeight: 700 }}>
+              Premium
+            </span>
+          </div>
+          <h2 style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 'clamp(24px, 4vw, 40px)', marginBottom: 12 }}>
+            Upgrade dein Setup
           </h2>
+          <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 500 }}>
+            Mehr Worker, mehr Stationen, besserer Sound. Waehle deinen Plan.
+          </p>
           {pricingError && (
             <p style={{ marginTop: 10, fontSize: 12, color: '#FFB800' }}>
               {pricingError}
@@ -202,105 +208,153 @@ function Premium() {
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16, marginBottom: 28 }}>
+        {/* Plan Cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20, marginBottom: 40 }}>
           {PLAN_ORDER.map((planId) => {
             const tier = pricing.tiers[planId];
             const meta = PLAN_META[planId];
             const Icon = meta.icon;
+            const isPro = planId === 'pro';
             const seatEntries = Object.entries(tier.seatPricing || {})
               .sort((a, b) => Number(a[0]) - Number(b[0]));
 
             return (
               <div
                 key={planId}
+                data-testid={`plan-card-${planId}`}
                 style={{
-                  border: `1px solid ${meta.color}30`,
-                  background: `${meta.color}08`,
-                  borderRadius: 16,
-                  padding: 20,
+                  position: 'relative',
+                  borderRadius: 18,
+                  padding: '28px 24px',
+                  background: isPro ? `${meta.color}08` : 'rgba(255,255,255,0.02)',
+                  border: `1px solid ${meta.color}${isPro ? '35' : '18'}`,
+                  transition: 'border-color 0.3s, box-shadow 0.3s',
+                  boxShadow: isPro ? `0 0 30px ${meta.color}10` : 'none',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = `${meta.color}50`;
+                  if (isPro) e.currentTarget.style.boxShadow = `0 0 40px ${meta.color}18`;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = `${meta.color}${isPro ? '35' : '18'}`;
+                  e.currentTarget.style.boxShadow = isPro ? `0 0 30px ${meta.color}10` : 'none';
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <Icon size={16} color={meta.color} />
-                  <strong style={{ color: meta.color, fontFamily: "'Orbitron', sans-serif" }}>
+                {isPro && (
+                  <div style={{
+                    position: 'absolute', top: -1, right: 20,
+                    padding: '4px 12px', borderRadius: '0 0 8px 8px',
+                    background: meta.color, color: '#050505',
+                    fontFamily: "'Orbitron', sans-serif",
+                    fontSize: 9, fontWeight: 800, letterSpacing: '0.1em',
+                  }}>
+                    BELIEBT
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10,
+                    background: `${meta.color}12`, border: `1px solid ${meta.color}30`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Icon size={18} color={meta.color} />
+                  </div>
+                  <strong style={{ color: meta.color, fontFamily: "'Orbitron', sans-serif", fontSize: 16 }}>
                     {tier.name}
                   </strong>
                 </div>
-                <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 10 }}>
+
+                <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 16, fontFamily: "'JetBrains Mono', monospace" }}>
                   {buildPriceLabel(planId, tier)}
-                  <span style={{ fontSize: 13, color: '#A1A1AA' }}>/Monat</span>
+                  <span style={{ fontSize: 13, color: '#52525B', fontWeight: 400, fontFamily: "'DM Sans', sans-serif" }}>/Monat</span>
                 </div>
-                <div style={{ color: '#A1A1AA', fontSize: 13, lineHeight: 1.6 }}>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                   {tier.features.map((feature) => (
-                    <div key={feature}>{feature}</div>
-                  ))}
-                  {seatEntries.length > 0 && (
-                    <div style={{ marginTop: 8, color: '#737373', fontSize: 12 }}>
-                      Seats:{' '}
-                      {seatEntries.map(([seats, value]) => `${seats}=${formatEuro(value)}`).join(' | ')}
+                    <div key={feature} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 14, color: '#A1A1AA' }}>{feature}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
+
+                {seatEntries.length > 0 && (
+                  <div style={{
+                    marginTop: 8, padding: '10px 12px', borderRadius: 10,
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    <div style={{ fontSize: 10, color: '#52525B', fontWeight: 600, letterSpacing: '0.1em', marginBottom: 6, textTransform: 'uppercase' }}>
+                      Seat-Preise
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {seatEntries.map(([seats, value]) => (
+                        <span key={seats} style={{
+                          padding: '3px 8px', borderRadius: 6,
+                          background: `${meta.color}08`, border: `1px solid ${meta.color}15`,
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontSize: 11, color: '#A1A1AA',
+                        }}>
+                          {seats}x = {formatEuro(value)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 24 }}>
-          {[
-            'Bot-Limits und Features folgen strikt dem aktiven Lizenz-Tier.',
-            'Premium-Bots werden serverbezogen per Lizenz freigeschaltet.',
-            'Lizenz-Status kann jederzeit mit Server-ID geprueft werden.',
-            'Seat-Preise werden zentral ueber die Backend-API gesteuert.',
-            'Nach Zahlung: Aktivierungsmail + Kaufbeleg per E-Mail.',
-          ].map((text) => (
-            <div key={text} style={{ border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '10px 12px', color: '#A1A1AA', fontSize: 12, lineHeight: 1.6 }}>
-              {text}
-            </div>
-          ))}
-        </div>
-
-        <div style={{ maxWidth: 560, margin: '0 auto', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 16 }}>
-          <div style={{ fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A1A1AA', marginBottom: 10 }}>
-            Premium Status Pruefen
+        {/* Status Checker */}
+        <div style={{
+          maxWidth: 560, padding: '24px 28px',
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 16,
+        }}>
+          <div style={{ fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A1A1AA', marginBottom: 12, fontWeight: 600 }}>
+            Premium Status pruefen
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
+              data-testid="premium-server-id-input"
               value={serverId}
               onChange={(e) => setServerId(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  checkStatus();
-                }
-              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') checkStatus(); }}
               placeholder="Discord Server ID"
               style={{
-                flex: 1,
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 10,
-                color: '#fff',
-                padding: '10px 12px',
-                fontFamily: "'JetBrains Mono', monospace",
+                flex: 1, background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
+                color: '#fff', padding: '10px 14px',
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
+                outline: 'none', transition: 'border-color 0.2s',
               }}
+              onFocus={(e) => { e.target.style.borderColor = 'rgba(0,240,255,0.3)'; }}
+              onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.12)'; }}
             />
             <button
+              data-testid="premium-check-btn"
               onClick={checkStatus}
               disabled={checkingStatus}
               style={{
                 background: checkingStatus ? 'rgba(0,240,255,0.5)' : '#00F0FF',
-                border: 'none',
-                color: '#050505',
-                borderRadius: 10,
-                fontWeight: 700,
-                padding: '10px 14px',
-                cursor: checkingStatus ? 'default' : 'pointer',
+                border: 'none', color: '#050505', borderRadius: 10,
+                fontWeight: 700, padding: '10px 18px', cursor: checkingStatus ? 'default' : 'pointer',
+                transition: 'transform 0.15s',
+                fontFamily: "'DM Sans', sans-serif",
               }}
+              onMouseEnter={(e) => { if (!checkingStatus) e.currentTarget.style.transform = 'scale(1.03)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
             >
               {checkingStatus ? 'Pruefe...' : 'Pruefen'}
             </button>
           </div>
-          <div style={{ marginTop: 10, minHeight: 18, color: resultColor, fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>
+          <div data-testid="premium-check-result" style={{
+            marginTop: 10, minHeight: 18, color: resultColor, fontSize: 13,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
             {result}
           </div>
         </div>
