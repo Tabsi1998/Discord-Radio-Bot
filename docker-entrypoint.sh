@@ -36,6 +36,10 @@ init_json_file() {
 init_json_file "/app/bot-state.json"
 init_json_file "/app/custom-stations.json"
 init_json_file "/app/command-permissions.json"
+init_json_file "/app/guild-languages.json"
+init_json_file "/app/song-history.json"
+init_json_file "/app/scheduled-events.json"
+init_json_file "/app/coupons.json"
 init_json_file "/app/premium.json"
 init_json_file "/app/stations.json"
 

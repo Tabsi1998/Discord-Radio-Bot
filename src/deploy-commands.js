@@ -8,6 +8,7 @@ dotenv.config();
 
 const commands = buildCommandsJson();
 const syncGuildCommands = String(process.env.SYNC_GUILD_COMMANDS_ON_BOOT ?? "1") !== "0";
+const cleanGlobalCommands = String(process.env.CLEAN_GLOBAL_COMMANDS_ON_BOOT ?? "1") !== "0";
 let bots;
 
 try {
@@ -18,6 +19,10 @@ try {
 }
 
 const failedBots = [];
+const configuredCommander = Number.parseInt(String(process.env.COMMANDER_BOT_INDEX || "1"), 10);
+const commanderBot = Number.isFinite(configuredCommander) && configuredCommander >= 1
+  ? bots.find((bot) => Number(bot?.index || 0) === configuredCommander) || bots[0]
+  : bots[0];
 
 for (const bot of bots) {
   try {
@@ -30,10 +35,28 @@ for (const bot of bots) {
     if (runtimeClientId !== String(bot.clientId || "").trim()) {
       console.warn(`[WARN] ${bot.name}: CLIENT_ID mismatch (env=${bot.clientId}, runtime=${runtimeClientId}). Nutze runtime-ID.`);
     }
+    const isCommander = bot.id === commanderBot.id;
+
+    if (!isCommander) {
+      if (cleanGlobalCommands) {
+        await rest.put(Routes.applicationCommands(runtimeClientId), { body: [] });
+        console.log(`Worker ${bot.name}: globale Slash-Commands entfernt.`);
+      } else {
+        console.log(`Worker ${bot.name}: globale Slash-Commands bleiben unveraendert (Cleanup deaktiviert).`);
+      }
+      console.log("Fertig.");
+      continue;
+    }
+
     if (syncGuildCommands) {
-      console.log(`Ueberspringe globale Slash-Commands fuer ${bot.name} (${runtimeClientId}) (nur Guild-Sync aktiv).`);
+      if (cleanGlobalCommands) {
+        await rest.put(Routes.applicationCommands(runtimeClientId), { body: [] });
+        console.log(`Commander ${bot.name}: globale Slash-Commands bereinigt (nur Guild-Sync aktiv).`);
+      } else {
+        console.log(`Ueberspringe globale Slash-Commands fuer Commander ${bot.name} (${runtimeClientId}) (nur Guild-Sync aktiv).`);
+      }
     } else {
-      console.log(`Registriere globale Slash-Commands fuer ${bot.name} (${runtimeClientId})...`);
+      console.log(`Registriere globale Slash-Commands fuer Commander ${bot.name} (${runtimeClientId})...`);
       await rest.put(Routes.applicationCommands(runtimeClientId), { body: commands });
     }
     console.log("Fertig.");
@@ -44,9 +67,9 @@ for (const bot of bots) {
 }
 
 if (syncGuildCommands) {
-  console.log("Global-Command-Deploy uebersprungen (nur Guild-Sync). Guild-Commands werden beim Bot-Start synchronisiert.");
+  console.log("Global-Command-Deploy uebersprungen (nur Guild-Sync). Nur der Commander synchronisiert Guild-Commands beim Bot-Start.");
 } else {
-  console.log("Alle Bot-Commands registriert (globale Commands koennen bis zu 1h fuer volle Sichtbarkeit brauchen).");
+  console.log("Globale Commands fuer Commander registriert (Worker haben keine Commands).");
 }
 
 if (failedBots.length > 0) {

@@ -220,6 +220,10 @@ class BotRuntime {
           log("ERROR", `[${this.config.name}] Guild-Command-Sync fehlgeschlagen: ${err?.message || err}`);
         });
         this.startEventScheduler();
+      } else {
+        this.clearGuildCommandsForWorker().catch((err) => {
+          log("ERROR", `[${this.config.name}] Worker-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
+        });
       }
     });
 
@@ -426,6 +430,10 @@ class BotRuntime {
     return String(process.env.CLEAN_GUILD_COMMANDS_ON_BOOT ?? "0") !== "0";
   }
 
+  isWorkerGuildCommandCleanupEnabled() {
+    return String(process.env.CLEAN_WORKER_GUILD_COMMANDS_ON_BOOT ?? "1") !== "0";
+  }
+
   async syncGuildCommands(source = "sync", options = {}) {
     if (!this.isGuildCommandSyncEnabled()) return;
     const payload = this.buildGuildCommandPayload();
@@ -445,6 +453,22 @@ class BotRuntime {
       source,
       logFn: (level, message) => log(level, message),
     });
+  }
+
+  async clearGuildCommandsForWorker() {
+    if (this.role !== "worker") return;
+    if (!this.isWorkerGuildCommandCleanupEnabled()) return;
+    const guildIds = [...this.client.guilds.cache.keys()];
+    if (!guildIds.length) return;
+    const applicationId = this.getApplicationId();
+    if (!applicationId) return;
+    for (const guildId of guildIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: [] }).catch((err) => {
+        log("WARN", `[${this.config.name}] Worker-Command-Cleanup fehlgeschlagen fuer Guild ${guildId}: ${err?.message || err}`);
+      });
+    }
+    log("INFO", `[${this.config.name}] Worker-Guild-Commands bereinigt (Guilds: ${guildIds.length}).`);
   }
 
   clearReconnectTimer(state) {
@@ -1823,22 +1847,59 @@ class BotRuntime {
     }
 
     try {
-      const connectionInfo = await this.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state);
-      if (connectionInfo?.channel?.type === ChannelType.GuildStageVoice) {
+      let startedBy = this.config.name;
+      if (this.role === "commander" && this.workerManager) {
+        const guildTier = getTier(event.guildId);
+        const worker = this.workerManager.findFreeWorker(event.guildId, guildTier);
+        if (!worker) {
+          patchScheduledEvent(event.id, { runAtMs: now + EVENT_SCHEDULER_RETRY_MS, enabled: true });
+          log(
+            "WARN",
+            `[${this.config.name}] Event ${event.id} wartet auf freien Worker (guild=${event.guildId}, tier=${guildTier}).`
+          );
+          return;
+        }
+
         const stageTopic = renderStageTopic(event.stageTopic, {
           event: event.name,
           station: stationResult.station?.name || event.stationKey,
           time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
         });
-        await this.ensureStageChannelReady(connectionInfo.guild, connectionInfo.channel, {
-          topic: stageTopic,
-          guildScheduledEventId: event.discordScheduledEventId || null,
-          createInstance: true,
-          ensureSpeaker: true,
-        });
+        const delegatedResult = await worker.playInGuild(
+          event.guildId,
+          event.voiceChannelId,
+          stationResult.key,
+          stationResult.stations,
+          worker.getState(event.guildId).volume || 100,
+          {
+            stageTopic,
+            guildScheduledEventId: event.discordScheduledEventId || null,
+            createStageInstance: true,
+          }
+        );
+        if (!delegatedResult.ok) {
+          throw new Error(delegatedResult.error || "Worker konnte Event nicht starten.");
+        }
+        startedBy = delegatedResult.workerName || worker.config.name;
+      } else {
+        const connectionInfo = await this.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state);
+        if (connectionInfo?.channel?.type === ChannelType.GuildStageVoice) {
+          const stageTopic = renderStageTopic(event.stageTopic, {
+            event: event.name,
+            station: stationResult.station?.name || event.stationKey,
+            time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
+          });
+          await this.ensureStageChannelReady(connectionInfo.guild, connectionInfo.channel, {
+            topic: stageTopic,
+            guildScheduledEventId: event.discordScheduledEventId || null,
+            createInstance: true,
+            ensureSpeaker: true,
+          });
+        }
+
+        await this.playStation(state, stationResult.stations, stationResult.key, event.guildId);
       }
 
-      await this.playStation(state, stationResult.stations, stationResult.key, event.guildId);
       await this.postScheduledEventAnnouncement(event, stationResult.station, eventLanguage);
 
       const nextRunAtMs = computeNextEventRunAtMs(event.runAtMs, event.repeat, now, event.timeZone);
@@ -1874,7 +1935,7 @@ class BotRuntime {
 
       log(
         "INFO",
-        `[${this.config.name}] Event gestartet: guild=${event.guildId} id=${event.id} station=${stationResult.key}`
+        `[${this.config.name}] Event gestartet: guild=${event.guildId} id=${event.id} station=${stationResult.key} via=${startedBy}`
       );
     } catch (err) {
       patchScheduledEvent(event.id, { runAtMs: now + EVENT_SCHEDULER_RETRY_MS, enabled: true });
@@ -1890,10 +1951,11 @@ class BotRuntime {
     if (!this.client.isReady()) return;
 
     const now = Date.now();
-    const events = listScheduledEvents({
+    const scheduled = listScheduledEvents({
       botId: this.config.id,
       includeDisabled: false,
     });
+    const events = Array.isArray(scheduled) ? scheduled : [];
 
     for (const event of events) {
       if (event.runAtMs > now + 1000) continue;
@@ -2028,6 +2090,21 @@ class BotRuntime {
       if (!station.ok) {
         await interaction.reply({ content: station.message, ephemeral: true });
         return;
+      }
+
+      if (this.role === "commander" && this.workerManager) {
+        const guildTier = getTier(guildId);
+        const invitedWorkers = this.workerManager.getInvitedWorkers(guildId, guildTier);
+        if (invitedWorkers.length === 0) {
+          await interaction.reply({
+            content: t(
+              "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit `/invite worker:1` einladen.",
+              "No eligible worker bot is invited on this server. Please invite one first with `/invite worker:1`."
+            ),
+            ephemeral: true,
+          });
+          return;
+        }
       }
 
       const created = createScheduledEvent({
@@ -2831,7 +2908,8 @@ class BotRuntime {
           statusText = t("Bereit", "Ready");
         }
 
-        lines.push(`\`${statusEmoji}\` **${ws.name}** - ${statusText} (${ws.totalGuilds} Server, ${ws.activeStreams} aktiv)`);
+        const botIndexText = ws.botIndex ? `, BOT_${ws.botIndex}` : "";
+        lines.push(`\`${statusEmoji}\` **${ws.name}** - ${statusText} (${ws.totalGuilds} Server, ${ws.activeStreams} aktiv, ${t("Slot", "Slot")} ${ws.index}${botIndexText})`);
       }
 
       await this.respondLongInteraction(interaction, lines.join("\n"), { ephemeral: true });
@@ -3523,7 +3601,7 @@ class BotRuntime {
         }
 
         if (!worker) {
-          const invited = this.workerManager.getInvitedWorkers(guildId);
+          const invited = this.workerManager.getInvitedWorkers(guildId, guildTier);
           if (invited.length === 0) {
             await interaction.editReply(t(
               "Kein Worker-Bot ist auf diesem Server. Nutze `/invite worker:1` zum Einladen.",
@@ -3616,41 +3694,27 @@ class BotRuntime {
    * Programmatic play - used by Commander to tell a Worker to stream.
    * Returns { ok, error? }
    */
-  async playInGuild(guildId, channelId, stationKey, stationsData, volume = 100) {
+  async playInGuild(guildId, channelId, stationKey, stationsData, volume = 100, options = {}) {
     try {
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
-
-      const channel = guild.channels.cache.get(channelId);
-      if (!channel) return { ok: false, error: "Voice-Channel nicht gefunden." };
 
       const state = this.getState(guildId);
       state.volume = volume;
       state.shouldReconnect = true;
       state.lastChannelId = channelId;
 
-      // Connect to voice
-      const connection = joinVoiceChannel({
-        channelId,
-        guildId,
-        adapterCreator: guild.voiceAdapterCreator,
-        selfDeaf: true,
-        selfMute: false,
-        group: this.voiceGroup,
-      });
-      state.connection = connection;
-      connection.subscribe(state.player);
-      this.attachConnectionHandlers(guildId, connection);
+      const connectionInfo = await this.ensureVoiceConnectionForChannel(guildId, channelId, state);
+      const { channel } = connectionInfo;
 
       // Stage channel handling
       if (channel.type === ChannelType.GuildStageVoice) {
-        await this.ensureStageChannelReady(guild, channel);
-      }
-
-      try {
-        await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
-      } catch {
-        return { ok: false, error: "Voice-Verbindung konnte nicht hergestellt werden." };
+        await this.ensureStageChannelReady(guild, channel, {
+          topic: options?.stageTopic || null,
+          guildScheduledEventId: options?.guildScheduledEventId || null,
+          createInstance: options?.createStageInstance !== false,
+          ensureSpeaker: true,
+        });
       }
 
       // Play the station

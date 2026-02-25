@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const rootDir = path.resolve(__dirname, "..");
+const rootDir = path.resolve(__dirname, "..", "..");
 const webDir = path.join(rootDir, "web");
 const logsDir = path.join(rootDir, "logs");
 const logFile = path.join(logsDir, "bot.log");

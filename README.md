@@ -45,6 +45,10 @@ docker compose logs -f omnifm
 
 ## Architektur
 
+Commander/Worker-Modus:
+- Nur der Commander registriert und beantwortet Slash-Commands.
+- Worker fuehren Stream-Jobs aus (`/play`, `/event`) und halten Voice-Verbindungen.
+
 ```
 src/
   index.js            # Haupt-Applikation
@@ -70,9 +74,14 @@ web/
 | `BOT_N_TOKEN` | Discord Bot Token |
 | `BOT_N_CLIENT_ID` | Discord Client ID |
 | `BOT_N_NAME` | Bot-Anzeigename |
+| `COMMANDER_BOT_INDEX` | Welcher `BOT_N` der Commander ist (Default: `1`) |
 | `PUBLIC_WEB_URL` | Oeffentliche URL der Website |
+| `MONGO_ENABLED` | `1` = MongoDB-Verbindung aktivieren, `0` = Datei-Store |
+| `MONGO_URL` | MongoDB Connection String (z.B. `mongodb://mongo:27017`) |
+| `DB_NAME` | MongoDB Datenbankname (Default: `radio_bot`) |
 | `CORS_ALLOWED_ORIGINS` | Komma-Liste erlaubter Web-Origin URLs (API CORS) |
 | `CHECKOUT_RETURN_ORIGINS` | Komma-Liste erlaubter Return-URLs fuer Stripe Checkout |
+| `CLEAN_WORKER_GUILD_COMMANDS_ON_BOOT` | `1` = Worker-Guild-Commands beim Start entfernen (empfohlen) |
 | `PRO_TRIAL_ENABLED` | `1` = Pro-Testmonat (1 Monat, 1x pro E-Mail) aktiv, `0` = deaktiviert |
 | `LICENSE_EXPIRY_REMINDER_DAYS` | Komma-Liste der Erinnerungen vor Ablauf (Default: `30,14,7,1`) |
 | `NOW_PLAYING_ENABLED` | `1` = Live-Now-Playing Embed im Voice-Textchat aktiv, `0` = aus |
@@ -103,6 +112,25 @@ web/
 | `VOICE_RECONNECT_MAX_MS` | `120000` | Maximaler Voice-Reconnect-Delay (Backoff-Cap) |
 | `NETWORK_COOLDOWN_BASE_MS` | `10000` | Start-Cooldown bei erkannten DNS/Netzwerkfehlern |
 | `NETWORK_COOLDOWN_MAX_MS` | `180000` | Maximaler globaler Netzwerk-Cooldown |
+
+### MongoDB (optional, Produktion)
+
+Standardmaessig laeuft OmniFM ohne MongoDB (Datei-Store).
+
+- `MONGO_ENABLED=0` und keine `MONGO_URL` -> Datei-Store.
+- `MONGO_ENABLED=1` und gueltige `MONGO_URL` -> MongoDB wird genutzt, Datei-Store bleibt als Fallback/Backup aktiv.
+
+Empfehlung fuer produktive Bot-Anbieter:
+
+1. MongoDB als eigenen Service betreiben (gleicher Host oder Managed).
+2. In `.env` setzen:
+   - `MONGO_ENABLED=1`
+   - `MONGO_URL=mongodb://<user>:<pass>@<host>:27017/?authSource=admin`
+   - `DB_NAME=omnifm`
+3. Container neu starten (`./update.sh`).
+
+Beim Start sollte im Log stehen:
+- `MongoDB-Verbindung fuer Node.js Bot hergestellt.`
 
 ### Coupon/Referral API (optional)
 

@@ -469,6 +469,7 @@ fi
 ensure_env_default "SYNC_GUILD_COMMANDS_ON_BOOT" "1"
 ensure_env_default "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1"
 ensure_env_default "CLEAN_GUILD_COMMANDS_ON_BOOT" "0"
+ensure_env_default "CLEAN_WORKER_GUILD_COMMANDS_ON_BOOT" "1"
 ensure_env_default "GUILD_COMMAND_SYNC_RETRIES" "3"
 ensure_env_default "GUILD_COMMAND_SYNC_RETRY_MS" "1200"
 ensure_env_default "PERIODIC_GUILD_COMMAND_SYNC_MS" "1800000"

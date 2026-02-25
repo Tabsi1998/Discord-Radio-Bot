@@ -61,16 +61,19 @@ try {
   process.exit(1);
 }
 
-// Commander per ENV waehlen (1-basiert), fallback auf Bot #1.
+// Commander per BOT_N waehlen (COMMANDER_BOT_INDEX=N), fallback auf ersten konfigurierten Bot.
 const configuredCommander = Number.parseInt(String(process.env.COMMANDER_BOT_INDEX || "1"), 10);
-const commanderIndex = Number.isFinite(configuredCommander) && configuredCommander >= 1 && configuredCommander <= botConfigs.length
-  ? configuredCommander - 1
-  : 0;
-if (commanderIndex !== 0) {
-  log("INFO", `Commander-Bot aus ENV: BOT_${commanderIndex + 1}`);
+const commanderIndex = Number.isFinite(configuredCommander) && configuredCommander >= 1
+  ? botConfigs.findIndex((cfg) => Number(cfg?.index || 0) === configuredCommander)
+  : -1;
+const resolvedCommanderIndex = commanderIndex >= 0 ? commanderIndex : 0;
+if (commanderIndex >= 0) {
+  log("INFO", `Commander-Bot aus ENV: BOT_${configuredCommander}`);
+} else if (Number.isFinite(configuredCommander) && configuredCommander >= 1) {
+  log("WARN", `COMMANDER_BOT_INDEX=${configuredCommander} ist nicht konfiguriert. Fallback auf BOT_${botConfigs[0]?.index || 1}.`);
 }
-const commanderConfig = botConfigs[commanderIndex];
-const workerConfigs = botConfigs.filter((_, idx) => idx !== commanderIndex);
+const commanderConfig = botConfigs[resolvedCommanderIndex];
+const workerConfigs = botConfigs.filter((_, idx) => idx !== resolvedCommanderIndex);
 
 // Create worker runtimes first (so WorkerManager can reference them)
 const workerRuntimes = workerConfigs.map((config) => new BotRuntime(config, { role: "worker" }));
@@ -161,6 +164,7 @@ if (periodicGuildSyncIntervalMs > 0) {
     periodicGuildSyncRunning = true;
     (async () => {
       for (const runtime of runtimes) {
+        if (runtime.role !== "commander") continue;
         if (!runtime.client.isReady()) continue;
         if (!runtime.isGuildCommandSyncEnabled()) continue;
         await runtime.syncGuildCommands("periodic");

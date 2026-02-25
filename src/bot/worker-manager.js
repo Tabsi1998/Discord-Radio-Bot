@@ -1,16 +1,14 @@
 // ============================================================
 // OmniFM: Worker Manager - Worker Assignment & Coordination
 // ============================================================
-import { log } from "../lib/logging.js";
-import { TIERS, TIER_RANK } from "../lib/helpers.js";
-import { getTier } from "../core/entitlements.js";
+import { TIERS } from "../lib/helpers.js";
 
 class WorkerManager {
   /**
    * @param {BotRuntime[]} workers - Worker bot instances
    */
   constructor(workers = []) {
-    this.workers = workers;
+    this.workers = [...workers].sort((a, b) => Number(a?.config?.index || 0) - Number(b?.config?.index || 0));
   }
 
   /**
@@ -23,6 +21,48 @@ class WorkerManager {
   }
 
   /**
+   * Resolve worker slot (1-based) for a runtime instance.
+   */
+  getWorkerSlot(workerRuntime) {
+    const idx = this.workers.findIndex((w) => w === workerRuntime);
+    return idx >= 0 ? idx + 1 : null;
+  }
+
+  /**
+   * Resolve worker by slot number (1-based).
+   */
+  getWorkerBySlot(slot) {
+    const workerSlot = Number.parseInt(String(slot || ""), 10);
+    if (!Number.isFinite(workerSlot) || workerSlot < 1) return null;
+    return this.workers[workerSlot - 1] || null;
+  }
+
+  /**
+   * Resolve worker by absolute BOT_N index from config.
+   */
+  getWorkerByBotIndex(botIndex) {
+    const botIdx = Number.parseInt(String(botIndex || ""), 10);
+    if (!Number.isFinite(botIdx) || botIdx < 1) return null;
+    return this.workers.find((w) => Number(w?.config?.index || 0) === botIdx) || null;
+  }
+
+  /**
+   * Resolve input index to worker + slot.
+   * Primary mode is worker-slot (1..N). For compatibility, BOT_N index is accepted as fallback.
+   */
+  resolveWorker(inputIndex) {
+    const bySlot = this.getWorkerBySlot(inputIndex);
+    if (bySlot) {
+      return { worker: bySlot, workerSlot: this.getWorkerSlot(bySlot), mode: "slot" };
+    }
+    const byBotIndex = this.getWorkerByBotIndex(inputIndex);
+    if (byBotIndex) {
+      return { worker: byBotIndex, workerSlot: this.getWorkerSlot(byBotIndex), mode: "botIndex" };
+    }
+    return null;
+  }
+
+  /**
    * Get workers available for a guild based on tier.
    * A worker is available if:
    * 1. Its index is within the tier's max (Free: 1-2, Pro: 1-8, Ultimate: 1-16)
@@ -32,8 +72,8 @@ class WorkerManager {
   getAvailableWorkers(guildId, tier = "free") {
     const maxIndex = this.getMaxWorkerIndex(tier);
     return this.workers.filter((w) => {
-      const idx = Number(w.config.index || 0);
-      if (idx < 1 || idx > maxIndex) return false;
+      const workerSlot = this.getWorkerSlot(w);
+      if (!workerSlot || workerSlot > maxIndex) return false;
       if (!w.client?.isReady()) return false;
       if (!w.client.guilds.cache.has(guildId)) return false;
       const state = w.guildState.get(guildId);
@@ -45,8 +85,11 @@ class WorkerManager {
   /**
    * Get all workers that are invited to a guild (regardless of streaming state).
    */
-  getInvitedWorkers(guildId) {
+  getInvitedWorkers(guildId, tier = null) {
+    const maxIndex = tier ? this.getMaxWorkerIndex(tier) : Number.POSITIVE_INFINITY;
     return this.workers.filter((w) => {
+      const workerSlot = this.getWorkerSlot(w);
+      if (!workerSlot || workerSlot > maxIndex) return false;
       if (!w.client?.isReady()) return false;
       return w.client.guilds.cache.has(guildId);
     });
@@ -59,15 +102,15 @@ class WorkerManager {
   findFreeWorker(guildId, tier = "free") {
     const available = this.getAvailableWorkers(guildId, tier);
     if (available.length === 0) return null;
-    available.sort((a, b) => Number(a.config.index || 0) - Number(b.config.index || 0));
+    available.sort((a, b) => Number(this.getWorkerSlot(a) || 0) - Number(this.getWorkerSlot(b) || 0));
     return available[0];
   }
 
   /**
-   * Get a specific worker by index.
+   * Get a specific worker by slot (preferred) or BOT_N index (fallback).
    */
   getWorkerByIndex(index) {
-    return this.workers.find((w) => Number(w.config.index || 0) === Number(index));
+    return this.resolveWorker(index)?.worker || null;
   }
 
   /**
@@ -87,7 +130,8 @@ class WorkerManager {
    */
   getAllStatuses() {
     return this.workers.map((w) => {
-      const idx = Number(w.config.index || 0);
+      const slot = this.getWorkerSlot(w);
+      const botIndex = Number(w?.config?.index || 0) || null;
       const guilds = [];
       if (w.client?.isReady()) {
         for (const [guildId, state] of w.guildState.entries()) {
@@ -105,7 +149,8 @@ class WorkerManager {
       }
 
       return {
-        index: idx,
+        index: slot,
+        botIndex,
         name: w.config.name,
         online: Boolean(w.client?.isReady()),
         totalGuilds: w.client?.isReady() ? w.client.guilds.cache.size : 0,
@@ -121,20 +166,22 @@ class WorkerManager {
    */
   canUseWorker(workerIndex, guildId, tier = "free") {
     const maxIndex = this.getMaxWorkerIndex(tier);
-    if (workerIndex < 1 || workerIndex > maxIndex) {
+    const resolved = this.resolveWorker(workerIndex);
+    if (!resolved) {
+      return { ok: false, reason: "not_configured", maxIndex };
+    }
+    const workerSlot = Number(resolved.workerSlot || 0);
+    if (!workerSlot || workerSlot > maxIndex) {
       return { ok: false, reason: "tier", maxIndex };
     }
-    const worker = this.getWorkerByIndex(workerIndex);
-    if (!worker) {
-      return { ok: false, reason: "not_configured" };
-    }
+    const worker = resolved.worker;
     if (!worker.client?.isReady()) {
       return { ok: false, reason: "offline" };
     }
     if (!worker.client.guilds.cache.has(guildId)) {
       return { ok: false, reason: "not_invited" };
     }
-    return { ok: true, worker };
+    return { ok: true, worker, workerSlot, mode: resolved.mode };
   }
 }
 
