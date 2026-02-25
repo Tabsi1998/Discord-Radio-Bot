@@ -978,22 +978,27 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
 
   if [[ "$MODE" == "--bots" ]]; then
     bot_count=$(count_bots)
+    commander_idx=$(read_env "COMMANDER_BOT_INDEX" "1")
     echo ""
-    echo -e "  ${BOLD}Bot-Verwaltung${NC} (${bot_count} Bots konfiguriert)"
+    echo -e "  ${BOLD}Bot-Verwaltung${NC} (${bot_count} Bots konfiguriert, Commander: Bot #${commander_idx})"
     echo "  ────────────────────────────────────"
     echo ""
     echo -e "    ${CYAN}1${NC}) Bots anzeigen"
     echo -e "    ${GREEN}2${NC}) Bot hinzufuegen"
     echo -e "    ${YELLOW}3${NC}) Bot bearbeiten (Name, Tier, Token)"
     echo -e "    ${RED}4${NC}) Bot entfernen"
-    echo -e "    ${DIM}5${NC}) Zurueck"
+    echo -e "    ${MAGENTA}5${NC}) Commander festlegen"
+    echo -e "    ${CYAN}6${NC}) Rollen-Uebersicht (Commander/Worker)"
+    echo -e "    ${DIM}7${NC}) Zurueck"
     echo ""
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-5]${NC}: ")" BOT_CHOICE
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-7]${NC}: ")" BOT_CHOICE
     case "${BOT_CHOICE:-}" in
       1) MODE="--show-bots" ;;
       2) MODE="--add-bot" ;;
       3) MODE="--edit-bot" ;;
       4) MODE="--remove-bot" ;;
+      5) MODE="--set-commander" ;;
+      6) MODE="--show-roles" ;;
       *) exit 0 ;;
     esac
   fi
