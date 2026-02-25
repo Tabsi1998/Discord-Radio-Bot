@@ -35,10 +35,9 @@ class WorkerManager {
       const idx = Number(w.config.index || 0);
       if (idx < 1 || idx > maxIndex) return false;
       if (!w.client?.isReady()) return false;
-      const guild = w.client.guilds.cache.get(guildId);
-      if (!guild) return false;
+      if (!w.client.guilds.cache.has(guildId)) return false;
       const state = w.guildState.get(guildId);
-      if (state?.playing) return false;
+      if (state?.currentStationKey && state?.connection) return false;
       return true;
     });
   }
@@ -78,8 +77,8 @@ class WorkerManager {
    */
   getStreamingWorkers(guildId) {
     return this.workers.filter((w) => {
-      const state = w.guildStates.get(guildId);
-      return state?.playing;
+      const state = w.guildState.get(guildId);
+      return state?.currentStationKey && state?.connection;
     });
   }
 
@@ -92,14 +91,14 @@ class WorkerManager {
       const guilds = [];
       if (w.client?.isReady()) {
         for (const [guildId, state] of w.guildState.entries()) {
-          if (state?.playing) {
+          if (state?.currentStationKey && state?.connection) {
             const guild = w.client.guilds.cache.get(guildId);
             guilds.push({
               guildId,
               guildName: guild?.name || "Unknown",
-              stationKey: state.stationKey || null,
-              stationName: state.stationName || null,
-              channelId: state.channelId || null,
+              stationKey: state.currentStationKey || null,
+              stationName: state.currentStationName || null,
+              channelId: state.lastChannelId || null,
             });
           }
         }
