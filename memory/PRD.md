@@ -1,68 +1,106 @@
 # OmniFM v3.0 - Project Requirements Document
 
 ## Original Problem Statement
-1. Vollständige Analyse des GitHub-Repositories "Discord-Radio-Bot" (OmniFM v3.0)
-2. src/index.js Aufspaltung (7157 Zeilen → modulare Architektur)
-3. MongoDB-Migration für Backend
-4. Commander/Worker Bot-Architektur (Phase 2)
+Refactoring & modernization of a Node.js Discord Radio Bot project:
+- **Phase 1:** Refactor monolithic `src/index.js` into modular structure + migrate backend to MongoDB
+- **Phase 2:** Re-architect bot into Commander/Worker model with tiered worker access
+- **Phase 3:** Migrate all remaining JSON stores to MongoDB
+- **Phase 4:** Web UI updates (Worker Dashboard) + TypeScript migration
 
-## Tech Stack
-- **Runtime:** Node.js 20 (ES Modules), discord.js v14.17.3
-- **Audio:** @discordjs/voice, FFmpeg
-- **Payment:** Stripe v17.0.0
-- **Email:** Nodemailer v8.0.1
-- **Deployment:** Docker
-- **Datenbank:** JSON (Bot) + MongoDB (Backend API)
-- **Backend API:** FastAPI (Python)
-- **Web Frontend:** Vanilla HTML/CSS/JS
+## User Personas
+- Discord server owners wanting 24/7 radio streaming
+- Bot administrators managing multiple workers
+- Premium users needing more simultaneous streams
 
-## Modulare Architektur (Phase 1 abgeschlossen)
+## Core Requirements
+1. Commander/Worker Architecture: One DJ bot handles commands, worker bots handle audio streaming
+2. Tiered access: Free (2), Pro (8), Ultimate (16) workers
+3. MongoDB for all data persistence
+4. Modern React-based web dashboard
 
-### src/ Struktur nach Aufspaltung:
+## Architecture
 ```
-src/
-├── index.js                  (239 Zeilen, war: 7157)
-├── bot/runtime.js            (3566 Zeilen, BotRuntime Klasse)
-├── api/server.js             (1042 Zeilen, Web-Server + Routes)
-├── lib/
-│   ├── api-helpers.js        (579 Zeilen, HTTP/CORS/Auth)
-│   ├── helpers.js            (369 Zeilen, Utilities)
-│   ├── event-time.js         (408 Zeilen, Event-Scheduling)
-│   ├── logging.js            (138 Zeilen, Logging-System)
-│   └── language.js           (90 Zeilen, i18n Helfer)
-├── services/
-│   ├── payment.js            (657 Zeilen, Stripe/Email)
-│   ├── now-playing.js        (245 Zeilen, ICY Metadata)
-│   └── stream.js             (150 Zeilen, Audio-Stream)
-├── core/
-│   ├── entitlements.js       (bestehend)
-│   └── network-recovery.js   (69 Zeilen, Netzwerk-Recovery)
-├── config/plans.js           (bestehend)
-├── ...stores                 (bestehend, unverändert)
+/app/
+├── backend/          # FastAPI backend (MongoDB)
+├── frontend/         # React frontend (Workers Dashboard, etc.)
+├── src/              # Node.js bot (Commander/Worker architecture)
+│   ├── api/          # Express.js internal API
+│   ├── bot/          # BotRuntime, WorkerManager
+│   ├── core/         # NetworkRecovery, Entitlements
+│   ├── config/       # Plans, command permissions config
+│   ├── lib/          # DB connection, logging, helpers, i18n
+│   ├── services/     # Payments, streaming, now-playing
+│   ├── ui/           # Embed builders
+│   ├── utils/        # Command sync guard
+│   ├── commands.js   # Slash command definitions (21 commands)
+│   └── index.js      # Main entry (Commander + Worker init)
+└── web/              # Original static web interface (legacy)
 ```
 
-### MongoDB Migration:
-- Stationen aus stations.json → MongoDB `stations` Collection (120 Einträge)
-- Premium-Daten → MongoDB `licenses`, `server_entitlements`, `processed_sessions`
-- Fallback auf JSON wenn MongoDB nicht verfügbar
+## What's Been Implemented
 
-## Was wurde implementiert
-- [2026-02-25] Repo analysiert und Preview lauffähig gemacht
-- [2026-02-25] /api/commands: 21 Commands (inkl. /help, /event, /license, /perm)
-- [2026-02-25] Phase 1: index.js von 7157 → 239 Zeilen (12 Module)
-- [2026-02-25] Phase 1: MongoDB-Migration für Backend
-- [2026-02-25] Tests: 100% bestanden (Backend 15/15 + Frontend 100%)
+### Phase 1 (COMPLETE)
+- Code modularization: 7157-line index.js → 12 modules
+- Backend stations/premium data migrated to MongoDB
+- Full test pass (iteration_1.json)
 
-## Phase 2: Commander/Worker Architektur (nächster Schritt)
-- OmniFM DJ = Commander Bot (Slash Commands, Management)
-- OmniFM 1-16 = Worker Bots (Audio-Streaming)
-- Automatische Worker-Zuweisung
-- DJ lädt Worker per /command ein (basierend auf Tier)
-- Worker zeigen Now-Playing Embeds
-- Tier: Free=DJ+Worker 1-2, Pro=DJ+Worker 1-8, Ultimate=DJ+Worker 1-16
-- Events: DJ weist automatisch freien Worker zu
+### Phase 2 (COMPLETE)
+- Commander/Worker architecture in BotRuntime
+- WorkerManager class for worker allocation
+- /invite, /workers commands + /play delegation
+- Command delegation for stop/pause/resume/setvolume
+- Worker helper methods (playInGuild, stopInGuild, etc.)
+- index.js: Commander + Worker pool initialization
+- setLicenseProvider wired up for tier detection
+- Fixed bugs: guildStates→guildState, setupVoiceConnectionHandlers→attachConnectionHandlers
+- Fixed missing imports (REST, Routes, PermissionFlagsBits, etc.)
+- Added getTierConfig/getLicense compatibility wrappers
 
-## Backlog
-- P0: Phase 2 Commander/Worker Architektur
-- P1: Test-Suite für Node.js Bot
-- P2: TypeScript Migration
+### Phase 3 (COMPLETE - MongoDB Migration)
+- `bot-state.js` → MongoDB collection `bot_state`
+- `guild-language-store.js` → MongoDB collection `guild_languages`
+- `song-history-store.js` → MongoDB collection `song_history`
+- `custom-stations.js` → MongoDB collection `custom_stations`
+- `command-permissions-store.js` → MongoDB collection `command_permissions`
+- `scheduled-events-store.js` → MongoDB collection `scheduled_events`
+- `coupon-store.js` → MongoDB collections `coupon_offers` + `coupon_redemptions`
+- `premium-store.js` → MongoDB with in-memory cache
+- `stations-store.js` → MongoDB with JSON file fallback
+- Shared `src/lib/db.js` MongoDB connection module
+
+### Phase 4 (COMPLETE - Web UI)
+- React app properly enabled (was previously disabled)
+- New WorkerDashboard component showing Commander/Worker system
+- Tier overview cards (Free: 2, Pro: 8, Ultimate: 16)
+- Workers nav link added
+- New /api/workers backend endpoint
+- Full test pass (iteration_6.json, 100% backend + frontend)
+
+## Key API Endpoints
+- `/api/health` - Health check
+- `/api/stations` - Radio stations from MongoDB (120)
+- `/api/stats` - Bot statistics
+- `/api/commands` - 21 slash commands
+- `/api/bots` - Bot directory
+- `/api/workers` - Commander/Worker architecture status (NEW)
+- `/api/premium/*` - License management
+
+## Database Collections
+### MongoDB (Backend - FastAPI)
+- `stations`, `premium` (licenses), `server_entitlements`, `processed_sessions`
+
+### MongoDB (Bot - Node.js)
+- `bot_state`, `guild_languages`, `song_history`, `custom_stations`
+- `command_permissions`, `scheduled_events`
+- `coupon_offers`, `coupon_redemptions`
+- `licenses`, `server_entitlements`, `processed_sessions`, `processed_events`, `trial_claims`
+
+## Prioritized Backlog
+### P0 - None (all critical work complete)
+### P1 - Future Improvements
+- TypeScript migration
+- Node.js test suite
+- Real Discord bot testing with tokens
+### P2 - Nice to Have
+- update.sh script validation
+- Admin panel for worker management
