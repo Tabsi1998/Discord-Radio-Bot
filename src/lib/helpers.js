@@ -38,11 +38,11 @@ const MIME_TYPES = {
 };
 
 // ---- Validation ----
-function normalizeSeats(rawSeats) {
-  const value = Number(rawSeats) || 1;
-  const closest = SEAT_OPTIONS.reduce((best, opt) =>
+function normalizeDuration(rawMonths) {
+  const value = Number(rawMonths) || 1;
+  const closest = DURATION_OPTIONS.reduce((best, opt) =>
     Math.abs(opt - value) < Math.abs(best - value) ? opt : best
-  , SEAT_OPTIONS[0]);
+  , DURATION_OPTIONS[0]);
   return closest;
 }
 
