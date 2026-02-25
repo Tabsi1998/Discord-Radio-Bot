@@ -3595,7 +3595,7 @@ class BotRuntime {
       });
       state.connection = connection;
       connection.subscribe(state.player);
-      this.setupVoiceConnectionHandlers(state, guildId);
+      this.attachConnectionHandlers(guildId, connection);
 
       // Stage channel handling
       if (channel.type === ChannelType.GuildStageVoice) {
