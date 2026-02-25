@@ -1,13 +1,13 @@
 // ============================================================
 // OmniFM: Network Recovery Coordinator
 // ============================================================
-import { log } from "./logging.js";
+import { log } from "../lib/logging.js";
 import {
   NETWORK_COOLDOWN_BASE_MS,
   NETWORK_COOLDOWN_MAX_MS,
   NETWORK_FAILURE_RESET_MS,
   applyJitter,
-} from "./helpers.js";
+} from "../lib/helpers.js";
 
 class NetworkRecoveryCoordinator {
   constructor() {

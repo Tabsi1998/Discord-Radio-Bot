@@ -125,6 +125,10 @@ function Premium() {
   const [result, setResult] = useState('');
   const [resultColor, setResultColor] = useState('#52525B');
   const [checkingStatus, setCheckingStatus] = useState(false);
+  const [buyEmail, setBuyEmail] = useState('');
+  const [buyDuration, setBuyDuration] = useState({});
+  const [buyLoading, setBuyLoading] = useState('');
+  const [buyError, setBuyError] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
