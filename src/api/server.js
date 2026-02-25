@@ -45,7 +45,7 @@ import {
   enforceApiRateLimit,
   getClientIp,
 } from "../lib/api-helpers.js";
-import { loadStations, loadStationDetails } from "../stations-store.js";
+import { loadStations } from "../stations-store.js";
 import { getTier, checkFeatureAccess } from "../core/entitlements.js";
 import {
   getServerLicense,
