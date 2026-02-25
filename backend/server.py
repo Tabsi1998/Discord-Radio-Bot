@@ -770,21 +770,43 @@ async def get_bots():
 
 @app.get("/api/stations")
 async def get_stations():
-    file_data = load_stations_from_file()
-    file_stations = file_data.get("stations", {})
     stations_list = []
-    for key, val in file_stations.items():
-        stations_list.append({
-            "key": key,
-            "name": val.get("name", key),
-            "url": val.get("url", ""),
-            "tier": val.get("tier", "free"),
-        })
-    # Sort: free first, then pro, then ultimate
+    if db is not None:
+        try:
+            for doc in db.stations.find({}, {"_id": 0}):
+                stations_list.append({
+                    "key": doc.get("key", ""),
+                    "name": doc.get("name", doc.get("key", "")),
+                    "url": doc.get("url", ""),
+                    "tier": doc.get("tier", "free"),
+                })
+        except Exception:
+            pass
+    if not stations_list:
+        file_data = load_stations_from_file()
+        file_stations = file_data.get("stations", {})
+        for key, val in file_stations.items():
+            stations_list.append({
+                "key": key,
+                "name": val.get("name", key),
+                "url": val.get("url", ""),
+                "tier": val.get("tier", "free"),
+            })
     tier_order = {"free": 0, "pro": 1, "ultimate": 2}
     stations_list.sort(key=lambda s: (tier_order.get(s["tier"], 0), s["name"]))
+    default_key = None
+    if db is not None:
+        try:
+            default_doc = db.stations.find_one({"is_default": True}, {"_id": 0, "key": 1})
+            if default_doc:
+                default_key = default_doc.get("key")
+        except Exception:
+            pass
+    if not default_key:
+        file_data = load_stations_from_file()
+        default_key = file_data.get("defaultStationKey")
     return {
-        "defaultStationKey": file_data.get("defaultStationKey"),
+        "defaultStationKey": default_key,
         "total": len(stations_list),
         "stations": stations_list
     }
