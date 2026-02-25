@@ -1195,6 +1195,98 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     restart_container
     exit 0
   fi
+
+  # --- Set Commander ---
+  if [[ "$MODE" == "--set-commander" ]]; then
+    bot_count=$(count_bots)
+    commander_idx=$(read_env "COMMANDER_BOT_INDEX" "1")
+    echo ""
+    echo -e "  ${BOLD}Commander festlegen${NC}"
+    echo "  ────────────────────────────────────"
+    echo ""
+    echo -e "  Der Commander-Bot nimmt alle Slash-Commands entgegen"
+    echo -e "  und delegiert Audio-Streaming an die Worker-Bots."
+    echo ""
+    echo -e "  ${DIM}Aktueller Commander: Bot #${commander_idx}${NC}"
+    echo ""
+
+    if [[ "$bot_count" -eq 0 ]]; then
+      fail "Keine Bots konfiguriert."
+      exit 1
+    fi
+
+    for i in $(seq 1 "$bot_count"); do
+      name=$(read_env "BOT_${i}_NAME" "Bot ${i}")
+      marker=""
+      if [[ "$i" == "$commander_idx" ]]; then
+        marker=" ${CYAN}(aktueller Commander)${NC}"
+      fi
+      echo -e "    ${CYAN}${i}${NC}) ${name}${marker}"
+    done
+    echo ""
+
+    read -rp "$(echo -e "  ${CYAN}?${NC} Welcher Bot soll Commander sein? [1-${bot_count}]: ")" NEW_COMMANDER
+    if [[ "$NEW_COMMANDER" =~ ^[0-9]+$ ]] && (( NEW_COMMANDER >= 1 && NEW_COMMANDER <= bot_count )); then
+      write_env_line "COMMANDER_BOT_INDEX" "$NEW_COMMANDER"
+      new_name=$(read_env "BOT_${NEW_COMMANDER}_NAME" "Bot ${NEW_COMMANDER}")
+      ok "Commander gesetzt: Bot #${NEW_COMMANDER} (${new_name})"
+      echo -e "  ${DIM}Alle anderen Bots werden automatisch als Worker gestartet.${NC}"
+      restart_container
+    else
+      fail "Ungueltige Auswahl."
+    fi
+    exit 0
+  fi
+
+  # --- Show Roles ---
+  if [[ "$MODE" == "--show-roles" ]]; then
+    bot_count=$(count_bots)
+    commander_idx=$(read_env "COMMANDER_BOT_INDEX" "1")
+    echo ""
+    echo -e "  ${BOLD}Commander/Worker Architektur${NC}"
+    echo "  ────────────────────────────────────"
+    echo ""
+    echo -e "  ${DIM}Der Commander (OmniFM DJ) nimmt alle /slash-commands entgegen.${NC}"
+    echo -e "  ${DIM}Worker-Bots streamen die Musik in den Voice-Channels.${NC}"
+    echo -e "  ${DIM}Nutzer laden Worker per /invite ein, Commander delegiert per /play.${NC}"
+    echo ""
+
+    if [[ "$bot_count" -eq 0 ]]; then
+      warn "Keine Bots konfiguriert."
+      exit 0
+    fi
+
+    echo -e "  ${CYAN}COMMANDER:${NC}"
+    cmd_name=$(read_env "BOT_${commander_idx}_NAME" "Bot ${commander_idx}")
+    cmd_cid=$(read_env "BOT_${commander_idx}_CLIENT_ID" "?")
+    echo -e "    ${CYAN}#${commander_idx}${NC} ${BOLD}${cmd_name}${NC} (Client: ${DIM}${cmd_cid}${NC})"
+    echo ""
+
+    echo -e "  ${GREEN}WORKER:${NC}"
+    worker_count=0
+    for i in $(seq 1 "$bot_count"); do
+      if [[ "$i" != "$commander_idx" ]]; then
+        w_name=$(read_env "BOT_${i}_NAME" "Bot ${i}")
+        w_tier=$(read_env "BOT_${i}_TIER" "free")
+        w_cid=$(read_env "BOT_${i}_CLIENT_ID" "?")
+        echo -e "    ${GREEN}#${i}${NC} ${w_name} $(tier_badge "$w_tier") (Client: ${DIM}${w_cid}${NC})"
+        worker_count=$((worker_count + 1))
+      fi
+    done
+
+    if [[ "$worker_count" -eq 0 ]]; then
+      echo -e "    ${DIM}Keine Worker konfiguriert. Fuege Bots hinzu mit: ./update.sh --add-bot${NC}"
+    fi
+    echo ""
+
+    echo -e "  ${BOLD}Tier-Limits:${NC}"
+    echo -e "    Free:     Max. 2 Worker"
+    echo -e "    Pro:      Max. 8 Worker"
+    echo -e "    Ultimate: Max. 16 Worker"
+    echo ""
+    exit 0
+  fi
+
 fi
 
 # ============================================================
