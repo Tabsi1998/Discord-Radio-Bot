@@ -72,9 +72,9 @@ function centsToEuro(cents) {
 function normalizeTier(rawTier, fallbackTier) {
   const tier = rawTier && typeof rawTier === 'object' ? rawTier : {};
   const fallback = fallbackTier || {};
-  const rawSeatPricing = tier.seatPricing && typeof tier.seatPricing === 'object'
-    ? tier.seatPricing
-    : (fallback.seatPricing || {});
+  const rawDurationPricing = tier.durationPricing && typeof tier.durationPricing === 'object'
+    ? tier.durationPricing
+    : (fallback.durationPricing || {});
 
   return {
     name: String(tier.name || fallback.name || 'Plan'),
@@ -85,19 +85,19 @@ function normalizeTier(rawTier, fallbackTier) {
     features: Array.isArray(tier.features) && tier.features.length > 0
       ? tier.features
       : (Array.isArray(fallback.features) ? fallback.features : []),
-    seatPricing: rawSeatPricing,
+    durationPricing: rawDurationPricing,
   };
 }
 
 function normalizePricing(rawPricing) {
   const raw = rawPricing && typeof rawPricing === 'object' ? rawPricing : {};
   const rawTiers = raw.tiers && typeof raw.tiers === 'object' ? raw.tiers : {};
-  const seatOptions = Array.isArray(raw.seatOptions) && raw.seatOptions.length > 0
-    ? raw.seatOptions
-    : FALLBACK_PRICING.seatOptions;
+  const durations = Array.isArray(raw.durations) && raw.durations.length > 0
+    ? raw.durations
+    : FALLBACK_PRICING.durations;
 
   return {
-    seatOptions,
+    durations,
     tiers: {
       free: normalizeTier(rawTiers.free, FALLBACK_PRICING.tiers.free),
       pro: normalizeTier(rawTiers.pro, FALLBACK_PRICING.tiers.pro),
