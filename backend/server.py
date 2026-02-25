@@ -633,12 +633,26 @@ def get_duration_price(tier, months):
     return pricing.get(months, pricing.get(1, 0))
 
 
+def get_seat_monthly_total(tier, seats):
+    seats = max(1, int(seats) if isinstance(seats, (int, float)) else 1)
+    seat_pricing = SEAT_MONTHLY_TOTAL_CENTS.get(tier, {})
+    if seats in seat_pricing:
+        return seat_pricing[seats]
+    closest = min(SEAT_OPTIONS, key=lambda x: abs(x - seats))
+    return seat_pricing.get(closest, seat_pricing.get(1, 0))
+
+
 def calculate_price(tier, months, seats=1):
     months = normalize_duration(months)
-    ppm = get_duration_price(tier, months)
-    if not ppm:
+    seats = max(1, int(seats) if isinstance(seats, (int, float)) else 1)
+    base_1mo = get_duration_price(tier, 1)
+    duration_1mo = get_duration_price(tier, months)
+    if base_1mo <= 0:
         return 0
-    return months * ppm
+    discount_ratio = duration_1mo / base_1mo
+    seat_total_1mo = get_seat_monthly_total(tier, seats)
+    price_per_month = round(seat_total_1mo * discount_ratio)
+    return months * price_per_month
 
 
 def calculate_upgrade_price(server_id, new_tier):
