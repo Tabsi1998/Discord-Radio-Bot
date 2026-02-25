@@ -1,228 +1,133 @@
-import fs from "node:fs";
-import path from "node:path";
-import net from "node:net";
-import { fileURLToPath } from "node:url";
+// ============================================================================
+// custom-stations.js – MongoDB-basiert (migriert von JSON-Datei)
+// ============================================================================
+import { getDb } from "./lib/db.js";
+import { log } from "./lib/logging.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json");
-const CUSTOM_BACKUP_FILE = path.resolve(__dirname, "..", "custom-stations.json.bak");
-const MAX_STATIONS_PER_GUILD = 50;
+const COLLECTION = "custom_stations";
+const MAX_STATIONS_PER_GUILD = 10;
 
-function readStationsFile(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  if (fs.statSync(filePath).isDirectory()) {
-    console.warn(`[custom-stations] ${filePath} ist ein Verzeichnis - ueberspringe.`);
-    return null;
-  }
-  const raw = fs.readFileSync(filePath, "utf8");
-  if (!raw.trim()) return {};
-  return JSON.parse(raw);
+function col() {
+  const db = getDb();
+  return db ? db.collection(COLLECTION) : null;
 }
 
-function load() {
-  const candidates = [CUSTOM_FILE, CUSTOM_BACKUP_FILE];
-  for (const filePath of candidates) {
-    try {
-      const data = readStationsFile(filePath);
-      if (data) {
-        if (filePath === CUSTOM_BACKUP_FILE) {
-          console.warn("[custom-stations] Verwende Backup-Datei custom-stations.json.bak");
-        }
-        return data;
-      }
-    } catch (err) {
-      console.error(`[custom-stations] Load error (${filePath}): ${err.message}`);
-    }
-  }
-  return {};
-}
-
-function save(data) {
-  const tmpFile = `${CUSTOM_FILE}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    if (fs.existsSync(CUSTOM_FILE) && fs.statSync(CUSTOM_FILE).isDirectory()) {
-      console.warn(`[custom-stations] ${CUSTOM_FILE} ist ein Verzeichnis - Speichern uebersprungen.`);
-      return;
-    }
-
-    if (fs.existsSync(CUSTOM_FILE)) {
-      try {
-        fs.copyFileSync(CUSTOM_FILE, CUSTOM_BACKUP_FILE);
-      } catch (copyErr) {
-        console.error(`[custom-stations] Backup warnung: ${copyErr.message}`);
-      }
-    }
-
-    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2) + "\n", "utf8");
-    try {
-      fs.renameSync(tmpFile, CUSTOM_FILE);
-    } catch (renameErr) {
-      const code = String(renameErr?.code || "");
-      if (["EBUSY", "EPERM", "EACCES", "EXDEV"].includes(code)) {
-        fs.writeFileSync(CUSTOM_FILE, JSON.stringify(data, null, 2) + "\n", "utf8");
-        console.warn(`[custom-stations] Atomic rename nicht moeglich (${code}), nutze direkten Write-Fallback.`);
-      } else {
-        throw renameErr;
-      }
-    }
-  } catch (err) {
-    console.error(`[custom-stations] Save error: ${err.message}`);
-  } finally {
-    try {
-      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
-    } catch {
-      // ignore
-    }
-  }
-}
-
-function sanitizeKey(raw) {
-  return String(raw || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").substring(0, 40);
-}
-
-function isPrivateIpv4(hostname) {
-  const parts = String(hostname || "").split(".").map((p) => Number.parseInt(p, 10));
-  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return false;
-  const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
-}
-
-function legacyHostToIpv4(hostname) {
-  const host = String(hostname || "").trim().toLowerCase();
-  if (!host) return null;
-
-  let value = null;
-  if (/^\d+$/.test(host)) {
-    value = BigInt(host);
-  } else if (/^0x[0-9a-f]+$/i.test(host)) {
-    value = BigInt(host);
-  } else if (/^0[0-7]+$/.test(host) && host !== "0") {
-    value = BigInt(`0o${host.slice(1)}`);
-  }
-
-  if (value === null) return null;
-  if (value < 0n || value > 0xFFFFFFFFn) return null;
-
-  const a = Number((value >> 24n) & 0xFFn);
-  const b = Number((value >> 16n) & 0xFFn);
-  const c = Number((value >> 8n) & 0xFFn);
-  const d = Number(value & 0xFFn);
-  return `${a}.${b}.${c}.${d}`;
-}
-
-function isPrivateOrLocalHost(hostnameInput) {
-  const hostname = String(hostnameInput || "").trim().toLowerCase().replace(/\.$/, "");
-  if (!hostname) return true;
-  if (hostname === "localhost" || hostname === "0.0.0.0") return true;
-  if (hostname.endsWith(".nip.io") || hostname.endsWith(".sslip.io")) return true;
-  if (hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".lan") || hostname.endsWith(".home")) {
-    return true;
-  }
-
-  const legacyIpv4 = legacyHostToIpv4(hostname);
-  if (legacyIpv4 && isPrivateIpv4(legacyIpv4)) {
-    return true;
-  }
-
-  const ipVersion = net.isIP(hostname);
-  if (ipVersion === 4) {
-    return isPrivateIpv4(hostname);
-  }
-
-  if (ipVersion === 6) {
-    if (hostname === "::1" || hostname === "::") return true;
-    if (hostname.startsWith("fe80:")) return true; // link-local
-    if (hostname.startsWith("fc") || hostname.startsWith("fd")) return true; // unique local
-    if (hostname.startsWith("::ffff:127.")) return true; // mapped loopback
-  }
-
-  return false;
-}
-
-function validateCustomStationUrl(rawUrl) {
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(String(rawUrl || "").trim());
-  } catch {
-    return { ok: false, error: "URL-Format ungueltig." };
-  }
-  if (!/^https?:$/i.test(parsedUrl.protocol)) {
+function validateCustomStationUrl(url) {
+  if (!url || typeof url !== "string") return { ok: false, error: "URL fehlt." };
+  const trimmed = url.trim();
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://"))
     return { ok: false, error: "URL muss mit http:// oder https:// beginnen." };
-  }
-  if (parsedUrl.username || parsedUrl.password) {
-    return { ok: false, error: "URL mit Benutzername/Passwort sind nicht erlaubt." };
-  }
-  if (isPrivateOrLocalHost(parsedUrl.hostname)) {
-    return { ok: false, error: "Lokale/private Hosts sind nicht erlaubt." };
-  }
-  return { ok: true, url: parsedUrl.toString() };
+  if (trimmed.length > 512)
+    return { ok: false, error: "URL darf max. 512 Zeichen lang sein." };
+  return { ok: true, error: null };
 }
 
-function getGuildStations(guildId) {
-  const data = load();
-  return data[String(guildId)] || {};
+async function getGuildStations(guildId) {
+  const c = col();
+  if (!c) return {};
+  try {
+    const docs = await c
+      .find({ guildId: String(guildId) }, { projection: { _id: 0, guildId: 0, createdAt: 0 } })
+      .toArray();
+    const result = {};
+    for (const doc of docs) {
+      result[doc.key] = { name: doc.name, url: doc.url };
+    }
+    return result;
+  } catch (err) {
+    log("ERROR", `getGuildStations fehlgeschlagen: ${err.message}`);
+    return {};
+  }
 }
 
-function addGuildStation(guildId, key, name, url) {
-  const data = load();
+async function addGuildStation(guildId, key, name, url) {
+  const c = col();
+  if (!c) return { ok: false, error: "DB nicht verfuegbar." };
   const gid = String(guildId);
-  if (!data[gid]) data[gid] = {};
+  const normalizedKey = String(key).toLowerCase().trim();
 
-  const existing = Object.keys(data[gid]).length;
-  if (existing >= MAX_STATIONS_PER_GUILD) {
-    return { error: `Maximum ${MAX_STATIONS_PER_GUILD} Custom-Stationen erreicht.` };
+  try {
+    const count = await c.countDocuments({ guildId: gid });
+    if (count >= MAX_STATIONS_PER_GUILD) {
+      return { ok: false, error: `Max. ${MAX_STATIONS_PER_GUILD} Custom-Stationen erreicht.` };
+    }
+
+    const existing = await c.findOne({ guildId: gid, key: normalizedKey });
+    if (existing) {
+      return { ok: false, error: `Station '${normalizedKey}' existiert bereits.` };
+    }
+
+    await c.insertOne({
+      guildId: gid,
+      key: normalizedKey,
+      name: String(name).trim(),
+      url: String(url).trim(),
+      createdAt: new Date(),
+    });
+    return { ok: true };
+  } catch (err) {
+    log("ERROR", `addGuildStation fehlgeschlagen: ${err.message}`);
+    return { ok: false, error: err.message };
   }
-
-  const sKey = sanitizeKey(key);
-  if (!sKey) return { error: "Ungueltiger Station-Key." };
-  if (!name || !name.trim()) return { error: "Name darf nicht leer sein." };
-  if (!url || !url.trim()) return { error: "URL darf nicht leer sein." };
-
-  const validation = validateCustomStationUrl(url);
-  if (!validation.ok) return { error: validation.error };
-
-  data[gid][sKey] = {
-    name: name.trim().substring(0, 100),
-    url: validation.url,
-    addedAt: new Date().toISOString(),
-  };
-  save(data);
-  return { success: true, key: sKey, station: data[gid][sKey] };
 }
 
-function removeGuildStation(guildId, key) {
-  const data = load();
-  const gid = String(guildId);
-  if (!data[gid] || !data[gid][key]) return false;
-  delete data[gid][key];
-  if (Object.keys(data[gid]).length === 0) delete data[gid];
-  save(data);
-  return true;
+async function removeGuildStation(guildId, key) {
+  const c = col();
+  if (!c) return { ok: false, error: "DB nicht verfuegbar." };
+  try {
+    const result = await c.deleteOne({ guildId: String(guildId), key: String(key).toLowerCase().trim() });
+    if (result.deletedCount === 0) {
+      return { ok: false, error: "Station nicht gefunden." };
+    }
+    return { ok: true };
+  } catch (err) {
+    log("ERROR", `removeGuildStation fehlgeschlagen: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
 }
 
-function listGuildStations(guildId) {
+async function listGuildStations(guildId) {
   return getGuildStations(guildId);
 }
 
-function countGuildStations(guildId) {
-  return Object.keys(getGuildStations(guildId)).length;
+async function countGuildStations(guildId) {
+  const c = col();
+  if (!c) return 0;
+  try {
+    return await c.countDocuments({ guildId: String(guildId) });
+  } catch (err) {
+    log("ERROR", `countGuildStations fehlgeschlagen: ${err.message}`);
+    return 0;
+  }
 }
 
-function clearGuildStations(guildId) {
-  const data = load();
-  delete data[String(guildId)];
-  save(data);
+async function clearGuildStations(guildId) {
+  const c = col();
+  if (!c) return false;
+  try {
+    await c.deleteMany({ guildId: String(guildId) });
+    return true;
+  } catch (err) {
+    log("ERROR", `clearGuildStations fehlgeschlagen: ${err.message}`);
+    return false;
+  }
 }
+
+// Legacy compat
+const addCustomStation = addGuildStation;
+const removeCustomStation = removeGuildStation;
+const listCustomStations = listGuildStations;
 
 export {
+  getGuildStations,
+  addGuildStation,
+  removeGuildStation,
+  listGuildStations,
+  countGuildStations,
+  clearGuildStations,
   MAX_STATIONS_PER_GUILD,
   validateCustomStationUrl,
-  getGuildStations, addGuildStation, removeGuildStation,
-  listGuildStations, countGuildStations, clearGuildStations,
+  addCustomStation,
+  removeCustomStation,
+  listCustomStations,
 };
