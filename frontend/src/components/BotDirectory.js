@@ -180,30 +180,62 @@ function BotCard({ bot, index }) {
 }
 
 function BotDirectory({ bots, loading }) {
+  const commanderBot = Array.isArray(bots) ? bots.find((b) => (b.index || 0) === 1 || b.botId === 'bot-1') || bots[0] : null;
+
   return (
     <section id="bots" data-testid="bot-directory" style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}>
       <div className="section-container">
         <div style={{ marginBottom: 48 }}>
           <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#00F0FF' }}>
-            Wähle deine Frequenz
+            Commander Bot
           </span>
           <h2 data-testid="bot-directory-title" style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 'clamp(24px, 4vw, 40px)', marginTop: 8, marginBottom: 12 }}>
-            Unsere OmniFM Bots
+            OmniFM einladen
           </h2>
-          <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 500 }}>
-            Jeder Bot ist ein eigener Worker. Lade so viele ein wie du möchtest für maximale Abdeckung.
+          <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 600 }}>
+            Lade den Commander-Bot auf deinen Server ein. Weitere Worker-Bots kannst du per <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>/invite</span> Befehl im Discord hinzufuegen.
           </p>
         </div>
 
         {loading ? (
-          <div style={{ color: '#52525B', padding: 40 }}>Lade Bots...</div>
-        ) : bots.length === 0 ? (
-          <div style={{ color: '#52525B', padding: 40 }}>Noch keine Bots konfiguriert.</div>
+          <div style={{ color: '#52525B', padding: 40 }}>Lade Bot-Infos...</div>
+        ) : !commanderBot ? (
+          <div style={{ color: '#52525B', padding: 40 }}>Noch kein Bot konfiguriert.</div>
         ) : (
-          <div data-testid="bot-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
-            {bots.map((bot, i) => (
-              <BotCard key={bot.id || bot.botId || bot.bot_id || bot.clientId || i} bot={bot} index={i} />
-            ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+            <BotCard bot={commanderBot} index={0} />
+
+            {/* Worker-Tiers Info */}
+            <div style={{
+              borderRadius: 20, padding: 28,
+              background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex', flexDirection: 'column', justifyContent: 'center',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#FFB800', marginBottom: 16, fontFamily: "'Orbitron', sans-serif" }}>
+                Worker-Bots per Tier
+              </div>
+              {[
+                { tier: 'Free', bots: 'Bot 1–2', color: '#39FF14', count: 2 },
+                { tier: 'Pro', bots: 'Bot 3–8', color: '#FFB800', count: 6 },
+                { tier: 'Ultimate', bots: 'Bot 9–16', color: '#BD00FF', count: 8 },
+              ].map((t) => (
+                <div key={t.tier} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: t.color }} />
+                    <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{t.tier}</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: '#A1A1AA', fontFamily: "'JetBrains Mono', monospace" }}>
+                    {t.bots}
+                  </span>
+                </div>
+              ))}
+              <p style={{ marginTop: 16, fontSize: 12, color: '#52525B', lineHeight: 1.5 }}>
+                Nutze <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace" }}>/invite {'<worker>'}</span> im Discord um Worker-Bots einzuladen.
+              </p>
+            </div>
           </div>
         )}
       </div>
