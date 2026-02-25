@@ -136,12 +136,13 @@ def normalize_months(value, default=1):
     return max(1, parsed)
 
 
-def normalize_seats(value, default=1):
+def normalize_duration(value, default=1):
     try:
         parsed = int(str(value).strip())
     except Exception:
         parsed = default
-    return parsed if parsed in SEAT_OPTIONS else default
+    closest = min(DURATION_OPTIONS, key=lambda x: abs(x - parsed))
+    return closest
 
 
 def mask_email(email):
