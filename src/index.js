@@ -9,6 +9,7 @@ import { TIERS, parseExpiryReminderDays } from "./lib/helpers.js";
 import { normalizeLanguage, getDefaultLanguage } from "./i18n.js";
 import { loadBotConfigs } from "./bot-config.js";
 import { BotRuntime } from "./bot/runtime.js";
+import { WorkerManager } from "./bot/worker-manager.js";
 import { startWebServer } from "./api/server.js";
 import { loadStations } from "./stations-store.js";
 import {
@@ -24,7 +25,7 @@ import {
 
 const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
 
-// ---- Bot Startup ----
+// ---- Bot Startup: Commander/Worker Architecture ----
 let botConfigs;
 try {
   botConfigs = loadBotConfigs(process.env);
@@ -33,7 +34,22 @@ try {
   process.exit(1);
 }
 
-const runtimes = botConfigs.map((config) => new BotRuntime(config));
+// First bot = Commander (OmniFM DJ), rest = Workers (OmniFM 1-N)
+const commanderConfig = botConfigs[0];
+const workerConfigs = botConfigs.slice(1);
+
+// Create worker runtimes first (so WorkerManager can reference them)
+const workerRuntimes = workerConfigs.map((config) => new BotRuntime(config, { role: "worker" }));
+const workerManager = new WorkerManager(workerRuntimes);
+
+// Create commander runtime with worker manager reference
+const commanderRuntime = new BotRuntime(commanderConfig, { role: "commander", workerManager });
+
+// All runtimes for shared operations
+const runtimes = [commanderRuntime, ...workerRuntimes];
+
+log("INFO", `Bot-Architektur: Commander="${commanderConfig.name}", Worker=${workerConfigs.length} (${workerConfigs.map(c => c.name).join(", ") || "keine"})`);
+
 const startResults = await Promise.all(runtimes.map((runtime) => runtime.start()));
 const startedRuntimes = [];
 const failedRuntimes = [];
