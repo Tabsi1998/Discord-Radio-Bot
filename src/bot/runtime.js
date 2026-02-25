@@ -85,6 +85,7 @@ import {
   formatDateTime,
   normalizeRepeatMode,
   getRepeatLabel,
+  normalizeEventTimeZone,
   computeNextEventRunAtMs,
   renderEventAnnouncement,
   renderStageTopic,
@@ -2193,7 +2194,7 @@ class BotRuntime {
     }
 
     if (sub === "reset") {
-      const changed = clearGuildLanguage(guildId);
+      const changed = resetGuildLanguage(guildId);
       const next = this.resolveInteractionLanguage(interaction);
       await interaction.reply({
         content: changed

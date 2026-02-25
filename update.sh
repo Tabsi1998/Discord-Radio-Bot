@@ -27,6 +27,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
@@ -332,6 +333,10 @@ ensure_all_json_files() {
   ensure_json_file "bot-state.json"       '{}'
   ensure_json_file "custom-stations.json" '{}'
   ensure_json_file "command-permissions.json" '{"guilds":{}}'
+  ensure_json_file "guild-languages.json" '{"version":1,"guilds":{}}'
+  ensure_json_file "song-history.json" '{"guilds":{}}'
+  ensure_json_file "scheduled-events.json" '{"version":1,"events":[]}'
+  ensure_json_file "coupons.json" '{"offers":{},"redemptions":{}}'
   # stations.json nur erstellen wenn komplett fehlend
   if [[ -d "stations.json" ]]; then
     rm -rf "stations.json" 2>/dev/null || true
@@ -359,7 +364,7 @@ prune_update_backups() {
   fi
 
   local prefix
-  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json" "command-permissions.json"; do
+  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json" "command-permissions.json" "guild-languages.json" "song-history.json" "scheduled-events.json" "coupons.json"; do
     mapfile -t files < <(ls -1t ".update-backups/${prefix}."* 2>/dev/null || true)
     if (( ${#files[@]} <= keep )); then
       continue
@@ -527,7 +532,7 @@ if [[ -z "$MODE" ]]; then
 fi
 
 case "$MODE" in
-  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--stripe|--premium|--offers|--email|--settings|--status|--cleanup)
+  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--set-commander|--show-roles|--stripe|--premium|--offers|--email|--settings|--status|--cleanup)
     ;;
   *)
     fail "Unbekannter Modus: ${MODE}"
@@ -1311,7 +1316,7 @@ update_stamp="$(date +%Y%m%d%H%M%S)"
 licenses_before_update="$(count_license_entries premium.json)"
 
 # WICHTIG: Premium-Daten IMMER sichern vor Update!
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json scheduled-events.json coupons.json; do
   if [[ -f "$pf" ]]; then
     cp "$pf" ".update-backups/${pf}.${update_stamp}" 2>/dev/null || true
   fi
@@ -1332,11 +1337,15 @@ git clean -fd \
   -e bot-state.json \
   -e custom-stations.json \
   -e command-permissions.json \
+  -e guild-languages.json \
+  -e song-history.json \
+  -e scheduled-events.json \
+  -e coupons.json \
   -e docker-compose.override.yml 2>/dev/null || true
 
 # Laufzeitdaten immer aus dem VOR-Update Snapshot wiederherstellen,
 # damit git reset keine produktiven JSON-Daten ueberschreibt.
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json scheduled-events.json coupons.json; do
   snapshot=".update-backups/${pf}.${update_stamp}"
   if [[ -s "$snapshot" ]]; then
     if ! cmp -s "$snapshot" "$pf" 2>/dev/null; then
@@ -1347,7 +1356,7 @@ for pf in premium.json bot-state.json custom-stations.json command-permissions.j
 done
 
 # Sicherheitscheck: Premium-Daten duerfen NICHT leer sein nach Update
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json scheduled-events.json coupons.json; do
   if [[ -f "$pf" ]] && [[ ! -s "$pf" ]]; then
     latest_backup=$(ls -t ".update-backups/${pf}."* 2>/dev/null | head -1)
     if [[ -n "$latest_backup" ]] && [[ -s "$latest_backup" ]]; then

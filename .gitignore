@@ -17,6 +17,14 @@ custom-stations.json
 custom-stations.json.bak
 command-permissions.json
 command-permissions.json.bak
+guild-languages.json
+guild-languages.json.bak
+song-history.json
+song-history.json.bak
+scheduled-events.json
+scheduled-events.json.bak
+coupons.json
+coupons.json.bak
 
 .pytest_cache/
 backend/__pycache__/

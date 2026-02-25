@@ -1,63 +1,82 @@
-// ============================================================================
-// bot-state.js – MongoDB-basiert (migriert von JSON-Datei)
-// ============================================================================
-import { getDb } from "./lib/db.js";
-import { log } from "./lib/logging.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const COLLECTION = "bot_state";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = path.resolve(__dirname, "..");
+const STATE_FILE = path.join(rootDir, "bot-state.json");
 
-function col() {
-  const db = getDb();
-  return db ? db.collection(COLLECTION) : null;
-}
-
-async function saveBotState(state) {
-  const c = col();
-  if (!c) return;
+function loadState() {
   try {
-    for (const [guildId, guildData] of Object.entries(state)) {
-      await c.updateOne(
-        { guildId },
-        { $set: { guildId, ...guildData, updatedAt: new Date() } },
-        { upsert: true }
-      );
-    }
-  } catch (err) {
-    log("ERROR", `saveBotState fehlgeschlagen: ${err.message}`);
-  }
-}
-
-async function getBotState() {
-  const c = col();
-  if (!c) return {};
-  try {
-    const docs = await c.find({}, { projection: { _id: 0 } }).toArray();
-    const state = {};
-    for (const doc of docs) {
-      if (doc.guildId) {
-        const { guildId, updatedAt, ...rest } = doc;
-        state[guildId] = rest;
+    if (fs.existsSync(STATE_FILE)) {
+      // Docker-Mount: Wenn es ein Verzeichnis ist, koennen wir nicht lesen
+      if (fs.statSync(STATE_FILE).isDirectory()) {
+        console.warn(`[bot-state] ${STATE_FILE} ist ein Verzeichnis (Docker-Mount Problem). Nutze leeren State.`);
+        return {};
       }
+      const raw = fs.readFileSync(STATE_FILE, "utf8");
+      if (!raw || raw.trim().length === 0) return {};
+      return JSON.parse(raw);
     }
-    return state;
   } catch (err) {
-    log("ERROR", `getBotState fehlgeschlagen: ${err.message}`);
-    return {};
+    console.error(`[bot-state] Fehler beim Laden von ${STATE_FILE}: ${err.message}`);
   }
+  return {};
 }
 
-async function clearBotGuild(guildId) {
-  const c = col();
-  if (!c) return;
+function saveState(state) {
   try {
-    await c.deleteOne({ guildId: String(guildId) });
+    // Docker-Mount: Wenn es ein Verzeichnis ist, NICHT versuchen zu loeschen
+    // (schlaegt fehl mit "Device or resource busy")
+    if (fs.existsSync(STATE_FILE) && fs.statSync(STATE_FILE).isDirectory()) {
+      console.warn(`[bot-state] ${STATE_FILE} ist ein Verzeichnis - State wird nur im Speicher gehalten.`);
+      console.warn(`[bot-state] Fix: echo '{}' > ./bot-state.json && docker compose up -d`);
+      return;
+    }
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
   } catch (err) {
-    log("ERROR", `clearBotGuild fehlgeschlagen: ${err.message}`);
+    console.error(`[bot-state] Fehler beim Speichern: ${err.message}`);
   }
 }
 
-// Legacy compat – loadState/saveState as no-ops since state is in MongoDB
-function loadState() { return {}; }
-function saveState() {}
+function saveBotState(botId, guildStates) {
+  const allState = loadState();
+  const botData = {};
+
+  for (const [guildId, state] of guildStates.entries()) {
+    if (!state.currentStationKey || !state.lastChannelId) continue;
+    botData[guildId] = {
+      channelId: state.lastChannelId,
+      stationKey: state.currentStationKey,
+      stationName: state.currentStationName || null,
+      volume: state.volume ?? 100,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  if (Object.keys(botData).length > 0) {
+    allState[botId] = botData;
+  } else {
+    delete allState[botId];
+  }
+
+  saveState(allState);
+}
+
+function getBotState(botId) {
+  const allState = loadState();
+  return allState[botId] || {};
+}
+
+function clearBotGuild(botId, guildId) {
+  const allState = loadState();
+  if (allState[botId]) {
+    delete allState[botId][guildId];
+    if (Object.keys(allState[botId]).length === 0) {
+      delete allState[botId];
+    }
+    saveState(allState);
+  }
+}
 
 export { saveBotState, getBotState, clearBotGuild, loadState, saveState };

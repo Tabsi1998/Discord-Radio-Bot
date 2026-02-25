@@ -4,7 +4,6 @@
 import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
-import Stripe from "stripe";
 
 import { log, webDir } from "../lib/logging.js";
 import {
@@ -20,12 +19,14 @@ import {
   sanitizeOfferCode,
   translateOfferReason,
   isProTrialEnabled,
+  PRO_TRIAL_MONTHS,
   DURATION_OPTIONS,
   getPricePerMonthCents,
 } from "../lib/helpers.js";
-import { normalizeLanguage, getDefaultLanguage } from "../i18n.js";
+import { normalizeLanguage, getDefaultLanguage, resolveLanguageFromAcceptLanguage } from "../i18n.js";
 import { languagePick } from "../lib/language.js";
 import {
+  getCommonSecurityHeaders,
   sendJson,
   methodNotAllowed,
   sendStaticFile,
@@ -46,7 +47,7 @@ import {
   getClientIp,
 } from "../lib/api-helpers.js";
 import { loadStations } from "../stations-store.js";
-import { getTier, checkFeatureAccess } from "../core/entitlements.js";
+import { getTier, checkFeatureAccess, getServerPlanConfig } from "../core/entitlements.js";
 import {
   getServerLicense,
   getLicenseById,
@@ -62,7 +63,27 @@ import {
   activatePaidStripeSession,
   activateProTrial,
 } from "../services/payment.js";
+import {
+  listOffers,
+  upsertOffer,
+  deleteOffer,
+  setOfferActive,
+  listRecentRedemptions,
+  getOffer,
+} from "../coupon-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
+
+const appStartTime = Date.now();
+const webhookEventsInFlight = new Set();
+
+function getTierConfig(guildId) {
+  const config = getServerPlanConfig(guildId);
+  return { ...config, tier: config.plan };
+}
+
+function getLicense(guildId) {
+  return getServerLicense(guildId);
+}
 
 function startWebServer(runtimes) {
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
@@ -444,6 +465,7 @@ function startWebServer(runtimes) {
           sendJson(res, 400, { error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination.") });
           return;
         }
+        const seats = 1;
         const offerResolution = resolveCheckoutOfferForRequest({
           tier,
           seats,
@@ -472,7 +494,6 @@ function startWebServer(runtimes) {
           return;
         }
         const tierName = TIERS[tier].name;
-        const seats = 1;
         let description;
         if (durationMonths >= 12) {
           description = isDe

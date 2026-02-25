@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { log, getLogWriteQueue } from "./lib/logging.js";
-import { connect as connectDb, close as closeDb } from "./lib/db.js";
+import { connect as connectDb } from "./lib/db.js";
 import { TIERS, parseExpiryReminderDays } from "./lib/helpers.js";
 import { normalizeLanguage, getDefaultLanguage } from "./i18n.js";
 import { loadBotConfigs } from "./bot-config.js";
@@ -29,15 +29,21 @@ import {
 
 const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
 
-// ---- MongoDB-Verbindung aufbauen ----
-try {
-  await connectDb();
-  log("INFO", "MongoDB-Verbindung fuer Node.js Bot hergestellt.");
-  await initPremiumStore();
-  await initStationsStore();
-} catch (err) {
-  log("WARN", `MongoDB-Verbindung fehlgeschlagen: ${err.message}. Stores werden eingeschraenkt arbeiten.`);
+// ---- Optional MongoDB-Verbindung ----
+const mongoUrlConfigured = String(process.env.MONGO_URL || "").trim().length > 0;
+const mongoEnabled = String(process.env.MONGO_ENABLED || "").trim() === "1" || mongoUrlConfigured;
+if (mongoEnabled) {
+  try {
+    await connectDb();
+    log("INFO", "MongoDB-Verbindung fuer Node.js Bot hergestellt.");
+  } catch (err) {
+    log("WARN", `MongoDB-Verbindung fehlgeschlagen: ${err.message}. Datei-basierte Stores bleiben aktiv.`);
+  }
+} else {
+  log("INFO", "MongoDB ist deaktiviert (MONGO_ENABLED=0 und MONGO_URL nicht gesetzt). Nutze Datei-basierte Stores.");
 }
+await initPremiumStore();
+await initStationsStore();
 
 // ---- Lizenz-Provider fuer Entitlements verbinden ----
 setLicenseProvider((serverId) => {
@@ -55,9 +61,16 @@ try {
   process.exit(1);
 }
 
-// First bot = Commander (OmniFM DJ), rest = Workers (OmniFM 1-N)
-const commanderConfig = botConfigs[0];
-const workerConfigs = botConfigs.slice(1);
+// Commander per ENV waehlen (1-basiert), fallback auf Bot #1.
+const configuredCommander = Number.parseInt(String(process.env.COMMANDER_BOT_INDEX || "1"), 10);
+const commanderIndex = Number.isFinite(configuredCommander) && configuredCommander >= 1 && configuredCommander <= botConfigs.length
+  ? configuredCommander - 1
+  : 0;
+if (commanderIndex !== 0) {
+  log("INFO", `Commander-Bot aus ENV: BOT_${commanderIndex + 1}`);
+}
+const commanderConfig = botConfigs[commanderIndex];
+const workerConfigs = botConfigs.filter((_, idx) => idx !== commanderIndex);
 
 // Create worker runtimes first (so WorkerManager can reference them)
 const workerRuntimes = workerConfigs.map((config) => new BotRuntime(config, { role: "worker" }));

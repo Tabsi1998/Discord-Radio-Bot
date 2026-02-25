@@ -23,7 +23,6 @@ async function connect() {
       log("INFO", `MongoDB verbunden: ${DB_NAME}`);
       return db;
     } catch (err) {
-      log("ERROR", `MongoDB Verbindung fehlgeschlagen: ${err.message}`);
       connectPromise = null;
       throw err;
     }

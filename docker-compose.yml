@@ -12,5 +12,9 @@ services:
       - ./bot-state.json:/app/bot-state.json
       - ./custom-stations.json:/app/custom-stations.json
       - ./command-permissions.json:/app/command-permissions.json
+      - ./guild-languages.json:/app/guild-languages.json
+      - ./song-history.json:/app/song-history.json
+      - ./scheduled-events.json:/app/scheduled-events.json
+      - ./coupons.json:/app/coupons.json
       - ./logs:/app/logs
     restart: unless-stopped
