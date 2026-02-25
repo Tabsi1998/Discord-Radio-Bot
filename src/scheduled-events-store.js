@@ -52,6 +52,9 @@ function extractFirstJsonDocument(raw) {
     const char = text[index];
 
     if (start < 0) {
+      if (char === "\uFEFF") {
+        continue;
+      }
       if (char === "{" || char === "[") {
         start = index;
         depth = 1;
@@ -253,12 +256,15 @@ function normalizeEvent(raw) {
 }
 
 function normalizeState(input) {
-  if (!input || typeof input !== "object") return emptyState();
-  const events = Array.isArray(input.events)
-    ? input.events
+  if (!input) return emptyState();
+  const sourceEvents = Array.isArray(input)
+    ? input
+    : (typeof input === "object" && Array.isArray(input.events))
+      ? input.events
+      : [];
+  const events = sourceEvents
       .map((entry) => normalizeEvent(entry))
-      .filter(Boolean)
-    : [];
+      .filter(Boolean);
   events.sort((a, b) => a.runAtMs - b.runAtMs);
   return {
     version: 1,

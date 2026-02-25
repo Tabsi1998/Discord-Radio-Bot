@@ -8,10 +8,29 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..", "..");
 const legacyWebDir = path.join(rootDir, "web");
+const frontendPublicDir = path.join(rootDir, "frontend", "public");
 const frontendBuildDir = path.join(rootDir, "frontend", "build");
-const webDir = fs.existsSync(path.join(frontendBuildDir, "index.html"))
-  ? frontendBuildDir
-  : legacyWebDir;
+const frontendBuildIndex = path.join(frontendBuildDir, "index.html");
+const frontendPublicIndex = path.join(frontendPublicDir, "index.html");
+const hasFrontendBuild = fs.existsSync(frontendBuildIndex);
+const hasFrontendPublic = fs.existsSync(frontendPublicIndex);
+const strictFrontendBuild = String(process.env.WEB_STRICT_FRONTEND_BUILD ?? "0") === "1";
+if (strictFrontendBuild && !hasFrontendBuild) {
+  throw new Error(
+    "WEB_STRICT_FRONTEND_BUILD=1 aber frontend/build/index.html fehlt. Bitte Frontend-Build erzeugen."
+  );
+}
+const webDir = hasFrontendBuild ? frontendBuildDir : (hasFrontendPublic ? frontendPublicDir : legacyWebDir);
+const webRootSource = hasFrontendBuild
+  ? "frontend/build"
+  : (hasFrontendPublic ? "frontend/public (fallback)" : "web (legacy fallback)");
+let frontendBuildStamp = null;
+try {
+  const stat = fs.statSync(frontendBuildIndex);
+  frontendBuildStamp = stat?.mtime?.toISOString?.() || null;
+} catch {
+  frontendBuildStamp = null;
+}
 const logsDir = path.join(rootDir, "logs");
 const logFile = path.join(logsDir, "bot.log");
 const maxLogSizeBytes = Number(process.env.LOG_MAX_MB || "5") * 1024 * 1024;
@@ -138,5 +157,7 @@ export {
   getLogWriteQueue,
   rootDir,
   webDir,
+  webRootSource,
+  frontendBuildStamp,
   logsDir,
 };

@@ -117,7 +117,7 @@ function Hero({ stats }) {
           }}>
             Ein Commander-Bot steuert, Worker-Bots streamen.
             120+ Radiosender, Opus-Audio, Auto-Reconnect.
-            Lade den Bot ein und <span style={{ color: '#fff', fontWeight: 600 }}>/play</span> drucken.
+            Lade den Bot ein und <span style={{ color: '#fff', fontWeight: 600 }}>/play</span> dr\u00FCcken.
           </p>
 
           {/* CTAs */}

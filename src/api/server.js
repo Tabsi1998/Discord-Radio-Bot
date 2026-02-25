@@ -5,7 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 
-import { log, webDir } from "../lib/logging.js";
+import { log, webDir, webRootSource, frontendBuildStamp } from "../lib/logging.js";
 import {
   TIERS,
   TIER_RANK,
@@ -184,6 +184,57 @@ function startWebServer(runtimes) {
       );
 
       sendJson(res, 200, { bots, totals });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workers") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+
+      const sortedRuntimes = [...runtimes].sort(
+        (a, b) => Number(a?.config?.index || 0) - Number(b?.config?.index || 0)
+      );
+      const commanderRuntime = sortedRuntimes.find((runtime) => runtime.role === "commander") || sortedRuntimes[0] || null;
+
+      const toWorkerPayload = (runtime, fallbackIndex = 0) => {
+        const status = runtime.getPublicStatus?.() || {};
+        const stats = runtime.collectStats?.() || {};
+        const activeStreams = Number(
+          runtime.getPlayingGuildCount?.()
+          ?? status.connections
+          ?? status.listeners
+          ?? 0
+        ) || 0;
+        const servers = Number(stats.servers ?? status.servers ?? status.guilds ?? 0) || 0;
+        const index = Number(runtime?.config?.index || fallbackIndex || 0) || fallbackIndex || 0;
+
+        return {
+          id: runtime?.config?.id || null,
+          index,
+          name: runtime?.config?.name || `Bot ${index || "?"}`,
+          role: runtime?.role || "worker",
+          requiredTier: runtime?.config?.requiredTier || "free",
+          online: Boolean(runtime?.client?.isReady?.()),
+          servers,
+          activeStreams,
+        };
+      };
+
+      const workers = sortedRuntimes
+        .filter((runtime) => runtime !== commanderRuntime)
+        .map((runtime, position) => toWorkerPayload(runtime, position + 1));
+
+      sendJson(res, 200, {
+        commander: commanderRuntime ? toWorkerPayload(commanderRuntime, 1) : null,
+        workers,
+        tiers: {
+          free: { maxWorkers: Number(TIERS.free?.maxBots || 2) },
+          pro: { maxWorkers: Number(TIERS.pro?.maxBots || 8) },
+          ultimate: { maxWorkers: Number(TIERS.ultimate?.maxBots || 16) },
+        },
+      });
       return;
     }
 
@@ -1050,6 +1101,10 @@ function startWebServer(runtimes) {
     log("INFO", `Webseite aktiv (container) auf http://${webBind}:${webInternalPort}`);
     log("INFO", `Webseite Host-Port: ${webPort}`);
     log("INFO", `Web-Static-Root: ${webDir}`);
+    log("INFO", `Web-Root-Quelle: ${webRootSource}`);
+    if (frontendBuildStamp) {
+      log("INFO", `Frontend-Build-Timestamp: ${frontendBuildStamp}`);
+    }
     if (publicUrl) {
       log("INFO", `Public URL: ${publicUrl}`);
     }

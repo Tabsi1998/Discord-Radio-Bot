@@ -37,6 +37,7 @@ function WorkerNode({ bot, isCommander }) {
   return (
     <div
       data-testid={`worker-node-${bot.index}`}
+      className="ui-lift"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -164,6 +165,9 @@ function WorkerDashboard() {
 
   if (!data) return null;
   const { commander, workers, tiers } = data;
+  const totalWorkers = Array.isArray(workers) ? workers.length : 0;
+  const onlineWorkers = Array.isArray(workers) ? workers.filter((w) => w.online).length : 0;
+  const activeStreams = Array.isArray(workers) ? workers.reduce((sum, w) => sum + Number(w.activeStreams || 0), 0) : 0;
 
   return (
     <section id="workers" data-testid="worker-dashboard" style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}>
@@ -186,13 +190,38 @@ function WorkerDashboard() {
 
         {/* Tier overview */}
         <div data-testid="tier-overview" style={{ display: 'flex', gap: 16, marginBottom: 40, flexWrap: 'wrap' }}>
-          {tiers && (
-            <>
-              <TierCard name="Free" maxWorkers={tiers.free?.maxWorkers || 2} color="#A1A1AA" icon={Users} />
-              <TierCard name="Pro" maxWorkers={tiers.pro?.maxWorkers || 8} color="#FFB800" icon={Zap} />
-              <TierCard name="Ultimate" maxWorkers={tiers.ultimate?.maxWorkers || 16} color="#BD00FF" icon={Crown} />
-            </>
-          )}
+        {tiers && (
+          <>
+            <TierCard name="Free" maxWorkers={tiers.free?.maxWorkers || 2} color="#A1A1AA" icon={Users} />
+            <TierCard name="Pro" maxWorkers={tiers.pro?.maxWorkers || 8} color="#FFB800" icon={Zap} />
+            <TierCard name="Ultimate" maxWorkers={tiers.ultimate?.maxWorkers || 16} color="#BD00FF" icon={Crown} />
+          </>
+        )}
+      </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
+          {[
+            { label: "Worker gesamt", value: totalWorkers, color: "#A1A1AA", icon: Users },
+            { label: "Worker online", value: onlineWorkers, color: "#39FF14", icon: Activity },
+            { label: "Aktive Streams", value: activeStreams, color: "#00F0FF", icon: Radio },
+            { label: "Commander Server", value: commander?.servers || 0, color: "#FFB800", icon: Server },
+          ].map((item) => (
+            <div key={item.label} style={{
+              padding: "14px 16px",
+              borderRadius: 12,
+              border: `1px solid ${item.color}25`,
+              background: `${item.color}08`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#71717A", letterSpacing: "0.06em", textTransform: "uppercase" }}>{item.label}</div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 800, fontSize: 20, color: "#fff" }}>{item.value}</div>
+              </div>
+              <item.icon size={18} color={item.color} />
+            </div>
+          ))}
         </div>
 
         {/* Architecture visualization */}
@@ -206,13 +235,13 @@ function WorkerDashboard() {
               <div style={{ width: 2, height: 20, background: 'rgba(0,240,255,0.15)', marginLeft: 20 }} />
               <ChevronRight size={14} color="#52525B" />
               <span style={{ fontSize: 11, color: '#52525B', fontWeight: 600, letterSpacing: '0.08em', fontFamily: "'Orbitron', sans-serif" }}>
-                DELEGIERT AN WORKER
+                DELEGIERT AN WORKER ({workers.length})
               </span>
             </div>
           )}
 
           {/* Workers grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
             {workers && workers.map((w) => (
               <WorkerNode key={w.index} bot={w} isCommander={false} />
             ))}

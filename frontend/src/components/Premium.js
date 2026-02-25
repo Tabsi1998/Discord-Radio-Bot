@@ -121,7 +121,7 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
   const handlePay = async () => {
     const trimmedEmail = email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      setError('Bitte eine gueltige E-Mail-Adresse eingeben.');
+      setError('Bitte eine g\u00FCltige E-Mail-Adresse eingeben.');
       return;
     }
     setError('');
@@ -142,7 +142,7 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
       if (!res.ok || data?.error) { setError(data?.error || 'Checkout fehlgeschlagen.'); return; }
       if (data?.url) { window.location.href = data.url; }
       else { setError('Keine Checkout-URL erhalten.'); }
-    } catch { setError('Checkout fehlgeschlagen. Bitte spaeter erneut versuchen.'); }
+    } catch { setError('Checkout fehlgeschlagen. Bitte sp\u00E4ter erneut versuchen.'); }
     finally { setLoading(false); }
   };
 
@@ -236,7 +236,7 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
             onFocus={(e) => { e.target.style.borderColor = `${meta.color}60`; }}
             onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.12)'; }} />
           <p style={{ margin: '4px 0 0', fontSize: 11, color: '#52525B' }}>
-            Referral-Links koennen den Code automatisch vorbefuellen.
+            {'Referral-Links k\u00F6nnen den Code automatisch vorbef\u00FCllen.'}
           </p>
         </div>
 
@@ -271,21 +271,21 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
                     </div>
                     <div style={{ fontSize: 11, marginTop: 2 }}>Server</div>
                     <div style={{ fontSize: 10, marginTop: 2, color: '#52525B' }}>
-                      {formatEuro(monthlyTotal)}€/Monat
+                      {`${formatEuro(monthlyTotal)}\u20AC/Monat`}
                     </div>
                   </button>
                 );
               })}
             </div>
             <p style={{ margin: '6px 0 0', fontSize: 11, color: '#52525B' }}>
-              Lizenziere mehrere Server mit einem Abo – je mehr Server, desto guenstiger pro Server.
+              {'Lizenziere mehrere Server mit einem Abo - je mehr Server, desto g\u00FCnstiger pro Server.'}
             </p>
           </div>
         )}
 
-        {/* Laufzeit Waehlen */}
+        {/* Laufzeit waehlen */}
         <div style={{ marginBottom: 22 }}>
-          <label style={labelStyle}>Laufzeit waehlen</label>
+          <label style={labelStyle}>{'Laufzeit w\u00E4hlen'}</label>
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(durationEntries.length, 4)}, 1fr)`, gap: 8 }}>
             {durationEntries.map(([months]) => {
               const isSelected = selectedDuration === months;
@@ -339,8 +339,8 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
           background: `${meta.color}08`, border: `1px solid ${meta.color}18`,
         }}>
           <p style={{ margin: 0, fontSize: 12, color: '#A1A1AA', lineHeight: 1.5 }}>
-            Nach dem Kauf erhaeltst du deinen <strong style={{ color: meta.color }}>Lizenz-Key</strong> per E-Mail. Nutze{' '}
-            <strong style={{ color: '#00F0FF' }}>/license activate</strong> im Discord um deinen Server zu verknuepfen.
+            {'Nach dem Kauf erh\u00E4ltst du deinen '}<strong style={{ color: meta.color }}>Lizenz-Key</strong>{' per E-Mail. Nutze '}
+            <strong style={{ color: '#00F0FF' }}>/license activate</strong>{' im Discord, um deinen Server zu verkn\u00FCpfen.'}
           </p>
         </div>
 
@@ -364,7 +364,7 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
           onMouseEnter={(e) => { if (!loading) { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = `0 0 35px ${meta.color}50`; }}}
           onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = `0 0 25px ${meta.color}30`; }}
         >
-          {loading ? 'Weiterleitung...' : `${formatEuro(totalPrice)}€ bezahlen`}
+          {loading ? 'Weiterleitung...' : `${formatEuro(totalPrice)}\u20AC bezahlen`}
         </button>
 
         {/* Abbrechen */}
@@ -452,7 +452,7 @@ function Premium() {
             Upgrade dein Setup
           </h2>
           <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 500 }}>
-            Mehr Worker, mehr Stationen, besserer Sound. Waehle deinen Plan.
+            {'Mehr Worker, mehr Stationen, besserer Sound. W\u00E4hle deinen Plan.'}
           </p>
           {pricingError && <p style={{ marginTop: 10, fontSize: 12, color: '#FFB800' }}>{pricingError}</p>}
         </div>
@@ -535,7 +535,7 @@ function Premium() {
           background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16,
         }}>
           <div style={{ fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A1A1AA', marginBottom: 12, fontWeight: 600 }}>
-            Premium Status pruefen
+            Premium Status prüfen
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input data-testid="premium-server-id-input" value={serverId}
@@ -563,7 +563,7 @@ function Premium() {
               onMouseEnter={(e) => { if (!checkingStatus) e.currentTarget.style.transform = 'scale(1.03)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
             >
-              {checkingStatus ? 'Pruefe...' : 'Pruefen'}
+              {checkingStatus ? 'Prüfe...' : 'Prüfen'}
             </button>
           </div>
           <div data-testid="premium-check-result" style={{

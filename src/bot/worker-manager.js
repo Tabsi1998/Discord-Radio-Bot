@@ -172,7 +172,7 @@ class WorkerManager {
     }
     const workerSlot = Number(resolved.workerSlot || 0);
     if (!workerSlot || workerSlot > maxIndex) {
-      return { ok: false, reason: "tier", maxIndex };
+      return { ok: false, reason: "tier", maxIndex, workerSlot, worker: resolved.worker, mode: resolved.mode };
     }
     const worker = resolved.worker;
     if (!worker.client?.isReady()) {

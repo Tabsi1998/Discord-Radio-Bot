@@ -4,10 +4,10 @@ import { getPermissionCommandChoices } from "./config/command-permissions.js";
 export function buildCommandBuilders() {
   const permissionChoices = getPermissionCommandChoices();
   return [
-    new SlashCommandBuilder().setName("help").setDescription("Zeigt alle Befehle und kurze Erklaerungen"),
+    new SlashCommandBuilder().setName("help").setDescription("Zeigt alle Befehle und kurze Erklärungen"),
     new SlashCommandBuilder()
       .setName("play")
-      .setDescription("Starte einen Radio-Stream in deinem Voice-Channel")
+      .setDescription("Startet einen Radio-Stream in deinem Voice-Channel")
       .addStringOption((o) => o.setName("station").setDescription("Stationsname oder ID").setRequired(false).setAutocomplete(true))
       .addChannelOption((o) =>
         o.setName("voice")
@@ -15,24 +15,24 @@ export function buildCommandBuilders() {
           .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)
           .setRequired(false)
       )
-      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (z.B. 1-16, optional)").setRequired(false))
-      .addStringOption((o) => o.setName("channel").setDescription("Voice/Stage per Name oder ID (Legacy)").setRequired(false).setAutocomplete(true)),
+      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (z.B. 1-16, optional)").setRequired(false)),
     new SlashCommandBuilder().setName("pause").setDescription("Wiedergabe pausieren")
       .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
     new SlashCommandBuilder().setName("resume").setDescription("Wiedergabe fortsetzen")
       .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
     new SlashCommandBuilder().setName("stop").setDescription("Stoppen und Channel verlassen")
       .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
-    new SlashCommandBuilder().setName("stations").setDescription("Verfuegbare Stationen fuer deinen Plan anzeigen"),
-    new SlashCommandBuilder().setName("now").setDescription("Zeigt was gerade laeuft"),
+    new SlashCommandBuilder().setName("stations").setDescription("Verfügbare Stationen für deinen Plan anzeigen"),
+    new SlashCommandBuilder().setName("now").setDescription("Zeigt, was gerade läuft"),
     new SlashCommandBuilder()
       .setName("history")
       .setDescription("Zeigt die zuletzt erkannten Songs")
-      .addIntegerOption((o) => o.setName("limit").setDescription("Anzahl Eintraege (1-20)").setRequired(false)),
+      .addIntegerOption((o) => o.setName("limit").setDescription("Anzahl Einträge (1-20)").setRequired(false)),
     new SlashCommandBuilder()
       .setName("setvolume")
-      .setDescription("Lautstaerke setzen (0-100)")
-      .addIntegerOption((o) => o.setName("value").setDescription("0 bis 100").setRequired(true)),
+      .setDescription("Lautstärke setzen (0-100)")
+      .addIntegerOption((o) => o.setName("value").setDescription("0 bis 100").setRequired(true))
+      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
     new SlashCommandBuilder().setName("status").setDescription("Bot-Status und Uptime anzeigen"),
     new SlashCommandBuilder()
       .setName("list")
@@ -43,7 +43,7 @@ export function buildCommandBuilders() {
     new SlashCommandBuilder().setName("premium").setDescription("OmniFM Premium-Status deines Servers anzeigen"),
     new SlashCommandBuilder()
       .setName("language")
-      .setDescription("Sprache fuer diesen Server verwalten")
+      .setDescription("Sprache für diesen Server verwalten")
       .addSubcommand((sub) =>
         sub.setName("show")
           .setDescription("Aktive Sprache anzeigen")
@@ -68,7 +68,7 @@ export function buildCommandBuilders() {
     // Custom Stations (Ultimate)
     new SlashCommandBuilder()
       .setName("addstation")
-      .setDescription("[Ultimate] Eigene Station-URL hinzufuegen")
+      .setDescription("[Ultimate] Eigene Station-URL hinzufügen")
       .addStringOption((o) => o.setName("key").setDescription("Kurzer Key (z.B. mystation)").setRequired(true))
       .addStringOption((o) => o.setName("name").setDescription("Anzeigename").setRequired(true))
       .addStringOption((o) => o.setName("url").setDescription("Stream-URL (http/https)").setRequired(true)),
@@ -80,7 +80,7 @@ export function buildCommandBuilders() {
     // Scheduled events (Pro+)
     new SlashCommandBuilder()
       .setName("event")
-      .setDescription("[Pro] Event-Scheduler fuer automatische Starts")
+      .setDescription("[Pro] Event-Scheduler für automatische Starts")
       .addSubcommand((sub) =>
         sub.setName("create")
           .setDescription("Neues Event planen (Voice-Start zu Zeitpunkt X)")
@@ -118,8 +118,8 @@ export function buildCommandBuilders() {
               .setRequired(false)
               .addChoices(
                 { name: "Einmalig", value: "none" },
-                { name: "Taeglich", value: "daily" },
-                { name: "Woechentlich (gleicher Wochentag)", value: "weekly" },
+                { name: "Täglich", value: "daily" },
+                { name: "Wöchentlich (gleicher Wochentag)", value: "weekly" },
                 { name: "Monatlich: 1. Wochentag", value: "monthly_first_weekday" },
                 { name: "Monatlich: 2. Wochentag", value: "monthly_second_weekday" },
                 { name: "Monatlich: 3. Wochentag", value: "monthly_third_weekday" },
@@ -129,7 +129,7 @@ export function buildCommandBuilders() {
           )
           .addChannelOption((o) =>
             o.setName("text")
-              .setDescription("Optionaler Text-Channel fuer Ankuendigung")
+              .setDescription("Optionaler Text-Channel für Ankündigung")
               .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
               .setRequired(false)
           )
@@ -168,11 +168,11 @@ export function buildCommandBuilders() {
       .setName("license")
       .setDescription("Lizenz verwalten - aktivieren, info, entfernen")
       .addSubcommand((sub) =>
-        sub.setName("activate").setDescription("Lizenz-Key fuer diesen Server aktivieren")
+        sub.setName("activate").setDescription("Lizenz-Key für diesen Server aktivieren")
           .addStringOption((o) => o.setName("key").setDescription("Dein Lizenz-Key (z.B. OMNI-XXXX-XXXX-XXXX)").setRequired(true))
       )
       .addSubcommand((sub) =>
-        sub.setName("info").setDescription("Lizenz-Info fuer diesen Server anzeigen")
+        sub.setName("info").setDescription("Lizenz-Info für diesen Server anzeigen")
       )
       .addSubcommand((sub) =>
         sub.setName("remove").setDescription("Diesen Server von der Lizenz entfernen")
@@ -180,10 +180,10 @@ export function buildCommandBuilders() {
     // Command permissions (Pro+)
     new SlashCommandBuilder()
       .setName("perm")
-      .setDescription("[Pro] Rollenrechte fuer Commands verwalten")
+      .setDescription("[Pro] Rollenrechte für Commands verwalten")
       .addSubcommand((sub) =>
         sub.setName("allow")
-          .setDescription("Erlaubt eine Rolle fuer einen Command")
+          .setDescription("Erlaubt eine Rolle für einen Command")
           .addStringOption((o) =>
             o.setName("command")
               .setDescription("Command ohne /")
@@ -198,7 +198,7 @@ export function buildCommandBuilders() {
       )
       .addSubcommand((sub) =>
         sub.setName("deny")
-          .setDescription("Sperrt eine Rolle fuer einen Command")
+          .setDescription("Sperrt eine Rolle für einen Command")
           .addStringOption((o) =>
             o.setName("command")
               .setDescription("Command ohne /")
@@ -213,7 +213,7 @@ export function buildCommandBuilders() {
       )
       .addSubcommand((sub) =>
         sub.setName("remove")
-          .setDescription("Entfernt eine Rollenregel fuer einen Command")
+          .setDescription("Entfernt eine Rollenregel für einen Command")
           .addStringOption((o) =>
             o.setName("command")
               .setDescription("Command ohne /")
@@ -238,10 +238,10 @@ export function buildCommandBuilders() {
       )
       .addSubcommand((sub) =>
         sub.setName("reset")
-          .setDescription("Setzt Regeln zurueck (ein Command oder alle)")
+          .setDescription("Setzt Regeln zurück (ein Command oder alle)")
           .addStringOption((o) =>
             o.setName("command")
-              .setDescription("Optional: nur diesen Command zuruecksetzen")
+              .setDescription("Optional: nur diesen Command zurücksetzen")
               .setRequired(false)
               .addChoices(...permissionChoices)
           )
@@ -252,7 +252,7 @@ export function buildCommandBuilders() {
       .addIntegerOption((o) =>
         o.setName("worker")
           .setDescription("Worker-Bot Nummer (1-16)")
-          .setRequired(true)
+          .setRequired(false)
       ),
     new SlashCommandBuilder()
       .setName("workers")

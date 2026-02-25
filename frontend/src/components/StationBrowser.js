@@ -150,11 +150,11 @@ function StationBrowser({ stations, loading }) {
             OmniFM Stationen
           </h2>
           <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 500 }}>
-            {stations.length} Stationen ({freeCount} Free, {proCount} Pro). Klicke zum Vorhoeren oder nutze <code style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>/play</code> im Discord.
+            {stations.length} Stationen ({freeCount} Free, {proCount} Pro). Klicke zum Vorh\u00F6ren oder nutze <code style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>/play</code> im Discord.
           </p>
         </div>
 
-        {/* Now Playing Bar mit Lautstärke */}
+        {/* Now Playing Bar mit Lautst\u00E4rke */}
         {playingStation && (
           <div
             data-testid="now-playing-bar"

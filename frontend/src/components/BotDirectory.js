@@ -108,7 +108,7 @@ function BotCard({ bot, index }) {
             { label: 'Server', value: bot.servers || 0 },
             { label: 'Nutzer', value: bot.users || 0 },
             { label: 'Verbindungen', value: bot.connections || 0 },
-            { label: 'Zuhörer', value: bot.listeners || 0 },
+            { label: 'Zuh\u00F6rer', value: bot.listeners || 0 },
           ].map((s) => (
             <div key={s.label}>
               <div style={{ fontSize: 11, color: '#52525B', fontWeight: 600, letterSpacing: '0.05em' }}>{s.label}</div>
@@ -193,7 +193,7 @@ function BotDirectory({ bots, loading }) {
             OmniFM einladen
           </h2>
           <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 600 }}>
-            Lade den Commander-Bot auf deinen Server ein. Weitere Worker-Bots kannst du per <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>/invite</span> Befehl im Discord hinzufuegen.
+            Lade den Commander-Bot auf deinen Server ein. Weitere Worker-Bots kannst du per <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>/invite</span> Befehl im Discord hinzuf\u00FCgen.
           </p>
         </div>
 
@@ -215,9 +215,9 @@ function BotDirectory({ bots, loading }) {
                 Worker-Bots per Tier
               </div>
               {[
-                { tier: 'Free', bots: 'Bot 1–2', color: '#39FF14', count: 2 },
-                { tier: 'Pro', bots: 'Bot 3–8', color: '#FFB800', count: 6 },
-                { tier: 'Ultimate', bots: 'Bot 9–16', color: '#BD00FF', count: 8 },
+                { tier: 'Free', bots: 'Bot 1-2', color: '#39FF14', count: 2 },
+                { tier: 'Pro', bots: 'Bot 3-8', color: '#FFB800', count: 6 },
+                { tier: 'Ultimate', bots: 'Bot 9-16', color: '#BD00FF', count: 8 },
               ].map((t) => (
                 <div key={t.tier} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',

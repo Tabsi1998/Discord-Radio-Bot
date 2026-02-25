@@ -316,6 +316,31 @@ function sanitizeLicenseForApi(license, includeSensitive = false) {
 
 // ---- Command API ----
 const COMMAND_ARG_OPTION_TYPES = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11]);
+const COMMAND_MIN_TIER = {
+  help: "free",
+  play: "free",
+  pause: "free",
+  resume: "free",
+  stop: "free",
+  stations: "free",
+  list: "free",
+  setvolume: "free",
+  status: "free",
+  health: "free",
+  diag: "free",
+  premium: "free",
+  language: "free",
+  license: "free",
+  invite: "free",
+  workers: "free",
+  now: "pro",
+  history: "pro",
+  event: "pro",
+  perm: "pro",
+  addstation: "ultimate",
+  removestation: "ultimate",
+  mystations: "ultimate",
+};
 
 function formatCommandArgToken(option) {
   const name = String(option?.name || "").trim();
@@ -367,6 +392,7 @@ function buildApiCommands() {
       name: `/${json.name}`,
       args,
       description: json.description,
+      tier: COMMAND_MIN_TIER[json.name] || "free",
     };
   });
 }

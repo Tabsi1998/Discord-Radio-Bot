@@ -14,6 +14,7 @@ import {
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
+  StringSelectMenuBuilder,
   ButtonStyle,
   Events,
   ActivityType,
@@ -180,6 +181,38 @@ function getLicense(guildId) {
   return getServerLicense(guildId);
 }
 
+function toPositiveInt(rawValue, fallbackValue) {
+  const parsed = Number.parseInt(String(rawValue ?? fallbackValue), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackValue;
+  return parsed;
+}
+
+function resolveWebsiteUrl() {
+  const explicit = String(process.env.PUBLIC_WEB_URL || "").trim();
+  if (explicit) return explicit;
+  const domain = String(process.env.WEB_DOMAIN || "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  if (domain && !/[\s/\\]/.test(domain)) return `https://${domain}`;
+  return "https://omnifm.xyz";
+}
+
+const WEBSITE_URL = resolveWebsiteUrl();
+const SUPPORT_URL = "https://discord.gg/UeRkfGS43R";
+const INVITE_COMPONENT_PREFIX = "omnifm:invite:";
+const INVITE_COMPONENT_ID_OPEN = `${INVITE_COMPONENT_PREFIX}open`;
+const INVITE_COMPONENT_ID_REFRESH = `${INVITE_COMPONENT_PREFIX}refresh`;
+const INVITE_COMPONENT_ID_SELECT = `${INVITE_COMPONENT_PREFIX}select`;
+const INVITE_COMPONENT_ID_CLOSE = `${INVITE_COMPONENT_PREFIX}close`;
+const WORKERS_COMPONENT_PREFIX = "omnifm:workers:";
+const WORKERS_COMPONENT_ID_REFRESH = `${WORKERS_COMPONENT_PREFIX}refresh`;
+
+
+const VOICE_CHANNEL_STATUS_ENABLED = String(process.env.VOICE_CHANNEL_STATUS_ENABLED ?? "1") !== "0";
+const VOICE_CHANNEL_STATUS_TEMPLATE =
+  String(process.env.VOICE_CHANNEL_STATUS_TEMPLATE || "\uD83D\uDD0A | 24/7 {station}").trim()
+  || "\uD83D\uDD0A | 24/7 {station}";
+const VOICE_CHANNEL_STATUS_MAX_LENGTH = Math.max(1, Math.min(100, toPositiveInt(process.env.VOICE_CHANNEL_STATUS_MAX_LENGTH, 80)));
+const ONBOARDING_MESSAGE_ENABLED = String(process.env.ONBOARDING_MESSAGE_ENABLED ?? "1") !== "0";
+
 
 class BotRuntime {
   constructor(config, { role = "worker", workerManager = null } = {}) {
@@ -265,6 +298,9 @@ class BotRuntime {
       this.client.on("guildCreate", (guild) => {
         this.handleGuildJoin(guild).then((allowed) => {
           if (!allowed) return;
+          this.sendGuildOnboardingMessage(guild).catch((err) => {
+            log("WARN", `[${this.config.name}] Onboarding-Nachricht fehlgeschlagen: ${err?.message || err}`);
+          });
           this.syncGuildCommands("join", { guildId: guild?.id }).catch((err) => {
             log("ERROR", `[${this.config.name}] Guild-Command-Sync (join) fehlgeschlagen: ${err?.message || err}`);
           });
@@ -311,6 +347,8 @@ class BotRuntime {
         nowPlayingChannelId: null,
         nowPlayingSignature: null,
         nowPlayingLastErrorAt: 0,
+        voiceStatusText: "",
+        lastVoiceStatusErrorAt: 0,
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
@@ -361,6 +399,7 @@ class BotRuntime {
   resetGuildRuntimeState(guildId) {
     if (!guildId) return;
     const state = this.guildState.get(guildId);
+    this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     if (state) {
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
@@ -407,6 +446,112 @@ class BotRuntime {
 
   async handleGuildJoin(guild) {
     return this.enforceGuildAccessForGuild(guild, "join");
+  }
+
+  canSendOnboardingToChannel(channel, me) {
+    if (!channel) return false;
+    if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) return false;
+    if (!me) return false;
+    const perms = channel.permissionsFor(me);
+    return Boolean(perms?.has(PermissionFlagsBits.ViewChannel) && perms?.has(PermissionFlagsBits.SendMessages));
+  }
+
+  async resolveOnboardingChannel(guild) {
+    if (!guild) return null;
+    const me = await this.resolveBotMember(guild);
+    if (!me) return null;
+    const systemChannel = guild.systemChannel || null;
+    if (this.canSendOnboardingToChannel(systemChannel, me)) {
+      return systemChannel;
+    }
+
+    if (!guild.channels?.cache?.size) {
+      await guild.channels.fetch().catch(() => null);
+    }
+
+    const textChannels = [...guild.channels.cache.values()].filter((channel) => {
+      return this.canSendOnboardingToChannel(channel, me);
+    });
+    if (!textChannels.length) return null;
+
+    const scoreChannel = (channel) => {
+      const name = String(channel.name || "").toLowerCase();
+      let score = 0;
+      if (name.includes("system")) score += 400;
+      if (name.includes("mod") || name.includes("moderator")) score += 320;
+      if (name.includes("admin") || name.includes("staff")) score += 300;
+      if (name.includes("setup") || name.includes("config")) score += 280;
+      if (name.includes("bot") || name.includes("command") || name.includes("kommando")) score += 220;
+      if (name.includes("general") || name.includes("allgemein")) score += 150;
+      score -= Number(channel.rawPosition || 0);
+      return score;
+    };
+
+    textChannels.sort((a, b) => scoreChannel(b) - scoreChannel(a));
+    return textChannels[0] || null;
+  }
+
+  buildOnboardingMessagePayload(guild) {
+    const language = resolveLanguageFromDiscordLocale(guild?.preferredLocale, getDefaultLanguage());
+    const isDe = language === "de";
+
+    const embed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(isDe ? `${BRAND.name}: Erste Schritte` : `${BRAND.name}: First steps`)
+      .setDescription(
+        isDe
+          ? `Danke fuer den Invite auf **${guild?.name || "deinen Server"}**.\nDer Commander nimmt Befehle entgegen, Worker streamen die Musik.`
+          : `Thanks for inviting me to **${guild?.name || "your server"}**.\nThe commander handles commands, workers stream the audio.`
+      )
+      .addFields(
+        {
+          name: isDe ? "1) Worker checken" : "1) Check workers",
+          value: isDe
+            ? "`/workers` zeigt verfuegbare und bereits eingeladene Worker."
+            : "`/workers` shows available and already invited workers.",
+        },
+        {
+          name: isDe ? "2) Worker einladen" : "2) Invite worker",
+          value: isDe
+            ? "`/invite` oeffnet ein Menue fuer freie Worker-Slots."
+            : "`/invite` opens a menu for free worker slots.",
+        },
+        {
+          name: isDe ? "3) Stream starten" : "3) Start stream",
+          value: isDe
+            ? "`/play [station] [voice]` startet Radio im Voice/Stage-Channel."
+            : "`/play [station] [voice]` starts radio in your voice/stage channel.",
+        },
+        {
+          name: isDe ? "4) Hilfe & Setup" : "4) Help & setup",
+          value: isDe
+            ? "`/help` fuer komplette Befehlsliste und Tipps."
+            : "`/help` for the full command list and tips.",
+        }
+      );
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "Website" : "Website")
+        .setURL(WEBSITE_URL),
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "Support" : "Support")
+        .setURL(SUPPORT_URL)
+    );
+
+    return { embeds: [embed], components: [row] };
+  }
+
+  async sendGuildOnboardingMessage(guild) {
+    if (!ONBOARDING_MESSAGE_ENABLED) return;
+    if (!guild?.id) return;
+
+    const channel = await this.resolveOnboardingChannel(guild);
+    if (!channel) return;
+    const payload = this.buildOnboardingMessagePayload(guild);
+    await channel.send(payload);
   }
 
   async refreshGuildCommandsOnReady() {
@@ -884,6 +1029,7 @@ class BotRuntime {
     this.updatePresence();
     this.persistState();
     this.startNowPlayingLoop(guildId, state);
+    this.syncVoiceChannelStatus(guildId, state.currentStationName || station.name || key).catch(() => null);
 
     fetchStreamInfo(station.url)
       .then((meta) => {
@@ -1009,33 +1155,47 @@ class BotRuntime {
       });
   }
 
-  async resolveVoiceChannelFromInput(guild, inputValue) {
-    const raw = String(inputValue || "").trim();
-    if (!raw) return null;
+  renderVoiceStatusText(stationName) {
+    const station = clipText(String(stationName || "").trim(), 60) || "Radio";
+    const botName = clipText(String(this.config?.name || BRAND.name || "OmniFM"), 24);
+    const raw = VOICE_CHANNEL_STATUS_TEMPLATE
+      .replace(/\{station\}/gi, station)
+      .replace(/\{bot\}/gi, botName)
+      .trim();
+    if (!raw) return "";
+    return clipText(raw, VOICE_CHANNEL_STATUS_MAX_LENGTH);
+  }
 
-    const mention = raw.match(/^<#(\d+)>$/);
-    const idInput = mention ? mention[1] : /^\d+$/.test(raw) ? raw : null;
+  async syncVoiceChannelStatus(guildId, stationName = "") {
+    if (!VOICE_CHANNEL_STATUS_ENABLED) return;
+    const state = this.guildState.get(guildId);
+    if (!state) return;
 
-    if (idInput) {
-      const byId = guild.channels.cache.get(idInput) || (await guild.channels.fetch(idInput).catch(() => null));
-      if (
-        byId &&
-        byId.isVoiceBased() &&
-        (byId.type === ChannelType.GuildVoice || byId.type === ChannelType.GuildStageVoice)
-      ) {
-        return byId;
+    const channelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
+    if (!/^\d{17,22}$/.test(channelId)) return;
+    const desired = stationName ? this.renderVoiceStatusText(stationName) : "";
+    if (desired === String(state.voiceStatusText || "")) return;
+
+    try {
+      const route = `/channels/${channelId}/voice-status`;
+      if (desired) {
+        await this.rest.put(route, { body: { status: desired } });
+      } else {
+        try {
+          await this.rest.delete(route);
+        } catch {
+          await this.rest.put(route, { body: { status: "" } });
+        }
       }
+      state.voiceStatusText = desired;
+      state.lastVoiceStatusErrorAt = 0;
+    } catch (err) {
+      const now = Date.now();
+      if (!state.lastVoiceStatusErrorAt || now - state.lastVoiceStatusErrorAt > 60_000) {
+        log("WARN", `[${this.config.name}] Voice-Status konnte nicht gesetzt werden (guild=${guildId}): ${err?.message || err}`);
+      }
+      state.lastVoiceStatusErrorAt = now;
     }
-
-    const channels = await this.listVoiceChannels(guild);
-    const query = raw.toLowerCase();
-    const exact = channels.find((channel) => channel.name.toLowerCase() === query);
-    if (exact) return exact;
-
-    const startsWith = channels.find((channel) => channel.name.toLowerCase().startsWith(query));
-    if (startsWith) return startsWith;
-
-    return channels.find((channel) => channel.name.toLowerCase().includes(query)) || null;
   }
 
   buildPresenceActivity() {
@@ -1147,6 +1307,7 @@ class BotRuntime {
     log("INFO",
       `[${this.config.name}] Voice left (Guild ${guildId}, Channel ${oldChannelId}). No reconnect.`
     );
+    this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     this.clearReconnectTimer(state);
     this.clearNowPlayingTimer(state);
     state.currentStationKey = null;
@@ -1303,87 +1464,509 @@ class BotRuntime {
     return null;
   }
 
+  getWorkerRequiredTierBySlot(slot) {
+    const idx = Number.parseInt(String(slot || ""), 10);
+    if (!Number.isFinite(idx) || idx <= 2) return "free";
+    if (idx <= 8) return "pro";
+    return "ultimate";
+  }
+
+  formatTierLabel(tier, language) {
+    const normalized = String(tier || "free").toLowerCase();
+    if (normalized === "ultimate") return "Ultimate";
+    if (normalized === "pro") return "Pro";
+    return language === "de" ? "Free" : "Free";
+  }
+
+  async isWorkerAlreadyInvited(guild, worker) {
+    if (!guild || !worker) return false;
+    const clientId = String(worker.getApplicationId?.() || worker.config?.clientId || "").trim();
+    if (!/^\d{17,22}$/.test(clientId)) return false;
+
+    if (worker.client?.isReady?.() && worker.client.guilds.cache.has(guild.id)) {
+      return true;
+    }
+    if (guild.members?.cache?.has(clientId)) {
+      return true;
+    }
+    const member = await guild.members.fetch(clientId).catch(() => null);
+    return Boolean(member);
+  }
+
+  async collectInviteWorkerState(guild) {
+    const guildId = String(guild?.id || "").trim();
+    const guildTier = getTier(guildId);
+    const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
+    const workers = [];
+    const statuses = this.workerManager.getAllStatuses();
+
+    for (const status of statuses) {
+      const slot = Number(status?.index || 0);
+      if (!slot) continue;
+      const worker = this.workerManager.getWorkerByIndex(slot);
+      const requiredTier = this.getWorkerRequiredTierBySlot(slot);
+      const tierLocked = slot > maxIndex;
+      const resolvedClientId = String(worker?.getApplicationId?.() || worker?.config?.clientId || status?.clientId || "").trim();
+      const inviteUrl = resolvedClientId && worker
+        ? buildInviteUrl({ ...worker.config, clientId: resolvedClientId })
+        : null;
+      const alreadyInvited = worker ? await this.isWorkerAlreadyInvited(guild, worker) : false;
+
+      workers.push({
+        slot,
+        botIndex: Number(status?.botIndex || worker?.config?.index || 0) || null,
+        name: worker?.config?.name || status?.name || `Worker ${slot}`,
+        requiredTier,
+        tierLocked,
+        online: Boolean(status?.online),
+        inviteUrl,
+        alreadyInvited,
+        selectable: !tierLocked && !alreadyInvited && Boolean(inviteUrl),
+      });
+    }
+
+    workers.sort((a, b) => a.slot - b.slot);
+    const selectableWorkers = workers.filter((worker) => worker.selectable);
+    const invitedWorkers = workers.filter((worker) => worker.alreadyInvited && !worker.tierLocked);
+    const lockedWorkers = workers.filter((worker) => worker.tierLocked);
+    return {
+      guildTier,
+      maxIndex,
+      workers,
+      selectableWorkers,
+      invitedWorkers,
+      lockedWorkers,
+    };
+  }
+
+  formatWorkerBadge(worker) {
+    const botIndexLabel = worker.botIndex ? `, BOT_${worker.botIndex}` : "";
+    return `#${worker.slot}${botIndexLabel}`;
+  }
+
+  formatWorkerList(items = [], maxLines = 8, moreLabel = "weitere") {
+    if (!Array.isArray(items) || !items.length) return "-";
+    const lines = items.slice(0, maxLines).map((item) => {
+      return `\`${this.formatWorkerBadge(item)}\` ${item.name}`;
+    });
+    if (items.length > maxLines) {
+      lines.push(`+${items.length - maxLines} ${moreLabel}`);
+    }
+    return lines.join("\n");
+  }
+
+  async buildInviteMenuPayload(interaction, { selectedWorkerSlot = null, hint = "" } = {}) {
+    const { t, language } = this.createInteractionTranslator(interaction);
+    const guild = interaction.guild || this.client.guilds.cache.get(interaction.guildId) || null;
+    if (!guild) {
+      return {
+        content: t("Server konnte nicht gefunden werden.", "Could not resolve server."),
+        embeds: [],
+        components: [],
+      };
+    }
+
+    const inviteState = await this.collectInviteWorkerState(guild);
+    const moreLabel = t("weitere", "more");
+    const selectedWorker = inviteState.selectableWorkers.find((worker) => worker.slot === Number(selectedWorkerSlot))
+      || inviteState.selectableWorkers[0]
+      || null;
+
+    const embed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(t("Worker-Bots einladen", "Invite worker bots"))
+      .setDescription(
+        t(
+          `Plan: **${this.formatTierLabel(inviteState.guildTier, language)}** | Verfuegbare Worker: **1-${inviteState.maxIndex}**\nWaehle einen Worker unten aus und nutze den Invite-Button.`,
+          `Plan: **${this.formatTierLabel(inviteState.guildTier, language)}** | Available workers: **1-${inviteState.maxIndex}**\nSelect a worker below and use the invite button.`
+        )
+      )
+      .addFields(
+        {
+          name: t("Bereits eingeladen", "Already invited"),
+          value: this.formatWorkerList(inviteState.invitedWorkers, 8, moreLabel),
+          inline: true,
+        },
+        {
+          name: t("Jetzt auswaehlbar", "Selectable now"),
+          value: this.formatWorkerList(inviteState.selectableWorkers, 8, moreLabel),
+          inline: true,
+        },
+        {
+          name: t("Gesperrt durch Plan", "Locked by plan"),
+          value: this.formatWorkerList(inviteState.lockedWorkers, 8, moreLabel),
+          inline: false,
+        }
+      );
+
+    if (selectedWorker) {
+      embed.setFooter({
+        text: t(
+          `Ausgewaehlt: ${selectedWorker.name} (${this.formatWorkerBadge(selectedWorker)})`,
+          `Selected: ${selectedWorker.name} (${this.formatWorkerBadge(selectedWorker)})`
+        ),
+      });
+    } else {
+      embed.setFooter({
+        text: t(
+          "Kein Worker auswaehlbar. Entweder schon eingeladen oder Plan-Limit erreicht.",
+          "No worker is selectable. Workers are already invited or plan-limited."
+        ),
+      });
+    }
+
+    if (hint) {
+      embed.addFields({
+        name: t("Hinweis", "Note"),
+        value: clipText(String(hint), 900),
+        inline: false,
+      });
+    }
+
+    const rows = [];
+    const selectOptions = inviteState.selectableWorkers.slice(0, 25).map((worker) => ({
+      label: clipText(`${worker.name}`, 90),
+      description: clipText(`${this.formatWorkerBadge(worker)} - ${this.formatTierLabel(worker.requiredTier, language)}`, 90),
+      value: String(worker.slot),
+      default: selectedWorker ? worker.slot === selectedWorker.slot : false,
+    }));
+
+    if (selectOptions.length > 0) {
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(INVITE_COMPONENT_ID_SELECT)
+        .setPlaceholder(t("Worker-Bot auswaehlen", "Select worker bot"))
+        .addOptions(selectOptions);
+      rows.push(new ActionRowBuilder().addComponents(selectMenu));
+    }
+
+    const buttons = new ActionRowBuilder();
+    if (selectedWorker?.inviteUrl) {
+      buttons.addComponents(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel(
+            t(
+              `Invite ${selectedWorker.name}`,
+              `Invite ${selectedWorker.name}`
+            )
+          )
+          .setURL(selectedWorker.inviteUrl)
+      );
+    } else {
+      buttons.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${INVITE_COMPONENT_PREFIX}noop`)
+          .setStyle(ButtonStyle.Secondary)
+          .setLabel(t("Kein Invite verfuegbar", "No invite available"))
+          .setDisabled(true)
+      );
+    }
+
+    buttons.addComponents(
+      new ButtonBuilder()
+        .setCustomId(INVITE_COMPONENT_ID_REFRESH)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("Aktualisieren", "Refresh")),
+      new ButtonBuilder()
+        .setCustomId(INVITE_COMPONENT_ID_CLOSE)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("Schliessen", "Close"))
+    );
+    rows.push(buttons);
+
+    return {
+      embeds: [embed],
+      components: rows,
+    };
+  }
+
+  async handleInviteComponentInteraction(interaction) {
+    const { t } = this.createInteractionTranslator(interaction);
+    if (this.role !== "commander" || !this.workerManager) {
+      if (interaction.isRepliable?.()) {
+        await interaction.reply({ content: t("Nur der Commander kann dieses Menue bedienen.", "Only the commander can use this menu."), ephemeral: true });
+      }
+      return true;
+    }
+
+    if (!interaction.guildId) {
+      await interaction.reply({
+        content: t("Dieses Menue funktioniert nur auf Servern.", "This menu only works in servers."),
+        ephemeral: true,
+      });
+      return true;
+    }
+
+    if (interaction.customId === INVITE_COMPONENT_ID_CLOSE) {
+      await interaction.update({
+        content: t("Invite-Menue geschlossen.", "Invite menu closed."),
+        embeds: [],
+        components: [],
+      });
+      return true;
+    }
+
+    if (interaction.customId === INVITE_COMPONENT_ID_REFRESH || interaction.customId === INVITE_COMPONENT_ID_OPEN) {
+      const payload = await this.buildInviteMenuPayload(interaction);
+      await interaction.update(payload);
+      return true;
+    }
+
+    if (interaction.customId === INVITE_COMPONENT_ID_SELECT && interaction.isStringSelectMenu()) {
+      const selectedSlot = Number.parseInt(String(interaction.values?.[0] || ""), 10);
+      const payload = await this.buildInviteMenuPayload(interaction, {
+        selectedWorkerSlot: Number.isFinite(selectedSlot) ? selectedSlot : null,
+      });
+      await interaction.update(payload);
+      return true;
+    }
+
+    if (interaction.customId.startsWith(INVITE_COMPONENT_PREFIX)) {
+      await interaction.reply({
+        content: t("Diese Aktion ist nicht mehr gueltig. Bitte aktualisiere das Menue.", "This action is no longer valid. Please refresh the menu."),
+        ephemeral: true,
+      });
+      return true;
+    }
+
+    return false;
+  }
+
+  async buildWorkersStatusPayload(interaction, { hint = "" } = {}) {
+    const { t, language } = this.createInteractionTranslator(interaction);
+    const guildId = String(interaction?.guildId || "").trim();
+    if (!guildId) {
+      return {
+        content: t(
+          "Dieser Befehl funktioniert nur auf einem Discord-Server (nicht in DMs).",
+          "This command only works inside a Discord server (not in DMs)."
+        ),
+        embeds: [],
+        components: [],
+      };
+    }
+
+    const guildTier = getTier(guildId);
+    const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
+    const statuses = this.workerManager.getAllStatuses();
+    const lines = [];
+
+    for (const ws of statuses) {
+      const runtime = this.workerManager.getWorkerByIndex(ws.index);
+      const inGuild = ws.online && runtime?.client?.guilds?.cache?.has(guildId);
+      const streaming = Array.isArray(ws.streams)
+        ? ws.streams.find((stream) => stream.guildId === guildId)
+        : null;
+      const tierLocked = ws.index > maxIndex;
+
+      let statusEmoji = "";
+      let statusText = "";
+      if (tierLocked) {
+        statusEmoji = "---";
+        statusText = t("(Upgrade erforderlich)", "(Upgrade required)");
+      } else if (!ws.online) {
+        statusEmoji = "---";
+        statusText = t("Offline", "Offline");
+      } else if (!inGuild) {
+        statusEmoji = "---";
+        statusText = t("Nicht eingeladen", "Not invited");
+      } else if (streaming) {
+        statusEmoji = ">>>";
+        statusText = `${t("Spielt", "Playing")}: ${streaming.stationName || streaming.stationKey || "-"}`;
+      } else {
+        statusEmoji = "...";
+        statusText = t("Bereit", "Ready");
+      }
+
+      const botIndexText = ws.botIndex ? `, BOT_${ws.botIndex}` : "";
+      lines.push(
+        `\`${statusEmoji}\` **${ws.name}** - ${statusText} (${ws.totalGuilds} Server, ${ws.activeStreams} aktiv, ${t("Slot", "Slot")} ${ws.index}${botIndexText})`
+      );
+    }
+
+    const summaryEmbed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(t("Worker-Status", "Worker status"))
+      .setDescription(
+        t(
+          `Plan: **${this.formatTierLabel(guildTier, language)}** | Freigeschaltet: **1-${maxIndex}**`,
+          `Plan: **${this.formatTierLabel(guildTier, language)}** | Unlocked: **1-${maxIndex}**`
+        )
+      )
+      .addFields({
+        name: t("Uebersicht", "Overview"),
+        value: lines.join("\n").slice(0, 1024) || "-",
+        inline: false,
+      });
+
+    if (hint) {
+      summaryEmbed.addFields({
+        name: t("Hinweis", "Note"),
+        value: clipText(String(hint), 900),
+        inline: false,
+      });
+    }
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(INVITE_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Primary)
+        .setLabel(t("Worker einladen", "Invite worker")),
+      new ButtonBuilder()
+        .setCustomId(WORKERS_COMPONENT_ID_REFRESH)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("Aktualisieren", "Refresh"))
+    );
+
+    return {
+      embeds: [summaryEmbed],
+      components: [row],
+    };
+  }
+
+  async handleWorkersComponentInteraction(interaction) {
+    const { t } = this.createInteractionTranslator(interaction);
+    if (this.role !== "commander" || !this.workerManager) {
+      if (interaction.isRepliable?.()) {
+        await interaction.reply({
+          content: t("Nur der Commander kann dieses Menue bedienen.", "Only the commander can use this menu."),
+          ephemeral: true,
+        });
+      }
+      return true;
+    }
+
+    if (!interaction.guildId) {
+      await interaction.reply({
+        content: t("Dieses Menue funktioniert nur auf Servern.", "This menu only works in servers."),
+        ephemeral: true,
+      });
+      return true;
+    }
+
+    if (interaction.customId === WORKERS_COMPONENT_ID_REFRESH) {
+      const payload = await this.buildWorkersStatusPayload(interaction);
+      await interaction.update(payload);
+      return true;
+    }
+
+    if (interaction.customId.startsWith(WORKERS_COMPONENT_PREFIX)) {
+      await interaction.reply({
+        content: t("Diese Aktion ist nicht mehr gueltig. Bitte aktualisiere die Ansicht.", "This action is no longer valid. Please refresh the view."),
+        ephemeral: true,
+      });
+      return true;
+    }
+
+    return false;
+  }
+
+  async handleComponentInteraction(interaction) {
+    if (!interaction || (!interaction.isButton?.() && !interaction.isStringSelectMenu?.())) return false;
+    const customId = String(interaction.customId || "");
+    try {
+      if (customId.startsWith(INVITE_COMPONENT_PREFIX)) {
+        return this.handleInviteComponentInteraction(interaction);
+      }
+      if (customId.startsWith(WORKERS_COMPONENT_PREFIX)) {
+        return this.handleWorkersComponentInteraction(interaction);
+      }
+      return false;
+    } catch (err) {
+      const { t } = this.createInteractionTranslator(interaction);
+      log(
+        "ERROR",
+        `[${this.config.name}] Component interaction error (customId=${customId || "-"}) guild=${interaction?.guildId || "-"}: ${err?.stack || err}`
+      );
+      const payload = {
+        content: t(
+          "Aktion fehlgeschlagen. Bitte aktualisiere die Ansicht und versuche es erneut.",
+          "Action failed. Please refresh the view and try again."
+        ),
+        ephemeral: true,
+      };
+      try {
+        if (interaction.deferred || interaction.replied) {
+          await interaction.followUp(payload);
+        } else {
+          await interaction.reply(payload);
+        }
+      } catch {
+        // ignore secondary reply failures
+      }
+      return true;
+    }
+  }
+
   buildHelpMessage(interaction) {
     const language = this.resolveInteractionLanguage(interaction);
     const isDe = language === "de";
     const guildId = interaction?.guildId;
     const tierConfig = guildId ? getTierConfig(guildId) : PLANS.free;
 
-    if (isDe) {
-      const lines = [
-        `**${BRAND.name} Hilfe**`,
-        `Server: ${interaction.guild?.name || guildId || "-"}`,
-        `Plan: ${tierConfig.name} | Audio: ${tierConfig.bitrate} | Max Bots: ${tierConfig.maxBots}`,
-        "",
-        "**Schnellstart**",
-        "1) `/play [station] [voice]` startet Musik im Voice/Stage-Channel.",
-        "2) `/stations` zeigt alle verfuegbaren Sender fuer deinen Plan.",
-        "3) `/stop` beendet den Stream und verlaesst den Channel.",
-        "",
-        "**Basis-Commands**",
-        "`/help` Hilfe anzeigen",
-        "`/play [station] [voice]` Sender starten",
-        "`/pause` `/resume` Pause/Fortsetzen",
-        "`/stop` Stream stoppen",
-        "`/setvolume <0-100>` Lautstaerke setzen",
-        "`/stations` und `/list [page]` Sender anzeigen",
-        "`/now` aktuelle Wiedergabe",
-        "`/history [limit]` zuletzt erkannte Songs",
-        "`/status`, `/health`, `/diag` Bot- und Stream-Status",
-        "`/premium` Premium-Status",
-        "`/language show|set|reset` Bot-Sprache (auto nach Server-Sprache oder fix)",
-        "`/license activate|info|remove` Lizenz verwalten",
-        "",
-        "**Pro/Ultimate**",
-        "`/perm allow|deny|remove|list|reset` Rollenrechte pro Command (Berechtigung: Server verwalten)",
-        "`/event create|list|delete` Events planen (Voice/Stage + Zeitzone + flexible Wiederholung + optionale Text-Info + Server-Event)",
-        "",
-        "**Ultimate**",
-        "`/addstation <key> <name> <url>` eigene Station hinzufuegen",
-        "`/removestation <key>` eigene Station entfernen",
-        "`/mystations` eigene Stationen anzeigen",
-        "",
-        "Support: https://discord.gg/UeRkfGS43R",
-      ];
-      return lines.join("\n");
-    }
+    const headerEmbed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(isDe ? `${BRAND.name} Hilfe` : `${BRAND.name} Help`)
+      .setDescription(
+        isDe
+          ? `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Max Bots: **${tierConfig.maxBots}**`
+          : `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Max bots: **${tierConfig.maxBots}**`
+      )
+      .addFields({
+        name: isDe ? "Schnellstart" : "Quick Start",
+        value: isDe
+          ? "1) `/play [station] [voice]` startet Musik im Voice/Stage-Channel.\n2) `/stations` zeigt passende Sender.\n3) `/stop` beendet den Stream."
+          : "1) `/play [station] [voice]` starts radio in your voice/stage channel.\n2) `/stations` shows available stations.\n3) `/stop` ends playback.",
+      });
 
-    const lines = [
-      `**${BRAND.name} Help**`,
-      `Server: ${interaction.guild?.name || guildId || "-"}`,
-      `Plan: ${tierConfig.name} | Audio: ${tierConfig.bitrate} | Max bots: ${tierConfig.maxBots}`,
-      "",
-      "**Quick start**",
-      "1) `/play [station] [voice]` starts radio in your voice/stage channel.",
-      "2) `/stations` shows available stations for your plan.",
-      "3) `/stop` ends playback and leaves the channel.",
-      "",
-      "**Core commands**",
-      "`/help` show this help",
-      "`/play [station] [voice]` start station",
-      "`/pause` `/resume` pause/resume",
-      "`/stop` stop stream",
-      "`/setvolume <0-100>` set volume",
-      "`/stations` and `/list [page]` browse stations",
-      "`/now` current playback",
-      "`/history [limit]` recently detected songs",
-      "`/status`, `/health`, `/diag` bot/stream status",
-      "`/premium` premium status",
-      "`/language show|set|reset` bot language (auto from server locale or fixed)",
-      "`/license activate|info|remove` license management",
-      "",
-      "**Pro/Ultimate**",
-      "`/perm allow|deny|remove|list|reset` role permissions per command (requires: Manage Server)",
-      "`/event create|list|delete` schedule events (voice/stage + time zone + flexible recurrence + optional text notice + server event)",
-      "",
-      "**Ultimate**",
-      "`/addstation <key> <name> <url>` add custom station",
-      "`/removestation <key>` remove custom station",
-      "`/mystations` list custom stations",
-      "",
-      "Support: https://discord.gg/UeRkfGS43R",
-    ];
-    return lines.join("\n");
+    const coreEmbed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(isDe ? "Basis-Commands" : "Core Commands")
+      .setDescription(
+        [
+          "`/help`",
+          "`/play [station] [voice]`",
+          "`/pause` `/resume` `/stop`",
+          "`/setvolume <0-100> [bot]`",
+          "`/stations` `/list [page]`",
+          "`/now` `/history [limit]`",
+          "`/status` `/health` `/diag`",
+          "`/premium`",
+          "`/invite [worker]` `/workers`",
+          "`/language show|set|reset`",
+          "`/license activate|info|remove`",
+        ].join("\n")
+      );
+
+    const premiumEmbed = new EmbedBuilder()
+      .setColor(tierConfig.tier === "ultimate" ? BRAND.ultimateColor : BRAND.proColor)
+      .setTitle(isDe ? "Pro / Ultimate" : "Pro / Ultimate")
+      .setDescription(
+        isDe
+          ? "`/perm allow|deny|remove|list|reset`\n`/event create|list|delete` (Voice/Stage + Zeitzone + flexible Wiederholung)\n`/addstation` `/removestation` `/mystations` (Ultimate)"
+          : "`/perm allow|deny|remove|list|reset`\n`/event create|list|delete` (voice/stage + timezone + flexible recurrence)\n`/addstation` `/removestation` `/mystations` (Ultimate)"
+      )
+      .setFooter({
+        text: isDe
+          ? "Commander nimmt Befehle entgegen, Worker streamen in Voice/Stage-Channels."
+          : "Commander handles commands, workers stream in voice/stage channels.",
+      });
+
+    const linkRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "Website" : "Website")
+        .setURL(WEBSITE_URL),
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "Support" : "Support")
+        .setURL(SUPPORT_URL)
+    );
+
+    return {
+      embeds: [headerEmbed, coreEmbed, premiumEmbed],
+      components: [linkRow],
+    };
   }
 
   getInteractionRoleIds(interaction) {
@@ -2719,43 +3302,6 @@ class BotRuntime {
         return;
       }
 
-      if (focused.name === "channel") {
-        if (!interaction.guild) {
-          await interaction.respond([]);
-          return;
-        }
-
-        const query = String(focused.value || "").trim().toLowerCase();
-
-        // Fetch channels fresh to ensure we have the latest list
-        try {
-          await interaction.guild.channels.fetch();
-        } catch {
-          // Fallback to cached channels
-        }
-
-        const channels = await this.listVoiceChannels(interaction.guild);
-        const items = channels
-          .filter((channel) => {
-            if (!query) return true;
-            if (channel.id.includes(query)) return true;
-            return channel.name.toLowerCase().includes(query);
-          })
-          .slice(0, 25)
-          .map((channel) => {
-            const prefix = channel.type === ChannelType.GuildStageVoice ? "Stage" : "Voice";
-            const count = Number(channel.members?.size || 0);
-            return {
-              name: clipText(`${prefix}: ${channel.name} (${count})`, 100),
-              value: channel.id
-            };
-          });
-
-        log("INFO", `[${this.config.name}] Autocomplete channel: query="${query}" results=${items.length}/${channels.length}`);
-        await interaction.respond(items);
-        return;
-      }
-
       if (focused.name === "timezone" && interaction.commandName === "event") {
         const query = String(focused.value || "").trim().toLowerCase();
         const dedup = new Map();
@@ -2825,6 +3371,11 @@ class BotRuntime {
       return;
     }
 
+    if (interaction.isButton?.() || interaction.isStringSelectMenu?.()) {
+      const handled = await this.handleComponentInteraction(interaction);
+      if (handled) return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     if (!interaction.guildId) {
@@ -2847,7 +3398,8 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "help") {
-      await this.respondLongInteraction(interaction, this.buildHelpMessage(interaction), { ephemeral: true });
+      const payload = this.buildHelpMessage(interaction);
+      await this.respondInteraction(interaction, { ...payload, ephemeral: true });
       return;
     }
 
@@ -2894,13 +3446,8 @@ class BotRuntime {
       // Accepts both current option name (`worker`) and legacy name (`bot`).
       const workerIndex = this.getIntegerOptionFlexible(interaction, ["worker", "bot"]);
       if (!Number.isInteger(workerIndex)) {
-        await interaction.reply({
-          content: t(
-            "Bitte gib eine gueltige Worker-Nummer an (z. B. `/invite worker:1`).",
-            "Please provide a valid worker number (e.g. `/invite worker:1`)."
-          ),
-          ephemeral: true,
-        });
+        const payload = await this.buildInviteMenuPayload(interaction);
+        await interaction.reply({ ...payload, ephemeral: true });
         return;
       }
 
@@ -2911,45 +3458,67 @@ class BotRuntime {
         await interaction.reply({ content: t("Worker-Nummer muss zwischen 1 und 16 sein.", "Worker number must be between 1 and 16."), ephemeral: true });
         return;
       }
-      if (workerIndex > maxIndex) {
-        const neededTier = workerIndex <= 2 ? "Free" : workerIndex <= 8 ? "Pro" : "Ultimate";
+
+      const resolvedWorker = this.workerManager.resolveWorker(workerIndex);
+      if (!resolvedWorker?.worker) {
+        await interaction.reply({ content: t(`Worker ${workerIndex} ist nicht konfiguriert.`, `Worker ${workerIndex} is not configured.`), ephemeral: true });
+        return;
+      }
+      const workerSlot = Number(resolvedWorker.workerSlot || 0);
+      if (!workerSlot || workerSlot > maxIndex) {
+        const requiredTier = this.formatTierLabel(this.getWorkerRequiredTierBySlot(workerSlot || workerIndex), language);
         await interaction.reply({
           content: t(
-            `Worker ${workerIndex} erfordert mindestens **${neededTier}**. Dein Plan erlaubt Worker 1-${maxIndex}.`,
-            `Worker ${workerIndex} requires at least **${neededTier}**. Your plan allows workers 1-${maxIndex}.`
+            `Worker ${workerIndex} erfordert mindestens **${requiredTier}**. Dein Plan erlaubt Worker 1-${maxIndex}.`,
+            `Worker ${workerIndex} requires at least **${requiredTier}**. Your plan allows workers 1-${maxIndex}.`
           ),
           ephemeral: true,
         });
         return;
       }
 
-      const worker = this.workerManager.getWorkerByIndex(workerIndex);
-      if (!worker) {
-        await interaction.reply({ content: t(`Worker ${workerIndex} ist nicht konfiguriert.`, `Worker ${workerIndex} is not configured.`), ephemeral: true });
-        return;
-      }
+      const worker = resolvedWorker.worker;
 
       const clientId = worker.getApplicationId() || worker.config.clientId;
       const inviteUrl = buildInviteUrl({
         ...worker.config,
         clientId,
       });
-      const alreadyInvited = worker.client?.isReady() && worker.client.guilds.cache.has(guildId);
+      const guild = interaction.guild || this.client.guilds.cache.get(guildId) || null;
+      const alreadyInvited = await this.isWorkerAlreadyInvited(guild, worker);
 
       if (alreadyInvited) {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(INVITE_COMPONENT_ID_OPEN)
+            .setStyle(ButtonStyle.Secondary)
+            .setLabel(t("Anderen Worker waehlen", "Select another worker"))
+        );
         await interaction.reply({
           content: t(
             `**${worker.config.name}** ist bereits auf diesem Server!`,
             `**${worker.config.name}** is already on this server!`
           ),
+          components: [row],
           ephemeral: true,
         });
       } else {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setStyle(ButtonStyle.Link)
+            .setLabel(t(`Invite ${worker.config.name}`, `Invite ${worker.config.name}`))
+            .setURL(inviteUrl),
+          new ButtonBuilder()
+            .setCustomId(INVITE_COMPONENT_ID_OPEN)
+            .setStyle(ButtonStyle.Secondary)
+            .setLabel(t("Menue", "Menu"))
+        );
         await interaction.reply({
           content: t(
-            `Lade **${worker.config.name}** ein:\n${inviteUrl}`,
-            `Invite **${worker.config.name}**:\n${inviteUrl}`
+            `Worker **${worker.config.name}** bereit zum Einladen.`,
+            `Worker **${worker.config.name}** ready to invite.`
           ),
+          components: [row],
           ephemeral: true,
         });
       }
@@ -2973,40 +3542,8 @@ class BotRuntime {
         });
         return;
       }
-      const guildTier = getTier(guildId);
-      const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
-      const statuses = this.workerManager.getAllStatuses();
-      const lines = [`**Worker-Status** (${guildTier.toUpperCase()}, max ${maxIndex} Worker):\n`];
-
-      for (const ws of statuses) {
-        const inGuild = ws.online && this.workerManager.getWorkerByIndex(ws.index)?.client?.guilds.cache.has(guildId);
-        const streaming = ws.streams.find(s => s.guildId === guildId);
-        const tierLocked = ws.index > maxIndex;
-
-        let statusEmoji = "";
-        let statusText = "";
-        if (tierLocked) {
-          statusEmoji = "---";
-          statusText = t("(Upgrade erforderlich)", "(Upgrade required)");
-        } else if (!ws.online) {
-          statusEmoji = "---";
-          statusText = t("Offline", "Offline");
-        } else if (!inGuild) {
-          statusEmoji = "---";
-          statusText = t("Nicht eingeladen", "Not invited");
-        } else if (streaming) {
-          statusEmoji = ">>>";
-          statusText = `${t("Spielt", "Playing")}: ${streaming.stationName || streaming.stationKey || "-"}`;
-        } else {
-          statusEmoji = "...";
-          statusText = t("Bereit", "Ready");
-        }
-
-        const botIndexText = ws.botIndex ? `, BOT_${ws.botIndex}` : "";
-        lines.push(`\`${statusEmoji}\` **${ws.name}** - ${statusText} (${ws.totalGuilds} Server, ${ws.activeStreams} aktiv, ${t("Slot", "Slot")} ${ws.index}${botIndexText})`);
-      }
-
-      await this.respondLongInteraction(interaction, lines.join("\n"), { ephemeral: true });
+      const payload = await this.buildWorkersStatusPayload(interaction);
+      await interaction.reply({ ...payload, ephemeral: true });
       return;
     }
 
@@ -3062,6 +3599,18 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "now") {
+      const guildTier = getTier(interaction.guildId);
+      if ((TIER_RANK[guildTier] ?? 0) < (TIER_RANK.pro ?? 1)) {
+        await interaction.reply({
+          content: t(
+            "`/now` ist ab **Pro** verfuegbar. Upgrade: https://omnifm.xyz#premium",
+            "`/now` is available with **Pro** and above. Upgrade: https://omnifm.xyz#premium"
+          ),
+          ephemeral: true,
+        });
+        return;
+      }
+
       const playingGuilds = this.getPlayingGuildCount();
       if (!state.currentStationKey) {
         await interaction.reply({
@@ -3108,6 +3657,18 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "history") {
+      const guildTier = getTier(interaction.guildId);
+      if ((TIER_RANK[guildTier] ?? 0) < (TIER_RANK.pro ?? 1)) {
+        await interaction.reply({
+          content: t(
+            "Song-History ist ab **Pro** verf\u00FCgbar. Upgrade: https://omnifm.xyz#premium",
+            "Song history is available with **Pro** and above. Upgrade: https://omnifm.xyz#premium"
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
       if (!SONG_HISTORY_ENABLED) {
         await interaction.reply({
           content: t(
@@ -3211,6 +3772,7 @@ class BotRuntime {
         await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), ephemeral: true });
         return;
       }
+      this.syncVoiceChannelStatus(interaction.guildId, "").catch(() => null);
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
@@ -3241,13 +3803,84 @@ class BotRuntime {
         return;
       }
       if (this.role === "commander" && this.workerManager) {
-        const workers = this.workerManager.getStreamingWorkers(interaction.guildId);
-        if (workers.length === 0) {
+        const requestedBot = this.getIntegerOptionFlexible(interaction, ["bot", "worker"]);
+        const guildTier = getTier(interaction.guildId);
+        let targetWorkers = [];
+
+        if (Number.isInteger(requestedBot)) {
+          const check = this.workerManager.canUseWorker(requestedBot, interaction.guildId, guildTier);
+          if (!check.ok) {
+            const reasons = {
+              tier: t(`Worker ${requestedBot} erfordert ein hoeheres Abo (max: ${check.maxIndex}).`, `Worker ${requestedBot} requires a higher plan (max: ${check.maxIndex}).`),
+              not_configured: t(`Worker ${requestedBot} ist nicht konfiguriert.`, `Worker ${requestedBot} is not configured.`),
+              offline: t(`Worker ${requestedBot} ist offline.`, `Worker ${requestedBot} is offline.`),
+              not_invited: t(`Worker ${requestedBot} ist nicht auf diesem Server eingeladen.`, `Worker ${requestedBot} is not invited on this server.`),
+            };
+            await interaction.reply({ content: reasons[check.reason] || t("Worker nicht verfuegbar.", "Worker not available."), ephemeral: true });
+            return;
+          }
+          const info = check.worker.getGuildInfo(interaction.guildId);
+          if (!info?.playing) {
+            await interaction.reply({
+              content: t(
+                `Worker ${requestedBot} streamt aktuell nicht auf diesem Server.`,
+                `Worker ${requestedBot} is not currently streaming on this server.`
+              ),
+              ephemeral: true,
+            });
+            return;
+          }
+          targetWorkers = [check.worker];
+        } else {
+          const workers = this.workerManager.getStreamingWorkers(interaction.guildId);
+          if (workers.length === 0) {
+            await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
+            return;
+          }
+
+          const guild = interaction.guild || this.client.guilds.cache.get(interaction.guildId);
+          const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+          const userChannelId = String(member?.voice?.channelId || "").trim();
+          if (userChannelId) {
+            const matchingByChannel = workers.filter((worker) => {
+              const info = worker.getGuildInfo(interaction.guildId);
+              return String(info?.channelId || "").trim() === userChannelId;
+            });
+            if (matchingByChannel.length === 1) {
+              targetWorkers = matchingByChannel;
+            }
+          }
+
+          if (targetWorkers.length === 0 && workers.length === 1) {
+            targetWorkers = workers;
+          }
+          if (targetWorkers.length === 0 && workers.length > 1) {
+            await interaction.reply({
+              content: t(
+                "Mehrere Worker streamen aktuell. Nutze `/setvolume <value> bot:<nummer>` oder tritt dem Ziel-Voice-Channel bei.",
+                "Multiple workers are currently streaming. Use `/setvolume <value> bot:<number>` or join the target voice channel."
+              ),
+              ephemeral: true,
+            });
+            return;
+          }
+        }
+
+        if (targetWorkers.length === 0) {
           await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
           return;
         }
-        for (const w of workers) w.setVolumeInGuild(interaction.guildId, value);
-        await interaction.reply({ content: t(`Lautstaerke gesetzt: ${value}`, `Volume set to: ${value}`), ephemeral: true });
+        for (const worker of targetWorkers) {
+          worker.setVolumeInGuild(interaction.guildId, value);
+        }
+        const targetNames = targetWorkers.map((worker) => worker.config?.name || "Worker").join(", ");
+        await interaction.reply({
+          content: t(
+            `Lautstaerke gesetzt: ${value} (${targetNames})`,
+            `Volume set to: ${value} (${targetNames})`
+          ),
+          ephemeral: true
+        });
         return;
       }
       state.volume = value;
@@ -3569,7 +4202,6 @@ class BotRuntime {
     if (interaction.commandName === "play") {
       const requested = interaction.options.getString("station");
       const requestedVoiceChannel = interaction.options.getChannel("voice");
-      const requestedChannelInput = interaction.options.getString("channel");
       const requestedBotIndex = interaction.options.getInteger("bot");
       let requestedChannel = null;
 
@@ -3592,10 +4224,6 @@ class BotRuntime {
           return;
         }
         requestedChannel = requestedVoiceChannel;
-      }
-
-      if (!requestedChannel && requestedChannelInput) {
-        requestedChannel = await this.resolveVoiceChannelFromInput(interaction.guild, requestedChannelInput);
       }
 
       const guildId = interaction.guildId;
@@ -3647,14 +4275,6 @@ class BotRuntime {
       const guild = interaction.guild;
       if (!guild) {
         await interaction.reply({ content: t("Guild konnte nicht ermittelt werden.", "Could not resolve guild."), ephemeral: true });
-        return;
-      }
-
-      if (!requestedChannel && requestedChannelInput) {
-        await interaction.reply({
-          content: t("Voice-Channel nicht gefunden.", "Voice channel not found."),
-          ephemeral: true
-        });
         return;
       }
 
@@ -3765,6 +4385,7 @@ class BotRuntime {
         }
 
         state.shouldReconnect = false;
+        this.syncVoiceChannelStatus(guildId, "").catch(() => null);
         this.clearNowPlayingTimer(state);
         state.player.stop();
         this.clearCurrentProcess(state);
@@ -3829,6 +4450,7 @@ class BotRuntime {
     const state = this.guildState.get(guildId);
     if (!state) return { ok: false, error: "Kein State fuer diesen Server." };
 
+    this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     state.shouldReconnect = false;
     this.clearReconnectTimer(state);
     this.clearNowPlayingTimer(state);
@@ -4085,7 +4707,8 @@ class BotRuntime {
     }
     this.stopEventScheduler();
 
-    for (const state of this.guildState.values()) {
+    for (const [guildId, state] of this.guildState.entries()) {
+      this.syncVoiceChannelStatus(guildId, "").catch(() => null);
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);

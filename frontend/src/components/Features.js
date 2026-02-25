@@ -30,14 +30,14 @@ function HowItWorks() {
           },
           {
             step: '02',
-            title: 'Station waehlen',
-            desc: 'Nutze /play und waehle aus 120+ Radiosendern. Der Commander delegiert an einen freien Worker.',
+            title: 'Station w\u00E4hlen',
+            desc: 'Nutze /play und wähle aus 120+ Radiosendern. Der Commander delegiert an einen freien Worker.',
             icon: Radio,
             color: '#39FF14',
           },
           {
             step: '03',
-            title: 'Musik geniessen',
+            title: 'Musik genie\u00DFen',
             desc: '24/7 Streaming in deinem Voice-Channel. Brauchst du mehr? Lade weitere Worker-Bots ein.',
             icon: Volume2,
             color: '#FFB800',
@@ -89,7 +89,7 @@ function HowItWorks() {
         })}
       </div>
 
-      {/* Commander → Worker Flow */}
+      {/* Commander -> Worker Flow */}
       <div
         data-testid="architecture-flow"
         style={{
@@ -129,12 +129,12 @@ function HowItWorks() {
 }
 
 const features = [
-  { icon: Clock, title: '24/7 Streaming', desc: 'Nonstop Musik, rund um die Uhr. Dein Server schlaeft nie.', color: '#00F0FF' },
+  { icon: Clock, title: '24/7 Streaming', desc: 'Nonstop Musik, rund um die Uhr. Dein Server schl\u00E4ft nie.', color: '#00F0FF' },
   { icon: Users, title: 'Multi-Bot System', desc: 'Bis zu 16 Worker-Bots parallel. Jeder in einem eigenen Channel.', color: '#39FF14' },
-  { icon: Zap, title: 'Slash-Commands', desc: 'Kein Prefix noetig. /play und los gehts. Einfach und schnell.', color: '#FFB800' },
+  { icon: Zap, title: 'Slash-Commands', desc: 'Kein Prefix n\u00F6tig. /play und los gehts. Einfach und schnell.', color: '#FFB800' },
   { icon: Volume2, title: 'HQ Audio', desc: 'Opus-Transcoding mit bis zu 320k Bitrate. Kristallklarer Sound.', color: '#EC4899' },
-  { icon: RefreshCw, title: 'Auto-Reconnect', desc: 'Faellt die Verbindung, verbindet sich der Bot automatisch neu.', color: '#BD00FF' },
-  { icon: Gauge, title: 'Skalierbar', desc: 'Beliebig viele Worker hinzufuegen. Jeder Bot laeuft unabhaengig.', color: '#FF2A2A' },
+  { icon: RefreshCw, title: 'Auto-Reconnect', desc: 'F\u00E4llt die Verbindung, verbindet sich der Bot automatisch neu.', color: '#BD00FF' },
+  { icon: Gauge, title: 'Skalierbar', desc: 'Beliebig viele Worker hinzuf\u00FCgen. Jeder Bot l\u00E4uft unabhängig.', color: '#FF2A2A' },
 ];
 
 function FeatureGrid() {
@@ -151,7 +151,7 @@ function FeatureGrid() {
           fontFamily: "'Orbitron', sans-serif", fontWeight: 800,
           fontSize: 'clamp(24px, 4vw, 40px)', marginTop: 8,
         }}>
-          Gebaut fuer Qualitaet
+          Gebaut f\u00FCr Qualit\u00E4t
         </h2>
       </div>
 

@@ -19,6 +19,10 @@
 - Event-Scheduler mit Voice/Stage-Unterstuetzung (`/event`)
 - Optionales Discord-Server-Event + Stage-Topic fuer geplante Events
 - Konsistente DE/EN Bot-Sprache (automatisch nach Server-Locale, optional manuell via `/language`)
+- Interaktives Worker-Invite-Menue (`/invite [worker]`) mit Server-Abgleich
+- Smartes Commander-Volume-Routing (`/setvolume <value> [bot]`)
+- Optionales First-Join Onboarding im System-/Moderator-Kanal
+- Optionaler Voice-Channel-Status mit aktuellem Sender (best effort)
 
 ## Setup
 
@@ -62,9 +66,12 @@ src/
   commands.js          # Slash-Command Definitionen
   email.js             # E-Mail Service (Nodemailer)
 web/
-  index.html           # OmniFM Website
-  app.js               # Frontend Logik
-  styles.css           # Styles
+  index.html           # Legacy Website Fallback
+  app.js               # Legacy Frontend Logik
+  styles.css           # Legacy Styles
+frontend/
+  src/...              # React Website (Produktiv-Build unter frontend/build)
+  public/...           # Fallback-Static-Site, falls kein Build vorhanden
 ```
 
 ## Umgebungsvariablen
@@ -76,6 +83,7 @@ web/
 | `BOT_N_NAME` | Bot-Anzeigename |
 | `COMMANDER_BOT_INDEX` | Welcher `BOT_N` der Commander ist (Default: `1`) |
 | `PUBLIC_WEB_URL` | Oeffentliche URL der Website |
+| `WEB_STRICT_FRONTEND_BUILD` | `1` = Start abbrechen wenn `frontend/build/index.html` fehlt (kein stiller Legacy-Fallback) |
 | `MONGO_ENABLED` | `1` = MongoDB-Verbindung aktivieren, `0` = Datei-Store |
 | `MONGO_URL` | MongoDB Connection String (z.B. `mongodb://mongo:27017`) |
 | `DB_NAME` | MongoDB Datenbankname (Default: `radio_bot`) |
@@ -87,6 +95,10 @@ web/
 | `NOW_PLAYING_ENABLED` | `1` = Live-Now-Playing Embed im Voice-Textchat aktiv, `0` = aus |
 | `NOW_PLAYING_POLL_MS` | Polling-Intervall fuer Track-Metadaten (Default: `45000`) |
 | `NOW_PLAYING_COVER_ENABLED` | `1` = Album-Cover (iTunes Lookup) aktiv, `0` = ohne Cover |
+| `VOICE_CHANNEL_STATUS_ENABLED` | `1` = Voice-Status fuer laufenden Sender setzen, `0` = aus |
+| `VOICE_CHANNEL_STATUS_TEMPLATE` | Vorlage fuer Voice-Status (Default: `🔊 \| 24/7 {station}`, Platzhalter: `{station}`, `{bot}`) |
+| `VOICE_CHANNEL_STATUS_MAX_LENGTH` | Maximale Laenge des Voice-Status (Default: `80`) |
+| `ONBOARDING_MESSAGE_ENABLED` | `1` = Commander sendet beim ersten Join eine Setup-Nachricht, `0` = aus |
 | `SONG_HISTORY_ENABLED` | `1` = `/history` aktiv, `0` = deaktiviert |
 | `SONG_HISTORY_MAX_PER_GUILD` | Max. gespeicherte Songs pro Server (Default: `120`) |
 | `SONG_HISTORY_DEDUPE_WINDOW_MS` | Dedupe-Zeitfenster fuer identische Tracks (Default: `120000`) |
