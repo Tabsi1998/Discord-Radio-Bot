@@ -292,17 +292,17 @@ function Premium() {
                     border: '1px solid rgba(255,255,255,0.06)',
                   }}>
                     <div style={{ fontSize: 10, color: '#52525B', fontWeight: 600, letterSpacing: '0.1em', marginBottom: 6, textTransform: 'uppercase' }}>
-                      Seat-Preise
+                      Laufzeit-Preise / Monat
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {seatEntries.map(([seats, value]) => (
-                        <span key={seats} style={{
+                      {seatEntries.map(([months, value]) => (
+                        <span key={months} style={{
                           padding: '3px 8px', borderRadius: 6,
                           background: `${meta.color}08`, border: `1px solid ${meta.color}15`,
                           fontFamily: "'JetBrains Mono', monospace",
                           fontSize: 11, color: '#A1A1AA',
                         }}>
-                          {seats}x = {formatEuro(value)}
+                          {months} Mon = {formatEuro(value)}
                         </span>
                       ))}
                     </div>
