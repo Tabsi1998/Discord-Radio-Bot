@@ -768,6 +768,68 @@ async def get_bots():
     return {"bots": bots, "totals": totals}
 
 
+@app.get("/api/workers")
+async def get_workers():
+    """Worker-Status Dashboard API. Returns commander + worker bot statuses."""
+    bots_data = load_bots_from_env()
+    tier_rank = {"free": 0, "pro": 1, "ultimate": 2}
+
+    commander = None
+    workers = []
+
+    for bot in bots_data:
+        idx = int(bot.get("index", 0) or 0)
+        tier = bot.get("requiredTier", "free")
+        cid = bot.get("clientId", "")
+        invite_url = None
+        if cid and len(cid) > 10:
+            invite_url = f"https://discord.com/oauth2/authorize?client_id={cid}&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands"
+
+        entry = {
+            "index": idx,
+            "name": bot.get("name", f"OmniFM Bot {idx}"),
+            "role": "commander" if idx == 1 else "worker",
+            "requiredTier": tier,
+            "online": bot.get("ready", False),
+            "clientId": cid if tier == "free" else None,
+            "inviteUrl": invite_url if tier == "free" else None,
+            "servers": bot.get("servers", 0),
+            "activeStreams": bot.get("connections", 0),
+            "color": bot.get("color", "cyan"),
+            "avatarUrl": bot.get("avatarUrl", ""),
+        }
+
+        if idx == 1:
+            entry["role"] = "commander"
+            commander = entry
+        else:
+            entry["role"] = "worker"
+            workers.append(entry)
+
+    # If no commander detected, use first bot
+    if not commander and bots_data:
+        first = bots_data[0]
+        commander = {
+            "index": 1, "name": first.get("name", "OmniFM DJ"),
+            "role": "commander", "requiredTier": "free",
+            "online": first.get("ready", False),
+            "clientId": first.get("clientId", ""),
+            "inviteUrl": None, "servers": 0, "activeStreams": 0,
+            "color": "cyan", "avatarUrl": "",
+        }
+
+    return {
+        "architecture": "commander_worker",
+        "commander": commander,
+        "workers": workers,
+        "tiers": {
+            "free": {"maxWorkers": TIERS["free"]["maxBots"], "name": "Free"},
+            "pro": {"maxWorkers": TIERS["pro"]["maxBots"], "name": "Pro"},
+            "ultimate": {"maxWorkers": TIERS["ultimate"]["maxBots"], "name": "Ultimate"},
+        },
+    }
+
+
 @app.get("/api/stations")
 async def get_stations():
     stations_list = []
