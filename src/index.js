@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { log, getLogWriteQueue } from "./lib/logging.js";
+import { connect as connectDb, close as closeDb } from "./lib/db.js";
 import { TIERS, parseExpiryReminderDays } from "./lib/helpers.js";
 import { normalizeLanguage, getDefaultLanguage } from "./i18n.js";
 import { loadBotConfigs } from "./bot-config.js";
