@@ -1026,6 +1026,7 @@ async def get_pricing(request: Request, serverId: str = ""):
                 "pricePerMonth": TIERS["pro"]["pricePerMonth"],
                 "startingAt": "2,99",
                 "durationPricing": {str(k): f"{v/100:.2f}" for k, v in DURATION_PRICING["pro"].items()},
+                "seatPricing": {str(k): f"{v/100:.2f}" for k, v in SEAT_MONTHLY_TOTAL_CENTS["pro"].items()},
                 "features": ["128k Bitrate (HQ Opus)", "Bis zu 8 Bots", "120 Stationen (Free + Pro)", "Priority Reconnect (1,5s)", "Rollenbasierte Berechtigungen", "Event-Scheduler"]
             },
             "ultimate": {
@@ -1033,10 +1034,12 @@ async def get_pricing(request: Request, serverId: str = ""):
                 "pricePerMonth": TIERS["ultimate"]["pricePerMonth"],
                 "startingAt": "4,99",
                 "durationPricing": {str(k): f"{v/100:.2f}" for k, v in DURATION_PRICING["ultimate"].items()},
+                "seatPricing": {str(k): f"{v/100:.2f}" for k, v in SEAT_MONTHLY_TOTAL_CENTS["ultimate"].items()},
                 "features": ["320k Bitrate (Ultra HQ)", "Bis zu 16 Bots", "Alle Stationen + Custom URLs", "Instant Reconnect (0,4s)", "Rollenbasierte Berechtigungen"]
             },
         },
         "durations": DURATION_OPTIONS,
+        "seatOptions": SEAT_OPTIONS,
     }
     if is_valid_server_id(serverId):
         server_id = str(serverId).strip()
