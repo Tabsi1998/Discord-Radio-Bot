@@ -589,9 +589,9 @@ function startWebServer(runtimes) {
           return;
         }
 
-        const durationMonths = Math.max(1, parseInt(months, 10) || 1);
-        const seats = normalizeSeats(rawSeats);
-        const baseAmountCents = calculatePrice(cleanTier, durationMonths, seats);
+        const durationMonths = normalizeDuration(months);
+        const seats = 1;
+        const baseAmountCents = calculatePrice(cleanTier, durationMonths);
         if (baseAmountCents <= 0) {
           sendJson(res, 400, {
             success: false,
