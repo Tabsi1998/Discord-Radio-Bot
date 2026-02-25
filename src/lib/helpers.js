@@ -63,38 +63,37 @@ function parseExpiryReminderDays(raw) {
   return parsed.length > 0 ? parsed.sort((a, b) => b - a) : DEFAULT_EXPIRY_REMINDER_DAYS;
 }
 
-// ---- Pricing ----
-function getSeatPricePerMonthCents(tier, seats = 1) {
+// ---- Pricing (Laufzeit-basiert) ----
+function getPricePerMonthCents(tier, months = 1) {
   const normalizedTier = String(tier || "").toLowerCase();
-  const tierPricing = SEAT_PRICING_CENTS[normalizedTier];
+  const tierPricing = DURATION_PRICING_CENTS[normalizedTier];
   if (!tierPricing) return 0;
-  const normalizedSeats = normalizeSeats(seats);
-  return tierPricing[normalizedSeats] || 0;
+  const normalizedMonths = normalizeDuration(months);
+  return tierPricing[normalizedMonths] || tierPricing[1] || 0;
 }
 
-function calculatePrice(tier, months, seats = 1) {
-  const monthly = getSeatPricePerMonthCents(tier, seats);
-  const effectiveMonths = months >= 12 ? YEARLY_DISCOUNT_MONTHS : months;
-  return monthly * effectiveMonths;
+function calculatePrice(tier, months) {
+  const perMonth = getPricePerMonthCents(tier, months);
+  return perMonth * months;
 }
 
 function calculateUpgradePrice(serverId, currentLicense, targetTier) {
   if (!currentLicense || !currentLicense.expiresAt) return null;
   const remaining = Math.max(0, Math.ceil((new Date(currentLicense.expiresAt) - new Date()) / 86400000));
   if (remaining <= 0) return null;
-  const oldMonthly = getSeatPricePerMonthCents(currentLicense.plan, currentLicense.seats || 1);
-  const newMonthly = getSeatPricePerMonthCents(targetTier, currentLicense.seats || 1);
+  const oldMonthly = getPricePerMonthCents(currentLicense.plan, 1);
+  const newMonthly = getPricePerMonthCents(targetTier, 1);
   const diff = newMonthly - oldMonthly;
   if (diff <= 0) return null;
   return Math.max(0, Math.round(diff * (remaining / 30)));
 }
 
-function seatPricingInEuro(tier) {
+function durationPricingInEuro(tier) {
   const normalizedTier = String(tier || "").toLowerCase();
-  const tierPricing = SEAT_PRICING_CENTS[normalizedTier];
+  const tierPricing = DURATION_PRICING_CENTS[normalizedTier];
   if (!tierPricing) return {};
   return Object.fromEntries(
-    Object.entries(tierPricing).map(([seats, cents]) => [seats, (cents / 100).toFixed(2)])
+    Object.entries(tierPricing).map(([months, cents]) => [months, (cents / 100).toFixed(2)])
   );
 }
 
