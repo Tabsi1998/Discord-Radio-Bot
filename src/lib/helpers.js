@@ -6,12 +6,11 @@ import { BRAND, PLANS } from "../config/plans.js";
 // ---- Constants ----
 const YEARLY_DISCOUNT_MONTHS = 10;
 const PRO_TRIAL_MONTHS = 1;
-const PRO_TRIAL_SEATS = 1;
 const DEFAULT_EXPIRY_REMINDER_DAYS = [30, 14, 7, 1];
-const SEAT_OPTIONS = [1, 2, 3, 5];
-const SEAT_PRICING_CENTS = {
-  pro: { 1: 299, 2: 549, 3: 749, 5: 1149 },
-  ultimate: { 1: 499, 2: 799, 3: 1099, 5: 1699 },
+const DURATION_OPTIONS = [1, 2, 3, 6, 12];
+const DURATION_PRICING_CENTS = {
+  pro:      { 1: 299, 2: 279, 3: 249, 6: 229, 12: 199 },
+  ultimate: { 1: 499, 2: 449, 3: 399, 6: 349, 12: 299 },
 };
 
 const TIERS = {
