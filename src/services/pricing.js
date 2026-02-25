@@ -1,103 +1,69 @@
 // ============================================================
-// OmniFM - Pricing Calculator
+// OmniFM - Pricing Calculator (Laufzeit-basiert)
 // ============================================================
 
 import { PLANS, BRAND } from "../config/plans.js";
 
-const YEARLY_MONTHS_CHARGED = 10; // 12 months, pay for 10
+// Laufzeiten in Monaten
+export const DURATION_OPTIONS = [1, 2, 3, 6, 12];
 
-// Exact pricing table (in EUR)
+// Preise pro Monat nach Laufzeit (in EUR)
 const PRICING = {
   pro: {
-    monthly: { 1: 2.99, 2: 5.49, 3: 7.49, 5: 11.49 },
+    1:  2.99,
+    2:  2.79,
+    3:  2.49,
+    6:  2.29,
+    12: 1.99,
   },
   ultimate: {
-    monthly: { 1: 4.99, 2: 7.99, 3: 10.99, 5: 16.99 },
+    1:  4.99,
+    2:  4.49,
+    3:  3.99,
+    6:  3.49,
+    12: 2.99,
   },
 };
 
-// Valid seat counts
-export const SEAT_OPTIONS = [1, 2, 3, 5];
+export function calculatePrice(plan, months) {
+  if (!PRICING[plan]) return null;
+  const perMonth = PRICING[plan][months];
+  if (!perMonth) return null;
 
-function yearlyFromMonthly(monthlyPrice) {
-  const raw = monthlyPrice * YEARLY_MONTHS_CHARGED;
-  // Round to .99 ending
-  return Math.floor(raw) + 0.99;
+  const total = perMonth * months;
+  const regularTotal = PRICING[plan][1] * months;
+  const savings = regularTotal - total;
+
+  return {
+    plan,
+    months,
+    perMonth,
+    total,
+    currency: "EUR",
+    perMonthFormatted: formatPriceEUR(perMonth),
+    totalFormatted: formatPriceEUR(total),
+    savings: savings > 0 ? savings : 0,
+    savingsFormatted: savings > 0 ? formatPriceEUR(savings) : null,
+    savingsPercent: savings > 0 ? Math.round((savings / regularTotal) * 100) : 0,
+  };
 }
 
 export function getAvailableProducts() {
   const products = [];
-
   for (const planId of ["pro", "ultimate"]) {
     const plan = PLANS[planId];
-    const priceTable = PRICING[planId];
-
-    for (const seats of SEAT_OPTIONS) {
-      const monthly = priceTable.monthly[seats];
-      if (!monthly) continue;
-
-      const yearly = yearlyFromMonthly(monthly);
-      const yearlySavings = (monthly * 12) - yearly;
-      const monthlyEquiv = yearly / 12;
-
-      products.push({
-        plan: planId,
-        planName: plan.name,
-        seats,
-        monthly: {
-          price: monthly,
-          priceFormatted: formatPriceEUR(monthly),
-          period: "monthly",
-          perServer: formatPriceEUR(monthly / seats),
-        },
-        yearly: {
-          price: yearly,
-          priceFormatted: formatPriceEUR(yearly),
-          period: "yearly",
-          perMonth: formatPriceEUR(monthlyEquiv),
-          perServer: formatPriceEUR(yearly / 12 / seats),
-          savings: formatPriceEUR(yearlySavings),
-          savingsText: `Save ${formatPriceEUR(yearlySavings)}/year (2 months free)`,
-        },
-      });
+    for (const months of DURATION_OPTIONS) {
+      const price = calculatePrice(planId, months);
+      if (price) {
+        products.push({
+          plan: planId,
+          planName: plan.name,
+          ...price,
+        });
+      }
     }
   }
-
   return products;
-}
-
-export function calculatePrice(plan, seats, period) {
-  if (!PRICING[plan]) return null;
-  const monthly = PRICING[plan].monthly[seats];
-  if (!monthly) return null;
-
-  if (period === "yearly") {
-    const yearly = yearlyFromMonthly(monthly);
-    const regularYearly = monthly * 12;
-    return {
-      price: yearly,
-      currency: "EUR",
-      period: "yearly",
-      seats,
-      plan,
-      priceFormatted: formatPriceEUR(yearly),
-      perMonth: formatPriceEUR(yearly / 12),
-      savings: formatPriceEUR(regularYearly - yearly),
-      savingsText: "2 months free",
-    };
-  }
-
-  return {
-    price: monthly,
-    currency: "EUR",
-    period: "monthly",
-    seats,
-    plan,
-    priceFormatted: formatPriceEUR(monthly),
-    perMonth: formatPriceEUR(monthly),
-    savings: null,
-    savingsText: null,
-  };
 }
 
 export function formatPriceEUR(value) {
@@ -107,44 +73,44 @@ export function formatPriceEUR(value) {
 export function getPricingOverview() {
   return {
     brand: BRAND.name,
-    yearlyDiscount: "2 months free (pay for 10)",
+    durations: DURATION_OPTIONS,
     plans: {
       free: {
         name: "Free",
         price: formatPriceEUR(0),
-        tagline: "Perfect for testing and small servers.",
+        tagline: "Zum Testen und fuer kleine Server.",
         highlights: [
-          "20 Free stations",
+          "20 Free-Stationen",
           "Standard Audio (64k)",
-          "Standard reconnect",
-          "Up to 2 bots",
+          "Standard Reconnect",
+          "Bis zu 2 Bots",
         ],
       },
       pro: {
         name: "Pro",
         recommended: true,
-        startingAt: formatPriceEUR(2.99) + "/mo",
-        tagline: "For active communities.",
+        startingAt: formatPriceEUR(PRICING.pro[1]) + "/Monat",
+        tagline: "Fuer aktive Communities.",
         highlights: [
-          "20 Free + 100 Pro stations",
+          "20 Free + 100 Pro-Stationen",
           "HQ Audio (128k Opus)",
-          "Priority auto-reconnect",
-          "Up to 8 bots",
-          "Server-based licensing (1/2/3/5 servers)",
+          "Priority Auto-Reconnect",
+          "Bis zu 8 Bots",
+          "Rollenbasierte Berechtigungen",
+          "Event-Scheduler",
         ],
         pricing: PRICING.pro,
       },
       ultimate: {
         name: "Ultimate",
-        startingAt: formatPriceEUR(4.99) + "/mo",
-        tagline: "For large servers and full control.",
+        startingAt: formatPriceEUR(PRICING.ultimate[1]) + "/Monat",
+        tagline: "Fuer grosse Server und volle Kontrolle.",
         highlights: [
-          "Everything in Pro",
+          "Alles aus Pro",
           "Ultra HQ Audio (320k)",
-          "Instant reconnect",
+          "Instant Reconnect",
           "Custom Station URLs",
-          "Up to 16 bots",
-          "Server-based licensing bundles",
+          "Bis zu 16 Bots",
         ],
         pricing: PRICING.ultimate,
       },
