@@ -95,10 +95,17 @@ TIERS = {
 
 # Laufzeit-basierte Preise (Cents pro Monat)
 DURATION_PRICING = {
-    "pro":      {1: 299, 2: 279, 3: 249, 6: 229, 12: 199},
-    "ultimate": {1: 499, 2: 449, 3: 399, 6: 349, 12: 299},
+    "pro":      {1: 299, 3: 249, 6: 229, 12: 199},
+    "ultimate": {1: 499, 3: 399, 6: 349, 12: 299},
 }
-DURATION_OPTIONS = [1, 2, 3, 6, 12]
+DURATION_OPTIONS = [1, 3, 6, 12]
+
+# Server-Anzahl Preise (Multiplikator auf Monats-Basispreis)
+SEAT_OPTIONS = [1, 2, 3, 5]
+SEAT_MONTHLY_TOTAL_CENTS = {
+    "pro":      {1: 299, 2: 549, 3: 749, 5: 1149},
+    "ultimate": {1: 499, 2: 919, 3: 1249, 5: 1919},
+}
 ADMIN_API_TOKEN = (os.environ.get("API_ADMIN_TOKEN") or os.environ.get("ADMIN_API_TOKEN") or "").strip()
 TRUST_PROXY_HEADERS = (os.environ.get("TRUST_PROXY_HEADERS") or "0").strip() == "1"
 API_RATE_LIMIT_STATE = {}
