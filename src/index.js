@@ -12,7 +12,7 @@ import { loadBotConfigs } from "./bot-config.js";
 import { BotRuntime } from "./bot/runtime.js";
 import { WorkerManager } from "./bot/worker-manager.js";
 import { startWebServer } from "./api/server.js";
-import { loadStations } from "./stations-store.js";
+import { loadStations, initStationsStore } from "./stations-store.js";
 import {
   listLicenses,
   patchLicenseById,
