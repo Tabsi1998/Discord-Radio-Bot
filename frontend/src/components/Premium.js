@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Crown, Shield, Zap } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Crown, Shield, Zap, X } from 'lucide-react';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 const PLAN_ORDER = ['free', 'pro', 'ultimate'];
@@ -10,45 +10,27 @@ const PLAN_META = {
 };
 
 const FALLBACK_PRICING = {
-  durations: [1, 2, 3, 6, 12],
+  durations: [1, 3, 6, 12],
   tiers: {
     free: {
       name: 'Free',
       pricePerMonth: 0,
-      features: [
-        'Bis zu 2 Bots',
-        '20 Free Stationen',
-        'Standard Audio (64k)',
-        'Standard Reconnect',
-      ],
+      features: ['Bis zu 2 Bots', '20 Free Stationen', 'Standard Audio (64k)', 'Standard Reconnect'],
       durationPricing: {},
     },
     pro: {
       name: 'Pro',
       pricePerMonth: 299,
       startingAt: '2,99',
-      features: [
-        'Bis zu 8 Bots',
-        '120 Stationen (Free + Pro)',
-        'HQ Audio (128k Opus)',
-        'Priority Reconnect',
-        'Rollenbasierte Berechtigungen',
-        'Event-Scheduler',
-      ],
-      durationPricing: { 1: '2.99', 2: '2.79', 3: '2.49', 6: '2.29', 12: '1.99' },
+      features: ['Bis zu 8 Bots', '120 Stationen (Free + Pro)', 'HQ Audio (128k Opus)', 'Priority Reconnect', 'Rollenbasierte Berechtigungen', 'Event-Scheduler'],
+      durationPricing: { 1: '2.99', 3: '2.49', 6: '2.29', 12: '1.99' },
     },
     ultimate: {
       name: 'Ultimate',
       pricePerMonth: 499,
       startingAt: '4,99',
-      features: [
-        'Bis zu 16 Bots',
-        'Alle Stationen + Custom URLs',
-        'Ultra HQ Audio (320k)',
-        'Instant Reconnect',
-        'Rollenbasierte Berechtigungen',
-      ],
-      durationPricing: { 1: '4.99', 2: '4.49', 3: '3.99', 6: '3.49', 12: '2.99' },
+      features: ['Bis zu 16 Bots', 'Alle Stationen + Custom URLs', 'Ultra HQ Audio (320k)', 'Instant Reconnect', 'Rollenbasierte Berechtigungen'],
+      durationPricing: { 1: '4.99', 3: '3.99', 6: '3.49', 12: '2.99' },
     },
   },
 };
@@ -60,31 +42,19 @@ function buildApiUrl(path) {
 function formatEuro(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '-';
-  return `${amount.toFixed(2).replace('.', ',')} EUR`;
-}
-
-function centsToEuro(cents) {
-  const amount = Number(cents);
-  if (!Number.isFinite(amount)) return '0,00 EUR';
-  return `${(amount / 100).toFixed(2).replace('.', ',')} EUR`;
+  return `${amount.toFixed(2).replace('.', ',')}`;
 }
 
 function normalizeTier(rawTier, fallbackTier) {
   const tier = rawTier && typeof rawTier === 'object' ? rawTier : {};
   const fallback = fallbackTier || {};
   const rawDurationPricing = tier.durationPricing && typeof tier.durationPricing === 'object'
-    ? tier.durationPricing
-    : (fallback.durationPricing || {});
-
+    ? tier.durationPricing : (fallback.durationPricing || {});
   return {
     name: String(tier.name || fallback.name || 'Plan'),
-    pricePerMonth: Number.isFinite(Number(tier.pricePerMonth))
-      ? Number(tier.pricePerMonth)
-      : Number(fallback.pricePerMonth || 0),
+    pricePerMonth: Number.isFinite(Number(tier.pricePerMonth)) ? Number(tier.pricePerMonth) : Number(fallback.pricePerMonth || 0),
     startingAt: String(tier.startingAt || fallback.startingAt || '').trim(),
-    features: Array.isArray(tier.features) && tier.features.length > 0
-      ? tier.features
-      : (Array.isArray(fallback.features) ? fallback.features : []),
+    features: Array.isArray(tier.features) && tier.features.length > 0 ? tier.features : (Array.isArray(fallback.features) ? fallback.features : []),
     durationPricing: rawDurationPricing,
   };
 }
@@ -92,10 +62,7 @@ function normalizeTier(rawTier, fallbackTier) {
 function normalizePricing(rawPricing) {
   const raw = rawPricing && typeof rawPricing === 'object' ? rawPricing : {};
   const rawTiers = raw.tiers && typeof raw.tiers === 'object' ? raw.tiers : {};
-  const durations = Array.isArray(raw.durations) && raw.durations.length > 0
-    ? raw.durations
-    : FALLBACK_PRICING.durations;
-
+  const durations = Array.isArray(raw.durations) && raw.durations.length > 0 ? raw.durations : FALLBACK_PRICING.durations;
   return {
     durations,
     tiers: {
@@ -109,7 +76,7 @@ function normalizePricing(rawPricing) {
 function buildPriceLabel(planId, tier) {
   if (planId === 'free') return '0 EUR';
   if (tier.startingAt) return `ab ${tier.startingAt} EUR`;
-  return `ab ${centsToEuro(tier.pricePerMonth)}`;
+  return `ab ${formatEuro(tier.pricePerMonth / 100)} EUR`;
 }
 
 function mapTierToColor(tier) {
@@ -118,6 +85,310 @@ function mapTierToColor(tier) {
   return '#A1A1AA';
 }
 
+/* ── Checkout Popup Modal ── */
+function CheckoutModal({ planId, tier, meta, durations, onClose }) {
+  const [email, setEmail] = useState('');
+  const [coupon, setCoupon] = useState('');
+  const [referral, setReferral] = useState('');
+  const [selectedDuration, setSelectedDuration] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const Icon = meta.icon;
+
+  const durationEntries = Object.entries(tier.durationPricing || {})
+    .map(([m, v]) => [Number(m), Number(v)])
+    .filter(([m]) => durations.includes(m))
+    .sort((a, b) => a[0] - b[0]);
+
+  const currentPricePerMonth = durationEntries.find(([m]) => m === selectedDuration)?.[1] || durationEntries[0]?.[1] || 0;
+  const totalPrice = currentPricePerMonth * selectedDuration;
+  const durationLabel = selectedDuration === 1 ? '1 Monat' : `${selectedDuration} Monate`;
+
+  const handlePay = async () => {
+    const trimmedEmail = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setError('Bitte eine gueltige E-Mail-Adresse eingeben.');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch(buildApiUrl('/api/premium/checkout'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tier: planId,
+          email: trimmedEmail,
+          months: selectedDuration,
+          coupon: coupon.trim() || undefined,
+          referral: referral.trim() || undefined,
+          returnUrl: window.location.origin,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) {
+        setError(data?.error || 'Checkout fehlgeschlagen.');
+        return;
+      }
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        setError('Keine Checkout-URL erhalten.');
+      }
+    } catch {
+      setError('Checkout fehlgeschlagen. Bitte spaeter erneut versuchen.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleEsc);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', handleEsc); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box',
+    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 10, color: '#fff', padding: '12px 14px',
+    fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
+    outline: 'none', transition: 'border-color 0.2s',
+  };
+
+  const labelStyle = {
+    display: 'block', fontSize: 11, color: '#A1A1AA', fontWeight: 700,
+    letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6,
+    fontFamily: "'Orbitron', sans-serif",
+  };
+
+  return (
+    <div
+      data-testid="checkout-modal-overlay"
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20, overflowY: 'auto',
+      }}
+    >
+      <div
+        data-testid={`checkout-modal-${planId}`}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'relative', width: '100%', maxWidth: 480,
+          background: '#0c0c0e', border: `1px solid ${meta.color}30`,
+          borderRadius: 20, padding: '36px 32px',
+          boxShadow: `0 0 60px ${meta.color}15`,
+        }}
+      >
+        {/* Close button */}
+        <button
+          data-testid="checkout-modal-close"
+          onClick={onClose}
+          style={{
+            position: 'absolute', top: 14, right: 14,
+            background: 'none', border: 'none', color: '#52525B',
+            cursor: 'pointer', padding: 4,
+          }}
+        >
+          <X size={18} />
+        </button>
+
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: 14, margin: '0 auto 12px',
+            background: `${meta.color}15`, border: `2px solid ${meta.color}50`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Icon size={26} color={meta.color} />
+          </div>
+          <h3 style={{
+            fontFamily: "'Orbitron', sans-serif", fontWeight: 800,
+            fontSize: 22, color: '#fff', margin: 0,
+          }}>
+            OmniFM {tier.name}
+          </h3>
+        </div>
+
+        {/* E-Mail */}
+        <div style={{ marginBottom: 18 }}>
+          <label style={labelStyle}>E-Mail Adresse</label>
+          <input
+            data-testid="checkout-email-input"
+            type="email" value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="deine@email.de"
+            style={inputStyle}
+            onFocus={(e) => { e.target.style.borderColor = `${meta.color}60`; }}
+            onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.12)'; }}
+          />
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: '#52525B' }}>
+            Dein Lizenz-Key und die Rechnung werden an diese Adresse gesendet.
+          </p>
+        </div>
+
+        {/* Rabattcode */}
+        <div style={{ marginBottom: 18 }}>
+          <label style={labelStyle}>Rabattcode (Optional)</label>
+          <input
+            data-testid="checkout-coupon-input"
+            value={coupon}
+            onChange={(e) => setCoupon(e.target.value)}
+            placeholder="Z.B. PRO10"
+            style={inputStyle}
+            onFocus={(e) => { e.target.style.borderColor = `${meta.color}60`; }}
+            onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.12)'; }}
+          />
+        </div>
+
+        {/* Referral-Code */}
+        <div style={{ marginBottom: 22 }}>
+          <label style={labelStyle}>Referral-Code (Optional)</label>
+          <input
+            data-testid="checkout-referral-input"
+            value={referral}
+            onChange={(e) => setReferral(e.target.value)}
+            placeholder="Z.B. CREATOR10"
+            style={inputStyle}
+            onFocus={(e) => { e.target.style.borderColor = `${meta.color}60`; }}
+            onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.12)'; }}
+          />
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: '#52525B' }}>
+            Referral-Links koennen den Code automatisch vorbefuellen.
+          </p>
+        </div>
+
+        {/* Laufzeit Waehlen */}
+        <div style={{ marginBottom: 22 }}>
+          <label style={labelStyle}>Laufzeit waehlen</label>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(durationEntries.length, 4)}, 1fr)`, gap: 8 }}>
+            {durationEntries.map(([months, pricePerMonth]) => {
+              const isSelected = selectedDuration === months;
+              const isYearly = months === 12;
+              return (
+                <button
+                  key={months}
+                  data-testid={`checkout-duration-${months}`}
+                  onClick={() => setSelectedDuration(months)}
+                  style={{
+                    position: 'relative', padding: '14px 8px', borderRadius: 12,
+                    border: `2px solid ${isSelected ? meta.color : 'rgba(255,255,255,0.1)'}`,
+                    background: isSelected ? `${meta.color}18` : 'rgba(255,255,255,0.03)',
+                    color: isSelected ? '#fff' : '#A1A1AA',
+                    cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s',
+                    outline: 'none',
+                  }}
+                >
+                  {isYearly && (
+                    <span style={{
+                      position: 'absolute', top: -8, right: -4,
+                      padding: '2px 6px', borderRadius: 6,
+                      background: '#00FF66', color: '#050505',
+                      fontSize: 8, fontWeight: 800, letterSpacing: '0.05em',
+                      fontFamily: "'Orbitron', sans-serif",
+                    }}>
+                      +2 GRATIS
+                    </span>
+                  )}
+                  <div style={{
+                    fontSize: 22, fontWeight: 800,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: isSelected ? meta.color : '#fff',
+                  }}>
+                    {months}
+                  </div>
+                  <div style={{ fontSize: 11, marginTop: 2 }}>
+                    {months === 1 ? 'Monat' : 'Monate'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Preis-Zusammenfassung */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '14px 16px', borderRadius: 12,
+          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+          marginBottom: 16,
+        }}>
+          <span style={{ fontSize: 14, color: '#A1A1AA', fontFamily: "'DM Sans', sans-serif" }}>
+            {durationLabel}
+          </span>
+          <span style={{
+            fontSize: 26, fontWeight: 800, color: meta.color,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            {formatEuro(totalPrice)}€
+          </span>
+        </div>
+
+        {/* Info-Box */}
+        <div style={{
+          padding: '12px 16px', borderRadius: 12, marginBottom: 20,
+          background: `${meta.color}08`, border: `1px solid ${meta.color}18`,
+        }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#A1A1AA', lineHeight: 1.5 }}>
+            Nach dem Kauf erhaeltst du deinen <strong style={{ color: meta.color }}>Lizenz-Key</strong> per E-Mail. Nutze{' '}
+            <strong style={{ color: '#00F0FF' }}>/license activate</strong> im Discord um deinen Server zu verknuepfen.
+          </p>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <p data-testid="checkout-error-msg" style={{
+            margin: '0 0 12px', fontSize: 12, color: '#FF2A2A', textAlign: 'center',
+          }}>
+            {error}
+          </p>
+        )}
+
+        {/* Bezahlen-Button */}
+        <button
+          data-testid={`checkout-pay-btn-${planId}`}
+          onClick={handlePay}
+          disabled={loading}
+          style={{
+            width: '100%', padding: '14px 0', borderRadius: 12,
+            border: 'none', background: loading ? `${meta.color}80` : meta.color,
+            color: '#050505', fontWeight: 800, fontSize: 16,
+            fontFamily: "'DM Sans', sans-serif",
+            cursor: loading ? 'default' : 'pointer',
+            transition: 'transform 0.15s, box-shadow 0.2s',
+            boxShadow: `0 0 25px ${meta.color}30`,
+          }}
+          onMouseEnter={(e) => { if (!loading) { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = `0 0 35px ${meta.color}50`; }}}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = `0 0 25px ${meta.color}30`; }}
+        >
+          {loading ? 'Weiterleitung...' : `${formatEuro(totalPrice)}€ bezahlen`}
+        </button>
+
+        {/* Abbrechen */}
+        <button
+          data-testid="checkout-cancel-btn"
+          onClick={onClose}
+          style={{
+            display: 'block', width: '100%', marginTop: 12, padding: '8px 0',
+            background: 'none', border: 'none', color: '#52525B',
+            fontSize: 13, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+            transition: 'color 0.2s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = '#A1A1AA'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = '#52525B'; }}
+        >
+          Abbrechen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main Premium Component ── */
 function Premium() {
   const [pricing, setPricing] = useState(FALLBACK_PRICING);
   const [pricingError, setPricingError] = useState('');
@@ -125,72 +396,28 @@ function Premium() {
   const [result, setResult] = useState('');
   const [resultColor, setResultColor] = useState('#52525B');
   const [checkingStatus, setCheckingStatus] = useState(false);
-  const [buyEmail, setBuyEmail] = useState('');
-  const [buyDuration, setBuyDuration] = useState({});
-  const [buyLoading, setBuyLoading] = useState('');
-  const [buyError, setBuyError] = useState('');
+  const [checkoutPlan, setCheckoutPlan] = useState(null);
 
   useEffect(() => {
     const controller = new AbortController();
     const loadPricing = async () => {
       try {
         const res = await fetch(buildApiUrl('/api/premium/pricing'), {
-          cache: 'no-store',
-          signal: controller.signal,
+          cache: 'no-store', signal: controller.signal,
         });
         const data = await res.json();
-        if (!res.ok || data?.error) {
-          throw new Error(data?.error || `HTTP ${res.status}`);
-        }
+        if (!res.ok || data?.error) throw new Error(data?.error || `HTTP ${res.status}`);
         setPricing(normalizePricing(data));
         setPricingError('');
       } catch (err) {
         if (err?.name === 'AbortError') return;
-        setPricing(FALLBACK_PRICING);
+        setPricing(normalizePricing(FALLBACK_PRICING));
         setPricingError('Pricing-API nicht erreichbar, Fallback-Daten aktiv.');
       }
     };
-
     loadPricing();
     return () => controller.abort();
   }, []);
-
-  const handleBuy = async (planId) => {
-    const email = buyEmail.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setBuyError('Bitte eine gueltige E-Mail-Adresse eingeben.');
-      return;
-    }
-    setBuyError('');
-    setBuyLoading(planId);
-    try {
-      const months = buyDuration[planId] || 1;
-      const res = await fetch(buildApiUrl('/api/premium/checkout'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tier: planId,
-          email,
-          months,
-          returnUrl: window.location.origin,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data?.error) {
-        setBuyError(data?.error || 'Checkout fehlgeschlagen.');
-        return;
-      }
-      if (data?.url) {
-        window.location.href = data.url;
-      } else {
-        setBuyError('Keine Checkout-URL erhalten.');
-      }
-    } catch {
-      setBuyError('Checkout fehlgeschlagen. Bitte spaeter erneut versuchen.');
-    } finally {
-      setBuyLoading('');
-    }
-  };
 
   const checkStatus = async () => {
     const normalizedServerId = serverId.trim();
@@ -199,7 +426,6 @@ function Premium() {
       setResultColor('#FF2A2A');
       return;
     }
-
     setCheckingStatus(true);
     try {
       const res = await fetch(
@@ -212,17 +438,12 @@ function Premium() {
         setResultColor('#FF2A2A');
         return;
       }
-
       const tier = String(data?.tier || 'free').toLowerCase();
       const days = Number(data?.license?.remainingDays ?? 0);
       const expiresAt = data?.license?.expiresAt
-        ? new Date(data.license.expiresAt).toLocaleDateString('de-DE')
-        : '-';
+        ? new Date(data.license.expiresAt).toLocaleDateString('de-DE') : '-';
       const bitrate = String(data?.bitrate || '-');
-
-      setResult(
-        `Tier: ${tier.toUpperCase()} | Bitrate: ${bitrate} | Resttage: ${days} | Ablauf: ${expiresAt}`
-      );
+      setResult(`Tier: ${tier.toUpperCase()} | Bitrate: ${bitrate} | Resttage: ${days} | Ablauf: ${expiresAt}`);
       setResultColor(mapTierToColor(tier));
     } catch {
       setResult('Premium-Status konnte nicht geladen werden.');
@@ -231,6 +452,8 @@ function Premium() {
       setCheckingStatus(false);
     }
   };
+
+  const closeCheckout = useCallback(() => setCheckoutPlan(null), []);
 
   return (
     <section id="premium" data-testid="premium-section" style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}>
@@ -249,38 +472,7 @@ function Premium() {
             Mehr Worker, mehr Stationen, besserer Sound. Waehle deinen Plan.
           </p>
           {pricingError && (
-            <p style={{ marginTop: 10, fontSize: 12, color: '#FFB800' }}>
-              {pricingError}
-            </p>
-          )}
-        </div>
-
-        {/* Email for Purchase */}
-        <div style={{ marginBottom: 24, maxWidth: 420 }}>
-          <label style={{ display: 'block', fontSize: 11, color: '#52525B', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
-            E-Mail fuer Lizenz-Kauf
-          </label>
-          <input
-            data-testid="buy-email-input"
-            type="email"
-            value={buyEmail}
-            onChange={(e) => setBuyEmail(e.target.value)}
-            placeholder="deine@email.de"
-            style={{
-              width: '100%', background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
-              color: '#fff', padding: '10px 14px',
-              fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
-              outline: 'none', transition: 'border-color 0.2s',
-              boxSizing: 'border-box',
-            }}
-            onFocus={(e) => { e.target.style.borderColor = 'rgba(0,240,255,0.3)'; }}
-            onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.12)'; }}
-          />
-          {buyError && (
-            <p data-testid="buy-error-msg" style={{ marginTop: 6, fontSize: 12, color: '#FF2A2A' }}>
-              {buyError}
-            </p>
+            <p style={{ marginTop: 10, fontSize: 12, color: '#FFB800' }}>{pricingError}</p>
           )}
         </div>
 
@@ -291,17 +483,14 @@ function Premium() {
             const meta = PLAN_META[planId];
             const Icon = meta.icon;
             const isPro = planId === 'pro';
-            const seatEntries = Object.entries(tier.durationPricing || {})
-              .sort((a, b) => Number(a[0]) - Number(b[0]));
+            const seatEntries = Object.entries(tier.durationPricing || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
 
             return (
               <div
                 key={planId}
                 data-testid={`plan-card-${planId}`}
                 style={{
-                  position: 'relative',
-                  borderRadius: 18,
-                  padding: '28px 24px',
+                  position: 'relative', borderRadius: 18, padding: '28px 24px',
                   background: isPro ? `${meta.color}08` : 'rgba(255,255,255,0.02)',
                   border: `1px solid ${meta.color}${isPro ? '35' : '18'}`,
                   transition: 'border-color 0.3s, box-shadow 0.3s',
@@ -358,59 +547,44 @@ function Premium() {
                 {seatEntries.length > 0 && (
                   <div style={{
                     marginTop: 8, padding: '10px 12px', borderRadius: 10,
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.06)',
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
                   }}>
                     <div style={{ fontSize: 10, color: '#52525B', fontWeight: 600, letterSpacing: '0.1em', marginBottom: 6, textTransform: 'uppercase' }}>
                       Laufzeit-Preise / Monat
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {seatEntries.map(([months, value]) => {
-                        const selected = (buyDuration[planId] || 1) === Number(months);
-                        return (
-                          <button
-                            key={months}
-                            data-testid={`duration-${planId}-${months}`}
-                            onClick={() => setBuyDuration((prev) => ({ ...prev, [planId]: Number(months) }))}
-                            style={{
-                              padding: '3px 8px', borderRadius: 6,
-                              background: selected ? `${meta.color}25` : `${meta.color}08`,
-                              border: `1px solid ${selected ? meta.color : `${meta.color}15`}`,
-                              fontFamily: "'JetBrains Mono', monospace",
-                              fontSize: 11,
-                              color: selected ? '#fff' : '#A1A1AA',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s',
-                              outline: 'none',
-                            }}
-                          >
-                            {months} Mon = {formatEuro(value)}
-                          </button>
-                        );
-                      })}
+                      {seatEntries.map(([months, value]) => (
+                        <span key={months} style={{
+                          padding: '3px 8px', borderRadius: 6,
+                          background: `${meta.color}08`, border: `1px solid ${meta.color}15`,
+                          fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#A1A1AA',
+                        }}>
+                          {months} Mon = {formatEuro(value)} EUR
+                        </span>
+                      ))}
                     </div>
                   </div>
                 )}
 
+                {/* Buy Button */}
                 {planId !== 'free' && (
                   <button
                     data-testid={`buy-btn-${planId}`}
-                    onClick={() => handleBuy(planId)}
-                    disabled={buyLoading === planId}
+                    onClick={() => setCheckoutPlan(planId)}
                     style={{
                       marginTop: 16, width: '100%', padding: '12px 0',
                       borderRadius: 10, border: 'none',
-                      background: buyLoading === planId ? `${meta.color}80` : meta.color,
-                      color: '#050505', fontWeight: 700, fontSize: 14,
+                      background: meta.color, color: '#050505',
+                      fontWeight: 700, fontSize: 14,
                       fontFamily: "'DM Sans', sans-serif",
-                      cursor: buyLoading === planId ? 'default' : 'pointer',
+                      cursor: 'pointer',
                       transition: 'transform 0.15s, box-shadow 0.2s',
                       boxShadow: `0 0 20px ${meta.color}30`,
                     }}
-                    onMouseEnter={(e) => { if (buyLoading !== planId) { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = `0 0 30px ${meta.color}50`; }}}
+                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = `0 0 30px ${meta.color}50`; }}
                     onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = `0 0 20px ${meta.color}30`; }}
                   >
-                    {buyLoading === planId ? 'Weiterleitung...' : `${tier.name} kaufen`}
+                    {tier.name} kaufen
                   </button>
                 )}
               </div>
@@ -422,8 +596,7 @@ function Premium() {
         <div style={{
           maxWidth: 560, padding: '24px 28px',
           background: 'rgba(255,255,255,0.02)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 16,
+          border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16,
         }}>
           <div style={{ fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A1A1AA', marginBottom: 12, fontWeight: 600 }}>
             Premium Status pruefen
@@ -452,9 +625,9 @@ function Premium() {
               style={{
                 background: checkingStatus ? 'rgba(0,240,255,0.5)' : '#00F0FF',
                 border: 'none', color: '#050505', borderRadius: 10,
-                fontWeight: 700, padding: '10px 18px', cursor: checkingStatus ? 'default' : 'pointer',
-                transition: 'transform 0.15s',
-                fontFamily: "'DM Sans', sans-serif",
+                fontWeight: 700, padding: '10px 18px',
+                cursor: checkingStatus ? 'default' : 'pointer',
+                transition: 'transform 0.15s', fontFamily: "'DM Sans', sans-serif",
               }}
               onMouseEnter={(e) => { if (!checkingStatus) e.currentTarget.style.transform = 'scale(1.03)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
@@ -470,6 +643,17 @@ function Premium() {
           </div>
         </div>
       </div>
+
+      {/* Checkout Modal */}
+      {checkoutPlan && (
+        <CheckoutModal
+          planId={checkoutPlan}
+          tier={pricing.tiers[checkoutPlan]}
+          meta={PLAN_META[checkoutPlan]}
+          durations={pricing.durations}
+          onClose={closeCheckout}
+        />
+      )}
     </section>
   );
 }
