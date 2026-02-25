@@ -444,10 +444,29 @@ seed_premium_if_needed()
 # === Premium Helper Functions (MongoDB) ===
 
 def load_premium():
+    if db is not None:
+        try:
+            licenses = {}
+            for doc in db.licenses.find({}, {"_id": 0}):
+                lid = doc.pop("_licenseId", None)
+                if lid:
+                    licenses[lid] = doc
+            server_ents = {}
+            for doc in db.server_entitlements.find({}, {"_id": 0}):
+                sid = doc.pop("_serverId", None)
+                if sid:
+                    server_ents[sid] = doc
+            processed = {}
+            for doc in db.processed_sessions.find({}, {"_id": 0}):
+                sess_id = doc.pop("_sessionId", None)
+                if sess_id:
+                    processed[sess_id] = doc
+            return {"licenses": licenses, "serverEntitlements": server_ents, "processedSessions": processed}
+        except Exception:
+            pass
     try:
         if PREMIUM_FILE.exists():
             data = json.loads(PREMIUM_FILE.read_text(encoding="utf-8"))
-            # Support both old format (licenses keyed by serverId) and new format (licenses + serverEntitlements)
             if not isinstance(data, dict):
                 return {"licenses": {}, "processedSessions": {}}
             if "licenses" not in data or not isinstance(data.get("licenses"), dict):
