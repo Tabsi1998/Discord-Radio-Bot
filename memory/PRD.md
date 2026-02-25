@@ -29,15 +29,21 @@ Refactoring & modernization of a Node.js Discord Radio Bot:
 ## Completed Phases
 - Phase 1: Code modularization + MongoDB backend (TESTED)
 - Phase 2: Commander/Worker architecture (TESTED)
-- Phase 3: All 9 JSON stores → MongoDB (TESTED)
+- Phase 3: All 9 JSON stores -> MongoDB (TESTED)
 - Phase 4: Web UI redesign + Pricing migration + CLI (TESTED)
+
+## Bug Fixes (2026-02-25)
+- P0 FIXED: Import path crash in src/core/network-recovery.js (changed ./logging.js to ../lib/logging.js, ./helpers.js to ../lib/helpers.js)
+- P1 FIXED: Restored Buy buttons on Premium page (email input, duration selector, Pro kaufen/Ultimate kaufen buttons with Stripe checkout)
 
 ## Test Results
 - iteration_1: Phase 1 PASS
 - iteration_6: Phase 2 100%
 - iteration_7: Design update 100%
 - iteration_8: Bug fixes + Pricing migration 100% (31 tests)
+- iteration_9: P0+P1 Bug Fix verification 100% (Backend 100%, Frontend 100%)
 
 ## Backlog
 - P1: TypeScript migration, Node.js test suite
 - P2: Admin panel, Real Discord bot testing with tokens
+- P2: Full testing of update.sh CLI with Commander/Worker management
