@@ -48,10 +48,10 @@ import {
 import { loadStations, loadStationDetails } from "../stations-store.js";
 import { getTier, checkFeatureAccess } from "../core/entitlements.js";
 import {
-  getLicenseForServer,
-  getLicenseByKey,
-  linkLicenseToServer,
-  unlinkLicenseFromServer,
+  getServerLicense,
+  getLicenseById,
+  linkServerToLicense,
+  unlinkServerFromLicense,
   listLicensesByContactEmail,
   isSessionProcessed,
   isEventProcessed,

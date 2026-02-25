@@ -127,10 +127,10 @@ import { commandSyncGuard } from "../utils/commandSyncGuard.js";
 import { buildCommandBuilders } from "../commands.js";
 import { buildInviteUrl } from "../bot-config.js";
 import {
-  getLicenseByKey,
-  linkLicenseToServer,
-  unlinkLicenseFromServer,
-  getLicenseForServer,
+  getLicenseById,
+  linkServerToLicense,
+  unlinkServerFromLicense,
+  getServerLicense,
 } from "../premium-store.js";
 import {
   previewCheckoutOffer,

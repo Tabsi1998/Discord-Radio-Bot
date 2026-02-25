@@ -12,7 +12,7 @@ import { BotRuntime } from "./bot/runtime.js";
 import { startWebServer } from "./api/server.js";
 import { loadStations } from "./stations-store.js";
 import {
-  listRawLicenses,
+  listLicenses,
   patchLicenseById,
 } from "./premium-store.js";
 import {
@@ -132,7 +132,7 @@ log("INFO", `Lizenz-Reminder aktiv fuer: ${EXPIRY_REMINDER_DAYS.join(", ")} Tage
 setInterval(async () => {
   if (!isEmailConfigured()) return;
   try {
-    const all = listRawLicenses();
+    const all = listLicenses();
     for (const [rawLicenseId, lic] of Object.entries(all)) {
       if (!lic?.expiresAt) continue;
 
