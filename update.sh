@@ -498,7 +498,7 @@ if [[ -z "$MODE" ]]; then
     echo -e "    ${GREEN}1${NC})  Update           - Code aktualisieren & Container rebuild"
     echo -e "    ${CYAN}2${NC})  Bots verwalten    - Anzeigen, hinzufuegen, bearbeiten, entfernen"
     echo -e "    ${YELLOW}3${NC})  Stripe einrichten - Zahlungs-API konfigurieren"
-    echo -e "    ${BOLD}4${NC})  Premium verwalten - Lizenzen aktivieren/entfernen"
+    echo -e "    ${BOLD}4${NC})  Premium verwalten - Lizenzen, Coupons, Referrals"
     echo -e "    ${DIM}5${NC})  E-Mail (SMTP)     - E-Mail-Versand konfigurieren"
     echo -e "    ${DIM}6${NC})  Einstellungen     - Port, Domain und mehr"
     echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"

@@ -1,0 +1,103 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { getDefaultLanguage, normalizeLanguage } from "./i18n.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STORE_FILE = path.resolve(__dirname, "..", "guild-languages.json");
+
+function emptyState() {
+  return {
+    version: 1,
+    guilds: {},
+  };
+}
+
+function sanitizeGuildId(rawGuildId) {
+  const guildId = String(rawGuildId || "").trim();
+  return /^\d{17,22}$/.test(guildId) ? guildId : null;
+}
+
+function normalizeState(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const guilds = source.guilds && typeof source.guilds === "object" ? source.guilds : {};
+  const out = {};
+
+  for (const [rawGuildId, rawLanguage] of Object.entries(guilds)) {
+    const guildId = sanitizeGuildId(rawGuildId);
+    if (!guildId) continue;
+    out[guildId] = normalizeLanguage(rawLanguage, getDefaultLanguage());
+  }
+
+  return {
+    version: 1,
+    guilds: out,
+  };
+}
+
+function loadState() {
+  try {
+    if (!fs.existsSync(STORE_FILE)) return emptyState();
+    const stat = fs.statSync(STORE_FILE);
+    if (!stat.isFile()) return emptyState();
+    const raw = fs.readFileSync(STORE_FILE, "utf8").trim();
+    if (!raw) return emptyState();
+    return normalizeState(JSON.parse(raw));
+  } catch {
+    return emptyState();
+  }
+}
+
+function saveState(state) {
+  const normalized = normalizeState(state);
+  const payload = `${JSON.stringify(normalized, null, 2)}\n`;
+  const tmpFile = `${STORE_FILE}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(tmpFile, payload, "utf8");
+    try {
+      fs.renameSync(tmpFile, STORE_FILE);
+    } catch {
+      fs.writeFileSync(STORE_FILE, payload, "utf8");
+    }
+  } finally {
+    try {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+let cache = null;
+function ensureState() {
+  if (cache) return cache;
+  cache = loadState();
+  return cache;
+}
+
+export function getGuildLanguage(guildId) {
+  const id = sanitizeGuildId(guildId);
+  if (!id) return null;
+  const state = ensureState();
+  return state.guilds[id] || null;
+}
+
+export function setGuildLanguage(guildId, language) {
+  const id = sanitizeGuildId(guildId);
+  if (!id) return null;
+  const state = ensureState();
+  const nextLanguage = normalizeLanguage(language, getDefaultLanguage());
+  state.guilds[id] = nextLanguage;
+  saveState(state);
+  return nextLanguage;
+}
+
+export function clearGuildLanguage(guildId) {
+  const id = sanitizeGuildId(guildId);
+  if (!id) return false;
+  const state = ensureState();
+  if (!state.guilds[id]) return false;
+  delete state.guilds[id];
+  saveState(state);
+  return true;
+}

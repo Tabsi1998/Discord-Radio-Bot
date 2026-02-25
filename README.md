@@ -14,6 +14,11 @@
 - Stripe Checkout Integration
 - Einmaliger Pro-Testmonat pro E-Mail
 - E-Mail Benachrichtigungen (Kaufbeleg, Ablauf-Warnung)
+- Song-History pro Server (`/history`)
+- Coupon- und Referral-Codes fuer Checkout-Rabatte
+- Event-Scheduler mit Voice/Stage-Unterstuetzung (`/event`)
+- Optionales Discord-Server-Event + Stage-Topic fuer geplante Events
+- Konsistente DE/EN Bot-Sprache (automatisch nach Server-Locale, optional manuell via `/language`)
 
 ## Setup
 
@@ -27,6 +32,7 @@
 ./update.sh           # Update & Management CLI
 ./update.sh --stripe  # Stripe API Key konfigurieren
 ./update.sh --email   # SMTP konfigurieren
+./update.sh --premium # Lizenz-, Coupon- und Referral-Verwaltung (Wizard)
 ```
 
 ## Docker
@@ -71,6 +77,9 @@ web/
 | `NOW_PLAYING_ENABLED` | `1` = Live-Now-Playing Embed im Voice-Textchat aktiv, `0` = aus |
 | `NOW_PLAYING_POLL_MS` | Polling-Intervall fuer Track-Metadaten (Default: `45000`) |
 | `NOW_PLAYING_COVER_ENABLED` | `1` = Album-Cover (iTunes Lookup) aktiv, `0` = ohne Cover |
+| `SONG_HISTORY_ENABLED` | `1` = `/history` aktiv, `0` = deaktiviert |
+| `SONG_HISTORY_MAX_PER_GUILD` | Max. gespeicherte Songs pro Server (Default: `120`) |
+| `SONG_HISTORY_DEDUPE_WINDOW_MS` | Dedupe-Zeitfenster fuer identische Tracks (Default: `120000`) |
 | `EVENT_SCHEDULER_ENABLED` | `1` = Geplante `/event`-Starts aktiv, `0` = Scheduler aus |
 | `EVENT_SCHEDULER_POLL_MS` | Polling-Intervall fuer Event-Ausfuehrung (Default: `15000`) |
 | `EVENT_SCHEDULER_RETRY_MS` | Retry-Delay bei Event-Fehler (Default: `120000`) |
@@ -92,3 +101,33 @@ web/
 | `VOICE_RECONNECT_MAX_MS` | `120000` | Maximaler Voice-Reconnect-Delay (Backoff-Cap) |
 | `NETWORK_COOLDOWN_BASE_MS` | `10000` | Start-Cooldown bei erkannten DNS/Netzwerkfehlern |
 | `NETWORK_COOLDOWN_MAX_MS` | `180000` | Maximaler globaler Netzwerk-Cooldown |
+
+### Coupon/Referral API (optional)
+
+Coupon/Referral Codes koennen direkt ueber `./update.sh --premium` verwaltet werden
+(im Premium-CLI: Option `10`).
+
+- `POST /api/premium/offer/preview`:
+  - Body: `tier`, `seats`, `months`, `email`, optional `couponCode`, `referralCode`
+  - Liefert Rabatt-Vorschau + finale Checkout-Summe.
+- `GET/POST/PATCH/DELETE /api/premium/offers` (Admin-Token erforderlich):
+  - Codes anlegen, aktualisieren, deaktivieren/loeschen.
+- `POST /api/premium/offers/active` (Admin-Token erforderlich):
+  - Code aktiv/inaktiv schalten.
+- `GET /api/premium/redemptions` (Admin-Token erforderlich):
+  - Letzte Code-Einloesungen.
+
+### Event Scheduler (Stage + Voice)
+
+- `/event create` unterstuetzt jetzt zusaetzlich:
+  - `serverevent` (boolean): Discord-Server-Event automatisch anlegen
+  - `stagetopic` (string): Stage-Thema mit Platzhaltern `{event}`, `{station}`, `{time}`
+- Stage-Channels werden beim Event-Start vorbereitet (Stage-Topic/Stage-Instance/Speaker-Request).
+
+### Discord Sprache (DE/EN)
+
+- Standard: OmniFM nutzt die Discord-Serversprache (`guildLocale`) als Antwortsprache.
+- Optionaler Override pro Server:
+  - `/language show` - aktive Sprache + Quelle anzeigen
+  - `/language set value:de|en` - Sprache manuell setzen
+  - `/language reset` - auf automatische Server-Sprache zuruecksetzen

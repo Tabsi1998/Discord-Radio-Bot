@@ -7,6 +7,7 @@ export const COMMAND_PERMISSION_COMMANDS = [
   "stations",
   "list",
   "now",
+  "history",
   "status",
   "health",
   "diag",

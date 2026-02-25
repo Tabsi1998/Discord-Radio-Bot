@@ -12,6 +12,13 @@ import {
 } from "./premium-store.js";
 import { isConfigured as isEmailConfigured, sendMail } from "./email.js";
 import { loadBotConfigs, buildInviteUrl } from "./bot-config.js";
+import {
+  deleteOffer,
+  listOffers,
+  listRecentRedemptions,
+  setOfferActive,
+  upsertOffer,
+} from "./coupon-store.js";
 
 dotenv.config();
 
@@ -280,6 +287,225 @@ function printInviteOverviewToConsole(overview, tier) {
   console.log(`    Support: ${SUPPORT_URL}`);
 }
 
+function parseCsvValues(raw) {
+  return String(raw || "")
+    .split(",")
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+}
+
+function parseEuroToCents(raw) {
+  const normalized = String(raw || "").trim().replace(",", ".");
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.max(0, Math.round(parsed * 100));
+}
+
+function normalizeCodeInput(raw) {
+  return String(raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "")
+    .slice(0, 40);
+}
+
+async function askWithDefault(label, defaultValue = "") {
+  const displayDefault = String(defaultValue ?? "").trim();
+  const answer = (await ask(displayDefault ? `${label} [${displayDefault}]` : label)).trim();
+  return answer || displayDefault;
+}
+
+function printOffersTable(offers) {
+  if (!offers.length) {
+    info("Keine Coupon/Referral-Codes vorhanden.");
+    return;
+  }
+
+  console.log("");
+  console.log("  Code                 Typ       Status    Rabatt                  Regeln");
+  console.log("  " + "-".repeat(90));
+  for (const offer of offers) {
+    const code = String(offer.code || "-").padEnd(20);
+    const kind = String(offer.kind || "coupon").padEnd(8);
+    const status = offer.active ? "aktiv" : "inaktiv";
+    const discount = Number(offer.percentOff || 0) > 0
+      ? `${offer.percentOff}%`
+      : `${centsToEur(Number(offer.amountOffCents || 0))} fix`;
+    const restrictions = [];
+    if (Array.isArray(offer.allowedTiers) && offer.allowedTiers.length) restrictions.push(`tier=${offer.allowedTiers.join("/")}`);
+    if (Array.isArray(offer.allowedSeats) && offer.allowedSeats.length) restrictions.push(`seats=${offer.allowedSeats.join("/")}`);
+    if (Number.isFinite(Number(offer.minMonths)) && Number(offer.minMonths) > 0) restrictions.push(`min=${offer.minMonths}mo`);
+    if (Number.isFinite(Number(offer.maxRedemptions)) && Number(offer.maxRedemptions) > 0) restrictions.push(`max=${offer.maxRedemptions}`);
+    const stats = offer.redemptions?.total ? `used=${offer.redemptions.total}` : "used=0";
+    restrictions.push(stats);
+    console.log(`  ${code}${kind}${status.padEnd(10)}${discount.padEnd(24)}${restrictions.join(" | ")}`);
+  }
+  console.log("");
+}
+
+function printRedemptionsTable(redemptions) {
+  if (!redemptions.length) {
+    info("Keine Redemptions gefunden.");
+    return;
+  }
+
+  console.log("");
+  console.log("  Zeit                Session                 Code         Art       Betrag");
+  console.log("  " + "-".repeat(88));
+  for (const entry of redemptions) {
+    const when = formatDate(entry.processedAt).padEnd(20);
+    const session = String(entry.sessionId || "-").slice(0, 22).padEnd(22);
+    const code = String(entry.code || "-").padEnd(12);
+    const kind = String(entry.kind || "-").padEnd(10);
+    const amount = `${centsToEur(Number(entry.finalAmountCents || 0))} (disc ${centsToEur(Number(entry.discountCents || 0))})`;
+    console.log(`  ${when}${session}${code}${kind}${amount}`);
+    if (entry.email) {
+      console.log(`    ${entry.email} | tier=${entry.tier || "-"} | seats=${entry.seats || "-"} | months=${entry.months || "-"}`);
+    }
+  }
+  console.log("");
+}
+
+async function manageOffersMenu() {
+  while (true) {
+    console.log("  Coupon/Referral Verwaltung:");
+    console.log("    1) Codes anzeigen");
+    console.log("    2) Code anlegen/aktualisieren");
+    console.log("    3) Code aktiv/inaktiv setzen");
+    console.log("    4) Code loeschen");
+    console.log("    5) Letzte Redemptions anzeigen");
+    console.log("    6) Zurueck");
+    console.log("");
+    const choice = (await ask("Aktion")).trim();
+
+    if (choice === "1") {
+      const offers = listOffers({ includeInactive: true, includeStats: true });
+      printOffersTable(offers);
+      continue;
+    }
+
+    if (choice === "2") {
+      const code = normalizeCodeInput(await ask("Code (z.B. PRO10)"));
+      if (!code) {
+        fail("Code fehlt oder ungueltig.");
+        continue;
+      }
+
+      const existing = listOffers({ includeInactive: true, includeStats: false })
+        .find((entry) => String(entry.code || "").toUpperCase() === code) || null;
+
+      const kindRaw = (await askWithDefault("Typ (coupon/referral)", existing?.kind || "coupon")).toLowerCase();
+      const kind = kindRaw === "referral" ? "referral" : "coupon";
+      const percentOff = Math.max(0, parseInt(await askWithDefault("Rabatt in Prozent (0-95)", String(existing?.percentOff || 0)), 10) || 0);
+      const amountDefault = Number(existing?.amountOffCents || 0) > 0
+        ? (Number(existing.amountOffCents) / 100).toFixed(2).replace(".", ",")
+        : "0";
+      const amountOffCents = parseEuroToCents(await askWithDefault("Fix-Rabatt in EUR (z.B. 2,50)", amountDefault));
+      if (percentOff <= 0 && amountOffCents <= 0) {
+        fail("Mindestens Prozent- oder Fix-Rabatt muss > 0 sein.");
+        continue;
+      }
+
+      const activeAnswer = (await askWithDefault("Aktiv? (j/n)", existing ? (existing.active ? "j" : "n") : "j")).toLowerCase();
+      const active = activeAnswer === "j" || activeAnswer === "y";
+      const tiers = parseCsvValues(await askWithDefault("Allowed tiers (csv, leer=alle)", (existing?.allowedTiers || []).join(",")))
+        .map((entry) => entry.toLowerCase())
+        .filter((entry) => entry === "pro" || entry === "ultimate");
+      const seats = parseCsvValues(await askWithDefault("Allowed seats (csv, leer=alle)", (existing?.allowedSeats || []).join(",")))
+        .map((entry) => parseInt(entry, 10))
+        .filter((entry) => [1, 2, 3, 5].includes(entry));
+      const minMonthsRaw = await askWithDefault("Mindestlaufzeit Monate (leer=keine)", existing?.minMonths ? String(existing.minMonths) : "");
+      const minMonths = minMonthsRaw ? Math.max(1, parseInt(minMonthsRaw, 10) || 0) : null;
+      const maxRedemptionsRaw = await askWithDefault("Max Redemptions total (leer=unbegrenzt)", existing?.maxRedemptions ? String(existing.maxRedemptions) : "");
+      const maxRedemptions = maxRedemptionsRaw ? Math.max(1, parseInt(maxRedemptionsRaw, 10) || 0) : null;
+      const maxPerEmailRaw = await askWithDefault("Max pro E-Mail (leer=unbegrenzt)", existing?.maxPerEmail ? String(existing.maxPerEmail) : "");
+      const maxPerEmail = maxPerEmailRaw ? Math.max(1, parseInt(maxPerEmailRaw, 10) || 0) : null;
+      const startsAt = await askWithDefault("Startzeit ISO (leer=sofort)", existing?.startsAt || "");
+      const expiresAt = await askWithDefault("Ablaufzeit ISO (leer=kein Ablauf)", existing?.expiresAt || "");
+      const ownerLabel = await askWithDefault("Owner Label (optional)", existing?.ownerLabel || "");
+      const note = await askWithDefault("Notiz (optional)", existing?.note || "");
+
+      try {
+        const saved = upsertOffer({
+          code,
+          kind,
+          active,
+          percentOff,
+          amountOffCents,
+          allowedTiers: tiers,
+          allowedSeats: seats,
+          minMonths,
+          maxRedemptions,
+          maxPerEmail,
+          startsAt: startsAt || null,
+          expiresAt: expiresAt || null,
+          ownerLabel: ownerLabel || null,
+          note: note || null,
+          updatedBy: "premium-cli",
+          createdBy: existing?.createdBy || "premium-cli",
+        }, { partial: false });
+        ok(`Code ${saved.code} gespeichert (${saved.kind}).`);
+      } catch (err) {
+        fail(`Speichern fehlgeschlagen: ${err?.message || err}`);
+      }
+      continue;
+    }
+
+    if (choice === "3") {
+      const code = normalizeCodeInput(await ask("Code"));
+      if (!code) {
+        fail("Code fehlt.");
+        continue;
+      }
+      const activeAnswer = (await askWithDefault("Aktiv setzen? (j/n)", "j")).toLowerCase();
+      const active = activeAnswer === "j" || activeAnswer === "y";
+      const updated = setOfferActive(code, active);
+      if (!updated) {
+        fail("Code nicht gefunden.");
+      } else {
+        ok(`Code ${updated.code} ist jetzt ${updated.active ? "aktiv" : "inaktiv"}.`);
+      }
+      continue;
+    }
+
+    if (choice === "4") {
+      const code = normalizeCodeInput(await ask("Code"));
+      if (!code) {
+        fail("Code fehlt.");
+        continue;
+      }
+      const confirm = (await ask("Wirklich loeschen? (j/n)")).trim().toLowerCase();
+      if (confirm !== "j" && confirm !== "y") {
+        info("Abgebrochen.");
+        continue;
+      }
+      const deleted = deleteOffer(code);
+      if (!deleted) {
+        fail("Code nicht gefunden.");
+      } else {
+        ok(`Code ${code} geloescht.`);
+      }
+      continue;
+    }
+
+    if (choice === "5") {
+      const limitRaw = await askWithDefault("Limit", "25");
+      const limit = Math.max(1, Math.min(200, parseInt(limitRaw, 10) || 25));
+      const redemptions = listRecentRedemptions(limit);
+      printRedemptionsTable(redemptions);
+      continue;
+    }
+
+    if (choice === "6" || choice.toLowerCase() === "q" || choice.toLowerCase() === "exit") {
+      return;
+    }
+
+    fail("Ungueltige Auswahl.");
+    console.log("");
+  }
+}
+
 function printHeader() {
   console.log("");
   console.log("  \x1b[36m\x1b[1m╔═══════════════════════════════════════╗");
@@ -304,7 +530,8 @@ async function wizardMenu() {
   console.log("    7) Preisrechner");
   console.log("    8) Tier-Infos");
   console.log("    9) Lizenz-Mail + Invite-Links erneut senden");
-  console.log("    10) Beenden");
+  console.log("    10) Coupon/Referral Codes verwalten");
+  console.log("    11) Beenden");
   console.log("");
   return ask("Aktion waehlen");
 }
@@ -554,11 +781,17 @@ async function run() {
           printInviteOverviewToConsole(inviteOverview, tier);
         } else {
           fail(`Resend fehlgeschlagen: ${result?.error || "Unbekannter Fehler"}`);
-        }
+      }
         break;
       }
 
-      case "10":
+      // --- Coupon/Referral Verwaltung ---
+      case "10": {
+        await manageOffersMenu();
+        break;
+      }
+
+      case "11":
       case "q":
       case "exit":
         return 0;

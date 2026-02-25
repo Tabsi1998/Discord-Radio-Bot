@@ -51,6 +51,16 @@ function sanitizeRunAtMs(raw) {
   return runAtMs;
 }
 
+function sanitizeBoolean(raw, fallback = false) {
+  if (raw === undefined || raw === null) return Boolean(fallback);
+  if (typeof raw === "boolean") return raw;
+  const text = String(raw).trim().toLowerCase();
+  if (!text) return Boolean(fallback);
+  if (["1", "true", "yes", "on", "ja", "j"].includes(text)) return true;
+  if (["0", "false", "no", "off", "nein", "n"].includes(text)) return false;
+  return Boolean(fallback);
+}
+
 function sanitizeLastRunAtMs(raw) {
   const value = Number.parseInt(String(raw || ""), 10);
   if (!Number.isFinite(value) || value < 0) return 0;
@@ -72,6 +82,9 @@ function normalizeEvent(raw) {
   const createdByUserId = sanitizeDiscordId(raw.createdByUserId);
   const textChannelId = sanitizeDiscordId(raw.textChannelId);
   const announceMessage = sanitizeText(raw.announceMessage, 1200);
+  const stageTopic = sanitizeText(raw.stageTopic, 120);
+  const createDiscordEvent = sanitizeBoolean(raw.createDiscordEvent, false);
+  const discordScheduledEventId = sanitizeDiscordId(raw.discordScheduledEventId);
 
   if (!id || !guildId || !voiceChannelId || !stationKey || !botId || !name || !runAtMs) {
     return null;
@@ -86,6 +99,9 @@ function normalizeEvent(raw) {
     voiceChannelId,
     textChannelId: textChannelId || null,
     announceMessage: announceMessage || null,
+    stageTopic: stageTopic || null,
+    createDiscordEvent,
+    discordScheduledEventId: discordScheduledEventId || null,
     repeat,
     runAtMs,
     createdAt,

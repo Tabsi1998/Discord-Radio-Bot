@@ -16,6 +16,10 @@ export function buildCommandBuilders() {
     new SlashCommandBuilder().setName("stations").setDescription("Verfuegbare Stationen fuer deinen Plan anzeigen"),
     new SlashCommandBuilder().setName("now").setDescription("Zeigt was gerade laeuft"),
     new SlashCommandBuilder()
+      .setName("history")
+      .setDescription("Zeigt die zuletzt erkannten Songs")
+      .addIntegerOption((o) => o.setName("limit").setDescription("Anzahl Eintraege (1-20)").setRequired(false)),
+    new SlashCommandBuilder()
       .setName("setvolume")
       .setDescription("Lautstaerke setzen (0-100)")
       .addIntegerOption((o) => o.setName("value").setDescription("0 bis 100").setRequired(true)),
@@ -27,6 +31,30 @@ export function buildCommandBuilders() {
     new SlashCommandBuilder().setName("health").setDescription("Stream-Health und Reconnect-Info anzeigen"),
     new SlashCommandBuilder().setName("diag").setDescription("Diagnose: Audio/ffmpeg Profil und Stream-Details anzeigen"),
     new SlashCommandBuilder().setName("premium").setDescription("OmniFM Premium-Status deines Servers anzeigen"),
+    new SlashCommandBuilder()
+      .setName("language")
+      .setDescription("Sprache fuer diesen Server verwalten")
+      .addSubcommand((sub) =>
+        sub.setName("show")
+          .setDescription("Aktive Sprache anzeigen")
+      )
+      .addSubcommand((sub) =>
+        sub.setName("set")
+          .setDescription("Sprache fest einstellen")
+          .addStringOption((o) =>
+            o.setName("value")
+              .setDescription("Sprache")
+              .setRequired(true)
+              .addChoices(
+                { name: "Deutsch", value: "de" },
+                { name: "English", value: "en" }
+              )
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("reset")
+          .setDescription("Automatische Sprachwahl (Server-Sprache)")
+      ),
     // Custom Stations (Ultimate)
     new SlashCommandBuilder()
       .setName("addstation")
@@ -82,6 +110,16 @@ export function buildCommandBuilders() {
             o.setName("text")
               .setDescription("Optionaler Text-Channel fuer Ankuendigung")
               .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+              .setRequired(false)
+          )
+          .addBooleanOption((o) =>
+            o.setName("serverevent")
+              .setDescription("Optional: Discord-Server-Event automatisch anlegen")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("stagetopic")
+              .setDescription("Optionales Stage-Thema ({event},{station},{time})")
               .setRequired(false)
           )
           .addStringOption((o) =>

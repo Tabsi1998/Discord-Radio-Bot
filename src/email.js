@@ -124,6 +124,12 @@ function buildPurchaseEmail(data) {
     inviteOverview,
     dashboardUrl,
     pricePaid,
+    baseAmountCents,
+    discountCents,
+    appliedOfferCode,
+    appliedOfferKind,
+    referralCode,
+    offerOwnerLabel,
     currency,
     language,
     isRenewal = false,
@@ -159,12 +165,27 @@ function buildPurchaseEmail(data) {
   const durationLabel = isDe ? "Laufzeit" : "Duration";
   const validUntilLabel = isDe ? "Gueltig bis" : "Valid until";
   const paidLabel = isDe ? "Bezahlt" : "Paid";
+  const discountLabel = isDe ? "Rabatt" : "Discount";
+  const codeLabel = isDe ? "Code" : "Code";
+  const referralLabel = isDe ? "Referral" : "Referral";
   const durationText = isDe
     ? `${months} Monat${months > 1 ? "e" : ""}`
     : `${months} month${months > 1 ? "s" : ""}`;
   const seatsText = isDe
     ? `${seatCount} Server`
     : `${seatCount} server${seatCount > 1 ? "s" : ""}`;
+  const rawDiscountCents = Math.max(0, Number.parseInt(String(discountCents || 0), 10) || 0);
+  const hasDiscount = rawDiscountCents > 0;
+  const discountText = hasDiscount ? formatMoney(rawDiscountCents, currency || "eur", lang) : null;
+  const baseAmountText = Number(baseAmountCents || 0) > 0 ? formatMoney(baseAmountCents, currency || "eur", lang) : null;
+  const appliedCodeText = String(appliedOfferCode || "").trim().toUpperCase();
+  const referralCodeText = String(referralCode || "").trim().toUpperCase();
+  const codeText = appliedCodeText
+    ? `${appliedCodeText}${appliedOfferKind ? ` (${appliedOfferKind})` : ""}`
+    : null;
+  const referralText = referralCodeText
+    ? `${referralCodeText}${offerOwnerLabel ? ` (${offerOwnerLabel})` : ""}`
+    : null;
 
   let tierBenefits = "";
   if (tier === "ultimate") {
@@ -276,6 +297,10 @@ function buildPurchaseEmail(data) {
           <tr><td style="color:#888;padding:8px 0">${seatsLabel}</td><td style="text-align:right;padding:8px 0;font-weight:600">${seatsText}</td></tr>
           <tr><td style="color:#888;padding:8px 0">${durationLabel}</td><td style="text-align:right;padding:8px 0">${durationText}</td></tr>
           <tr><td style="color:#888;padding:8px 0">${validUntilLabel}</td><td style="text-align:right;padding:8px 0;font-weight:700">${expDate}</td></tr>
+          ${hasDiscount && baseAmountText ? `<tr><td style="color:#888;padding:8px 0">${isDe ? "Originalpreis" : "Base price"}</td><td style="text-align:right;padding:8px 0">${baseAmountText}</td></tr>` : ""}
+          ${hasDiscount ? `<tr><td style="color:#888;padding:8px 0">${discountLabel}</td><td style="text-align:right;padding:8px 0;color:#39FF14">-${discountText}</td></tr>` : ""}
+          ${codeText ? `<tr><td style="color:#888;padding:8px 0">${codeLabel}</td><td style="text-align:right;padding:8px 0;font-family:JetBrains Mono,monospace">${codeText}</td></tr>` : ""}
+          ${referralText ? `<tr><td style="color:#888;padding:8px 0">${referralLabel}</td><td style="text-align:right;padding:8px 0;font-family:JetBrains Mono,monospace">${referralText}</td></tr>` : ""}
           <tr><td style="color:#888;padding:8px 0">${paidLabel}</td><td style="text-align:right;padding:8px 0">${moneyLabel}</td></tr>
         </table>
 
@@ -359,6 +384,12 @@ function buildInvoiceEmail(data) {
     licenseKey,
     customerEmail,
     customerName,
+    baseAmountCents,
+    discountCents,
+    appliedOfferCode,
+    appliedOfferKind,
+    referralCode,
+    offerOwnerLabel,
     language,
   } = data;
 
@@ -367,7 +398,14 @@ function buildInvoiceEmail(data) {
   const locale = getLocaleForLanguage(lang);
   const issueDate = new Date(issuedAt || Date.now()).toLocaleDateString(locale);
   const expDate = expiresAt ? new Date(expiresAt).toLocaleDateString(locale) : "-";
+  const safeServerId = serverId || "-";
   const amount = formatMoney(amountPaid || 0, currency || "eur", lang);
+  const normalizedBaseAmountCents = Math.max(0, Number.parseInt(String(baseAmountCents || 0), 10) || 0);
+  const normalizedDiscountCents = Math.max(0, Number.parseInt(String(discountCents || 0), 10) || 0);
+  const baseAmount = normalizedBaseAmountCents > 0 ? formatMoney(normalizedBaseAmountCents, currency || "eur", lang) : amount;
+  const discountAmount = normalizedDiscountCents > 0 ? formatMoney(normalizedDiscountCents, currency || "eur", lang) : null;
+  const appliedCode = String(appliedOfferCode || "").trim().toUpperCase();
+  const referral = String(referralCode || "").trim().toUpperCase();
   const lineText = isUpgrade
     ? (isDe ? `Upgrade auf ${tierName} (${tier})` : `Upgrade to ${tierName} (${tier})`)
     : isRenewal
@@ -384,8 +422,12 @@ function buildInvoiceEmail(data) {
   const licenseLabel = isDe ? "Lizenz-Key" : "License key";
   const validUntilLabel = isDe ? "Gueltig bis" : "Valid until";
   const sessionLabel = isDe ? "Session" : "Session";
+  const discountLabel = isDe ? "Rabatt" : "Discount";
+  const codeLabel = isDe ? "Code" : "Code";
+  const referralLabel = isDe ? "Referral" : "Referral";
   const serviceLabel = isDe ? "Leistung" : "Service";
   const amountLabel = isDe ? "Betrag" : "Amount";
+  const totalLabel = isDe ? "Gesamt" : "Total";
   const hint = isDe
     ? "Hinweis: Automatisch erstellter Kaufbeleg fuer den Premium-Service."
     : "Note: Automatically generated invoice for the premium service.";
@@ -406,17 +448,23 @@ function buildInvoiceEmail(data) {
         <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
           <tr><td style="color:#888;padding:7px 0">${customerLabel}</td><td style="text-align:right;padding:7px 0">${customerName || "-"}</td></tr>
           <tr><td style="color:#888;padding:7px 0">${emailLabel}</td><td style="text-align:right;padding:7px 0">${customerEmail || "-"}</td></tr>
-          <tr><td style="color:#888;padding:7px 0">${serverLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${serverId}</td></tr>
+          <tr><td style="color:#888;padding:7px 0">${serverLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${safeServerId}</td></tr>
           <tr><td style="color:#888;padding:7px 0">${licenseLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${licenseKey || "-"}</td></tr>
           <tr><td style="color:#888;padding:7px 0">${validUntilLabel}</td><td style="text-align:right;padding:7px 0">${expDate}</td></tr>
           <tr><td style="color:#888;padding:7px 0">${sessionLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${sessionId || "-"}</td></tr>
+          ${appliedCode ? `<tr><td style="color:#888;padding:7px 0">${codeLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${appliedCode}${appliedOfferKind ? ` (${appliedOfferKind})` : ""}</td></tr>` : ""}
+          ${referral ? `<tr><td style="color:#888;padding:7px 0">${referralLabel}</td><td style="text-align:right;padding:7px 0;font-family:JetBrains Mono,monospace">${referral}${offerOwnerLabel ? ` (${offerOwnerLabel})` : ""}</td></tr>` : ""}
         </table>
         <div style="border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden">
           <div style="display:grid;grid-template-columns:1fr 120px;background:rgba(255,255,255,0.04);padding:10px 14px;font-size:12px;color:#A1A1AA;font-weight:700;letter-spacing:0.04em">
             <span>${serviceLabel}</span><span style="text-align:right">${amountLabel}</span>
           </div>
           <div style="display:grid;grid-template-columns:1fr 120px;padding:14px">
-            <span>${lineText}</span><span style="text-align:right;font-weight:700">${amount}</span>
+            <span>${lineText}</span><span style="text-align:right">${baseAmount}</span>
+          </div>
+          ${discountAmount ? `<div style="display:grid;grid-template-columns:1fr 120px;padding:0 14px 12px"><span style="color:#A1A1AA">${discountLabel}</span><span style="text-align:right;color:#39FF14">-${discountAmount}</span></div>` : ""}
+          <div style="display:grid;grid-template-columns:1fr 120px;padding:0 14px 14px;font-weight:700;border-top:1px solid rgba(255,255,255,0.08)">
+            <span style="padding-top:10px">${totalLabel}</span><span style="text-align:right;padding-top:10px">${amount}</span>
           </div>
         </div>
         <div style="margin-top:14px;font-size:12px;color:#A1A1AA">

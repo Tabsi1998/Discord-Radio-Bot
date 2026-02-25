@@ -39,6 +39,26 @@ var APP_IS_DE = APP_LANG === 'de';
 var APP_LOCALE = APP_IS_DE ? 'de-DE' : 'en-US';
 document.documentElement.lang = APP_LANG;
 
+function sanitizeOfferCodeInput(rawCode) {
+  return String(rawCode || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, '')
+    .slice(0, 40);
+}
+
+var CHECKOUT_QUERY_PREFILL = (function() {
+  try {
+    var params = new URLSearchParams(window.location.search || '');
+    return {
+      couponCode: sanitizeOfferCodeInput(params.get('coupon') || params.get('code') || ''),
+      referralCode: sanitizeOfferCodeInput(params.get('ref') || params.get('referral') || ''),
+    };
+  } catch (_) {
+    return { couponCode: '', referralCode: '' };
+  }
+})();
+
 function tr(deText, enText) {
   return APP_IS_DE ? deText : enText;
 }
@@ -52,6 +72,7 @@ var COMMANDS_DE = [
   { name: '/stations',      args: '',                     desc: 'Zeigt alle verfuegbaren Radio-Stationen (nach Tier gefiltert)' },
   { name: '/list',          args: '[page]',               desc: 'Listet Stationen paginiert auf' },
   { name: '/now',           args: '',                     desc: 'Zeigt die aktuelle Station und Metadaten' },
+  { name: '/history',       args: '[limit]',              desc: 'Zeigt die zuletzt erkannten Songs im Server' },
   { name: '/setvolume',     args: '<0-100>',              desc: 'Setzt die Lautstaerke' },
   { name: '/status',        args: '',                     desc: 'Zeigt Bot-Status, Uptime und Last' },
   { name: '/health',        args: '',                     desc: 'Zeigt Stream-Health und Reconnect-Info' },
@@ -73,6 +94,7 @@ var COMMANDS_EN = [
   { name: '/stations',      args: '',                     desc: 'Shows all available stations (tier-filtered)' },
   { name: '/list',          args: '[page]',               desc: 'Lists stations with pagination' },
   { name: '/now',           args: '',                     desc: 'Shows current station and metadata' },
+  { name: '/history',       args: '[limit]',              desc: 'Shows recently detected songs for this server' },
   { name: '/setvolume',     args: '<0-100>',              desc: 'Sets playback volume' },
   { name: '/status',        args: '',                     desc: 'Shows bot status, uptime, and load' },
   { name: '/health',        args: '',                     desc: 'Shows stream health and reconnect info' },
@@ -368,6 +390,24 @@ function applyStaticEnglishTranslations() {
       if (emailLabel) emailLabel.textContent = 'EMAIL ADDRESS';
       if (emailHint) emailHint.textContent = 'Your license key and invoice will be sent to this address.';
       emailInput.placeholder = 'you@example.com';
+    }
+
+    var couponInput = document.getElementById('premiumCouponCode');
+    if (couponInput) {
+      var couponBlock = couponInput.parentElement;
+      var couponLabel = couponBlock ? couponBlock.querySelector('div') : null;
+      if (couponLabel) couponLabel.textContent = 'DISCOUNT CODE (OPTIONAL)';
+      couponInput.placeholder = 'e.g. PRO10';
+    }
+
+    var referralInput = document.getElementById('premiumReferralCode');
+    if (referralInput) {
+      var referralBlock = referralInput.parentElement;
+      var referralLabel = referralBlock ? referralBlock.querySelector('div') : null;
+      var referralHint = referralBlock ? referralBlock.querySelector('p') : null;
+      if (referralLabel) referralLabel.textContent = 'REFERRAL CODE (OPTIONAL)';
+      if (referralHint) referralHint.textContent = 'Referral links can prefill this code automatically.';
+      referralInput.placeholder = 'e.g. CREATOR10';
     }
 
     var seatRow = document.getElementById('seatSelectorRow');
@@ -995,10 +1035,18 @@ function renderSeatButtons(tier) {
 function startCheckout(tier) {
   var modal = document.getElementById('premiumModal');
   var input = document.getElementById('premiumEmail');
+  var couponInput = document.getElementById('premiumCouponCode');
+  var referralInput = document.getElementById('premiumReferralCode');
   var statusEl = document.getElementById('premiumStatus');
 
   modal.style.display = 'flex';
   input.value = '';
+  if (couponInput) {
+    couponInput.value = CHECKOUT_QUERY_PREFILL.couponCode || '';
+  }
+  if (referralInput) {
+    referralInput.value = CHECKOUT_QUERY_PREFILL.referralCode || '';
+  }
   statusEl.textContent = '';
   modal.dataset.tier = tier;
   modal.dataset.months = '1';
@@ -1080,6 +1128,12 @@ function updatePriceDisplay() {
   var tier = modal.dataset.tier;
   var months = parseInt(modal.dataset.months) || 1;
   var seats = parseInt(modal.dataset.seats) || 1;
+  var couponInput = document.getElementById('premiumCouponCode');
+  var referralInput = document.getElementById('premiumReferralCode');
+  var hasOfferCode = Boolean(
+    sanitizeOfferCodeInput(couponInput ? couponInput.value : '')
+    || sanitizeOfferCodeInput(referralInput ? referralInput.value : '')
+  );
 
   var pricePerMonth = getSeatPricePerMonth(tier, seats);
   var totalCents, regularCents, hasDiscount;
@@ -1117,6 +1171,12 @@ function updatePriceDisplay() {
       ? ('2 Monate gratis! Du sparst ' + saved)
       : ('2 months free! You save ' + saved);
     discountEl.style.display = 'block';
+  } else if (hasOfferCode) {
+    discountEl.textContent = tr(
+      'Rabatt-/Referral-Code wird beim Checkout geprueft.',
+      'Discount/referral code will be validated at checkout.'
+    );
+    discountEl.style.display = 'block';
   } else {
     discountEl.style.display = 'none';
   }
@@ -1139,6 +1199,27 @@ function checkExistingLicense() {
   // Email-based checkout - no pre-check needed
 }
 
+(function bindCheckoutOfferInputs() {
+  var couponInput = document.getElementById('premiumCouponCode');
+  var referralInput = document.getElementById('premiumReferralCode');
+
+  function handleInput(event) {
+    if (!event || !event.target) return;
+    var cleaned = sanitizeOfferCodeInput(event.target.value);
+    if (event.target.value !== cleaned) {
+      event.target.value = cleaned;
+    }
+    updatePriceDisplay();
+  }
+
+  if (couponInput) {
+    couponInput.addEventListener('input', handleInput);
+  }
+  if (referralInput) {
+    referralInput.addEventListener('input', handleInput);
+  }
+})();
+
 function closePremiumModal() {
   setCheckoutLoadingState(false);
   document.getElementById('premiumModal').style.display = 'none';
@@ -1148,11 +1229,15 @@ function closePremiumModal() {
 function submitPremiumCheckout() {
   var modal = document.getElementById('premiumModal');
   var input = document.getElementById('premiumEmail');
+  var couponInput = document.getElementById('premiumCouponCode');
+  var referralInput = document.getElementById('premiumReferralCode');
   var statusEl = document.getElementById('premiumStatus');
   var tier = modal.dataset.tier;
   var months = parseInt(modal.dataset.months) || 1;
   var seats = parseInt(modal.dataset.seats) || 1;
   var email = input.value.trim();
+  var couponCode = sanitizeOfferCodeInput(couponInput ? couponInput.value : '');
+  var referralCode = sanitizeOfferCodeInput(referralInput ? referralInput.value : '');
 
   if (!isValidEmailAddress(email)) {
     statusEl.textContent = tr('Bitte eine gueltige E-Mail-Adresse eingeben!', 'Please enter a valid email address!');
@@ -1166,7 +1251,16 @@ function submitPremiumCheckout() {
   fetch('/api/premium/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tier: tier, email: email, months: months, seats: seats, returnUrl: window.location.origin, language: APP_LANG })
+    body: JSON.stringify({
+      tier: tier,
+      email: email,
+      months: months,
+      seats: seats,
+      couponCode: couponCode || undefined,
+      referralCode: referralCode || undefined,
+      returnUrl: window.location.origin,
+      language: APP_LANG
+    })
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
@@ -1258,6 +1352,12 @@ function submitProTrial() {
           msg += APP_IS_DE
             ? (' Dein Lizenz-Key: ' + data.licenseKey)
             : (' Your license key: ' + data.licenseKey);
+        }
+        if (data.appliedOfferCode && Number(data.discountCents || 0) > 0) {
+          var discountValue = formatEuroFromCents(Number(data.discountCents || 0));
+          msg += APP_IS_DE
+            ? (' Rabatt: ' + discountValue + ' (' + data.appliedOfferCode + ').')
+            : (' Discount: ' + discountValue + ' (' + data.appliedOfferCode + ').');
         }
         banner.querySelector('span').textContent = msg;
         banner.querySelector('span').style.color = '#39FF14';

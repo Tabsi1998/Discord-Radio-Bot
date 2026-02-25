@@ -7,7 +7,16 @@ import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { spawn } from "node:child_process";
 import { REST } from "@discordjs/rest";
-import { ActivityType, ChannelType, Client, GatewayIntentBits, PermissionFlagsBits, Routes } from "discord.js";
+import {
+  ActivityType,
+  ChannelType,
+  Client,
+  GatewayIntentBits,
+  GuildScheduledEventEntityType,
+  GuildScheduledEventPrivacyLevel,
+  PermissionFlagsBits,
+  Routes,
+} from "discord.js";
 import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
@@ -44,6 +53,7 @@ import { getGuildStations, addGuildStation, removeGuildStation, countGuildStatio
 import {
   listScheduledEvents,
   createScheduledEvent,
+  getScheduledEvent,
   deleteScheduledEvent,
   patchScheduledEvent,
   deleteScheduledEventsByFilter,
@@ -59,6 +69,18 @@ import {
 } from "./command-permissions-store.js";
 import { isPermissionManagedCommand, normalizePermissionCommandName } from "./config/command-permissions.js";
 import { syncGuildCommandsSafe } from "./discord/syncGuildCommandsSafe.js";
+import { appendSongHistory, getSongHistory } from "./song-history-store.js";
+import { clearGuildLanguage, getGuildLanguage, setGuildLanguage } from "./guild-language-store.js";
+import {
+  deleteOffer,
+  getOffer,
+  listOffers,
+  listRecentRedemptions,
+  markOfferRedemption,
+  previewCheckoutOffer,
+  setOfferActive,
+  upsertOffer,
+} from "./coupon-store.js";
 
 dotenv.config();
 
@@ -170,6 +192,34 @@ function seatPricingInEuro(tier) {
 
 function formatEuroCentsDe(cents) {
   return (Number(cents || 0) / 100).toFixed(2).replace(".", ",");
+}
+
+function sanitizeOfferCode(rawCode) {
+  return String(rawCode || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "")
+    .slice(0, 40);
+}
+
+function translateOfferReason(reason, language = "de") {
+  const isDe = String(language || "de").toLowerCase() === "de";
+  const map = {
+    code_missing: isDe ? "Kein Code angegeben." : "No code provided.",
+    offer_not_found: isDe ? "Code nicht gefunden." : "Code not found.",
+    offer_kind_mismatch: isDe ? "Code-Typ passt nicht." : "Code type mismatch.",
+    offer_inactive: isDe ? "Code ist deaktiviert." : "Code is inactive.",
+    offer_not_started: isDe ? "Code ist noch nicht aktiv." : "Code is not active yet.",
+    offer_expired: isDe ? "Code ist abgelaufen." : "Code has expired.",
+    offer_tier_mismatch: isDe ? "Code gilt nicht fuer dieses Paket." : "Code does not apply to this plan.",
+    offer_seat_mismatch: isDe ? "Code gilt nicht fuer diese Server-Anzahl." : "Code does not apply to this seat count.",
+    offer_months_mismatch: isDe ? "Code gilt nicht fuer diese Laufzeit." : "Code does not apply to this duration.",
+    offer_maxed_out: isDe ? "Code ist bereits ausgeschopft." : "Code has reached its redemption limit.",
+    offer_email_limit_reached: isDe ? "Code wurde fuer diese E-Mail bereits genutzt." : "Code has already been used for this email.",
+    invalid_base_amount: isDe ? "Ungueltiger Basispreis fuer Rabattberechnung." : "Invalid base amount for discount calculation.",
+    invalid_discount: isDe ? "Rabatt ist fuer diese Bestellung nicht gueltig." : "Discount is not valid for this checkout.",
+  };
+  return map[String(reason || "")] || (isDe ? "Code kann nicht angewendet werden." : "Code cannot be applied.");
 }
 
 function parseBitrateKbps(rawBitrate) {
@@ -380,16 +430,100 @@ function isLikelyNetworkFailureLine(line) {
   return false;
 }
 
-function parseEventStartDateTime(rawInput) {
+function resolveLanguageFromDiscordLocale(rawLocale, fallbackLanguage = getDefaultLanguage()) {
+  const locale = String(rawLocale || "").trim().toLowerCase();
+  if (!locale) return normalizeLanguage(fallbackLanguage, getDefaultLanguage());
+  return locale.startsWith("de") ? "de" : "en";
+}
+
+function languagePick(language, de, en) {
+  return normalizeLanguage(language, "de") === "de" ? de : en;
+}
+
+function translatePermissionStoreMessage(message, language = "de") {
+  const value = String(message || "").trim();
+  const map = {
+    "Ungueltige Guild-ID.": "Invalid guild ID.",
+    "Command wird nicht unterstuetzt.": "Command is not supported.",
+    "Ungueltige Rollen-ID.": "Invalid role ID.",
+    "Mode muss 'allow' oder 'deny' sein.": "Mode must be 'allow' or 'deny'.",
+  };
+  return languagePick(language, value, map[value] || value);
+}
+
+function translateScheduledEventStoreMessage(message, language = "de") {
+  const value = String(message || "").trim();
+  const map = {
+    "Event ist ungueltig.": "Event is invalid.",
+    "Event-ID fehlt.": "Event ID is missing.",
+    "Event nicht gefunden.": "Event was not found.",
+    "Event-Update ist ungueltig.": "Event update is invalid.",
+  };
+  return languagePick(language, value, map[value] || value);
+}
+
+function translateCustomStationErrorMessage(message, language = "de") {
+  const value = String(message || "").trim();
+  if (!value) return value;
+  const maxStationsMatch = value.match(/^Maximum (\d+) Custom-Stationen erreicht\.$/);
+  if (maxStationsMatch) {
+    return languagePick(
+      language,
+      value,
+      `Maximum of ${maxStationsMatch[1]} custom stations reached.`
+    );
+  }
+  const map = {
+    "Ungueltiger Station-Key.": "Invalid station key.",
+    "Name darf nicht leer sein.": "Name must not be empty.",
+    "URL darf nicht leer sein.": "URL must not be empty.",
+    "URL-Format ungueltig.": "Invalid URL format.",
+    "URL muss mit http:// oder https:// beginnen.": "URL must start with http:// or https://.",
+    "URL mit Benutzername/Passwort sind nicht erlaubt.": "URLs with username/password are not allowed.",
+    "Lokale/private Hosts sind nicht erlaubt.": "Local/private hosts are not allowed.",
+  };
+  return languagePick(language, value, map[value] || value);
+}
+
+function getFeatureRequirementMessage(featureResult, language = "de") {
+  if (!featureResult || featureResult.ok) return "";
+  if (normalizeLanguage(language, "de") !== "de") {
+    return String(featureResult.message || "Feature not available.");
+  }
+  const labels = {
+    hqAudio: "HQ Audio (128k Opus)",
+    ultraAudio: "Ultra HQ Audio (320k)",
+    priorityReconnect: "Priority Auto-Reconnect",
+    instantReconnect: "Instant Reconnect",
+    premiumStations: "100+ Premium Stationen",
+    customStationURLs: "Custom-Station URLs",
+    commandPermissions: "Rollenbasierte Command-Berechtigungen",
+    scheduledEvents: "Event-Scheduler mit Auto-Play",
+  };
+  const label = labels[featureResult.featureKey] || featureResult.featureKey || "Dieses Feature";
+  const requiredPlanName = PLANS[featureResult.requiredPlan]?.name || String(featureResult.requiredPlan || "Pro");
+  return `**${label}** erfordert ${BRAND.name} **${requiredPlanName}** oder hoeher.`;
+}
+
+function parseEventStartDateTime(rawInput, language = "de") {
   const raw = String(rawInput || "").trim();
-  if (!raw) return { ok: false, message: "Zeit fehlt." };
+  if (!raw) {
+    return {
+      ok: false,
+      message: languagePick(language, "Zeit fehlt.", "Time is missing."),
+    };
+  }
 
   const normalized = raw.replace("T", " ");
   const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
   if (!match) {
     return {
       ok: false,
-      message: "Ungueltiges Format. Nutze `YYYY-MM-DD HH:MM` (z.B. `2026-03-01 20:30`).",
+      message: languagePick(
+        language,
+        "Ungueltiges Format. Nutze `YYYY-MM-DD HH:MM` (z.B. `2026-03-01 20:30`).",
+        "Invalid format. Use `YYYY-MM-DD HH:MM` (for example `2026-03-01 20:30`)."
+      ),
     };
   }
 
@@ -400,7 +534,10 @@ function parseEventStartDateTime(rawInput) {
   const minute = Number.parseInt(match[5], 10);
 
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) {
-    return { ok: false, message: "Datum/Uhrzeit ungueltig." };
+    return {
+      ok: false,
+      message: languagePick(language, "Datum/Uhrzeit ungueltig.", "Date/time is invalid."),
+    };
   }
 
   const parsed = new Date(year, month - 1, day, hour, minute, 0, 0);
@@ -411,16 +548,20 @@ function parseEventStartDateTime(rawInput) {
     || parsed.getHours() !== hour
     || parsed.getMinutes() !== minute
   ) {
-    return { ok: false, message: "Datum/Uhrzeit ungueltig." };
+    return {
+      ok: false,
+      message: languagePick(language, "Datum/Uhrzeit ungueltig.", "Date/time is invalid."),
+    };
   }
 
   return { ok: true, runAtMs: parsed.getTime(), parsed };
 }
 
-function formatDateTimeDe(ms) {
+function formatDateTime(ms, language = "de") {
   const value = Number.parseInt(String(ms || ""), 10);
   if (!Number.isFinite(value) || value <= 0) return "-";
-  return new Date(value).toLocaleString("de-DE", {
+  const locale = normalizeLanguage(language, "de") === "de" ? "de-DE" : "en-US";
+  return new Date(value).toLocaleString(locale, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -435,11 +576,12 @@ function normalizeRepeatMode(raw) {
   return "none";
 }
 
-function getRepeatLabelDe(raw) {
+function getRepeatLabel(raw, language = "de") {
   const repeat = normalizeRepeatMode(raw);
-  if (repeat === "daily") return "taeglich";
-  if (repeat === "weekly") return "woechentlich";
-  return "einmalig";
+  const isDe = normalizeLanguage(language, "de") === "de";
+  if (repeat === "daily") return isDe ? "taeglich" : "daily";
+  if (repeat === "weekly") return isDe ? "woechentlich" : "weekly";
+  return isDe ? "einmalig" : "once";
 }
 
 function computeNextEventRunAtMs(runAtMs, repeat, nowMs = Date.now()) {
@@ -457,12 +599,26 @@ function computeNextEventRunAtMs(runAtMs, repeat, nowMs = Date.now()) {
   return next;
 }
 
-function renderEventAnnouncement(template, values) {
-  const base = String(template || "").trim() || "Event **{event}** startet jetzt: **{station}** in {voice}.";
+function renderEventAnnouncement(template, values, language = "de") {
+  const fallback = languagePick(
+    language,
+    "Event **{event}** startet jetzt: **{station}** in {voice}.",
+    "Event **{event}** is starting now: **{station}** in {voice}."
+  );
+  const base = String(template || "").trim() || fallback;
   return base
     .replace(/\{event\}/gi, String(values?.event || "-"))
     .replace(/\{station\}/gi, String(values?.station || "-"))
     .replace(/\{voice\}/gi, String(values?.voice || "-"))
+    .replace(/\{time\}/gi, String(values?.time || "-"))
+    .trim();
+}
+
+function renderStageTopic(template, values) {
+  const base = String(template || "").trim() || "{event} - {station}";
+  return base
+    .replace(/\{event\}/gi, String(values?.event || "-"))
+    .replace(/\{station\}/gi, String(values?.station || "-"))
     .replace(/\{time\}/gi, String(values?.time || "-"))
     .trim();
 }
@@ -490,6 +646,9 @@ const NOW_PLAYING_COVER_CACHE_TTL_MS = parseEnvInt(
   5 * 60 * 1000,
   7 * 24 * 60 * 60 * 1000
 );
+const SONG_HISTORY_ENABLED = String(process.env.SONG_HISTORY_ENABLED ?? "1").trim() !== "0";
+const SONG_HISTORY_MAX_PER_GUILD = parseEnvInt("SONG_HISTORY_MAX_PER_GUILD", 120, 20, 500);
+const SONG_HISTORY_DEDUPE_WINDOW_MS = parseEnvInt("SONG_HISTORY_DEDUPE_WINDOW_MS", 120_000, 15_000, 10 * 60_000);
 const EVENT_SCHEDULER_ENABLED = String(process.env.EVENT_SCHEDULER_ENABLED ?? "1").trim() !== "0";
 const EVENT_SCHEDULER_POLL_MS = parseEnvInt("EVENT_SCHEDULER_POLL_MS", 15_000, 5_000, 10 * 60_000);
 const EVENT_SCHEDULER_RETRY_MS = parseEnvInt("EVENT_SCHEDULER_RETRY_MS", 120_000, 15_000, 6 * 60 * 60_000);
@@ -989,7 +1148,7 @@ function applyCors(req, res, publicUrl) {
   }
 
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token, X-Admin-User");
   return originAllowed;
 }
 
@@ -1293,10 +1452,15 @@ class BotRuntime {
         log("ERROR", `[${this.config.name}] interaction error: ${err?.stack || err}`);
         try {
           if (!interaction.isRepliable || !interaction.isRepliable()) return;
+          const { t } = this.createInteractionTranslator(interaction);
+          const errorMessage = t(
+            "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.",
+            "An error occurred. Please try again."
+          );
           if (interaction.deferred || interaction.replied) {
-            await interaction.editReply({ content: "Es ist ein Fehler aufgetreten. Bitte versuche es erneut." });
+            await interaction.editReply({ content: errorMessage });
           } else {
-            await interaction.reply({ content: "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.", ephemeral: true });
+            await interaction.reply({ content: errorMessage, ephemeral: true });
           }
         } catch {
           // ignore secondary reply failures
@@ -1605,6 +1769,33 @@ class BotRuntime {
     return embed;
   }
 
+  recordSongHistory(guildId, state, station, meta) {
+    if (!SONG_HISTORY_ENABLED) return;
+    if (!meta) return;
+
+    const displayTitle = clipText(meta.displayTitle || meta.streamTitle || "", 220);
+    if (!displayTitle) return;
+
+    try {
+      appendSongHistory(guildId, {
+        botId: this.config.id,
+        stationKey: state.currentStationKey || null,
+        stationName: station?.name || state.currentStationName || null,
+        displayTitle,
+        streamTitle: clipText(meta.streamTitle || "", 220) || null,
+        artist: clipText(meta.artist || "", 120) || null,
+        title: clipText(meta.title || "", 120) || null,
+        artworkUrl: clipText(meta.artworkUrl || "", 600) || null,
+        timestampMs: Date.now(),
+      }, {
+        maxPerGuild: SONG_HISTORY_MAX_PER_GUILD,
+        dedupeWindowMs: SONG_HISTORY_DEDUPE_WINDOW_MS,
+      });
+    } catch (err) {
+      this.logNowPlayingIssue(guildId, state, `SongHistory: ${clipText(err?.message || String(err), 180)}`);
+    }
+  }
+
   async upsertNowPlayingMessage(guildId, state, embed, channelOverride = null) {
     const channel = channelOverride || await this.resolveNowPlayingChannel(guildId, state);
     if (!channel) return false;
@@ -1669,6 +1860,7 @@ class BotRuntime {
         updatedAt: new Date().toISOString(),
       };
       state.currentMeta = nextMeta;
+      this.recordSongHistory(guildId, state, station, nextMeta);
 
       const signature = [
         stationKey,
@@ -1897,6 +2089,7 @@ class BotRuntime {
             artworkUrl: prevMeta.artworkUrl || null,
             updatedAt: new Date().toISOString(),
           };
+          this.recordSongHistory(guildId, state, station, state.currentMeta);
         }
       })
       .catch(() => {
@@ -2215,9 +2408,37 @@ class BotRuntime {
     return this.isGuildOwner(interaction) || this.hasGuildManagePermissions(interaction);
   }
 
+  resolveGuildLanguage(guildId) {
+    const guildKey = String(guildId || "").trim();
+    const guildOverride = guildKey ? getGuildLanguage(guildKey) : null;
+    if (guildOverride) return guildOverride;
+
+    const guild = guildKey ? this.client.guilds.cache.get(guildKey) : null;
+    return resolveLanguageFromDiscordLocale(guild?.preferredLocale, getDefaultLanguage());
+  }
+
   resolveInteractionLanguage(interaction) {
-    const raw = String(interaction?.locale || interaction?.guildLocale || "").trim();
-    return normalizeLanguage(raw, getDefaultLanguage());
+    const guildId = String(interaction?.guildId || "").trim();
+    const guildOverride = guildId ? getGuildLanguage(guildId) : null;
+    if (guildOverride) return guildOverride;
+
+    const raw = String(
+      interaction?.guildLocale
+      || interaction?.guild?.preferredLocale
+      || interaction?.locale
+      || ""
+    ).trim();
+    return resolveLanguageFromDiscordLocale(raw, getDefaultLanguage());
+  }
+
+  createInteractionTranslator(interaction) {
+    const language = this.resolveInteractionLanguage(interaction);
+    const isDe = language === "de";
+    return {
+      language,
+      isDe,
+      t: (de, en) => (isDe ? de : en),
+    };
   }
 
   buildHelpMessage(interaction) {
@@ -2245,13 +2466,15 @@ class BotRuntime {
         "`/setvolume <0-100>` Lautstaerke setzen",
         "`/stations` und `/list [page]` Sender anzeigen",
         "`/now` aktuelle Wiedergabe",
+        "`/history [limit]` zuletzt erkannte Songs",
         "`/status`, `/health`, `/diag` Bot- und Stream-Status",
         "`/premium` Premium-Status",
+        "`/language show|set|reset` Bot-Sprache (auto nach Server-Sprache oder fix)",
         "`/license activate|info|remove` Lizenz verwalten",
         "",
         "**Pro/Ultimate**",
         "`/perm allow|deny|remove|list|reset` Rollenrechte pro Command (Berechtigung: Server verwalten)",
-        "`/event create|list|delete` Events planen (Auto-Start in Voice + optionale Text-Info)",
+        "`/event create|list|delete` Events planen (Voice/Stage + optionale Text-Info + Server-Event)",
         "",
         "**Ultimate**",
         "`/addstation <key> <name> <url>` eigene Station hinzufuegen",
@@ -2281,13 +2504,15 @@ class BotRuntime {
       "`/setvolume <0-100>` set volume",
       "`/stations` and `/list [page]` browse stations",
       "`/now` current playback",
+      "`/history [limit]` recently detected songs",
       "`/status`, `/health`, `/diag` bot/stream status",
       "`/premium` premium status",
+      "`/language show|set|reset` bot language (auto from server locale or fixed)",
       "`/license activate|info|remove` license management",
       "",
       "**Pro/Ultimate**",
       "`/perm allow|deny|remove|list|reset` role permissions per command (requires: Manage Server)",
-      "`/event create|list|delete` schedule events (auto-play in voice + optional text notice)",
+      "`/event create|list|delete` schedule events (voice/stage + optional text notice + server event)",
       "",
       "**Ultimate**",
       "`/addstation <key> <name> <url>` add custom station",
@@ -2339,6 +2564,8 @@ class BotRuntime {
       return { ok: true, enforced: false };
     }
 
+    const { t } = this.createInteractionTranslator(interaction);
+
     const feature = requireFeature(guildId, "commandPermissions");
     if (!feature.ok) {
       return { ok: true, enforced: false };
@@ -2360,7 +2587,10 @@ class BotRuntime {
         ok: false,
         enforced: true,
         decision,
-        message: `Du darfst \`/${command}\` nicht nutzen. Deine Rolle ist dafuer gesperrt (${blocked}).`,
+        message: t(
+          `Du darfst \`/${command}\` nicht nutzen. Deine Rolle ist dafuer gesperrt (${blocked}).`,
+          `You are not allowed to use \`/${command}\`. Your role is blocked for this command (${blocked}).`
+        ),
       };
     }
 
@@ -2369,16 +2599,23 @@ class BotRuntime {
       ok: false,
       enforced: true,
       decision,
-      message: `Du darfst \`/${command}\` nicht nutzen. Erlaubte Rollen: ${requiredRoles}.`,
+      message: t(
+        `Du darfst \`/${command}\` nicht nutzen. Erlaubte Rollen: ${requiredRoles}.`,
+        `You are not allowed to use \`/${command}\`. Allowed roles: ${requiredRoles}.`
+      ),
     };
   }
 
   async handlePermissionCommand(interaction) {
     const guildId = interaction.guildId;
+    const { t, language } = this.createInteractionTranslator(interaction);
 
     if (!this.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
-        content: "Du brauchst die Berechtigung `Server verwalten` fuer `/perm`.",
+        content: t(
+          "Du brauchst die Berechtigung `Server verwalten` fuer `/perm`.",
+          "You need the `Manage Server` permission for `/perm`."
+        ),
         ephemeral: true,
       });
       return;
@@ -2387,7 +2624,7 @@ class BotRuntime {
     const feature = requireFeature(guildId, "commandPermissions");
     if (!feature.ok) {
       await interaction.reply({
-        content: `${feature.message}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
+        content: `${getFeatureRequirementMessage(feature, language)}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
         ephemeral: true,
       });
       return;
@@ -2397,7 +2634,13 @@ class BotRuntime {
     const rawCommand = interaction.options.getString("command");
     const command = rawCommand ? normalizePermissionCommandName(rawCommand) : null;
     if (command && !isPermissionManagedCommand(command)) {
-      await interaction.reply({ content: `Unbekannter Command: \`${rawCommand}\``, ephemeral: true });
+      await interaction.reply({
+        content: t(
+          `Unbekannter Command: \`${rawCommand}\``,
+          `Unknown command: \`${rawCommand}\``
+        ),
+        ephemeral: true,
+      });
       return;
     }
 
@@ -2405,12 +2648,13 @@ class BotRuntime {
       const role = interaction.options.getRole("role", true);
       const result = setCommandRolePermission(guildId, command, role.id, sub);
       if (!result.ok) {
-        await interaction.reply({ content: `Fehler: ${result.message}`, ephemeral: true });
+        const storeMessage = translatePermissionStoreMessage(result.message, language);
+        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), ephemeral: true });
         return;
       }
       await this.respondLongInteraction(
         interaction,
-        `Rolle ${role.toString()} ist jetzt fuer \`/${command}\` ${sub === "allow" ? "erlaubt" : "gesperrt"}.\n` +
+        `${t("Rolle", "Role")} ${role.toString()} ${t("ist jetzt fuer", "is now")} \`/${command}\` ${sub === "allow" ? t("erlaubt", "allowed") : t("gesperrt", "blocked")}.\n` +
           `Allow: ${this.formatPermissionRoleMentions(result.rule.allowRoleIds)}\n` +
           `Deny: ${this.formatPermissionRoleMentions(result.rule.denyRoleIds)}`,
         { ephemeral: true }
@@ -2422,12 +2666,13 @@ class BotRuntime {
       const role = interaction.options.getRole("role", true);
       const result = removeCommandRolePermission(guildId, command, role.id);
       if (!result.ok) {
-        await interaction.reply({ content: `Fehler: ${result.message}`, ephemeral: true });
+        const storeMessage = translatePermissionStoreMessage(result.message, language);
+        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), ephemeral: true });
         return;
       }
       await this.respondLongInteraction(
         interaction,
-        `Regel fuer ${role.toString()} bei \`/${command}\` ${result.changed ? "entfernt" : "war nicht gesetzt"}.\n` +
+        `${t("Regel fuer", "Rule for")} ${role.toString()} ${t("bei", "on")} \`/${command}\` ${result.changed ? t("entfernt", "removed") : t("war nicht gesetzt", "was not set")}.\n` +
           `Allow: ${this.formatPermissionRoleMentions(result.rule.allowRoleIds)}\n` +
           `Deny: ${this.formatPermissionRoleMentions(result.rule.denyRoleIds)}`,
         { ephemeral: true }
@@ -2438,22 +2683,23 @@ class BotRuntime {
     if (sub === "reset") {
       const result = resetCommandPermissions(guildId, command || null);
       if (!result.ok) {
-        await interaction.reply({ content: `Fehler: ${result.message}`, ephemeral: true });
+        const storeMessage = translatePermissionStoreMessage(result.message, language);
+        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), ephemeral: true });
         return;
       }
 
       if (command) {
         await interaction.reply({
           content: result.changed
-            ? `Regeln fuer \`/${command}\` wurden zurueckgesetzt.`
-            : `Fuer \`/${command}\` waren keine Regeln gesetzt.`,
+            ? t(`Regeln fuer \`/${command}\` wurden zurueckgesetzt.`, `Rules for \`/${command}\` were reset.`)
+            : t(`Fuer \`/${command}\` waren keine Regeln gesetzt.`, `No rules were configured for \`/${command}\`.`),
           ephemeral: true,
         });
       } else {
         await interaction.reply({
           content: result.changed
-            ? "Alle Command-Regeln fuer diesen Server wurden zurueckgesetzt."
-            : "Es waren keine Command-Regeln gesetzt.",
+            ? t("Alle Command-Regeln fuer diesen Server wurden zurueckgesetzt.", "All command rules for this server were reset.")
+            : t("Es waren keine Command-Regeln gesetzt.", "No command rules were configured."),
           ephemeral: true,
         });
       }
@@ -2478,27 +2724,28 @@ class BotRuntime {
       if (!lines.length) {
         await interaction.reply({
           content: command
-            ? `Fuer \`/${command}\` sind keine Rollenregeln gesetzt.`
-            : "Keine Command-Rollenregeln gesetzt.",
+            ? t(`Fuer \`/${command}\` sind keine Rollenregeln gesetzt.`, `No role rules are configured for \`/${command}\`.`)
+            : t("Keine Command-Rollenregeln gesetzt.", "No command role rules are configured."),
           ephemeral: true,
         });
         return;
       }
 
       const header = command
-        ? `Regeln fuer \`/${command}\`:`
-        : `Aktive Command-Rollenregeln (${lines.length}):`;
+        ? t(`Regeln fuer \`/${command}\`:`, `Rules for \`/${command}\`:`)
+        : t(`Aktive Command-Rollenregeln (${lines.length}):`, `Active command role rules (${lines.length}):`);
       await this.respondLongInteraction(interaction, `${header}\n${lines.join("\n")}`, { ephemeral: true });
       return;
     }
 
-    await interaction.reply({ content: "Unbekannte /perm Aktion.", ephemeral: true });
+    await interaction.reply({ content: t("Unbekannte /perm Aktion.", "Unknown /perm action."), ephemeral: true });
   }
 
-  resolveStationForGuild(guildId, rawStationKey) {
+  resolveStationForGuild(guildId, rawStationKey, language = "de") {
+    const t = (de, en) => languagePick(language, de, en);
     const key = normalizeKey(rawStationKey);
     if (!key) {
-      return { ok: false, message: "Stations-Key ist ungueltig." };
+      return { ok: false, message: t("Stations-Key ist ungueltig.", "Station key is invalid.") };
     }
 
     const stations = loadStations();
@@ -2515,7 +2762,8 @@ class BotRuntime {
       if (custom) {
         const validation = validateCustomStationUrl(custom.url);
         if (!validation.ok) {
-          return { ok: false, message: `Custom-Station kann nicht genutzt werden: ${validation.error}` };
+          const translated = translateCustomStationErrorMessage(validation.error, language);
+          return { ok: false, message: t(`Custom-Station kann nicht genutzt werden: ${translated}`, `Custom station cannot be used: ${translated}`) };
         }
         const station = { name: custom.name, url: validation.url, tier: "ultimate" };
         stations.stations[key] = station;
@@ -2524,19 +2772,152 @@ class BotRuntime {
     }
 
     if (stations.stations[key]) {
-      return { ok: false, message: `Station \`${key}\` ist in deinem Plan nicht verfuegbar.` };
+      return { ok: false, message: t(`Station \`${key}\` ist in deinem Plan nicht verfuegbar.`, `Station \`${key}\` is not available in your plan.`) };
     }
-    return { ok: false, message: `Station \`${key}\` wurde nicht gefunden.` };
+    return { ok: false, message: t(`Station \`${key}\` wurde nicht gefunden.`, `Station \`${key}\` was not found.`) };
+  }
+
+  async resolveGuildVoiceChannel(guildId, channelId) {
+    const guild = this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return { guild: null, channel: null };
+
+    const channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel || !channel.isVoiceBased()) return { guild, channel: null };
+    if (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice) {
+      return { guild, channel: null };
+    }
+
+    return { guild, channel };
+  }
+
+  async ensureStageChannelReady(guild, channel, {
+    topic = null,
+    guildScheduledEventId = null,
+    createInstance = true,
+    ensureSpeaker = true,
+  } = {}) {
+    if (!guild || !channel || channel.type !== ChannelType.GuildStageVoice) return null;
+
+    const me = await this.resolveBotMember(guild);
+    if (!me) return null;
+
+    const desiredTopic = clipText(
+      String(topic || "").trim() || channel.topic || `${BRAND.name} Live`,
+      120
+    );
+
+    let stageInstance = channel.stageInstance || await guild.stageInstances.fetch(channel.id).catch(() => null);
+
+    if (!stageInstance && createInstance && desiredTopic) {
+      const createOptions = {
+        topic: desiredTopic,
+        sendStartNotification: false,
+      };
+      if (/^\d{17,22}$/.test(String(guildScheduledEventId || ""))) {
+        createOptions.guildScheduledEvent = String(guildScheduledEventId);
+      }
+      stageInstance = await channel.createStageInstance(createOptions).catch((err) => {
+        log(
+          "WARN",
+          `[${this.config.name}] Stage-Instance konnte nicht erstellt werden (guild=${guild.id}, channel=${channel.id}): ${err?.message || err}`
+        );
+        return null;
+      });
+      if (!stageInstance) {
+        stageInstance = channel.stageInstance || await guild.stageInstances.fetch(channel.id).catch(() => null);
+      }
+    }
+
+    if (stageInstance && desiredTopic && stageInstance.topic !== desiredTopic) {
+      stageInstance = await stageInstance.setTopic(desiredTopic).catch((err) => {
+        log(
+          "WARN",
+          `[${this.config.name}] Stage-Topic Update fehlgeschlagen (guild=${guild.id}, channel=${channel.id}): ${err?.message || err}`
+        );
+        return stageInstance;
+      });
+    }
+
+    if (ensureSpeaker && me.voice?.channelId === channel.id) {
+      const perms = channel.permissionsFor(me);
+      if (perms?.has(PermissionFlagsBits.MuteMembers)) {
+        await me.voice.setSuppressed(false).catch(() => null);
+      } else {
+        await me.voice.setRequestToSpeak(true).catch(() => null);
+      }
+    }
+
+    return stageInstance;
+  }
+
+  async deleteDiscordScheduledEventById(guildId, scheduledEventId) {
+    const eventId = String(scheduledEventId || "").trim();
+    if (!/^\d{17,22}$/.test(eventId)) return false;
+
+    const guild = this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return false;
+
+    const scheduled = await guild.scheduledEvents.fetch(eventId).catch(() => null);
+    if (!scheduled) return false;
+
+    await scheduled.delete().catch(() => null);
+    return true;
+  }
+
+  async syncDiscordScheduledEvent(event, station, { runAtMs = null, forceCreate = false } = {}) {
+    if (!event?.createDiscordEvent) return null;
+
+    const { guild, channel } = await this.resolveGuildVoiceChannel(event.guildId, event.voiceChannelId);
+    if (!guild || !channel) {
+      throw new Error("Voice- oder Stage-Channel fuer Server-Event nicht gefunden.");
+    }
+
+    const requestedRunAtMs = Number.parseInt(String(runAtMs ?? event.runAtMs ?? 0), 10);
+    const minDiscordStartMs = Date.now() + 60_000;
+    const scheduledRunAtMs = Number.isFinite(requestedRunAtMs) && requestedRunAtMs > 0
+      ? Math.max(requestedRunAtMs, minDiscordStartMs)
+      : minDiscordStartMs;
+
+    const stationName = clipText(station?.name || event.stationKey || "-", 100) || "-";
+    const payload = {
+      name: clipText(event.name || stationName || `${BRAND.name} Event`, 100),
+      scheduledStartTime: new Date(scheduledRunAtMs),
+      privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
+      entityType: channel.type === ChannelType.GuildStageVoice
+        ? GuildScheduledEventEntityType.StageInstance
+        : GuildScheduledEventEntityType.Voice,
+      channel,
+      description: clipText(`OmniFM Auto-Event | Station: ${stationName}`, 1000),
+      reason: `OmniFM scheduled event ${event.id}`,
+    };
+
+    const existingId = String(event.discordScheduledEventId || "").trim();
+    let scheduledEvent = null;
+
+    if (existingId && forceCreate) {
+      await this.deleteDiscordScheduledEventById(guild.id, existingId);
+    } else if (existingId) {
+      const existingEvent = await guild.scheduledEvents.fetch(existingId).catch(() => null);
+      if (existingEvent) {
+        scheduledEvent = await existingEvent.edit(payload).catch(() => null);
+      }
+    }
+
+    if (!scheduledEvent) {
+      scheduledEvent = await guild.scheduledEvents.create(payload);
+    }
+
+    if (scheduledEvent?.id && scheduledEvent.id !== existingId) {
+      patchScheduledEvent(event.id, { discordScheduledEventId: scheduledEvent.id });
+    }
+
+    return scheduledEvent || null;
   }
 
   async ensureVoiceConnectionForChannel(guildId, channelId, state) {
-    const guild = this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
+    const { guild, channel } = await this.resolveGuildVoiceChannel(guildId, channelId);
     if (!guild) throw new Error("Guild nicht gefunden.");
-
-    const channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
-    if (!channel || !channel.isVoiceBased()) {
-      throw new Error("Voice-Channel nicht gefunden.");
-    }
+    if (!channel) throw new Error("Voice- oder Stage-Channel nicht gefunden.");
 
     const me = await this.resolveBotMember(guild);
     if (!me) throw new Error("Bot-Mitglied nicht aufloesbar.");
@@ -2555,7 +2936,10 @@ class BotRuntime {
       const currentChannelId = state.connection.joinConfig?.channelId;
       if (currentChannelId === channel.id) {
         state.shouldReconnect = true;
-        return state.connection;
+        if (channel.type === ChannelType.GuildStageVoice) {
+          await this.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
+        }
+        return { connection: state.connection, guild, channel };
       }
 
       const previousShouldReconnect = state.shouldReconnect;
@@ -2590,10 +2974,15 @@ class BotRuntime {
     this.clearReconnectTimer(state);
     this.attachConnectionHandlers(guildId, connection);
     networkRecoveryCoordinator.noteSuccess(`${this.config.name} voice-ready guild=${guildId}`);
-    return connection;
+
+    if (channel.type === ChannelType.GuildStageVoice) {
+      await this.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
+    }
+
+    return { connection, guild, channel };
   }
 
-  async postScheduledEventAnnouncement(event, station) {
+  async postScheduledEventAnnouncement(event, station, language = "de") {
     if (!event?.textChannelId) return;
 
     const guild = this.client.guilds.cache.get(event.guildId);
@@ -2613,8 +3002,8 @@ class BotRuntime {
       event: event.name,
       station: station?.name || event.stationKey,
       voice: `<#${event.voiceChannelId}>`,
-      time: formatDateTimeDe(event.runAtMs),
-    });
+      time: formatDateTime(event.runAtMs, language),
+    }, language);
     if (!rendered) return;
 
     await channel.send({
@@ -2641,7 +3030,8 @@ class BotRuntime {
     }
 
     const state = this.getState(event.guildId);
-    const stationResult = this.resolveStationForGuild(event.guildId, event.stationKey);
+    const eventLanguage = this.resolveGuildLanguage(event.guildId);
+    const stationResult = this.resolveStationForGuild(event.guildId, event.stationKey, eventLanguage);
     if (!stationResult.ok) {
       patchScheduledEvent(event.id, { runAtMs: now + EVENT_SCHEDULER_RETRY_MS, enabled: true });
       log(
@@ -2652,14 +3042,52 @@ class BotRuntime {
     }
 
     try {
-      await this.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state);
+      const connectionInfo = await this.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state);
+      if (connectionInfo?.channel?.type === ChannelType.GuildStageVoice) {
+        const stageTopic = renderStageTopic(event.stageTopic, {
+          event: event.name,
+          station: stationResult.station?.name || event.stationKey,
+          time: formatDateTime(event.runAtMs, eventLanguage),
+        });
+        await this.ensureStageChannelReady(connectionInfo.guild, connectionInfo.channel, {
+          topic: stageTopic,
+          guildScheduledEventId: event.discordScheduledEventId || null,
+          createInstance: true,
+          ensureSpeaker: true,
+        });
+      }
+
       await this.playStation(state, stationResult.stations, stationResult.key, event.guildId);
-      await this.postScheduledEventAnnouncement(event, stationResult.station);
+      await this.postScheduledEventAnnouncement(event, stationResult.station, eventLanguage);
 
       const nextRunAtMs = computeNextEventRunAtMs(event.runAtMs, event.repeat, now);
       if (nextRunAtMs) {
-        patchScheduledEvent(event.id, { runAtMs: nextRunAtMs, lastRunAtMs: now, enabled: true });
+        let nextDiscordScheduledEventId = event.discordScheduledEventId || null;
+        if (event.createDiscordEvent) {
+          try {
+            const nextDiscordEvent = await this.syncDiscordScheduledEvent(event, stationResult.station, {
+              runAtMs: nextRunAtMs,
+              forceCreate: true,
+            });
+            nextDiscordScheduledEventId = nextDiscordEvent?.id || nextDiscordScheduledEventId;
+          } catch (syncErr) {
+            log(
+              "WARN",
+              `[${this.config.name}] Discord-Server-Event konnte nicht auf Folgetermin gesetzt werden (guild=${event.guildId}, id=${event.id}): ${syncErr?.message || syncErr}`
+            );
+          }
+        }
+
+        patchScheduledEvent(event.id, {
+          runAtMs: nextRunAtMs,
+          lastRunAtMs: now,
+          enabled: true,
+          discordScheduledEventId: nextDiscordScheduledEventId,
+        });
       } else {
+        if (event.discordScheduledEventId) {
+          await this.deleteDiscordScheduledEventById(event.guildId, event.discordScheduledEventId);
+        }
         deleteScheduledEvent(event.id, { guildId: event.guildId, botId: this.config.id });
       }
 
@@ -2725,9 +3153,13 @@ class BotRuntime {
 
   async handleEventCommand(interaction) {
     const guildId = interaction.guildId;
+    const { t, language } = this.createInteractionTranslator(interaction);
     if (!this.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
-        content: "Du brauchst die Berechtigung `Server verwalten` fuer `/event`.",
+        content: t(
+          "Du brauchst die Berechtigung `Server verwalten` fuer `/event`.",
+          "You need the `Manage Server` permission for `/event`."
+        ),
         ephemeral: true,
       });
       return;
@@ -2736,7 +3168,7 @@ class BotRuntime {
     const feature = requireFeature(guildId, "scheduledEvents");
     if (!feature.ok) {
       await interaction.reply({
-        content: `${feature.message}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
+        content: `${getFeatureRequirementMessage(feature, language)}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
         ephemeral: true,
       });
       return;
@@ -2747,7 +3179,7 @@ class BotRuntime {
     if (sub === "create") {
       const name = clipText(interaction.options.getString("name", true).trim(), 120);
       if (!name) {
-        await interaction.reply({ content: "Eventname darf nicht leer sein.", ephemeral: true });
+        await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), ephemeral: true });
         return;
       }
       const stationRaw = interaction.options.getString("station", true);
@@ -2755,9 +3187,38 @@ class BotRuntime {
       const startRaw = interaction.options.getString("start", true);
       const repeat = normalizeRepeatMode(interaction.options.getString("repeat") || "none");
       const textChannel = interaction.options.getChannel("text");
-      const message = interaction.options.getString("message");
+      const createDiscordEvent = interaction.options.getBoolean("serverevent") === true;
+      const stageTopicTemplate = clipText(interaction.options.getString("stagetopic") || "", 120);
+      const message = clipText(interaction.options.getString("message") || "", 1200);
 
-      const parsed = parseEventStartDateTime(startRaw);
+      if (voiceChannel.guildId !== guildId) {
+        await interaction.reply({ content: t("Der gewaehlte Voice/Stage-Channel ist nicht in diesem Server.", "The selected voice/stage channel is not in this server."), ephemeral: true });
+        return;
+      }
+      if (stageTopicTemplate && voiceChannel.type !== ChannelType.GuildStageVoice) {
+        await interaction.reply({
+          content: t("`stagetopic` funktioniert nur mit Stage-Channels.", "`stagetopic` only works with stage channels."),
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const me = interaction.guild ? await this.resolveBotMember(interaction.guild) : null;
+      if (!me) {
+        await interaction.reply({ content: t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load bot member in this server."), ephemeral: true });
+        return;
+      }
+      const perms = voiceChannel.permissionsFor(me);
+      if (!perms?.has(PermissionFlagsBits.Connect)) {
+        await interaction.reply({ content: t(`Ich habe keine Connect-Berechtigung fuer ${voiceChannel.toString()}.`, `I do not have Connect permission for ${voiceChannel.toString()}.`), ephemeral: true });
+        return;
+      }
+      if (voiceChannel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
+        await interaction.reply({ content: t(`Ich habe keine Speak-Berechtigung fuer ${voiceChannel.toString()}.`, `I do not have Speak permission for ${voiceChannel.toString()}.`), ephemeral: true });
+        return;
+      }
+
+      const parsed = parseEventStartDateTime(startRaw, language);
       if (!parsed.ok) {
         await interaction.reply({ content: parsed.message, ephemeral: true });
         return;
@@ -2765,13 +3226,23 @@ class BotRuntime {
       const minFutureMs = Date.now() + 30_000;
       if (parsed.runAtMs < minFutureMs) {
         await interaction.reply({
-          content: "Startzeit muss mindestens 30 Sekunden in der Zukunft liegen.",
+          content: t("Startzeit muss mindestens 30 Sekunden in der Zukunft liegen.", "Start time must be at least 30 seconds in the future."),
+          ephemeral: true,
+        });
+        return;
+      }
+      if (createDiscordEvent && parsed.runAtMs < Date.now() + 60_000) {
+        await interaction.reply({
+          content: t(
+            "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
+            "With `serverevent`, start time must be at least 60 seconds in the future."
+          ),
           ephemeral: true,
         });
         return;
       }
 
-      const station = this.resolveStationForGuild(guildId, stationRaw);
+      const station = this.resolveStationForGuild(guildId, stationRaw, language);
       if (!station.ok) {
         await interaction.reply({ content: station.message, ephemeral: true });
         return;
@@ -2785,26 +3256,59 @@ class BotRuntime {
         voiceChannelId: voiceChannel.id,
         textChannelId: textChannel?.id || null,
         announceMessage: message || null,
+        stageTopic: stageTopicTemplate || null,
+        createDiscordEvent,
+        discordScheduledEventId: null,
         repeat,
         runAtMs: parsed.runAtMs,
         createdByUserId: interaction.user?.id || null,
       });
 
       if (!created.ok) {
-        await interaction.reply({ content: `Event konnte nicht gespeichert werden: ${created.message}`, ephemeral: true });
+        const storeMessage = translateScheduledEventStoreMessage(created.message, language);
+        await interaction.reply({ content: t(`Event konnte nicht gespeichert werden: ${storeMessage}`, `Could not save event: ${storeMessage}`), ephemeral: true });
         return;
       }
 
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Serverzeit";
+      let serverEventWarning = "";
+      let serverEventId = null;
+      if (createDiscordEvent) {
+        try {
+          const scheduledEvent = await this.syncDiscordScheduledEvent(created.event, station.station, {
+            runAtMs: created.event.runAtMs,
+            forceCreate: false,
+          });
+          serverEventId = scheduledEvent?.id || null;
+        } catch (err) {
+          serverEventWarning = `\n${t("Server-Event Hinweis", "Server event note")}: ${clipText(err?.message || err, 180)}`;
+          log(
+            "WARN",
+            `[${this.config.name}] Event ${created.event.id}: Discord-Server-Event konnte nicht erstellt werden: ${err?.message || err}`
+          );
+        }
+      }
+
+      const channelLabel = voiceChannel.type === ChannelType.GuildStageVoice ? "Stage" : "Voice";
+      const stageTopicPreview = voiceChannel.type === ChannelType.GuildStageVoice
+        ? renderStageTopic(stageTopicTemplate, {
+          event: created.event.name,
+          station: station.station?.name || created.event.stationKey,
+          time: formatDateTime(created.event.runAtMs, language),
+        })
+        : null;
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || t("Serverzeit", "server time");
       await interaction.reply({
         content:
-          `Event erstellt: **${created.event.name}**\n` +
+          `${t("Event erstellt", "Event created")}: **${created.event.name}**\n` +
           `ID: \`${created.event.id}\`\n` +
-          `Station: \`${created.event.stationKey}\` (${station.station?.name || "-"})\n` +
-          `Voice: <#${created.event.voiceChannelId}>\n` +
-          `Start: ${formatDateTimeDe(created.event.runAtMs)} (${tz})\n` +
-          `Wiederholung: ${getRepeatLabelDe(created.event.repeat)}\n` +
-          `Ankuendigung: ${created.event.textChannelId ? `<#${created.event.textChannelId}>` : "aus"}`,
+          `${t("Station", "Station")}: \`${created.event.stationKey}\` (${station.station?.name || "-"})\n` +
+          `${channelLabel}: <#${created.event.voiceChannelId}>\n` +
+          `${t("Start", "Start")}: ${formatDateTime(created.event.runAtMs, language)} (${tz})\n` +
+          `${t("Wiederholung", "Repeat")}: ${getRepeatLabel(created.event.repeat, language)}\n` +
+          `${t("Ankuendigung", "Announcement")}: ${created.event.textChannelId ? `<#${created.event.textChannelId}>` : t("aus", "off")}\n` +
+          `${t("Server-Event", "Server event")}: ${createDiscordEvent ? (serverEventId ? `${t("aktiv", "active")} (\`${serverEventId}\`)` : t("aktiviert, Erstellung fehlgeschlagen", "enabled, creation failed")) : t("aus", "off")}\n` +
+          `${t("Stage-Thema", "Stage topic")}: ${stageTopicPreview ? `\`${stageTopicPreview}\`` : t("auto/aus", "auto/off")}` +
+          serverEventWarning,
         ephemeral: true,
       });
       return;
@@ -2818,30 +3322,104 @@ class BotRuntime {
       });
 
       if (!events.length) {
-        await interaction.reply({ content: "Keine geplanten Events.", ephemeral: true });
+        await interaction.reply({ content: t("Keine geplanten Events.", "No scheduled events."), ephemeral: true });
         return;
       }
 
       const lines = events.map((event) =>
         `\`${event.id}\` | **${clipText(event.name, 70)}** | \`${event.stationKey}\` | ` +
-        `Voice <#${event.voiceChannelId}> | ${formatDateTimeDe(event.runAtMs)} | ${getRepeatLabelDe(event.repeat)}`
+        `Voice/Stage <#${event.voiceChannelId}> | ${formatDateTime(event.runAtMs, language)} | ${getRepeatLabel(event.repeat, language)}` +
+        `${event.createDiscordEvent ? ` | ${t("Server-Event", "Server event")} ${event.discordScheduledEventId ? `\`${event.discordScheduledEventId}\`` : t("an", "on")}` : ""}` +
+        `${event.stageTopic ? ` | ${t("Stage-Thema", "Stage topic")}` : ""}`
       );
-      await this.respondLongInteraction(interaction, `**Geplante Events (${events.length}):**\n${lines.join("\n")}`, { ephemeral: true });
+      await this.respondLongInteraction(interaction, `**${t("Geplante Events", "Scheduled events")} (${events.length}):**\n${lines.join("\n")}`, { ephemeral: true });
       return;
     }
 
     if (sub === "delete") {
       const id = interaction.options.getString("id", true);
+      const existing = getScheduledEvent(id);
+      let removedDiscordEvent = false;
+      if (existing && existing.guildId === guildId && existing.botId === this.config.id && existing.discordScheduledEventId) {
+        removedDiscordEvent = await this.deleteDiscordScheduledEventById(guildId, existing.discordScheduledEventId);
+      }
       const removed = deleteScheduledEvent(id, { guildId, botId: this.config.id });
       if (!removed.ok) {
-        await interaction.reply({ content: removed.message, ephemeral: true });
+        await interaction.reply({ content: translateScheduledEventStoreMessage(removed.message, language), ephemeral: true });
         return;
       }
-      await interaction.reply({ content: `Event \`${id}\` entfernt.`, ephemeral: true });
+      await interaction.reply({
+        content: `${t("Event", "Event")} \`${id}\` ${t("entfernt", "removed")}.${removedDiscordEvent ? ` ${t("Discord-Server-Event ebenfalls entfernt.", "Discord server event was removed too.")}` : ""}`,
+        ephemeral: true,
+      });
       return;
     }
 
-    await interaction.reply({ content: "Unbekannte /event Aktion.", ephemeral: true });
+    await interaction.reply({ content: t("Unbekannte /event Aktion.", "Unknown /event action."), ephemeral: true });
+  }
+
+  async handleLanguageCommand(interaction) {
+    const guildId = interaction.guildId;
+    const sub = interaction.options.getSubcommand();
+    const { t, language } = this.createInteractionTranslator(interaction);
+    const override = getGuildLanguage(guildId);
+    const effectiveLanguage = this.resolveInteractionLanguage(interaction);
+
+    if (sub === "show") {
+      await interaction.reply({
+        content:
+          `**${t("OmniFM Sprache", "OmniFM language")}**\n` +
+          `${t("Aktiv", "Active")}: \`${effectiveLanguage}\`\n` +
+          `${t("Quelle", "Source")}: ${override ? t("Manuell gesetzt", "Manually set") : t("Discord Server-Sprache", "Discord server locale")}\n` +
+          `${t("Deine Discord-Client-Sprache", "Your Discord client language")}: \`${resolveLanguageFromDiscordLocale(interaction.locale, language)}\``,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (!this.hasGuildManagePermissions(interaction)) {
+      await interaction.reply({
+        content: t(
+          "Du brauchst die Berechtigung `Server verwalten` fuer `/language set` und `/language reset`.",
+          "You need the `Manage Server` permission for `/language set` and `/language reset`."
+        ),
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (sub === "set") {
+      const value = normalizeLanguage(interaction.options.getString("value", true), getDefaultLanguage());
+      setGuildLanguage(guildId, value);
+      await interaction.reply({
+        content: t(
+          `Sprache fuer diesen Server wurde auf \`${value}\` gesetzt.`,
+          `Language for this server was set to \`${value}\`.`
+        ),
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (sub === "reset") {
+      const changed = clearGuildLanguage(guildId);
+      const next = this.resolveInteractionLanguage(interaction);
+      await interaction.reply({
+        content: changed
+          ? t(
+            `Manuelle Sprache entfernt. OmniFM nutzt jetzt wieder die Discord-Server-Sprache (\`${next}\`).`,
+            `Manual language override removed. OmniFM now uses the Discord server locale again (\`${next}\`).`
+          )
+          : t(
+            `Es war keine manuelle Sprache gesetzt. Aktive Sprache bleibt \`${next}\`.`,
+            `No manual language override was set. Active language remains \`${next}\`.`
+          ),
+        ephemeral: true,
+      });
+      return;
+    }
+
+    await interaction.reply({ content: t("Unbekannte /language Aktion.", "Unknown /language action."), ephemeral: true });
   }
 
   async respondInteraction(interaction, payload) {
@@ -2849,7 +3427,8 @@ class BotRuntime {
       const editPayload = { ...payload };
       delete editPayload.ephemeral;
       if (!editPayload.content && !editPayload.embeds) {
-        editPayload.content = "Es ist ein Fehler aufgetreten.";
+        const { t } = this.createInteractionTranslator(interaction);
+        editPayload.content = t("Es ist ein Fehler aufgetreten.", "An error occurred.");
       }
       return interaction.editReply(editPayload);
     }
@@ -2870,6 +3449,7 @@ class BotRuntime {
   }
 
   async connectToVoice(interaction, targetChannel = null, { silent = false } = {}) {
+    const { t } = this.createInteractionTranslator(interaction);
     const sendError = async (message) => {
       if (!silent) {
         await this.respondInteraction(interaction, { content: message, ephemeral: true });
@@ -2880,31 +3460,46 @@ class BotRuntime {
     const member = interaction.member;
     const channel = targetChannel || member?.voice?.channel;
     if (!channel) {
-      return sendError("Waehle einen Voice-Channel im Command oder trete selbst einem Voice-Channel bei.");
+      return sendError(
+        t(
+          "Waehle einen Voice-Channel im Command oder trete selbst einem Voice-Channel bei.",
+          "Select a voice channel in the command or join one yourself."
+        )
+      );
     }
     if (!channel.isVoiceBased()) {
-      return sendError("Bitte waehle einen Voice- oder Stage-Channel.");
+      return sendError(t("Bitte waehle einen Voice- oder Stage-Channel.", "Please choose a voice or stage channel."));
     }
     if (channel.guildId !== interaction.guildId) {
-      return sendError("Der ausgewaehlte Channel ist nicht in diesem Server.");
+      return sendError(t("Der ausgewaehlte Channel ist nicht in diesem Server.", "The selected channel is not in this server."));
     }
 
     const guild = interaction.guild;
     if (!guild) {
-      return sendError("Guild konnte nicht ermittelt werden.");
+      return sendError(t("Guild konnte nicht ermittelt werden.", "Could not resolve guild."));
     }
 
     const me = await this.resolveBotMember(guild);
     if (!me) {
-      return sendError("Bot-Mitglied im Server konnte nicht geladen werden.");
+      return sendError(t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load bot member in this server."));
     }
 
     const perms = channel.permissionsFor(me);
     if (!perms?.has(PermissionFlagsBits.Connect)) {
-      return sendError(`Ich habe keine Berechtigung fuer ${channel.toString()} (Connect fehlt).`);
+      return sendError(
+        t(
+          `Ich habe keine Berechtigung fuer ${channel.toString()} (Connect fehlt).`,
+          `I don't have permission for ${channel.toString()} (Connect missing).`
+        )
+      );
     }
     if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
-      return sendError(`Ich habe keine Berechtigung fuer ${channel.toString()} (Speak fehlt).`);
+      return sendError(
+        t(
+          `Ich habe keine Berechtigung fuer ${channel.toString()} (Speak fehlt).`,
+          `I don't have permission for ${channel.toString()} (Speak missing).`
+        )
+      );
     }
 
     const guildId = interaction.guildId;
@@ -2914,6 +3509,9 @@ class BotRuntime {
     if (state.connection) {
       const currentChannelId = state.connection.joinConfig?.channelId;
       if (currentChannelId === channel.id) {
+        if (channel.type === ChannelType.GuildStageVoice) {
+          await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
+        }
         return { connection: state.connection, error: null };
       }
 
@@ -2937,7 +3535,7 @@ class BotRuntime {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
       connection.destroy();
-      return sendError("Konnte dem Voice-Channel nicht beitreten.");
+      return sendError(t("Konnte dem Voice-Channel nicht beitreten.", "Could not join the voice channel."));
     }
 
     connection.subscribe(state.player);
@@ -2948,6 +3546,9 @@ class BotRuntime {
     networkRecoveryCoordinator.noteSuccess(`${this.config.name} voice-ready guild=${guildId}`);
 
     this.attachConnectionHandlers(guildId, connection);
+    if (channel.type === ChannelType.GuildStageVoice) {
+      await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
+    }
     return { connection, error: null };
   }
 
@@ -2999,6 +3600,9 @@ class BotRuntime {
     this.clearReconnectTimer(state);
     this.attachConnectionHandlers(guildId, connection);
     networkRecoveryCoordinator.noteSuccess(`${this.config.name} rejoin-ready guild=${guildId}`);
+    if (channel.type === ChannelType.GuildStageVoice) {
+      await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
+    }
 
     // Always restart station on reconnect (stream is stale after disconnect)
     if (state.currentStationKey) {
@@ -3093,18 +3697,26 @@ class BotRuntime {
   }
 
   async replyAccessDenied(interaction, access) {
+    const { t } = this.createInteractionTranslator(interaction);
     if (!access.tierAllowed) {
       await interaction.reply({
         content:
-          `Dieser Bot erfordert **${access.requiredTier.toUpperCase()}**.\n` +
-          `Dein Server hat aktuell **${access.guildTier.toUpperCase()}**.\n` +
-          `Upgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
+          t(
+            `Dieser Bot erfordert **${access.requiredTier.toUpperCase()}**.\n` +
+              `Dein Server hat aktuell **${access.guildTier.toUpperCase()}**.\n` +
+              `Upgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
+            `This bot requires **${access.requiredTier.toUpperCase()}**.\n` +
+              `Your server currently has **${access.guildTier.toUpperCase()}**.\n` +
+              `Upgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`
+          ),
         ephemeral: true
       });
       return;
     }
 
-    await interaction.reply(botLimitEmbed(access.guildTier, access.maxBots, access.botIndex));
+    await interaction.reply(
+      botLimitEmbed(access.guildTier, access.maxBots, access.botIndex, this.resolveInteractionLanguage(interaction))
+    );
   }
 
   async handleAutocomplete(interaction) {
@@ -3226,6 +3838,7 @@ class BotRuntime {
           botId: this.config.id,
           includeDisabled: false,
         });
+        const language = this.resolveInteractionLanguage(interaction);
 
         const items = events
           .filter((event) =>
@@ -3236,7 +3849,7 @@ class BotRuntime {
           )
           .slice(0, 25)
           .map((event) => ({
-            name: clipText(`${event.name} | ${formatDateTimeDe(event.runAtMs)} | ${event.id}`, 100),
+            name: clipText(`${event.name} | ${formatDateTime(event.runAtMs, language)} | ${event.id}`, 100),
             value: event.id,
           }));
 
@@ -3265,11 +3878,16 @@ class BotRuntime {
     if (!interaction.isChatInputCommand()) return;
 
     if (!interaction.guildId) {
-      await interaction.reply({ content: "Dieser Bot funktioniert nur auf Servern.", ephemeral: true });
+      const isDe = resolveLanguageFromDiscordLocale(interaction?.locale, getDefaultLanguage()) === "de";
+      await interaction.reply({
+        content: isDe ? "Dieser Bot funktioniert nur auf Servern." : "This bot only works in servers.",
+        ephemeral: true,
+      });
       return;
     }
 
-    const unrestrictedCommands = new Set(["help", "premium", "license"]);
+    const { t, language } = this.createInteractionTranslator(interaction);
+    const unrestrictedCommands = new Set(["help", "premium", "license", "language"]);
     if (!unrestrictedCommands.has(interaction.commandName)) {
       const access = this.getGuildAccess(interaction.guildId);
       if (!access.allowed) {
@@ -3280,6 +3898,11 @@ class BotRuntime {
 
     if (interaction.commandName === "help") {
       await this.respondLongInteraction(interaction, this.buildHelpMessage(interaction), { ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "language") {
+      await this.handleLanguageCommand(interaction);
       return;
     }
 
@@ -3312,8 +3935,8 @@ class BotRuntime {
       }).join("\n");
       const custom = guildTier === "ultimate" ? getGuildStations(interaction.guildId) : {};
       const customList = Object.entries(custom).map(([k, v]) => `\`${k}\` - ${v.name} [CUSTOM]`).join("\n");
-      let content = `**Verfuegbare Stationen${tierLabel} (${Object.keys(available).length}):**\n${list}`;
-      if (customList) content += `\n\n**Custom Stationen (${Object.keys(custom).length}):**\n${customList}`;
+      let content = `**${t("Verfuegbare Stationen", "Available stations")}${tierLabel} (${Object.keys(available).length}):**\n${list}`;
+      if (customList) content += `\n\n**${t("Custom Stationen", "Custom stations")} (${Object.keys(custom).length}):**\n${customList}`;
       await this.respondLongInteraction(interaction, content, { ephemeral: true });
       return;
     }
@@ -3329,7 +3952,13 @@ class BotRuntime {
       const pageKeys = keys.slice(start, end);
       const totalPages = Math.ceil(keys.length / perPage);
       if (pageKeys.length === 0) {
-        await interaction.reply({ content: `Seite ${page} hat keine Eintraege (${totalPages} Seiten).`, ephemeral: true });
+        await interaction.reply({
+          content: t(
+            `Seite ${page} hat keine Eintraege (${totalPages} Seiten).`,
+            `Page ${page} has no entries (${totalPages} pages).`
+          ),
+          ephemeral: true,
+        });
         return;
       }
       const list = pageKeys.map(k => {
@@ -3338,7 +3967,7 @@ class BotRuntime {
       }).join("\n");
       await this.respondLongInteraction(
         interaction,
-        `**Stationen (Seite ${page}/${totalPages}):**\n${list}`,
+        `**${t("Stationen", "Stations")} (${t("Seite", "Page")} ${page}/${totalPages}):**\n${list}`,
         { ephemeral: true }
       );
       return;
@@ -3348,7 +3977,10 @@ class BotRuntime {
       const playingGuilds = this.getPlayingGuildCount();
       if (!state.currentStationKey) {
         await interaction.reply({
-          content: `Hier laeuft gerade nichts.\nDieser Bot streamt aktuell auf ${playingGuilds} Server${playingGuilds === 1 ? "" : "n"}.`,
+          content: t(
+            `Hier laeuft gerade nichts.\nDieser Bot streamt aktuell auf ${playingGuilds} Server${playingGuilds === 1 ? "" : "n"}.`,
+            `Nothing is playing here right now.\nThis bot is currently streaming in ${playingGuilds} server${playingGuilds === 1 ? "" : "s"}.`
+          ),
           ephemeral: true
         });
         return;
@@ -3356,56 +3988,100 @@ class BotRuntime {
 
       const current = stations.stations[state.currentStationKey];
       if (!current) {
-        await interaction.reply({ content: "Aktuelle Station wurde entfernt.", ephemeral: true });
+        await interaction.reply({ content: t("Aktuelle Station wurde entfernt.", "Current station was removed."), ephemeral: true });
         return;
       }
 
       const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
       const lines = [
-        `Jetzt auf diesem Server: ${current.name}`,
-        `Channel: ${channelId ? `<#${channelId}>` : "unbekannt"}`,
-        `Aktiv auf ${playingGuilds} Server${playingGuilds === 1 ? "" : "n"}.`,
+        `${t("Jetzt auf diesem Server", "Now playing in this server")}: ${current.name}`,
+        `${t("Channel", "Channel")}: ${channelId ? `<#${channelId}>` : t("unbekannt", "unknown")}`,
+        `${t("Aktiv auf", "Active in")} ${playingGuilds} ${t(`Server${playingGuilds === 1 ? "" : "n"}.`, `server${playingGuilds === 1 ? "" : "s"}.`)}`,
       ];
 
       const meta = state.currentMeta;
       if (meta?.displayTitle || meta?.streamTitle) {
-        lines.push(`Now Playing: ${clipText(meta.displayTitle || meta.streamTitle, 160)}`);
+        lines.push(`${t("Jetzt laeuft", "Now Playing")}: ${clipText(meta.displayTitle || meta.streamTitle, 160)}`);
       }
       if (meta?.artist && meta?.title) {
-        lines.push(`Track: ${clipText(meta.artist, 90)} - ${clipText(meta.title, 90)}`);
+        lines.push(`${t("Titel", "Track")}: ${clipText(meta.artist, 90)} - ${clipText(meta.title, 90)}`);
       }
       if (meta?.artworkUrl) {
-        lines.push(`Cover: ${meta.artworkUrl}`);
+        lines.push(`${t("Cover", "Cover")}: ${meta.artworkUrl}`);
       }
       if (meta && (meta.name || meta.description)) {
         const metaName = clipText(meta.name || "-", 120);
         const metaDesc = clipText(meta.description || "", 240);
-        lines.push(`Meta: ${metaName}${metaDesc ? ` | ${metaDesc}` : ""}`);
+        lines.push(`${t("Meta", "Meta")}: ${metaName}${metaDesc ? ` | ${metaDesc}` : ""}`);
       }
 
       await this.respondLongInteraction(interaction, lines.join("\n"), { ephemeral: true });
       return;
     }
 
+    if (interaction.commandName === "history") {
+      if (!SONG_HISTORY_ENABLED) {
+        await interaction.reply({
+          content: t(
+            "Song-History ist aktuell deaktiviert (`SONG_HISTORY_ENABLED=0`).",
+            "Song history is currently disabled (`SONG_HISTORY_ENABLED=0`)."
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      const requestedLimit = interaction.options.getInteger("limit") || 10;
+      const limit = Math.max(1, Math.min(20, requestedLimit));
+      const history = getSongHistory(interaction.guildId, { limit });
+
+      if (!history.length) {
+        await interaction.reply({
+          content: t(
+            "Noch keine Song-History verfuegbar. Starte zuerst eine Station mit `/play`.",
+            "No song history yet. Start a station with `/play` first."
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      const lines = history.map((entry, index) => {
+        const unix = Number.isFinite(entry.timestampMs) ? Math.floor(entry.timestampMs / 1000) : null;
+        const when = unix ? `<t:${unix}:R>` : "-";
+        const title = clipText(entry.displayTitle || entry.streamTitle || "-", 150);
+        const station = entry.stationName ? clipText(entry.stationName, 80) : null;
+        const stationSuffix = station ? ` | ${station}` : "";
+        return `${index + 1}. ${when} - **${title}**${stationSuffix}`;
+      });
+
+      await this.respondLongInteraction(
+        interaction,
+        `**${t("Song-History", "Song history")} (${t("letzte", "latest")} ${history.length}):**\n${lines.join("\n")}`,
+        { ephemeral: true }
+      );
+      return;
+    }
+
     if (interaction.commandName === "pause") {
       if (!state.currentStationKey) {
-        await interaction.reply({ content: "Es laeuft nichts.", ephemeral: true });
+        await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), ephemeral: true });
         return;
       }
 
       state.player.pause(true);
-      await interaction.reply({ content: "Pausiert.", ephemeral: true });
+      await interaction.reply({ content: t("Pausiert.", "Paused."), ephemeral: true });
       return;
     }
 
     if (interaction.commandName === "resume") {
       if (!state.currentStationKey) {
-        await interaction.reply({ content: "Es laeuft nichts.", ephemeral: true });
+        await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), ephemeral: true });
         return;
       }
 
       state.player.unpause();
-      await interaction.reply({ content: "Weiter gehts.", ephemeral: true });
+      await interaction.reply({ content: t("Weiter gehts.", "Resumed."), ephemeral: true });
       return;
     }
 
@@ -3429,14 +4105,14 @@ class BotRuntime {
       state.streamErrorCount = 0;
       this.updatePresence();
 
-      await interaction.reply({ content: "Gestoppt und Channel verlassen.", ephemeral: true });
+      await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), ephemeral: true });
       return;
     }
 
     if (interaction.commandName === "setvolume") {
       const value = interaction.options.getInteger("value", true);
       if (value < 0 || value > 100) {
-        await interaction.reply({ content: "Wert muss zwischen 0 und 100 liegen.", ephemeral: true });
+        await interaction.reply({ content: t("Wert muss zwischen 0 und 100 liegen.", "Value must be between 0 and 100."), ephemeral: true });
         return;
       }
 
@@ -3446,7 +4122,7 @@ class BotRuntime {
         resource.volume.setVolume(clampVolume(value));
       }
 
-      await interaction.reply({ content: `Lautstaerke gesetzt: ${value}`, ephemeral: true });
+      await interaction.reply({ content: t(`Lautstaerke gesetzt: ${value}`, `Volume set to: ${value}`), ephemeral: true });
       return;
     }
 
@@ -3457,23 +4133,28 @@ class BotRuntime {
 
       const tierEmoji = { free: "", pro: " [PRO]", ultimate: " [ULTIMATE]" };
       const lines = [
-        `**${BRAND.name}** Premium Status${tierEmoji[tierConfig.tier] || ""}`,
+        `**${BRAND.name}** ${t("Premium Status", "Premium status")}${tierEmoji[tierConfig.tier] || ""}`,
         `Server: ${interaction.guild?.name || gid}`,
-        `Server-ID: ${gid}`,
+        `${t("Server-ID", "Server ID")}: ${gid}`,
         `Plan: ${tierConfig.name}`,
         `Audio: ${tierConfig.bitrate} Opus`,
         `Reconnect: ${tierConfig.reconnectMs}ms`,
-        `Max Bots: ${tierConfig.maxBots}`,
+        `${t("Max Bots", "Max bots")}: ${tierConfig.maxBots}`,
       ];
       if (license && !license.expired) {
-        const expDate = new Date(license.expiresAt).toLocaleDateString("de-DE");
-        lines.push(`Laeuft ab: ${expDate} (${license.remainingDays} Tage uebrig)`);
+        const expDate = new Date(license.expiresAt).toLocaleDateString(t("de-DE", "en-US"));
+        lines.push(
+          t(
+            `Laeuft ab: ${expDate} (${license.remainingDays} Tage uebrig)`,
+            `Expires: ${expDate} (${license.remainingDays} day${license.remainingDays === 1 ? "" : "s"} left)`
+          )
+        );
       } else if (license && license.expired) {
-        lines.push(`Status: ABGELAUFEN`);
+        lines.push(t("Status: ABGELAUFEN", "Status: EXPIRED"));
       }
       if (tierConfig.tier === "free") {
-        lines.push("", `Upgrade auf ${BRAND.name} Pro/Ultimate fuer hoehere Qualitaet!`);
-        lines.push("Infos & Support: https://discord.gg/UeRkfGS43R");
+        lines.push("", t(`Upgrade auf ${BRAND.name} Pro/Ultimate fuer hoehere Qualitaet!`, `Upgrade to ${BRAND.name} Pro/Ultimate for higher quality!`));
+        lines.push(t("Infos & Support: https://discord.gg/UeRkfGS43R", "Info & support: https://discord.gg/UeRkfGS43R"));
       } else {
         lines.push("", "Support: https://discord.gg/UeRkfGS43R");
       }
@@ -3485,14 +4166,14 @@ class BotRuntime {
       const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
       const content = [
         `Bot: ${this.config.name}`,
-        `Ready: ${this.client.isReady() ? "ja" : "nein"}`,
-        `Letzter Stream-Fehler: ${state.lastStreamErrorAt || "-"}`,
-        `Stream-Fehler (Reihe): ${state.streamErrorCount || 0}`,
-        `Letzter ffmpeg Exit-Code: ${state.lastProcessExitCode ?? "-"}`,
+        `Ready: ${this.client.isReady() ? t("ja", "yes") : t("nein", "no")}`,
+        `${t("Letzter Stream-Fehler", "Last stream error")}: ${state.lastStreamErrorAt || "-"}`,
+        `${t("Stream-Fehler (Reihe)", "Stream errors (streak)")}: ${state.streamErrorCount || 0}`,
+        `${t("Letzter ffmpeg Exit-Code", "Last ffmpeg exit code")}: ${state.lastProcessExitCode ?? "-"}`,
         `Reconnects: ${state.reconnectCount}`,
-        `Letzter Reconnect: ${state.lastReconnectAt || "-"}`,
-        `Auto-Reconnect aktiv: ${state.shouldReconnect ? "ja" : "nein"}`,
-        `Netz-Cooldown: ${networkHoldMs > 0 ? `ja (${Math.round(networkHoldMs)}ms)` : "nein"}`
+        `${t("Letzter Reconnect", "Last reconnect")}: ${state.lastReconnectAt || "-"}`,
+        `${t("Auto-Reconnect aktiv", "Auto reconnect enabled")}: ${state.shouldReconnect ? t("ja", "yes") : t("nein", "no")}`,
+        `${t("Netz-Cooldown", "Network cooldown")}: ${networkHoldMs > 0 ? `${t("ja", "yes")} (${Math.round(networkHoldMs)}ms)` : t("nein", "no")}`
       ].join("\n");
 
       await interaction.reply({ content, ephemeral: true });
@@ -3500,12 +4181,12 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "diag") {
-      const connected = state.connection ? "ja" : "nein";
+      const connected = state.connection ? t("ja", "yes") : t("nein", "no");
       const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || "-";
       const station = state.currentStationKey || "-";
       const diag = this.getStreamDiagnostics(interaction.guildId, state);
-      const restartPending = state.streamRestartTimer ? "ja" : "nein";
-      const reconnectPending = state.reconnectTimer ? "ja" : "nein";
+      const restartPending = state.streamRestartTimer ? t("ja", "yes") : t("nein", "no");
+      const reconnectPending = state.reconnectTimer ? t("ja", "yes") : t("nein", "no");
       const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
 
       const content = [
@@ -3525,7 +4206,7 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "status") {
-      const connected = state.connection ? "ja" : "nein";
+      const connected = state.connection ? t("ja", "yes") : t("nein", "no");
       const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || "-";
       const uptimeSec = Math.floor((Date.now() - this.startedAt) / 1000);
       const load = os.loadavg().map((v) => v.toFixed(2)).join(", ");
@@ -3534,8 +4215,8 @@ class BotRuntime {
 
       const content = [
         `Bot: ${this.config.name}`,
-        `Guilds (dieser Bot): ${this.client.guilds.cache.size}`,
-        `Verbunden: ${connected}`,
+        `${t("Guilds (dieser Bot)", "Guilds (this bot)")}: ${this.client.guilds.cache.size}`,
+        `${t("Verbunden", "Connected")}: ${connected}`,
         `Channel: ${channelId}`,
         `Station: ${station}`,
         `Uptime: ${uptimeSec}s`,
@@ -3551,7 +4232,7 @@ class BotRuntime {
       const guildId = interaction.guildId;
       const guildTier = getTier(guildId);
       if (guildTier !== "ultimate") {
-        await interaction.reply(customStationEmbed());
+        await interaction.reply(customStationEmbed(language));
         return;
       }
       const key = interaction.options.getString("key");
@@ -3559,10 +4240,16 @@ class BotRuntime {
       const url = interaction.options.getString("url");
       const result = addGuildStation(guildId, key, name, url);
       if (result.error) {
-        await interaction.reply({ content: result.error, ephemeral: true });
+        await interaction.reply({ content: translateCustomStationErrorMessage(result.error, language), ephemeral: true });
       } else {
         const count = countGuildStations(guildId);
-        await interaction.reply({ content: `Custom Station hinzugefuegt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`, ephemeral: true });
+        await interaction.reply({
+          content: t(
+            `Custom Station hinzugefuegt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`,
+            `Custom station added: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} slots used.`
+          ),
+          ephemeral: true,
+        });
       }
       return;
     }
@@ -3571,14 +4258,14 @@ class BotRuntime {
       const guildId = interaction.guildId;
       const guildTier = getTier(guildId);
       if (guildTier !== "ultimate") {
-        await interaction.reply(customStationEmbed());
+        await interaction.reply(customStationEmbed(language));
         return;
       }
       const key = interaction.options.getString("key");
       if (removeGuildStation(guildId, key)) {
-        await interaction.reply({ content: `Station \`${key}\` entfernt.`, ephemeral: true });
+        await interaction.reply({ content: t(`Station \`${key}\` entfernt.`, `Station \`${key}\` removed.`), ephemeral: true });
       } else {
-        await interaction.reply({ content: `Station \`${key}\` nicht gefunden.`, ephemeral: true });
+        await interaction.reply({ content: t(`Station \`${key}\` nicht gefunden.`, `Station \`${key}\` was not found.`), ephemeral: true });
       }
       return;
     }
@@ -3587,18 +4274,18 @@ class BotRuntime {
       const guildId = interaction.guildId;
       const guildTier = getTier(guildId);
       if (guildTier !== "ultimate") {
-        await interaction.reply(customStationEmbed());
+        await interaction.reply(customStationEmbed(language));
         return;
       }
       const custom = getGuildStations(guildId);
       const keys = Object.keys(custom);
       if (keys.length === 0) {
-        await interaction.reply({ content: "Keine Custom Stationen. Nutze `/addstation` um eine hinzuzufuegen.", ephemeral: true });
+        await interaction.reply({ content: t("Keine Custom Stationen. Nutze `/addstation` um eine hinzuzufuegen.", "No custom stations. Use `/addstation` to add one."), ephemeral: true });
       } else {
         const list = keys.map(k => `\`${k}\` - ${custom[k].name}`).join("\n");
         await this.respondLongInteraction(
           interaction,
-          `**Custom Stationen (${keys.length}/${MAX_STATIONS_PER_GUILD}):**\n${list}`,
+          `**${t("Custom Stationen", "Custom stations")} (${keys.length}/${MAX_STATIONS_PER_GUILD}):**\n${list}`,
           { ephemeral: true }
         );
       }
@@ -3612,7 +4299,10 @@ class BotRuntime {
       const requiresManagePermission = sub === "activate" || sub === "remove";
       if (requiresManagePermission && !this.hasGuildManagePermissions(interaction)) {
         await interaction.reply({
-          content: "Du brauchst die Berechtigung `Server verwalten` um Lizenz-Aktionen auszufuehren.",
+          content: t(
+            "Du brauchst die Berechtigung `Server verwalten` um Lizenz-Aktionen auszufuehren.",
+            "You need the `Manage Server` permission to execute license actions."
+          ),
           ephemeral: true
         });
         return;
@@ -3632,20 +4322,23 @@ class BotRuntime {
         }
 
         if (!lic) {
-          await interaction.reply({ content: "Lizenz-Key nicht gefunden. Bitte pruefe den Key und versuche es erneut.", ephemeral: true });
+          await interaction.reply({ content: t("Lizenz-Key nicht gefunden. Bitte pruefe den Key und versuche es erneut.", "License key not found. Please verify it and try again."), ephemeral: true });
           return;
         }
         if (lic.expired) {
-          await interaction.reply({ content: "Diese Lizenz ist abgelaufen. Bitte erneuere dein Abo.", ephemeral: true });
+          await interaction.reply({ content: t("Diese Lizenz ist abgelaufen. Bitte erneuere dein Abo.", "This license has expired. Please renew your subscription."), ephemeral: true });
           return;
         }
 
         const result = linkServerToLicense(guildId, resolvedKey);
         if (!result.ok) {
           const msg = result.message.includes("already linked")
-            ? "Dieser Server ist bereits mit dieser Lizenz verknuepft."
+            ? t("Dieser Server ist bereits mit dieser Lizenz verknuepft.", "This server is already linked to this license.")
             : result.message.includes("seat")
-              ? `Alle ${lic.seats} Server-Slots sind belegt. Entferne zuerst einen Server mit \`/license remove\` oder upgrade auf mehr Seats.`
+              ? t(
+                `Alle ${lic.seats} Server-Slots sind belegt. Entferne zuerst einen Server mit \`/license remove\` oder upgrade auf mehr Seats.`,
+                `All ${lic.seats} server seats are used. Remove a server with \`/license remove\` or upgrade to more seats first.`
+              )
               : result.message;
           await interaction.reply({ content: msg, ephemeral: true });
           return;
@@ -3653,20 +4346,25 @@ class BotRuntime {
 
         const refreshedLicense = getLicenseById(resolvedKey) || lic;
         const planName = PLANS[refreshedLicense.plan]?.name || refreshedLicense.plan;
-        const expDate = refreshedLicense.expiresAt ? new Date(refreshedLicense.expiresAt).toLocaleDateString("de-DE") : "Unbegrenzt";
+        const expDate = refreshedLicense.expiresAt
+          ? new Date(refreshedLicense.expiresAt).toLocaleDateString(t("de-DE", "en-US"))
+          : t("Unbegrenzt", "Unlimited");
         const usedSeats = refreshedLicense.linkedServerIds?.length || 0;
         await interaction.reply({
           embeds: [{
             color: refreshedLicense.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
-            title: "Lizenz aktiviert!",
-            description: `Dieser Server wurde erfolgreich mit deiner **${planName}**-Lizenz verknuepft.`,
+            title: t("Lizenz aktiviert!", "License activated!"),
+            description: t(
+              `Dieser Server wurde erfolgreich mit deiner **${planName}**-Lizenz verknuepft.`,
+              `This server was linked successfully with your **${planName}** license.`
+            ),
             fields: [
-              { name: "Lizenz-Key", value: `\`${resolvedKey}\``, inline: true },
-              { name: "Plan", value: planName, inline: true },
-              { name: "Server-Slots", value: `${usedSeats}/${refreshedLicense.seats}`, inline: true },
-              { name: "Gueltig bis", value: expDate, inline: true },
+              { name: t("Lizenz-Key", "License key"), value: `\`${resolvedKey}\``, inline: true },
+              { name: t("Plan", "Plan"), value: planName, inline: true },
+              { name: t("Server-Slots", "Server seats"), value: `${usedSeats}/${refreshedLicense.seats}`, inline: true },
+              { name: t("Gueltig bis", "Valid until"), value: expDate, inline: true },
             ],
-            footer: { text: "OmniFM Premium" },
+            footer: { text: t("OmniFM Premium", "OmniFM Premium") },
           }],
           ephemeral: true,
         });
@@ -3677,14 +4375,17 @@ class BotRuntime {
         const lic = getServerLicense(guildId);
         if (!lic) {
           await interaction.reply({
-            content: "Dieser Server hat keine aktive Lizenz.\nNutze `/license activate <key>` um einen Lizenz-Key zu aktivieren.",
+            content: t(
+              "Dieser Server hat keine aktive Lizenz.\nNutze `/license activate <key>` um einen Lizenz-Key zu aktivieren.",
+              "This server has no active license.\nUse `/license activate <key>` to activate one."
+            ),
             ephemeral: true,
           });
           return;
         }
 
         const planName = PLANS[lic.plan]?.name || lic.plan;
-        const expDate = lic.expiresAt ? new Date(lic.expiresAt).toLocaleDateString("de-DE") : "Unbegrenzt";
+        const expDate = lic.expiresAt ? new Date(lic.expiresAt).toLocaleDateString(t("de-DE", "en-US")) : t("Unbegrenzt", "Unlimited");
         const linked = lic.linkedServerIds || [];
         const tierConfig = PLANS[lic.plan] || PLANS.free;
         await interaction.reply({
@@ -3692,16 +4393,16 @@ class BotRuntime {
             color: lic.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
             title: `OmniFM ${planName}`,
             fields: [
-              { name: "Lizenz-Key", value: `\`${lic.id || "-"}\``, inline: true },
-              { name: "Plan", value: planName, inline: true },
-              { name: "Server-Slots", value: `${linked.length}/${lic.seats}`, inline: true },
-              { name: "Gueltig bis", value: expDate, inline: true },
-              { name: "Verbleibend", value: `${lic.remainingDays} Tage`, inline: true },
-              { name: "Audio", value: tierConfig.bitrate, inline: true },
-              { name: "Max Bots", value: `${tierConfig.maxBots}`, inline: true },
-              { name: "Reconnect", value: `${tierConfig.reconnectMs}ms`, inline: true },
+              { name: t("Lizenz-Key", "License key"), value: `\`${lic.id || "-"}\``, inline: true },
+              { name: t("Plan", "Plan"), value: planName, inline: true },
+              { name: t("Server-Slots", "Server seats"), value: `${linked.length}/${lic.seats}`, inline: true },
+              { name: t("Gueltig bis", "Valid until"), value: expDate, inline: true },
+              { name: t("Verbleibend", "Remaining"), value: t(`${lic.remainingDays} Tage`, `${lic.remainingDays} days`), inline: true },
+              { name: t("Audio", "Audio"), value: tierConfig.bitrate, inline: true },
+              { name: t("Max Bots", "Max bots"), value: `${tierConfig.maxBots}`, inline: true },
+              { name: t("Reconnect", "Reconnect"), value: `${tierConfig.reconnectMs}ms`, inline: true },
             ],
-            footer: { text: lic.expired ? "ABGELAUFEN" : "OmniFM Premium" },
+            footer: { text: lic.expired ? t("ABGELAUFEN", "EXPIRED") : "OmniFM Premium" },
           }],
           ephemeral: true,
         });
@@ -3711,18 +4412,21 @@ class BotRuntime {
       if (sub === "remove") {
         const lic = getServerLicense(guildId);
         if (!lic || !lic.id) {
-          await interaction.reply({ content: "Dieser Server hat keine aktive Lizenz.", ephemeral: true });
+          await interaction.reply({ content: t("Dieser Server hat keine aktive Lizenz.", "This server has no active license."), ephemeral: true });
           return;
         }
 
         const result = unlinkServerFromLicense(guildId, lic.id);
         if (!result.ok) {
-          await interaction.reply({ content: "Fehler beim Entfernen: " + result.message, ephemeral: true });
+          await interaction.reply({ content: t("Fehler beim Entfernen: ", "Error while removing: ") + result.message, ephemeral: true });
           return;
         }
 
         await interaction.reply({
-          content: "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann fuer einen anderen Server genutzt werden.\nNutze `/license activate <key>` um eine neue Lizenz zu aktivieren.",
+          content: t(
+            "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann fuer einen anderen Server genutzt werden.\nNutze `/license activate <key>` um eine neue Lizenz zu aktivieren.",
+            "Server was unlinked from the license. The seat is now free and can be used for another server.\nUse `/license activate <key>` to activate a new license."
+          ),
           ephemeral: true,
         });
         return;
@@ -3751,7 +4455,7 @@ class BotRuntime {
         const stationTier = stations.stations[key]?.tier || "free";
         const tierRank = { free: 0, pro: 1, ultimate: 2 };
         if ((tierRank[stationTier] || 0) > (tierRank[guildTier] || 0)) {
-          await interaction.reply(premiumStationEmbed(stations.stations[key].name, stationTier));
+          await interaction.reply(premiumStationEmbed(stations.stations[key].name, stationTier, language));
           return;
         }
       } else {
@@ -3764,31 +4468,35 @@ class BotRuntime {
           customUrl = customStations[customKey].url;
           const customUrlValidation = validateCustomStationUrl(customUrl);
           if (!customUrlValidation.ok) {
+            const translated = translateCustomStationErrorMessage(customUrlValidation.error, language);
             await interaction.reply({
-              content: `Custom-Station kann nicht genutzt werden: ${customUrlValidation.error}`,
+              content: t(
+                `Custom-Station kann nicht genutzt werden: ${translated}`,
+                `Custom station cannot be used: ${translated}`
+              ),
               ephemeral: true
             });
             return;
           }
           stations.stations[key] = { name: customStations[customKey].name, url: customUrlValidation.url, tier: "ultimate" };
         } else if (customKey) {
-          await interaction.reply(customStationEmbed());
+          await interaction.reply(customStationEmbed(language));
           return;
         } else {
-          await interaction.reply({ content: "Unbekannte Station.", ephemeral: true });
+          await interaction.reply({ content: t("Unbekannte Station.", "Unknown station."), ephemeral: true });
           return;
         }
       }
 
       const guild = interaction.guild;
       if (!guild) {
-        await interaction.reply({ content: "Guild konnte nicht ermittelt werden.", ephemeral: true });
+        await interaction.reply({ content: t("Guild konnte nicht ermittelt werden.", "Could not resolve guild."), ephemeral: true });
         return;
       }
 
       if (!requestedChannel && requestedChannelInput) {
         await interaction.reply({
-          content: "Voice-Channel nicht gefunden.",
+          content: t("Voice-Channel nicht gefunden.", "Voice channel not found."),
           ephemeral: true
         });
         return;
@@ -3800,7 +4508,7 @@ class BotRuntime {
       await interaction.deferReply({ ephemeral: true });
       const { connection, error: connectError } = await this.connectToVoice(interaction, requestedChannel, { silent: true });
       if (!connection) {
-        await interaction.editReply(connectError || "Konnte keine Voice-Verbindung herstellen.");
+        await interaction.editReply(connectError || t("Konnte keine Voice-Verbindung herstellen.", "Could not establish a voice connection."));
         return;
       }
       state.shouldReconnect = true;
@@ -3809,7 +4517,7 @@ class BotRuntime {
         await this.playStation(state, stations, key, guildId);
         const tierConfig = getTierConfig(guildId);
         const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
-        await interaction.editReply(`Starte: ${selectedStation?.name || key}${tierLabel}`);
+        await interaction.editReply(t(`Starte: ${selectedStation?.name || key}${tierLabel}`, `Starting: ${selectedStation?.name || key}${tierLabel}`));
       } catch (err) {
         log("ERROR", `[${this.config.name}] Play error: ${err.message}`);
         state.lastStreamErrorAt = new Date().toISOString();
@@ -3819,7 +4527,10 @@ class BotRuntime {
           try {
             await this.playStation(state, stations, fallbackKey, guildId);
             await interaction.editReply(
-              `Fehler bei ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`
+              t(
+                `Fehler bei ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`,
+                `Error on ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`
+              )
             );
             return;
           } catch (fallbackErr) {
@@ -3841,7 +4552,7 @@ class BotRuntime {
         state.currentMeta = null;
         state.nowPlayingSignature = null;
         this.updatePresence();
-        await interaction.editReply(`Fehler beim Starten: ${err.message}`);
+        await interaction.editReply(t(`Fehler beim Starten: ${err.message}`, `Error while starting: ${err.message}`));
       }
     }
   }
@@ -4253,6 +4964,59 @@ async function sendMailWithRetry({ to, subject, html, label, maxAttempts = 2 }) 
   return { success: false, error: lastError, attempts: maxAttempts };
 }
 
+function resolveCheckoutOfferForRequest({
+  tier,
+  seats,
+  months,
+  email,
+  couponCode,
+  referralCode,
+  baseAmountCents,
+  language,
+}) {
+  const checkoutLanguage = normalizeLanguage(language, getDefaultLanguage());
+  const normalizedCouponCode = sanitizeOfferCode(couponCode);
+  const normalizedReferralCode = sanitizeOfferCode(referralCode);
+
+  const preview = previewCheckoutOffer({
+    tier,
+    seats,
+    months,
+    email,
+    baseAmountCents,
+    couponCode: normalizedCouponCode,
+    referralCode: normalizedReferralCode,
+  });
+
+  const couponProvided = Boolean(normalizedCouponCode);
+  const referralProvided = Boolean(normalizedReferralCode);
+
+  if (couponProvided && (!preview.coupon?.ok || preview.applied?.kind !== "coupon")) {
+    return {
+      ok: false,
+      status: 400,
+      error: translateOfferReason(preview.coupon?.reason, checkoutLanguage),
+      preview,
+    };
+  }
+
+  if (!couponProvided && referralProvided && (!preview.referral?.ok || preview.applied?.kind !== "referral")) {
+    return {
+      ok: false,
+      status: 400,
+      error: translateOfferReason(preview.referral?.reason, checkoutLanguage),
+      preview,
+    };
+  }
+
+  return {
+    ok: true,
+    preview,
+    couponCode: normalizedCouponCode || null,
+    referralCode: normalizedReferralCode || null,
+  };
+}
+
 async function activatePaidStripeSession(session, runtimes, source = "verify") {
   const fallbackLanguage = normalizeLanguage(session?.metadata?.language, getDefaultLanguage());
   const t = (de, en) => (fallbackLanguage === "de" ? de : en);
@@ -4265,12 +5029,52 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     return { success: false, status: 400, message: t("session.id fehlt.", "session.id is missing.") };
   }
 
-  const { email: metaEmail, tier, months, seats, language } = session.metadata;
+  const {
+    email: metaEmail,
+    tier,
+    months,
+    seats,
+    language,
+    appliedOfferCode: metaAppliedOfferCode,
+    appliedOfferKind: metaAppliedOfferKind,
+    couponCode: metaCouponCode,
+    referralCode: metaReferralCode,
+    discountCents: metaDiscountCents,
+    baseAmountCents: metaBaseAmountCents,
+    finalAmountCents: metaFinalAmountCents,
+    offerOwnerLabel: metaOfferOwnerLabel,
+  } = session.metadata;
   const customerEmail = String(metaEmail || session.customer_details?.email || "").trim().toLowerCase();
   const cleanTier = String(tier || "").trim().toLowerCase();
   const cleanSeats = [1, 2, 3, 5].includes(Number(seats)) ? Number(seats) : 1;
   const durationMonths = Math.max(1, parseInt(months, 10) || 1);
   const customerLanguage = normalizeLanguage(language, fallbackLanguage);
+  const amountPaid = Math.max(0, Number.parseInt(String(session.amount_total || 0), 10) || 0);
+  const baseAmountCentsMeta = Math.max(0, Number.parseInt(String(metaBaseAmountCents || 0), 10) || 0);
+  const discountCentsMeta = Math.max(0, Number.parseInt(String(metaDiscountCents || 0), 10) || 0);
+  const finalAmountCentsMeta = Math.max(0, Number.parseInt(String(metaFinalAmountCents || 0), 10) || 0);
+  const appliedOfferCode = sanitizeOfferCode(metaAppliedOfferCode || metaCouponCode);
+  const referralCode = sanitizeOfferCode(metaReferralCode);
+  const appliedOfferKind = ["coupon", "referral"].includes(String(metaAppliedOfferKind || "").toLowerCase())
+    ? String(metaAppliedOfferKind).toLowerCase()
+    : (appliedOfferCode ? "coupon" : null);
+  const offerOwnerLabel = clipText(metaOfferOwnerLabel || "", 160) || null;
+
+  const baseAmountCents = baseAmountCentsMeta > 0
+    ? baseAmountCentsMeta
+    : Math.max(0, amountPaid + discountCentsMeta);
+  const discountCents = Math.max(
+    0,
+    discountCentsMeta > 0
+      ? discountCentsMeta
+      : Math.max(0, baseAmountCents - Math.max(amountPaid, finalAmountCentsMeta))
+  );
+  const finalAmountCents = Math.max(
+    0,
+    amountPaid > 0
+      ? amountPaid
+      : (finalAmountCentsMeta > 0 ? finalAmountCentsMeta : Math.max(0, baseAmountCents - discountCents))
+  );
 
   if (!customerEmail || !["pro", "ultimate"].includes(cleanTier)) {
     return {
@@ -4317,6 +5121,22 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
   const isUpgrade = Boolean(licenseChange?.upgraded);
   const isRenewal = Boolean(licenseChange?.extended && !licenseChange?.upgraded);
 
+  if (appliedOfferCode || referralCode) {
+    markOfferRedemption(sessionId, {
+      source,
+      email: customerEmail,
+      code: appliedOfferCode || null,
+      kind: appliedOfferKind || null,
+      referralCode: referralCode || null,
+      tier: effectiveTier,
+      seats: effectiveSeats,
+      months: durationMonths,
+      baseAmountCents,
+      discountCents,
+      finalAmountCents,
+    });
+  }
+
   markSessionProcessed(sessionId, {
     email: customerEmail,
     tier: effectiveTier,
@@ -4324,6 +5144,12 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     source,
     expiresAt: license.expiresAt,
     language: customerLanguage,
+    appliedOfferCode: appliedOfferCode || null,
+    appliedOfferKind: appliedOfferKind || null,
+    referralCode: referralCode || null,
+    baseAmountCents,
+    discountCents,
+    finalAmountCents,
   });
 
   const emailDelivery = {
@@ -4337,7 +5163,6 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
   if (emailDelivery.smtpConfigured && customerEmail) {
     const tierConfig = TIERS[effectiveTier] || TIERS[cleanTier];
     const inviteOverview = buildInviteOverviewForTier(runtimes, effectiveTier);
-    const amountPaid = Number(session.amount_total || 0);
 
     const purchaseHtml = buildPurchaseEmail({
       tier: effectiveTier,
@@ -4352,6 +5177,12 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       isUpgrade,
       isRenewal,
       pricePaid: amountPaid,
+      baseAmountCents,
+      discountCents,
+      appliedOfferCode,
+      appliedOfferKind,
+      referralCode,
+      offerOwnerLabel,
       currency: session.currency || "eur",
       language: customerLanguage,
     });
@@ -4385,6 +5216,12 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       currency: session.currency || "eur",
       licenseKey: license.id,
       expiresAt: license.expiresAt,
+      baseAmountCents,
+      discountCents,
+      appliedOfferCode,
+      appliedOfferKind,
+      referralCode,
+      offerOwnerLabel,
       language: customerLanguage,
     });
     const invoiceSubject = customerLanguage === "de"
@@ -4447,7 +5284,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
 
   log(
     "INFO",
-    `[License] ${licenseChange?.created ? "Erstellt" : isUpgrade ? "Upgrade+Verlaengerung" : "Verlaengert"}: ${license.id} fuer ${customerEmail} (${effectiveTier}, ${effectiveSeats} Seats, +${durationMonths}mo) via ${source} | email purchase=${emailDelivery.purchaseSent} invoice=${emailDelivery.invoiceSent} admin=${emailDelivery.adminSent}`
+    `[License] ${licenseChange?.created ? "Erstellt" : isUpgrade ? "Upgrade+Verlaengerung" : "Verlaengert"}: ${license.id} fuer ${customerEmail} (${effectiveTier}, ${effectiveSeats} Seats, +${durationMonths}mo, paid=${amountPaid}, discount=${discountCents}, code=${appliedOfferCode || "-"}, ref=${referralCode || "-"}) via ${source} | email purchase=${emailDelivery.purchaseSent} invoice=${emailDelivery.invoiceSent} admin=${emailDelivery.adminSent}`
   );
 
   const tierNameForMessage = TIERS[effectiveTier]?.name || TIERS[cleanTier]?.name || "Premium";
@@ -4464,6 +5301,13 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     message = customerLanguage === "de"
       ? `${tierNameForMessage} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
       : `${tierNameForMessage} activated! License key: ${license.id} - Check your email (${customerEmail}).`;
+  }
+
+  if (discountCents > 0 && appliedOfferCode) {
+    const discountLabel = customerLanguage === "de"
+      ? ` Rabatt angewendet: ${formatEuroCentsDe(discountCents)} EUR (${appliedOfferCode}).`
+      : ` Discount applied: EUR ${(discountCents / 100).toFixed(2)} (${appliedOfferCode}).`;
+    message += discountLabel;
   }
 
   if (!emailDelivery.smtpConfigured) {
@@ -4492,6 +5336,13 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     expiresAt: license.expiresAt,
     seats: effectiveSeats,
     language: customerLanguage,
+    amountPaid,
+    discountCents,
+    baseAmountCents,
+    finalAmountCents,
+    appliedOfferCode: appliedOfferCode || null,
+    appliedOfferKind: appliedOfferKind || null,
+    referralCode: referralCode || null,
     emailStatus: emailDelivery,
     message,
     created: Boolean(licenseChange?.created),
@@ -5138,7 +5989,16 @@ function startWebServer(runtimes) {
       }
       try {
         const body = await readJsonBody();
-        const { tier, email, months, seats: rawSeats, returnUrl, language: rawLanguage } = body;
+        const {
+          tier,
+          email,
+          months,
+          seats: rawSeats,
+          returnUrl,
+          language: rawLanguage,
+          couponCode: rawCouponCode,
+          referralCode: rawReferralCode,
+        } = body;
         const acceptLanguage = req.headers["accept-language"];
         const checkoutLanguage = normalizeLanguage(
           rawLanguage,
@@ -5168,9 +6028,36 @@ function startWebServer(runtimes) {
         }
 
         const durationMonths = Math.max(1, parseInt(months) || 1);
-        const priceInCents = calculatePrice(tier, durationMonths, seats);
-        if (priceInCents <= 0) {
+        const basePriceInCents = calculatePrice(tier, durationMonths, seats);
+        if (basePriceInCents <= 0) {
           sendJson(res, 400, { error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination.") });
+          return;
+        }
+        const offerResolution = resolveCheckoutOfferForRequest({
+          tier,
+          seats,
+          months: durationMonths,
+          email: email.trim().toLowerCase(),
+          couponCode: rawCouponCode,
+          referralCode: rawReferralCode,
+          baseAmountCents: basePriceInCents,
+          language: checkoutLanguage,
+        });
+        if (!offerResolution.ok) {
+          sendJson(res, offerResolution.status || 400, {
+            error: offerResolution.error || t("Rabattcode konnte nicht angewendet werden.", "Could not apply discount code."),
+            discount: offerResolution.preview || null,
+          });
+          return;
+        }
+        const offerPreview = offerResolution.preview;
+        const priceInCents = Math.max(0, Number(offerPreview?.finalAmountCents || basePriceInCents));
+        const discountCents = Math.max(0, Number(offerPreview?.discountCents || 0));
+        const appliedOfferCode = sanitizeOfferCode(offerPreview?.applied?.code);
+        const appliedOfferKind = String(offerPreview?.applied?.kind || "").trim().toLowerCase();
+        const referralCode = sanitizeOfferCode(offerPreview?.attributionReferralCode || "");
+        if (priceInCents <= 0) {
+          sendJson(res, 400, { error: t("Preis ist nach Rabatt ungueltig.", "Price is invalid after discount.") });
           return;
         }
         const tierName = TIERS[tier].name;
@@ -5212,12 +6099,29 @@ function startWebServer(runtimes) {
             language: checkoutLanguage,
             isUpgrade: "false",
             checkoutCreatedAt: new Date().toISOString(),
+            couponCode: offerResolution.couponCode || "",
+            referralCode: referralCode || "",
+            appliedOfferCode: appliedOfferCode || "",
+            appliedOfferKind: appliedOfferKind || "",
+            offerOwnerLabel: String(offerPreview?.applied?.ownerLabel || ""),
+            baseAmountCents: String(basePriceInCents),
+            discountCents: String(discountCents),
+            finalAmountCents: String(priceInCents),
           },
           success_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
           cancel_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=cancelled",
         });
 
-        sendJson(res, 200, { sessionId: session.id, url: session.url });
+        sendJson(res, 200, {
+          sessionId: session.id,
+          url: session.url,
+          pricing: {
+            baseAmountCents: basePriceInCents,
+            discountCents,
+            finalAmountCents: priceInCents,
+          },
+          discount: offerPreview,
+        });
       } catch (err) {
         const status = Number(err?.status || 0);
         if (status === 400 || status === 413) {
@@ -5241,6 +6145,201 @@ function startWebServer(runtimes) {
             : "Checkout failed: " + err.message,
         });
       }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/premium/offer/preview") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      try {
+        const body = await readJsonBody();
+        const {
+          tier,
+          email,
+          months,
+          seats: rawSeats,
+          couponCode,
+          referralCode,
+          language: rawLanguage,
+        } = body || {};
+        const acceptLanguage = req.headers["accept-language"];
+        const previewLanguage = normalizeLanguage(
+          rawLanguage,
+          resolveLanguageFromAcceptLanguage(acceptLanguage, getDefaultLanguage())
+        );
+        const isDe = previewLanguage === "de";
+        const t = (de, en) => (isDe ? de : en);
+
+        const cleanTier = String(tier || "").trim().toLowerCase();
+        if (!["pro", "ultimate"].includes(cleanTier)) {
+          sendJson(res, 400, { success: false, error: t("tier muss 'pro' oder 'ultimate' sein.", "tier must be 'pro' or 'ultimate'.") });
+          return;
+        }
+
+        const durationMonths = Math.max(1, parseInt(months, 10) || 1);
+        const seats = normalizeSeats(rawSeats);
+        const baseAmountCents = calculatePrice(cleanTier, durationMonths, seats);
+        if (baseAmountCents <= 0) {
+          sendJson(res, 400, {
+            success: false,
+            error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination."),
+          });
+          return;
+        }
+
+        const resolved = resolveCheckoutOfferForRequest({
+          tier: cleanTier,
+          seats,
+          months: durationMonths,
+          email: String(email || "").trim().toLowerCase(),
+          couponCode,
+          referralCode,
+          baseAmountCents,
+          language: previewLanguage,
+        });
+
+        if (!resolved.ok) {
+          sendJson(res, resolved.status || 400, {
+            success: false,
+            error: resolved.error,
+            discount: resolved.preview || null,
+          });
+          return;
+        }
+
+        sendJson(res, 200, {
+          success: true,
+          discount: resolved.preview,
+          pricing: {
+            baseAmountCents,
+            discountCents: resolved.preview?.discountCents || 0,
+            finalAmountCents: resolved.preview?.finalAmountCents || baseAmountCents,
+          },
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, {
+            success: false,
+            error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body.",
+          });
+          return;
+        }
+        log("ERROR", `Offer preview error: ${err.message}`);
+        sendJson(res, 500, { success: false, error: "Offer-Vorschau fehlgeschlagen: " + err.message });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/premium/offers") {
+      if (!isAdminApiRequest(req)) {
+        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+        return;
+      }
+
+      if (req.method === "GET") {
+        const includeInactive = requestUrl.searchParams.get("includeInactive") !== "0";
+        const includeStats = requestUrl.searchParams.get("includeStats") !== "0";
+        const offers = listOffers({ includeInactive, includeStats });
+        sendJson(res, 200, { offers });
+        return;
+      }
+
+      if (req.method === "POST" || req.method === "PATCH") {
+        try {
+          const body = await readJsonBody();
+          const actor = clipText(req.headers["x-admin-user"] || body?.updatedBy || "api-admin", 120);
+          const offer = upsertOffer({
+            ...(body || {}),
+            updatedBy: actor,
+            createdBy: body?.createdBy || actor,
+          }, {
+            partial: req.method === "PATCH",
+          });
+          sendJson(res, 200, { success: true, offer });
+        } catch (err) {
+          sendJson(res, 400, { success: false, error: err?.message || String(err) });
+        }
+        return;
+      }
+
+      if (req.method === "DELETE") {
+        const code = sanitizeOfferCode(requestUrl.searchParams.get("code") || "");
+        if (!code) {
+          sendJson(res, 400, { success: false, error: "code ist erforderlich." });
+          return;
+        }
+        const deleted = deleteOffer(code);
+        sendJson(res, deleted ? 200 : 404, { success: deleted, code });
+        return;
+      }
+
+      methodNotAllowed(res, ["GET", "POST", "PATCH", "DELETE"]);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/premium/offers/active") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      if (!isAdminApiRequest(req)) {
+        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+        return;
+      }
+      try {
+        const body = await readJsonBody();
+        const code = sanitizeOfferCode(body?.code || "");
+        const active = body?.active !== undefined ? Boolean(body.active) : true;
+        if (!code) {
+          sendJson(res, 400, { success: false, error: "code ist erforderlich." });
+          return;
+        }
+        const offer = setOfferActive(code, active);
+        if (!offer) {
+          sendJson(res, 404, { success: false, error: "Code nicht gefunden." });
+          return;
+        }
+        sendJson(res, 200, { success: true, offer });
+      } catch (err) {
+        sendJson(res, 400, { success: false, error: err?.message || String(err) });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/premium/redemptions") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      if (!isAdminApiRequest(req)) {
+        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+        return;
+      }
+      const limit = Number.parseInt(String(requestUrl.searchParams.get("limit") || "100"), 10);
+      const redemptions = listRecentRedemptions(limit);
+      sendJson(res, 200, { redemptions });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/premium/offer") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      const code = sanitizeOfferCode(requestUrl.searchParams.get("code") || "");
+      if (!code) {
+        sendJson(res, 400, { error: "code ist erforderlich." });
+        return;
+      }
+      const offer = getOffer(code);
+      if (!offer) {
+        sendJson(res, 404, { error: "Code nicht gefunden." });
+        return;
+      }
+      sendJson(res, 200, { offer });
       return;
     }
 
@@ -5367,6 +6466,10 @@ function startWebServer(runtimes) {
             email: replayResult.email || null,
             licenseKey: replayResult.licenseKey || null,
             tier: replayResult.tier || null,
+            discountCents: replayResult.discountCents || 0,
+            appliedOfferCode: replayResult.appliedOfferCode || null,
+            appliedOfferKind: replayResult.appliedOfferKind || null,
+            referralCode: replayResult.referralCode || null,
             message: replayResult.message,
           });
           return;
@@ -5389,6 +6492,10 @@ function startWebServer(runtimes) {
           tier: result.tier,
           expiresAt: result.expiresAt,
           seats: result.seats,
+           discountCents: result.discountCents || 0,
+           appliedOfferCode: result.appliedOfferCode || null,
+           appliedOfferKind: result.appliedOfferKind || null,
+           referralCode: result.referralCode || null,
           message: result.message,
         });
       } catch (err) {

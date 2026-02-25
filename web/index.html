@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="OmniFM - 24/7 Radio-Streams für deinen Discord Server" />
     <title>OmniFM</title>
+    <link rel="icon" type="image/png" href="/img/bot-1.png" />
+    <link rel="apple-touch-icon" href="/img/bot-1.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -302,6 +304,19 @@
           <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#A1A1AA;margin-bottom:8px">E-MAIL ADRESSE</div>
           <input type="email" id="premiumEmail" placeholder="deine@email.de" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;color:#fff;padding:14px 16px;font-size:14px;outline:none" />
           <p style="color:#52525B;font-size:11px;margin-top:6px">Dein Lizenz-Key und die Rechnung werden an diese Adresse gesendet.</p>
+        </div>
+
+        <!-- Rabattcode -->
+        <div id="discountCodeRow" style="margin-bottom:14px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#A1A1AA;margin-bottom:8px">RABATTCODE (OPTIONAL)</div>
+          <input type="text" id="premiumCouponCode" placeholder="z.B. PRO10" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;color:#fff;padding:12px 14px;font-size:13px;outline:none;font-family:JetBrains Mono,monospace;text-transform:uppercase" />
+        </div>
+
+        <!-- Referral-Code -->
+        <div id="referralCodeRow" style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#A1A1AA;margin-bottom:8px">REFERRAL-CODE (OPTIONAL)</div>
+          <input type="text" id="premiumReferralCode" placeholder="z.B. CREATOR10" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;color:#fff;padding:12px 14px;font-size:13px;outline:none;font-family:JetBrains Mono,monospace;text-transform:uppercase" />
+          <p style="color:#52525B;font-size:10px;margin-top:6px">Referral-Links koennen den Code automatisch vorbefuellen.</p>
         </div>
 
         <!-- Upgrade Badge -->
