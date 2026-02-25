@@ -17,6 +17,7 @@ import {
   listLicenses,
   patchLicenseById,
   getServerLicense,
+  initPremiumStore,
 } from "./premium-store.js";
 import { setLicenseProvider } from "./core/entitlements.js";
 import {
