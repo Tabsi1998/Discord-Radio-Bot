@@ -926,6 +926,8 @@ async def get_commands():
             {"name": "/event", "args": "<create <name> <station> <voice> <start> [timezone] [repeat] [text] [serverevent] [stagetopic] [message] | list | delete <id>>", "description": "[Pro] Event-Scheduler fuer automatische Starts"},
             {"name": "/license", "args": "<activate <key> | info | remove>", "description": "Lizenz verwalten: aktivieren, anzeigen oder entfernen"},
             {"name": "/perm", "args": "<allow <command> <role> | deny <command> <role> | remove <command> <role> | list [command] | reset [command]>", "description": "[Pro] Rollenrechte fuer Commands verwalten"},
+            {"name": "/invite", "args": "<worker>", "description": "[Pro] Worker-Bot auf deinen Server einladen"},
+            {"name": "/workers", "args": "", "description": "[Pro] Zeigt den Status aller Worker-Bots"},
         ]
     }
 
