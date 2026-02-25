@@ -154,7 +154,7 @@ import {
 } from "../scheduled-events-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
 import { normalizeLanguage, getDefaultLanguage, getDiscordLocale } from "../i18n.js";
-import { buildUpgradeEmbed, premiumStationEmbed, customStationEmbed } from "../ui/upgradeEmbeds.js";
+import { premiumStationEmbed, customStationEmbed } from "../ui/upgradeEmbeds.js";
 import { syncGuildCommandsSafe } from "../discord/syncGuildCommandsSafe.js";
 import { commandSyncGuard } from "../utils/commandSyncGuard.js";
 import { buildCommandBuilders } from "../commands.js";
