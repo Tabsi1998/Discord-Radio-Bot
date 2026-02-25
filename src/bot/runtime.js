@@ -67,6 +67,7 @@ import {
   sanitizeOfferCode,
   translateOfferReason,
   isProTrialEnabled,
+  NOW_PLAYING_COVER_ENABLED,
 } from "../lib/helpers.js";
 import {
   resolveLanguageFromDiscordLocale,
