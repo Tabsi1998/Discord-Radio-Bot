@@ -974,7 +974,7 @@ fi
 # ============================================================
 # MODE: Bots verwalten (Submenu)
 # ============================================================
-if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" || "$MODE" == "--edit-bot" || "$MODE" == "--remove-bot" ]]; then
+if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" || "$MODE" == "--edit-bot" || "$MODE" == "--remove-bot" || "$MODE" == "--set-commander" || "$MODE" == "--show-roles" ]]; then
 
   if [[ "$MODE" == "--bots" ]]; then
     bot_count=$(count_bots)
