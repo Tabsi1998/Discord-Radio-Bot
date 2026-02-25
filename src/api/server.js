@@ -1038,5 +1038,6 @@ function startWebServer(runtimes) {
   });
 
   return server;
+}
 
 export { startWebServer };
