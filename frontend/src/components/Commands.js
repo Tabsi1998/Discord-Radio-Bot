@@ -123,7 +123,7 @@ function TierColumn({ tier, config, commands, expanded, onToggle }) {
 
 function Commands({ commands, loading }) {
   const items = Array.isArray(commands) ? commands : [];
-  const [expanded, setExpanded] = useState({ free: true, pro: true, ultimate: true });
+  const [expanded, setExpanded] = useState({ free: false, pro: false, ultimate: false });
 
   const toggleTier = (tier) => {
     setExpanded((prev) => ({ ...prev, [tier]: !prev[tier] }));

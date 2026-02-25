@@ -8,13 +8,12 @@ import {
   demuxProbe,
   StreamType,
 } from "@discordjs/voice";
-import { log } from "../lib/logging.js";
+import { log, shouldLogFfmpegStderrLine } from "../lib/logging.js";
 import {
   clipText,
   clampVolume,
   sanitizeUrlForLog,
   buildTranscodeProfile,
-  shouldLogFfmpegStderrLine,
   isLikelyNetworkFailureLine,
 } from "../lib/helpers.js";
 import { networkRecoveryCoordinator } from "../core/network-recovery.js";
