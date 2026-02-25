@@ -78,14 +78,16 @@ export function createLicense({
 }
 
 export function getLicenseById(licenseId) {
-  const c = licensesCol();
-  if (!c) return null;
-  const lic = c.findOne ? null : null; // need sync, see below
-  // Since MongoDB driver is async, we wrap with synchronous-like approach
-  // Actually, the premium store functions are called synchronously in existing code.
-  // We need to keep this synchronous for backward compatibility.
-  // Use a cached/in-memory approach with periodic sync.
-  return _getLicenseByIdSync(licenseId);
+  const data = load();
+  const lic = data.licenses[String(licenseId)];
+  if (!lic) return null;
+  return {
+    ...lic,
+    expired: isExpired(lic),
+    remainingDays: remainingDays(lic),
+    seatsUsed: (lic.linkedServerIds || []).length,
+    seatsAvailable: lic.seats - (lic.linkedServerIds || []).length,
+  };
 }
 
 // --- In-memory cache with MongoDB persistence ---
