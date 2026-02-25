@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Hero from './components/Hero';
 import BotDirectory from './components/BotDirectory';
+import WorkerDashboard from './components/WorkerDashboard';
 import Features from './components/Features';
 import StationBrowser from './components/StationBrowser';
 import Commands from './components/Commands';
