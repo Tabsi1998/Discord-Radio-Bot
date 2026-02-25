@@ -1,89 +1,141 @@
-# Discord Radio Bot - PRD & Implementation Log
+# OmniFM v3.0 - Project Requirements Document
 
 ## Original Problem Statement
-Der Benutzer hat 16 Discord Radio Bots konfiguriert. Bot 1 und Bot 2 zeigen keine Slash-Commands (/) an, während die anderen 14 Bots korrekt funktionieren.
+Vollständige Analyse des GitHub-Repositories "Discord-Radio-Bot" (OmniFM v3.0) zur Vorbereitung auf zukünftige Optimierungen, Verbesserungen und Erweiterungen.
 
-## Root Cause Analysis
-Das Problem liegt höchstwahrscheinlich an einem oder mehreren der folgenden Ursachen:
+## Projekt-Übersicht
+**OmniFM v3.0** ist ein professioneller 24/7 Discord Radio Streaming Bot mit einem 3-Tier Premium-System und seat-basierter Lizenzierung.
 
-1. **Missing `applications.commands` Scope**: Bot 1 und 2 wurden möglicherweise vor dem Hinzufügen des Slash-Command-Supports eingeladen und haben nicht den erforderlichen OAuth2 Scope.
+## Architektur
 
-2. **CLIENT_ID Mismatch**: Die CLIENT_ID in der .env-Datei stimmt möglicherweise nicht mit der tatsächlichen Application ID des Bots überein.
+### Tech Stack
+- **Runtime:** Node.js 20 (ES Modules)
+- **Discord Library:** discord.js v14.17.3
+- **Audio:** @discordjs/voice v0.18.0, @discordjs/opus v0.10.0, FFmpeg
+- **Payment:** Stripe v17.0.0
+- **Email:** Nodemailer v8.0.1
+- **Deployment:** Docker (docker-compose)
+- **Datenbank:** JSON-Datei-basiert (kein SQL/NoSQL DB)
+- **Backend API:** Node.js HTTP Server (in src/index.js eingebaut)
+- **Web Frontend:** Vanilla HTML/CSS/JS (web/)
+- **Emergent Backend:** FastAPI (Python) für Preview-Zwecke
 
-3. **Guild Command Sync Fehler**: Der Command-Sync beim Bot-Start könnte aufgrund von Rate-Limiting oder Berechtigungsproblemen fehlgeschlagen sein.
+### Verzeichnisstruktur
+```
+/app/
+├── src/                          # Discord Bot Kernlogik
+│   ├── index.js                  # Haupt-Applikation (~3000+ Zeilen)
+│   ├── commands.js               # Slash-Command Definitionen
+│   ├── deploy-commands.js        # Command-Registrierung bei Discord
+│   ├── bot-config.js             # Multi-Bot Konfiguration
+│   ├── bot-state.js              # Bot-State Persistenz (JSON)
+│   ├── premium-store.js          # Lizenz-Verwaltung (JSON)
+│   ├── stations-store.js         # Station-Verwaltung (JSON)
+│   ├── custom-stations.js        # Custom Stations (Ultimate)
+│   ├── coupon-store.js           # Coupon/Referral System
+│   ├── scheduled-events-store.js # Event Scheduler Persistenz
+│   ├── song-history-store.js     # Song History Persistenz
+│   ├── guild-language-store.js   # Server-Sprache (DE/EN)
+│   ├── command-permissions-store.js # Rollenbasierte Berechtigungen
+│   ├── email.js                  # SMTP/Email Service
+│   ├── i18n.js                   # Internationalisierung (DE/EN)
+│   ├── premium-cli.js            # CLI für Lizenz-Management
+│   ├── stations-cli.js           # CLI für Station-Management
+│   ├── config/
+│   │   ├── plans.js              # Plan-Konfiguration (SSOT)
+│   │   └── command-permissions.js # Permission-Command-Liste
+│   ├── core/
+│   │   └── entitlements.js       # Zentraler Permission-Check
+│   ├── services/
+│   │   ├── pricing.js            # Seat-basiertes Pricing
+│   │   └── stations.js           # Station Service
+│   ├── ui/
+│   │   └── upgradeEmbeds.js      # Discord Upgrade-Embeds
+│   ├── discord/
+│   │   └── syncGuildCommandsSafe.js # Guild Command Sync
+│   └── utils/
+│       └── commandSyncGuard.js   # Exclusive Queue
+├── web/                          # Original Website
+│   ├── index.html                # Landing Page (~390 Zeilen)
+│   ├── app.js                    # Frontend Logik (~2000+ Zeilen)
+│   └── styles.css                # Styles (~277 Zeilen)
+├── data/                         # Station-Daten
+│   ├── stations.free.json        # 20 Free Stationen
+│   └── stations.pro.json         # 100 Pro Stationen
+├── backend/                      # Emergent FastAPI Backend
+│   └── server.py                 # API Server (~1094 Zeilen)
+├── frontend/                     # Emergent React Frontend
+│   └── public/                   # Serviert Original web/ Files
+├── stations.json                 # Haupt-Stations-Konfiguration
+├── docker-compose.yml            # Docker Deployment
+├── docker-entrypoint.sh          # Container Startup
+├── Dockerfile                    # Container Build
+└── package.json                  # Dependencies
+```
 
-4. **Race Condition**: Commands wurden möglicherweise synchronisiert, bevor der Bot vollständig bereit war.
+## Kernfunktionalitäten
 
-## Implemented Fixes (Jan 2026)
+### 1. Multi-Bot System
+- Unterstützt bis zu 20 Bots (BOT_1 bis BOT_20)
+- Jeder Bot: eigener Token, Client ID, Name, Tier-Anforderung
+- BotRuntime Klasse: Verwaltet Client, State, Player pro Bot
+- Fallback auf Legacy-Single-Bot-Config (DISCORD_TOKEN/CLIENT_ID)
 
-### 1. Verbesserte clientReady Handler (src/index.js)
-- Async Handler mit await für sequentielle Ausführung
-- 2 Sekunden Verzögerung vor Command-Sync um Guild-Cache zu populieren
-- Automatischer Retry nach 10 Sekunden bei fehlgeschlagenem Sync
+### 2. 3-Tier Premium System
+| Feature | Free | Pro | Ultimate |
+|---------|------|-----|----------|
+| Stationen | 20 | 120 | 120+ Custom |
+| Audio-Qualität | 64k | 128k Opus | 320k Opus |
+| Reconnect | 5s | 1.5s | 0.4s |
+| Max Bots | 2 | 8 | 16 |
+| Custom URLs | Nein | Nein | Ja (50/Server) |
+| Command Permissions | Nein | Ja | Ja |
+| Event Scheduler | Nein | Ja | Ja |
 
-### 2. Verbesserte syncGuildCommandForGuild Methode (src/index.js)
-- Ausführliche Logging mit Application ID und Command-Anzahl
-- Spezifische Fehlerbehandlung für häufige Discord-API-Fehler:
-  - 50001 (Missing Access): Bot hat keinen applications.commands Scope
-  - 50013 (Missing Permissions): Bot hat nicht genug Berechtigungen
-  - 10004 (Unknown Guild): Bot ist nicht mehr auf dem Server
-- Keine sinnlosen Retries bei Berechtigungsproblemen
+### 3. Seat-basierte Lizenzierung
+- Lizenzen pro E-Mail (nicht pro Server)
+- Seat-Optionen: 1, 2, 3, 5 Server
+- Preise (EUR/Monat): Pro 2.99-11.49, Ultimate 4.99-16.99
+- Jahresrabatt: 10 Monate zahlen für 12
+- Pro-Testmonat: 1x pro E-Mail, 1 Seat
 
-### 3. Verbesserte syncGuildCommands Methode (src/index.js)
-- Detaillierte Statistiken über erfolgreiche/fehlgeschlagene Syncs
-- Liste der fehlgeschlagenen Guilds mit Fehlermeldungen
-- Automatische Tipps zur Problemlösung
+### 4. Discord Slash Commands
+`/play`, `/pause`, `/resume`, `/stop`, `/stations`, `/list`, `/now`, `/history`, `/setvolume`, `/status`, `/health`, `/diag`, `/premium`, `/language`, `/addstation`, `/removestation`, `/mystations`, `/event`, `/permission`
 
-### 4. Neue Diagnose-Methode diagnoseCommandSync (src/index.js)
-- Prüft Application ID und CLIENT_ID Übereinstimmung
-- Ruft existierende Commands pro Guild ab
-- Identifiziert Missing Access Probleme
+### 5. Audio-Streaming
+- FFmpeg Transcoding mit Opus/PCM
+- Netzwerk-Recovery mit Backoff + Jitter
+- Now-Playing mit ICY-Metadata + Album-Cover (iTunes)
+- Song History mit Dedupe
 
-### 5. Neue Slash-Commands (src/commands.js)
-- `/cmddiag`: Diagnose-Command für Server-Admins
-- `/resync`: Manuelles Neu-Synchronisieren der Commands
+### 6. Event Scheduler
+- Zeitpläne: einmalig, täglich, wöchentlich, monatlich
+- Zeitzonen-Support, Discord Server-Event Integration
+- Stage Channel Support
 
-### 6. Neues Diagnose-Script (src/diagnose-bots.js)
-- Standalone-Script zur Überprüfung aller Bots
-- Validiert Tokens, CLIENT_IDs, globale Commands
-- Generiert korrekte Invite-URLs mit applications.commands Scope
+### 7. Stripe Payment Integration
+- Checkout Sessions, Webhook Handling, Coupons/Referrals
 
-## User Personas
-- Discord Server Administratoren mit Multi-Bot-Setups
-- Entwickler, die Discord Bots hosten
+### 8. Web Interface
+- Landing Page, Bot-Verzeichnis, Station-Browser, Commands, Premium Pricing
 
-## Core Requirements (Static)
-- 16 Bots müssen parallel laufen können
-- Alle Bots müssen Slash-Commands registrieren können
-- Fehlerdiagnose muss ohne Programmierkentnisse möglich sein
+## Daten-Persistenz (JSON-Dateien)
+premium.json, bot-state.json, stations.json, custom-stations.json, scheduled-events.json, song-history.json, guild-languages.json, command-permissions.json, coupons.json
 
-## What's Been Implemented
-| Feature | Status | Date |
-|---------|--------|------|
-| Verbesserte Guild Command Sync | ✅ Implementiert | Jan 2026 |
-| Fehlerbehandlung für Sync-Probleme | ✅ Implementiert | Jan 2026 |
-| /cmddiag Diagnose-Command | ✅ Implementiert | Jan 2026 |
-| /resync Manual-Sync-Command | ✅ Implementiert | Jan 2026 |
-| diagnose-bots.js Script | ✅ Implementiert | Jan 2026 |
-| Aktualisierte Dokumentation | ✅ Implementiert | Jan 2026 |
+## Was wurde implementiert
+- [2026-02-25] Komplettes Repo geklont und analysiert
+- [2026-02-25] Original web/ Interface im Emergent Preview lauffähig gemacht
+- [2026-02-25] FastAPI Backend mit allen API-Endpoints aktiv
 
-## Prioritized Backlog
+## Identifizierte Verbesserungsbereiche
+1. Datenbank-Migration: JSON → MongoDB/PostgreSQL
+2. src/index.js Aufspaltung: ~3000+ Zeilen → modulare Architektur
+3. Test-Suite erstellen
+4. Error Handling vereinheitlichen
+5. Strukturiertes Logging
+6. CI/CD Pipeline
+7. Monitoring/Health-Checks
 
-### P0 (Kritisch - Für Benutzer zu erledigen)
-- [ ] Bot 1 und 2 mit neuem Invite-Link (inkl. applications.commands) neu einladen
-- [ ] `npm run diagnose` ausführen um genaue Probleme zu identifizieren
-
-### P1 (Wichtig)
-- [ ] Prüfen ob BOT_1_CLIENT_ID und BOT_2_CLIENT_ID in .env korrekt sind
-- [ ] Nach Neustart `/cmddiag` auf betroffenen Servern ausführen
-
-### P2 (Nice-to-Have)
-- [ ] Web-Dashboard für Bot-Status und Command-Sync
-- [ ] Discord Webhook für Sync-Fehler-Benachrichtigungen
-
-## Next Tasks
-1. Benutzer sollte `npm run diagnose` auf seinem Server ausführen
-2. Invite-Links für Bot 1 und 2 neu generieren lassen
-3. Bots neu einladen (ohne vorher zu entfernen)
-4. Bot-Dienst neustarten
-5. Mit `/cmddiag` auf einem betroffenen Server verifizieren
+## Backlog
+- P1: Optimierungsplan mit User erstellen
+- P2: Implementierung vereinbarter Änderungen
