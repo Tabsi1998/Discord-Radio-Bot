@@ -169,6 +169,18 @@ import {
   previewCheckoutOffer,
 } from "../coupon-store.js";
 
+// Helper: wraps getServerPlanConfig + adds 'tier' alias for backward compatibility
+function getTierConfig(guildId) {
+  const config = getServerPlanConfig(guildId);
+  return { ...config, tier: config.plan };
+}
+
+// Helper: wraps getServerLicense for backward compatibility
+function getLicense(guildId) {
+  return getServerLicense(guildId);
+}
+
+
 class BotRuntime {
   constructor(config, { role = "worker", workerManager = null } = {}) {
     this.config = config;
