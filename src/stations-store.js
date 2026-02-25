@@ -1,33 +1,33 @@
+// ============================================================
+// stations-store.js – MongoDB-basiert (mit JSON-Fallback)
+// ============================================================
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getDb } from "./lib/db.js";
+import { log } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const stationsPath = path.resolve(__dirname, "..", "stations.json");
 
 const QUALITY_PRESETS = new Set(["low", "medium", "high", "custom"]);
+const COLLECTION = "stations";
+const CONFIG_COLLECTION = "stations_config";
+
+function col() { const db = getDb(); return db ? db.collection(COLLECTION) : null; }
+function configCol() { const db = getDb(); return db ? db.collection(CONFIG_COLLECTION) : null; }
 
 function emptyStationsData() {
-  return {
-    defaultStationKey: null,
-    stations: {},
-    locked: false,
-    qualityPreset: "custom",
-    fallbackKeys: []
-  };
+  return { defaultStationKey: null, stations: {}, locked: false, qualityPreset: "custom", fallbackKeys: [] };
 }
 
 function sanitizeKey(raw) {
-  return String(raw || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+  return String(raw || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function sanitizeStations(stationsInput) {
   const out = {};
   if (!stationsInput || typeof stationsInput !== "object") return out;
-
   for (const [rawKey, rawValue] of Object.entries(stationsInput)) {
     const key = sanitizeKey(rawKey);
     const name = String(rawValue?.name || "").trim();
@@ -42,88 +42,156 @@ function sanitizeStations(stationsInput) {
 export function normalizeStationsData(input) {
   const base = emptyStationsData();
   if (!input || typeof input !== "object") return base;
-
   const stations = sanitizeStations(input.stations);
   const stationKeys = Object.keys(stations);
-
   const defaultKey = sanitizeKey(input.defaultStationKey);
   const qualityPreset = String(input.qualityPreset || "custom").toLowerCase();
   const rawFallback = Array.isArray(input.fallbackKeys) ? input.fallbackKeys : [];
-
-  const fallbackKeys = rawFallback
-    .map((k) => sanitizeKey(k))
-    .filter((k, idx, arr) => k && stations[k] && arr.indexOf(k) === idx);
-
+  const fallbackKeys = rawFallback.map((k) => sanitizeKey(k)).filter((k, idx, arr) => k && stations[k] && arr.indexOf(k) === idx);
   return {
     defaultStationKey: stations[defaultKey] ? defaultKey : stationKeys[0] || null,
-    stations,
-    locked: Boolean(input.locked),
+    stations, locked: Boolean(input.locked),
     qualityPreset: QUALITY_PRESETS.has(qualityPreset) ? qualityPreset : "custom",
-    fallbackKeys
+    fallbackKeys,
   };
 }
 
+function loadStationsFromFile() {
+  if (!fs.existsSync(stationsPath)) return emptyStationsData();
+  try {
+    if (fs.statSync(stationsPath).isDirectory()) return emptyStationsData();
+    const raw = fs.readFileSync(stationsPath, "utf8");
+    return normalizeStationsData(JSON.parse(raw));
+  } catch { return emptyStationsData(); }
+}
+
 export function loadStations() {
-  if (!fs.existsSync(stationsPath)) {
-    return emptyStationsData();
+  const c = col();
+  if (!c) return loadStationsFromFile();
+
+  // Synchronous loading not possible with MongoDB driver; use cached version
+  if (_stationsCache) return _stationsCache;
+  return loadStationsFromFile();
+}
+
+let _stationsCache = null;
+
+export async function initStationsStore() {
+  const c = col();
+  if (!c) {
+    _stationsCache = loadStationsFromFile();
+    return _stationsCache;
   }
 
   try {
-    if (fs.statSync(stationsPath).isDirectory()) {
-      console.warn(`[stations-store] ${stationsPath} ist ein Verzeichnis.`);
-      return emptyStationsData();
+    const docs = await c.find({}, { projection: { _id: 0 } }).toArray();
+    if (docs.length === 0) {
+      // Seed from file
+      const fileData = loadStationsFromFile();
+      _stationsCache = fileData;
+      return _stationsCache;
     }
-    const raw = fs.readFileSync(stationsPath, "utf8");
-    const parsed = JSON.parse(raw);
-    return normalizeStationsData(parsed);
-  } catch {
-    return emptyStationsData();
+
+    const stations = {};
+    let defaultKey = null;
+    for (const doc of docs) {
+      const key = doc.key;
+      if (key) {
+        stations[key] = { name: doc.name || key, url: doc.url || "", tier: doc.tier || "free" };
+        if (doc.is_default) defaultKey = key;
+      }
+    }
+
+    // Load config
+    const cc = configCol();
+    let config = {};
+    if (cc) {
+      try {
+        config = (await cc.findOne({ _id: "main" })) || {};
+      } catch {}
+    }
+
+    _stationsCache = normalizeStationsData({
+      defaultStationKey: defaultKey || config.defaultStationKey || Object.keys(stations)[0] || null,
+      stations,
+      locked: config.locked || false,
+      qualityPreset: config.qualityPreset || "custom",
+      fallbackKeys: config.fallbackKeys || [],
+    });
+
+    log("INFO", `Stations geladen: ${Object.keys(stations).length} Sender`);
+    return _stationsCache;
+  } catch (err) {
+    log("WARN", `Stations aus DB laden fehlgeschlagen: ${err.message}, Fallback auf Datei`);
+    _stationsCache = loadStationsFromFile();
+    return _stationsCache;
   }
 }
 
-export function saveStations(data) {
+export async function saveStations(data) {
   const normalized = normalizeStationsData(data);
-  const serialized = JSON.stringify(normalized, null, 2);
-  const tempPath = `${stationsPath}.tmp`;
-  try {
-    fs.writeFileSync(tempPath, serialized);
-    fs.renameSync(tempPath, stationsPath);
-  } catch (err) {
-    try {
-      if (fs.existsSync(tempPath)) {
-        fs.unlinkSync(tempPath);
-      }
-    } catch {
-      // ignore cleanup errors
-    }
+  _stationsCache = normalized;
 
-    // Bind-mounted single files can reject rename() with EBUSY.
-    if (err?.code === "EBUSY" || err?.code === "EXDEV" || err?.code === "EPERM") {
-      fs.writeFileSync(stationsPath, serialized);
-    } else {
-      throw err;
+  const c = col();
+  if (c) {
+    try {
+      // Update MongoDB
+      const bulkOps = [];
+      for (const [key, station] of Object.entries(normalized.stations)) {
+        bulkOps.push({
+          updateOne: {
+            filter: { key },
+            update: {
+              $set: {
+                key, name: station.name, url: station.url, tier: station.tier,
+                is_default: key === normalized.defaultStationKey,
+              },
+            },
+            upsert: true,
+          },
+        });
+      }
+      if (bulkOps.length > 0) await c.bulkWrite(bulkOps);
+
+      // Remove deleted stations
+      const existingDocs = await c.find({}, { projection: { _id: 0, key: 1 } }).toArray();
+      const toDelete = existingDocs.filter((d) => !normalized.stations[d.key]).map((d) => d.key);
+      if (toDelete.length > 0) await c.deleteMany({ key: { $in: toDelete } });
+
+      // Save config
+      const cc = configCol();
+      if (cc) {
+        await cc.replaceOne({ _id: "main" }, {
+          _id: "main",
+          defaultStationKey: normalized.defaultStationKey,
+          locked: normalized.locked,
+          qualityPreset: normalized.qualityPreset,
+          fallbackKeys: normalized.fallbackKeys,
+        }, { upsert: true });
+      }
+    } catch (err) {
+      log("ERROR", `Stations speichern: ${err.message}`);
     }
   }
+
+  // Also save to file as backup
+  try {
+    const serialized = JSON.stringify(normalized, null, 2);
+    const tempPath = `${stationsPath}.tmp`;
+    fs.writeFileSync(tempPath, serialized);
+    try { fs.renameSync(tempPath, stationsPath); } catch { fs.writeFileSync(stationsPath, serialized); }
+  } catch {}
+
   return normalized;
 }
 
-export function getStationsPath() {
-  return stationsPath;
-}
-
-export function isValidQualityPreset(preset) {
-  return QUALITY_PRESETS.has(String(preset || "").toLowerCase());
-}
-
-export function normalizeKey(rawKey) {
-  return sanitizeKey(rawKey);
-}
+export function getStationsPath() { return stationsPath; }
+export function isValidQualityPreset(preset) { return QUALITY_PRESETS.has(String(preset || "").toLowerCase()); }
+export function normalizeKey(rawKey) { return sanitizeKey(rawKey); }
 
 export function resolveStation(stations, key) {
   if (!key) {
-    return stations.stations[stations.defaultStationKey]
-      ? stations.defaultStationKey
-      : Object.keys(stations.stations)[0] || null;
+    return stations.stations[stations.defaultStationKey] ? stations.defaultStationKey : Object.keys(stations.stations)[0] || null;
   }
   return stations.stations[key] ? key : null;
 }
@@ -133,11 +201,7 @@ export function getFallbackKey(stations, currentKey) {
     const next = stations.fallbackKeys.find((k) => stations.stations[k] && k !== currentKey);
     if (next) return next;
   }
-
-  if (stations.defaultStationKey && stations.defaultStationKey !== currentKey) {
-    return stations.defaultStationKey;
-  }
-
+  if (stations.defaultStationKey && stations.defaultStationKey !== currentKey) return stations.defaultStationKey;
   const keys = Object.keys(stations.stations);
   return keys.find((k) => k !== currentKey) || null;
 }
@@ -149,9 +213,7 @@ export function filterStationsByTier(stations, guildTier) {
   const filtered = {};
   for (const [key, station] of Object.entries(stations)) {
     const stationRank = TIER_RANK[station.tier || "free"] ?? 0;
-    if (stationRank <= rank) {
-      filtered[key] = station;
-    }
+    if (stationRank <= rank) filtered[key] = station;
   }
   return filtered;
 }
