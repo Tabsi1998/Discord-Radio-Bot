@@ -93,24 +93,40 @@ import {
   parseTrackFromStreamTitle,
   fetchCoverArtForTrack,
   fetchStreamSnapshot,
+  fetchStreamInfo,
 } from "../services/now-playing.js";
 import { createResource } from "../services/stream.js";
-import { loadStations } from "../stations-store.js";
+import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier } from "../stations-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "../bot-state.js";
 import {
   addCustomStation,
   removeCustomStation,
   listCustomStations,
+  getGuildStations,
+  addGuildStation,
+  removeGuildStation,
+  countGuildStations,
+  MAX_STATIONS_PER_GUILD,
+  validateCustomStationUrl,
 } from "../custom-stations.js";
-import { getTier, checkFeatureAccess, getMaxBots } from "../core/entitlements.js";
+import { getTier, checkFeatureAccess, getMaxBots, requireFeature, getServerPlanConfig } from "../core/entitlements.js";
 import {
   getCommandPermission,
   setCommandPermission,
   removeCommandPermission,
   listCommandPermissions,
   resetCommandPermissions,
+  getGuildCommandPermissionRules,
+  getSupportedPermissionCommands,
+  setCommandRolePermission,
+  removeCommandRolePermission,
+  evaluateCommandPermission,
 } from "../command-permissions-store.js";
-import { getPermissionCommandChoices } from "../config/command-permissions.js";
+import {
+  getPermissionCommandChoices,
+  normalizePermissionCommandName,
+  isPermissionManagedCommand,
+} from "../config/command-permissions.js";
 import {
   getGuildLanguage,
   setGuildLanguage,
@@ -119,6 +135,8 @@ import {
 import {
   addSongEntry,
   getHistory as getGuildSongHistory,
+  appendSongHistory,
+  getSongHistory,
 } from "../song-history-store.js";
 import {
   listAllEvents,
@@ -126,10 +144,16 @@ import {
   removeEvent,
   updateEventRunAtMs,
   getEvent,
+  listScheduledEvents,
+  createScheduledEvent,
+  deleteScheduledEvent,
+  patchScheduledEvent,
+  getScheduledEvent,
+  deleteScheduledEventsByFilter,
 } from "../scheduled-events-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
 import { normalizeLanguage, getDefaultLanguage, getDiscordLocale } from "../i18n.js";
-import { buildUpgradeEmbed } from "../ui/upgradeEmbeds.js";
+import { buildUpgradeEmbed, premiumStationEmbed, customStationEmbed } from "../ui/upgradeEmbeds.js";
 import { syncGuildCommandsSafe } from "../discord/syncGuildCommandsSafe.js";
 import { commandSyncGuard } from "../utils/commandSyncGuard.js";
 import { buildCommandBuilders } from "../commands.js";
