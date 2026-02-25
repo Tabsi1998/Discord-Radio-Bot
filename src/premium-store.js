@@ -220,22 +220,6 @@ export async function initPremiumStore() {
 
 // --- License CRUD (sync, using cache) ---
 
-function _getLicenseByIdSync(licenseId) {
-  const data = load();
-  const lic = data.licenses[String(licenseId)];
-  if (!lic) return null;
-  return {
-    ...lic,
-    expired: isExpired(lic),
-    remainingDays: remainingDays(lic),
-    seatsUsed: (lic.linkedServerIds || []).length,
-    seatsAvailable: lic.seats - (lic.linkedServerIds || []).length,
-  };
-}
-
-// Re-export getLicenseById properly
-export { _getLicenseByIdSync as getLicenseById };
-
 export function linkServerToLicense(serverId, licenseId) {
   const sid = String(serverId);
   const lid = String(licenseId);
