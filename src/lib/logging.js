@@ -7,7 +7,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..", "..");
-const webDir = path.join(rootDir, "web");
+const legacyWebDir = path.join(rootDir, "web");
+const frontendBuildDir = path.join(rootDir, "frontend", "build");
+const webDir = fs.existsSync(path.join(frontendBuildDir, "index.html"))
+  ? frontendBuildDir
+  : legacyWebDir;
 const logsDir = path.join(rootDir, "logs");
 const logFile = path.join(logsDir, "bot.log");
 const maxLogSizeBytes = Number(process.env.LOG_MAX_MB || "5") * 1024 * 1024;

@@ -1,4 +1,15 @@
 # escape=\
+
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /frontend
+
+COPY frontend/package*.json ./
+RUN npm install
+
+COPY frontend/ ./
+RUN npm run build
+
 FROM node:20-slim
 
 RUN apt-get update \
@@ -12,6 +23,7 @@ RUN npm install --omit=dev
 
 COPY src ./src
 COPY web ./web
+COPY --from=frontend-builder /frontend/build ./frontend/build
 COPY stations.json ./stations.json
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 

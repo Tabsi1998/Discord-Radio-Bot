@@ -14,12 +14,136 @@ const SUPPORTED_REPEAT = new Set([
   "monthly_fourth_weekday",
   "monthly_last_weekday",
 ]);
+const LOAD_ERROR_LOG_COOLDOWN_MS = 60_000;
+const CORRUPT_BACKUP_PREFIX = ".corrupt-";
+
+let lastLoadErrorSignature = "";
+let lastLoadErrorAt = 0;
+let lastCorruptRecoverySignature = "";
 
 function emptyState() {
   return {
     version: 1,
     events: [],
   };
+}
+
+function logLoadErrorOnce(message) {
+  const signature = String(message || "unknown");
+  const now = Date.now();
+  if (signature === lastLoadErrorSignature && now - lastLoadErrorAt < LOAD_ERROR_LOG_COOLDOWN_MS) {
+    return;
+  }
+  lastLoadErrorSignature = signature;
+  lastLoadErrorAt = now;
+  console.error(`[scheduled-events] Load error: ${signature}`);
+}
+
+function extractFirstJsonDocument(raw) {
+  const text = String(raw || "");
+  if (!text.trim()) return null;
+
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (start < 0) {
+      if (char === "{" || char === "[") {
+        start = index;
+        depth = 1;
+      } else if (!/\s/.test(char)) {
+        return null;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{" || char === "[") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}" || char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, index + 1);
+      }
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function parseStateWithRecovery(raw) {
+  const full = JSON.parse(raw);
+  return {
+    state: normalizeState(full),
+    recovered: false,
+  };
+}
+
+function tryParseState(raw) {
+  try {
+    return parseStateWithRecovery(raw);
+  } catch (primaryErr) {
+    const firstDocument = extractFirstJsonDocument(raw);
+    if (!firstDocument) throw primaryErr;
+
+    const recovered = parseStateWithRecovery(firstDocument);
+    return {
+      state: recovered.state,
+      recovered: true,
+      reason: primaryErr?.message || "invalid-json",
+    };
+  }
+}
+
+function backupCorruptRaw(raw) {
+  const backupPath = `${EVENTS_FILE}${CORRUPT_BACKUP_PREFIX}${Date.now()}.json`;
+  fs.writeFileSync(backupPath, raw, "utf8");
+  return backupPath;
+}
+
+function recoverCorruptFile(raw, reason) {
+  const signature = `${reason}|${String(raw || "").slice(0, 120)}`;
+  if (signature === lastCorruptRecoverySignature) return;
+  lastCorruptRecoverySignature = signature;
+
+  let backupPath = null;
+  try {
+    backupPath = backupCorruptRaw(raw);
+  } catch {
+    // ignore
+  }
+
+  try {
+    saveRawState(emptyState());
+  } catch {
+    // ignore
+  }
+
+  const backupHint = backupPath ? ` Backup: ${backupPath}` : "";
+  console.warn(`[scheduled-events] Datei war ungueltig und wurde auf leeren State zurueckgesetzt.${backupHint}`);
 }
 
 function sanitizeId(raw) {
@@ -151,9 +275,25 @@ function loadRawState() {
     }
     const raw = fs.readFileSync(EVENTS_FILE, "utf8");
     if (!raw.trim()) return emptyState();
-    return normalizeState(JSON.parse(raw));
+    const parsed = tryParseState(raw);
+    if (parsed.recovered) {
+      saveRawState(parsed.state);
+      console.warn(`[scheduled-events] Ungueltiges JSON erkannt und automatisch repariert (${parsed.reason || "unknown"}).`);
+    }
+    return parsed.state;
   } catch (err) {
-    console.error(`[scheduled-events] Load error: ${err?.message || err}`);
+    const message = err?.message || String(err);
+    logLoadErrorOnce(message);
+    try {
+      if (fs.existsSync(EVENTS_FILE) && fs.statSync(EVENTS_FILE).isFile()) {
+        const raw = fs.readFileSync(EVENTS_FILE, "utf8");
+        if (raw.trim()) {
+          recoverCorruptFile(raw, message);
+        }
+      }
+    } catch {
+      // ignore follow-up recovery errors
+    }
     return emptyState();
   }
 }

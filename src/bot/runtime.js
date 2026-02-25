@@ -155,7 +155,7 @@ import {
 } from "../scheduled-events-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
 import { normalizeLanguage, getDefaultLanguage } from "../i18n.js";
-import { premiumStationEmbed, customStationEmbed } from "../ui/upgradeEmbeds.js";
+import { premiumStationEmbed, customStationEmbed, botLimitEmbed } from "../ui/upgradeEmbeds.js";
 import { syncGuildCommandsSafe } from "../discord/syncGuildCommandsSafe.js";
 import { buildCommandBuilders } from "../commands.js";
 import { buildInviteUrl } from "../bot-config.js";
@@ -231,7 +231,13 @@ class BotRuntime {
     if (this.role === "commander") {
       this.client.on("interactionCreate", (interaction) => {
         this.handleInteraction(interaction).catch(async (err) => {
-          log("ERROR", `[${this.config.name}] interaction error: ${err?.stack || err}`);
+          const commandName = interaction?.isChatInputCommand?.() ? `/${interaction.commandName}` : interaction?.type || "unknown";
+          const guildId = String(interaction?.guildId || "-");
+          const userId = String(interaction?.user?.id || interaction?.member?.user?.id || "-");
+          log(
+            "ERROR",
+            `[${this.config.name}] interaction error command=${commandName} guild=${guildId} user=${userId}: ${err?.stack || err}`
+          );
           try {
             if (!interaction.isRepliable || !interaction.isRepliable()) return;
             const { t } = this.createInteractionTranslator(interaction);
@@ -1244,6 +1250,57 @@ class BotRuntime {
       isDe,
       t: (de, en) => (isDe ? de : en),
     };
+  }
+
+  getIntegerOptionFlexible(interaction, optionNames = []) {
+    const resolver = interaction?.options;
+    if (!resolver || !Array.isArray(optionNames) || optionNames.length === 0) return null;
+
+    const parseValue = (value) => {
+      if (Number.isInteger(value)) return value;
+      const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+      return Number.isInteger(parsed) ? parsed : null;
+    };
+
+    for (const rawName of optionNames) {
+      const name = String(rawName || "").trim();
+      if (!name) continue;
+
+      try {
+        const direct = resolver.getInteger(name, false);
+        const parsedDirect = parseValue(direct);
+        if (parsedDirect !== null) return parsedDirect;
+      } catch {
+        // ignore option type mismatch
+      }
+
+      try {
+        const asString = resolver.getString(name, false);
+        const parsedString = parseValue(asString);
+        if (parsedString !== null) return parsedString;
+      } catch {
+        // ignore option type mismatch
+      }
+
+      try {
+        const raw = resolver.get(name, false);
+        const parsedRaw = parseValue(raw?.value);
+        if (parsedRaw !== null) return parsedRaw;
+      } catch {
+        // ignore missing option
+      }
+    }
+
+    const rawData = Array.isArray(resolver.data) ? resolver.data : [];
+    for (const rawName of optionNames) {
+      const name = String(rawName || "").trim();
+      if (!name) continue;
+      const option = rawData.find((entry) => String(entry?.name || "").trim() === name);
+      const parsed = parseValue(option?.value);
+      if (parsed !== null) return parsed;
+    }
+
+    return null;
   }
 
   buildHelpMessage(interaction) {
@@ -2552,7 +2609,7 @@ class BotRuntime {
     const tierAllowed = (TIER_RANK[guildTier] ?? 0) >= (TIER_RANK[requiredTier] ?? 0);
     const botIndex = Number(this.config.index || 1);
     const maxBots = Number(tierConfig.maxBots || 0);
-    const withinBotLimit = botIndex <= maxBots;
+    const withinBotLimit = this.role === "commander" ? true : botIndex <= maxBots;
 
     return {
       allowed: tierAllowed && withinBotLimit,
@@ -2821,8 +2878,33 @@ class BotRuntime {
         await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), ephemeral: true });
         return;
       }
-      const workerIndex = interaction.options.getInteger("worker", true);
-      const guildTier = getTier(interaction.guildId);
+
+      const guildId = String(interaction.guildId || "").trim();
+      if (!guildId) {
+        await interaction.reply({
+          content: t(
+            "Dieser Befehl funktioniert nur auf einem Discord-Server (nicht in DMs).",
+            "This command only works inside a Discord server (not in DMs)."
+          ),
+          ephemeral: true,
+        });
+        return;
+      }
+
+      // Accepts both current option name (`worker`) and legacy name (`bot`).
+      const workerIndex = this.getIntegerOptionFlexible(interaction, ["worker", "bot"]);
+      if (!Number.isInteger(workerIndex)) {
+        await interaction.reply({
+          content: t(
+            "Bitte gib eine gueltige Worker-Nummer an (z. B. `/invite worker:1`).",
+            "Please provide a valid worker number (e.g. `/invite worker:1`)."
+          ),
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const guildTier = getTier(guildId);
       const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
 
       if (workerIndex < 1 || workerIndex > 16) {
@@ -2830,7 +2912,6 @@ class BotRuntime {
         return;
       }
       if (workerIndex > maxIndex) {
-        const tierNames = { 2: "Free", 8: "Pro", 16: "Ultimate" };
         const neededTier = workerIndex <= 2 ? "Free" : workerIndex <= 8 ? "Pro" : "Ultimate";
         await interaction.reply({
           content: t(
@@ -2849,8 +2930,11 @@ class BotRuntime {
       }
 
       const clientId = worker.getApplicationId() || worker.config.clientId;
-      const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=36700160&integration_type=0&scope=bot`;
-      const alreadyInvited = worker.client?.isReady() && worker.client.guilds.cache.has(interaction.guildId);
+      const inviteUrl = buildInviteUrl({
+        ...worker.config,
+        clientId,
+      });
+      const alreadyInvited = worker.client?.isReady() && worker.client.guilds.cache.has(guildId);
 
       if (alreadyInvited) {
         await interaction.reply({
@@ -2878,7 +2962,17 @@ class BotRuntime {
         return;
       }
 
-      const guildId = interaction.guildId;
+      const guildId = String(interaction.guildId || "").trim();
+      if (!guildId) {
+        await interaction.reply({
+          content: t(
+            "Dieser Befehl funktioniert nur auf einem Discord-Server (nicht in DMs).",
+            "This command only works inside a Discord server (not in DMs)."
+          ),
+          ephemeral: true,
+        });
+        return;
+      }
       const guildTier = getTier(guildId);
       const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
       const statuses = this.workerManager.getAllStatuses();

@@ -1033,8 +1033,8 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (req.method !== "GET") {
-      methodNotAllowed(res, ["GET"]);
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      methodNotAllowed(res, ["GET", "HEAD"]);
       return;
     }
 
@@ -1043,12 +1043,13 @@ function startWebServer(runtimes) {
       ? "index.html"
       : requestUrl.pathname.replace(/^\/+/, "");
     const filePath = path.join(webDir, staticPath);
-    sendStaticFile(res, filePath);
+    sendStaticFile(res, filePath, { headOnly: req.method === "HEAD" });
   });
 
   server.listen(webInternalPort, webBind, () => {
     log("INFO", `Webseite aktiv (container) auf http://${webBind}:${webInternalPort}`);
     log("INFO", `Webseite Host-Port: ${webPort}`);
+    log("INFO", `Web-Static-Root: ${webDir}`);
     if (publicUrl) {
       log("INFO", `Public URL: ${publicUrl}`);
     }

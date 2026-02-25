@@ -42,7 +42,7 @@ function methodNotAllowed(res, allowedMethods = ["GET"]) {
   sendJson(res, 405, { error: `Method not allowed. Use: ${methods.join(", ")}` });
 }
 
-function sendStaticFile(res, filePath) {
+function sendStaticFile(res, filePath, { headOnly = false } = {}) {
   const resolved = path.resolve(filePath);
   const resolvedWebDir = path.resolve(webDir);
   const relativePath = path.relative(resolvedWebDir, resolved);
@@ -81,6 +81,10 @@ function sendStaticFile(res, filePath) {
     "Content-Type": contentType,
     "Cache-Control": cacheControl
   });
+  if (headOnly) {
+    res.end();
+    return;
+  }
   const stream = fs.createReadStream(resolved);
   stream.on("error", () => {
     if (!res.headersSent) {
@@ -250,7 +254,7 @@ function applyCors(req, res, publicUrl) {
     res.setHeader("Vary", "Origin");
   }
 
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token, X-Admin-User");
   return originAllowed;
 }
