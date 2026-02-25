@@ -155,6 +155,43 @@ function Premium() {
     return () => controller.abort();
   }, []);
 
+  const handleBuy = async (planId) => {
+    const email = buyEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setBuyError('Bitte eine gueltige E-Mail-Adresse eingeben.');
+      return;
+    }
+    setBuyError('');
+    setBuyLoading(planId);
+    try {
+      const months = buyDuration[planId] || 1;
+      const res = await fetch(buildApiUrl('/api/premium/checkout'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tier: planId,
+          email,
+          months,
+          returnUrl: window.location.origin,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) {
+        setBuyError(data?.error || 'Checkout fehlgeschlagen.');
+        return;
+      }
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        setBuyError('Keine Checkout-URL erhalten.');
+      }
+    } catch {
+      setBuyError('Checkout fehlgeschlagen. Bitte spaeter erneut versuchen.');
+    } finally {
+      setBuyLoading('');
+    }
+  };
+
   const checkStatus = async () => {
     const normalizedServerId = serverId.trim();
     if (!/^\d{17,22}$/.test(normalizedServerId)) {
