@@ -139,9 +139,9 @@ function App() {
       <div className="noise-overlay" />
       <Navbar />
       <Hero stats={stats} />
-      <BotDirectory bots={bots} loading={loading} />
-      <WorkerDashboard />
       <Features />
+      <WorkerDashboard />
+      <BotDirectory bots={bots} loading={loading} />
       <StationBrowser stations={stations} loading={loading} />
       <Commands commands={commands} loading={loading} />
       <Premium />
