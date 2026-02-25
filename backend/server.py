@@ -1215,7 +1215,7 @@ async def verify_premium(request: Request, body: dict):
             tier = str(metadata.get("tier", "")).strip().lower()
             months_str = metadata.get("months", "1")
             seats_str = metadata.get("seats", "1")
-            seats = normalize_seats(seats_str)
+            seats = 1
 
             if is_valid_email(email) and tier in ("pro", "ultimate"):
                 duration_months = normalize_months(months_str)
