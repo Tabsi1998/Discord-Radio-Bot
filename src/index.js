@@ -16,7 +16,9 @@ import { loadStations } from "./stations-store.js";
 import {
   listLicenses,
   patchLicenseById,
+  getServerLicense,
 } from "./premium-store.js";
+import { setLicenseProvider } from "./core/entitlements.js";
 import {
   isConfigured as isEmailConfigured,
   sendMail,
@@ -33,6 +35,13 @@ try {
 } catch (err) {
   log("WARN", `MongoDB-Verbindung fehlgeschlagen: ${err.message}. Stores werden eingeschraenkt arbeiten.`);
 }
+
+// ---- Lizenz-Provider fuer Entitlements verbinden ----
+setLicenseProvider((serverId) => {
+  const license = getServerLicense(serverId);
+  if (!license) return null;
+  return { plan: license.plan || license.tier || "free", active: !license.expired };
+});
 
 // ---- Bot Startup: Commander/Worker Architecture ----
 let botConfigs;
