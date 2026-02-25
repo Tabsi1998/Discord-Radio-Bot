@@ -480,6 +480,23 @@ def load_premium():
 
 
 def save_premium(data):
+    if db is not None:
+        try:
+            for lic_id, lic in data.get("licenses", {}).items():
+                if isinstance(lic, dict):
+                    doc = {**lic, "_licenseId": lic_id}
+                    db.licenses.replace_one({"_licenseId": lic_id}, doc, upsert=True)
+            for srv_id, ent in data.get("serverEntitlements", {}).items():
+                if isinstance(ent, dict):
+                    doc = {**ent, "_serverId": srv_id}
+                    db.server_entitlements.replace_one({"_serverId": srv_id}, doc, upsert=True)
+            for sess_id, sess in data.get("processedSessions", {}).items():
+                if isinstance(sess, dict):
+                    doc = {**sess, "_sessionId": sess_id}
+                    db.processed_sessions.replace_one({"_sessionId": sess_id}, doc, upsert=True)
+            return
+        except Exception:
+            pass
     tmp_file = PREMIUM_FILE.with_suffix(PREMIUM_FILE.suffix + ".tmp")
     payload = json.dumps(data, indent=2) + "\n"
     try:
