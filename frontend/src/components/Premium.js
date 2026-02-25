@@ -255,6 +255,35 @@ function Premium() {
           )}
         </div>
 
+        {/* Email for Purchase */}
+        <div style={{ marginBottom: 24, maxWidth: 420 }}>
+          <label style={{ display: 'block', fontSize: 11, color: '#52525B', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+            E-Mail fuer Lizenz-Kauf
+          </label>
+          <input
+            data-testid="buy-email-input"
+            type="email"
+            value={buyEmail}
+            onChange={(e) => setBuyEmail(e.target.value)}
+            placeholder="deine@email.de"
+            style={{
+              width: '100%', background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
+              color: '#fff', padding: '10px 14px',
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
+              outline: 'none', transition: 'border-color 0.2s',
+              boxSizing: 'border-box',
+            }}
+            onFocus={(e) => { e.target.style.borderColor = 'rgba(0,240,255,0.3)'; }}
+            onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.12)'; }}
+          />
+          {buyError && (
+            <p data-testid="buy-error-msg" style={{ marginTop: 6, fontSize: 12, color: '#FF2A2A' }}>
+              {buyError}
+            </p>
+          )}
+        </div>
+
         {/* Plan Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20, marginBottom: 40 }}>
           {PLAN_ORDER.map((planId) => {
