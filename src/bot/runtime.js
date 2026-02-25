@@ -3253,6 +3253,7 @@ class BotRuntime {
       const requested = interaction.options.getString("station");
       const requestedVoiceChannel = interaction.options.getChannel("voice");
       const requestedChannelInput = interaction.options.getString("channel");
+      const requestedBotIndex = interaction.options.getInteger("bot");
       let requestedChannel = null;
 
       if (requestedVoiceChannel) {
@@ -3340,6 +3341,75 @@ class BotRuntime {
         return;
       }
 
+      // ---- Commander Mode: Delegate to Worker ----
+      if (this.role === "commander" && this.workerManager) {
+        // Resolve voice channel ID
+        let channelId = requestedChannel?.id;
+        if (!channelId) {
+          const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+          channelId = member?.voice?.channelId;
+        }
+        if (!channelId) {
+          await interaction.reply({
+            content: t("Du musst in einem Voice-Channel sein oder einen angeben.", "You must be in a voice channel or specify one."),
+            ephemeral: true,
+          });
+          return;
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        let worker;
+        if (requestedBotIndex) {
+          const check = this.workerManager.canUseWorker(requestedBotIndex, guildId, guildTier);
+          if (!check.ok) {
+            const reasons = {
+              tier: t(`Worker ${requestedBotIndex} erfordert ein hoeheres Abo (max: ${check.maxIndex}).`, `Worker ${requestedBotIndex} requires a higher plan (max: ${check.maxIndex}).`),
+              not_configured: t(`Worker ${requestedBotIndex} ist nicht konfiguriert.`, `Worker ${requestedBotIndex} is not configured.`),
+              offline: t(`Worker ${requestedBotIndex} ist offline.`, `Worker ${requestedBotIndex} is offline.`),
+              not_invited: t(`Worker ${requestedBotIndex} ist nicht auf diesem Server. Nutze \`/invite worker:${requestedBotIndex}\` zum Einladen.`, `Worker ${requestedBotIndex} is not on this server. Use \`/invite worker:${requestedBotIndex}\` to invite.`),
+            };
+            await interaction.editReply(reasons[check.reason] || t("Worker nicht verfuegbar.", "Worker not available."));
+            return;
+          }
+          worker = check.worker;
+        } else {
+          worker = this.workerManager.findFreeWorker(guildId, guildTier);
+        }
+
+        if (!worker) {
+          const invited = this.workerManager.getInvitedWorkers(guildId);
+          if (invited.length === 0) {
+            await interaction.editReply(t(
+              "Kein Worker-Bot ist auf diesem Server. Nutze `/invite worker:1` zum Einladen.",
+              "No worker bot is on this server. Use `/invite worker:1` to invite one."
+            ));
+          } else {
+            await interaction.editReply(t(
+              "Alle Worker-Bots auf diesem Server sind belegt. Lade mehr Worker ein oder stoppe einen laufenden Stream.",
+              "All worker bots on this server are busy. Invite more workers or stop a running stream."
+            ));
+          }
+          return;
+        }
+
+        const selectedStation = stations.stations[key];
+        log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} -> delegating to ${worker.config.name}`);
+        const result = await worker.playInGuild(guildId, channelId, key, stations, state.volume || 100);
+        if (!result.ok) {
+          await interaction.editReply(t(`Fehler: ${result.error}`, `Error: ${result.error}`));
+          return;
+        }
+        const tierConfig = getTierConfig(guildId);
+        const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
+        await interaction.editReply(t(
+          `${result.workerName} startet: ${selectedStation?.name || key}${tierLabel}`,
+          `${result.workerName} starting: ${selectedStation?.name || key}${tierLabel}`
+        ));
+        return;
+      }
+
+      // ---- Worker/Legacy Mode: Play locally ----
       log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} custom=${isCustom} tier=${guildTier}`);
 
       const selectedStation = stations.stations[key];
