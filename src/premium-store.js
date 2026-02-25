@@ -1,118 +1,25 @@
 // ============================================================
-// OmniFM - License Store (Seat-Based Licensing)
+// OmniFM - License Store (Seat-Based Licensing) – MongoDB
 // ============================================================
-
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { getDb } from "./lib/db.js";
+import { log } from "./lib/logging.js";
 import { PLANS } from "./config/plans.js";
 import { getDefaultLanguage, normalizeLanguage } from "./i18n.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const premiumFile = path.resolve(__dirname, "..", "premium.json");
-const premiumBackupFile = premiumFile + ".bak";
 
 const MAX_PROCESSED_ENTRIES = 5000;
 const TRIAL_RESERVATION_STALE_MS = 15 * 60 * 1000;
 const PLAN_RANK = { free: 0, pro: 1, ultimate: 2 };
 const VALID_SEATS = [1, 2, 3, 5];
 
-// --- Internal helpers ---
-
-function emptyStore() {
-  return {
-    licenses: {},
-    serverEntitlements: {},
-    processedSessions: {},
-    processedEvents: {},
-    trialClaims: {},
-  };
-}
-
-function readFileSafe(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return null;
-    if (fs.statSync(filePath).isDirectory()) return null;
-    const raw = fs.readFileSync(filePath, "utf-8").trim();
-    if (!raw) return emptyStore();
-    return JSON.parse(raw);
-  } catch { return null; }
-}
-
-function load() {
-  const data = readFileSafe(premiumFile) || readFileSafe(premiumBackupFile) || emptyStore();
-  // Ensure all fields exist
-  if (!data.licenses) data.licenses = {};
-  if (!data.serverEntitlements) data.serverEntitlements = {};
-  if (!data.processedSessions) data.processedSessions = {};
-  if (!data.processedEvents) data.processedEvents = {};
-  if (!data.trialClaims || typeof data.trialClaims !== "object" || Array.isArray(data.trialClaims)) {
-    data.trialClaims = {};
-  }
-
-  // Migrate old format: if a license key looks like a guild ID (17+ digits),
-  // convert to new format
-  for (const [key, val] of Object.entries(data.licenses)) {
-    if (/^\d{17,22}$/.test(key) && val.tier && !val.seats) {
-      // Old format: guildId -> license. Migrate to new format
-      const licId = `legacy_${key}`;
-      data.licenses[licId] = {
-        id: licId,
-        plan: val.tier,
-        seats: 1,
-        billingPeriod: "monthly",
-        active: !isExpired(val),
-        linkedServerIds: [key],
-        createdAt: val.activatedAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        expiresAt: val.expiresAt || null,
-        activatedBy: val.activatedBy || "legacy",
-        note: val.note || "",
-        contactEmail: val.contactEmail || "",
-      };
-      data.serverEntitlements[key] = { serverId: key, licenseId: licId };
-      delete data.licenses[key];
-    }
-  }
-
-  return data;
-}
-
-function save(data) {
-  const tmpFile = `${premiumFile}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    if (fs.existsSync(premiumFile) && fs.statSync(premiumFile).isDirectory()) return;
-
-    // Trim lookup maps
-    for (const mapKey of ["processedSessions", "processedEvents"]) {
-      const entries = Object.entries(data[mapKey] || {});
-      if (entries.length > MAX_PROCESSED_ENTRIES) {
-        entries.sort((a, b) => new Date(b[1]?.processedAt || 0) - new Date(a[1]?.processedAt || 0));
-        data[mapKey] = Object.fromEntries(entries.slice(0, MAX_PROCESSED_ENTRIES));
-      }
-    }
-
-    const payload = JSON.stringify(data, null, 2) + "\n";
-    if (fs.existsSync(premiumFile)) {
-      try { fs.copyFileSync(premiumFile, premiumBackupFile); } catch {}
-    }
-    fs.writeFileSync(tmpFile, payload, "utf-8");
-    try {
-      fs.renameSync(tmpFile, premiumFile);
-    } catch {
-      fs.writeFileSync(premiumFile, payload, "utf-8");
-    }
-  } catch (err) {
-    console.error(`[OmniFM] License save error: ${err.message}`);
-  } finally {
-    try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch {}
-  }
-}
-
-// --- License CRUD ---
+function col(name) { const db = getDb(); return db ? db.collection(name) : null; }
+function licensesCol() { return col("licenses"); }
+function entitlementsCol() { return col("server_entitlements"); }
+function sessionsCol() { return col("processed_sessions"); }
+function eventsCol() { return col("processed_events"); }
+function trialsCol() { return col("trial_claims"); }
 
 function isExpired(license) {
-  if (!license || !license.expiresAt) return false; // No expiry = perpetual (for now)
+  if (!license || !license.expiresAt) return false;
   return new Date(license.expiresAt) <= new Date();
 }
 
@@ -139,46 +46,179 @@ function planRank(plan) {
   return PLAN_RANK[String(plan || "free").toLowerCase()] ?? 0;
 }
 
+// --- License CRUD ---
+
 export function createLicense({
-  plan,
-  seats = 1,
-  billingPeriod = "monthly",
-  months = 1,
-  activatedBy = "admin",
-  note = "",
-  contactEmail = "",
+  plan, seats = 1, billingPeriod = "monthly", months = 1,
+  activatedBy = "admin", note = "", contactEmail = "",
   preferredLanguage = getDefaultLanguage(),
 }) {
   if (!PLANS[plan] || plan === "free") throw new Error("Plan must be 'pro' or 'ultimate'.");
   if (!VALID_SEATS.includes(seats)) throw new Error("Seats must be 1, 2, 3, or 5.");
 
-  const data = load();
+  const c = licensesCol();
+  if (!c) throw new Error("DB nicht verfuegbar.");
+
   const id = generateLicenseId();
   const now = new Date();
   const expiresAt = new Date(now);
   expiresAt.setMonth(expiresAt.getMonth() + months);
 
-  data.licenses[id] = {
-    id,
-    plan,
-    seats,
-    billingPeriod,
-    active: true,
-    linkedServerIds: [],
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-    durationMonths: months,
-    activatedBy,
-    note,
+  const doc = {
+    _licenseId: id, id, plan, seats, billingPeriod, active: true,
+    linkedServerIds: [], createdAt: now.toISOString(), updatedAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(), durationMonths: months,
+    activatedBy, note,
     contactEmail: normalizeContactEmail(contactEmail),
     preferredLanguage: normalizeLanguage(preferredLanguage, getDefaultLanguage()),
   };
-  save(data);
-  return data.licenses[id];
+  c.insertOne(doc);
+  const { _id, ...rest } = doc;
+  return rest;
 }
 
 export function getLicenseById(licenseId) {
+  const c = licensesCol();
+  if (!c) return null;
+  const lic = c.findOne ? null : null; // need sync, see below
+  // Since MongoDB driver is async, we wrap with synchronous-like approach
+  // Actually, the premium store functions are called synchronously in existing code.
+  // We need to keep this synchronous for backward compatibility.
+  // Use a cached/in-memory approach with periodic sync.
+  return _getLicenseByIdSync(licenseId);
+}
+
+// --- In-memory cache with MongoDB persistence ---
+let _cache = null;
+let _cacheLoadedAt = 0;
+const CACHE_TTL_MS = 5000;
+
+function _ensureCache() {
+  if (_cache && (Date.now() - _cacheLoadedAt) < CACHE_TTL_MS) return _cache;
+  // Load from MongoDB synchronously is not possible with the driver.
+  // We use the cache and async-load in background.
+  if (!_cache) {
+    _cache = { licenses: {}, serverEntitlements: {}, processedSessions: {}, processedEvents: {}, trialClaims: {} };
+  }
+  return _cache;
+}
+
+async function _loadFromDb() {
+  const lc = licensesCol();
+  const ec = entitlementsCol();
+  const sc = sessionsCol();
+  const evc = eventsCol();
+  const tc = trialsCol();
+
+  const cache = { licenses: {}, serverEntitlements: {}, processedSessions: {}, processedEvents: {}, trialClaims: {} };
+
+  if (lc) {
+    try {
+      const docs = await lc.find({}, { projection: { _id: 0 } }).toArray();
+      for (const doc of docs) {
+        const id = doc._licenseId || doc.id;
+        if (id) cache.licenses[id] = { ...doc, id };
+      }
+    } catch (err) { log("ERROR", `Licenses laden: ${err.message}`); }
+  }
+
+  if (ec) {
+    try {
+      const docs = await ec.find({}, { projection: { _id: 0 } }).toArray();
+      for (const doc of docs) {
+        const sid = doc._serverId || doc.serverId;
+        if (sid) cache.serverEntitlements[sid] = { serverId: sid, licenseId: doc.licenseId || doc._licenseId || "" };
+      }
+    } catch (err) { log("ERROR", `Entitlements laden: ${err.message}`); }
+  }
+
+  if (sc) {
+    try {
+      const docs = await sc.find({}, { projection: { _id: 0 } }).toArray();
+      for (const doc of docs) {
+        const sid = doc._sessionId || doc.sessionId;
+        if (sid) cache.processedSessions[sid] = doc;
+      }
+    } catch (err) { log("ERROR", `Sessions laden: ${err.message}`); }
+  }
+
+  if (evc) {
+    try {
+      const docs = await evc.find({}, { projection: { _id: 0 } }).toArray();
+      for (const doc of docs) {
+        const eid = doc._eventId || doc.eventId;
+        if (eid) cache.processedEvents[eid] = doc;
+      }
+    } catch (err) { log("ERROR", `Events laden: ${err.message}`); }
+  }
+
+  if (tc) {
+    try {
+      const docs = await tc.find({}, { projection: { _id: 0 } }).toArray();
+      for (const doc of docs) {
+        const email = doc.email;
+        if (email) cache.trialClaims[email] = doc;
+      }
+    } catch (err) { log("ERROR", `Trials laden: ${err.message}`); }
+  }
+
+  _cache = cache;
+  _cacheLoadedAt = Date.now();
+  return cache;
+}
+
+async function _saveToDb(data) {
+  const lc = licensesCol();
+  const ec = entitlementsCol();
+  const sc = sessionsCol();
+  const evc = eventsCol();
+  const tc = trialsCol();
+
+  if (lc) {
+    for (const [id, lic] of Object.entries(data.licenses)) {
+      try {
+        await lc.replaceOne({ _licenseId: id }, { ...lic, _licenseId: id }, { upsert: true });
+      } catch {}
+    }
+  }
+  if (ec) {
+    for (const [sid, ent] of Object.entries(data.serverEntitlements)) {
+      try {
+        await ec.replaceOne({ _serverId: sid }, { ...ent, _serverId: sid }, { upsert: true });
+      } catch {}
+    }
+  }
+
+  _cache = data;
+  _cacheLoadedAt = Date.now();
+}
+
+// --- Synchronous API (uses cache) ---
+
+function load() {
+  return _ensureCache();
+}
+
+function save(data) {
+  _cache = data;
+  _cacheLoadedAt = Date.now();
+  // Persist async (fire-and-forget)
+  _saveToDb(data).catch((err) => log("ERROR", `Premium save: ${err.message}`));
+}
+
+// --- Initialize cache from DB ---
+export async function initPremiumStore() {
+  try {
+    await _loadFromDb();
+    log("INFO", `Premium-Store geladen: ${Object.keys(_cache.licenses).length} Lizenzen, ${Object.keys(_cache.serverEntitlements).length} Entitlements`);
+  } catch (err) {
+    log("WARN", `Premium-Store init: ${err.message}`);
+  }
+}
+
+// --- License CRUD (sync, using cache) ---
+
+function _getLicenseByIdSync(licenseId) {
   const data = load();
   const lic = data.licenses[String(licenseId)];
   if (!lic) return null;
@@ -191,6 +231,9 @@ export function getLicenseById(licenseId) {
   };
 }
 
+// Re-export getLicenseById properly
+export { _getLicenseByIdSync as getLicenseById };
+
 export function linkServerToLicense(serverId, licenseId) {
   const sid = String(serverId);
   const lid = String(licenseId);
@@ -199,7 +242,6 @@ export function linkServerToLicense(serverId, licenseId) {
   if (!lic) return { ok: false, message: "License not found." };
   if (!lic.active || isExpired(lic)) return { ok: false, message: "License is not active or has expired." };
 
-  // If server is linked to a different license, release that seat first.
   const currentEntitlement = data.serverEntitlements[sid];
   const currentLicenseId = String(currentEntitlement?.licenseId || "");
   if (currentLicenseId && currentLicenseId !== lid) {
@@ -216,7 +258,7 @@ export function linkServerToLicense(serverId, licenseId) {
     save(data);
     return { ok: true, message: "Server already linked." };
   }
-  if (linked.length >= lic.seats) return { ok: false, message: `All ${lic.seats} seat(s) are occupied. Unlink a server first or upgrade.` };
+  if (linked.length >= lic.seats) return { ok: false, message: `All ${lic.seats} seat(s) are occupied.` };
 
   lic.linkedServerIds = [...linked, sid];
   lic.updatedAt = new Date().toISOString();
@@ -237,6 +279,9 @@ export function unlinkServerFromLicense(serverId, licenseId) {
   const entitlement = data.serverEntitlements[sid];
   if (entitlement && String(entitlement.licenseId || "") === lid) {
     delete data.serverEntitlements[sid];
+    // Also delete from DB
+    const ec = entitlementsCol();
+    if (ec) ec.deleteOne({ _serverId: sid }).catch(() => {});
   }
   save(data);
   return { ok: true };
@@ -271,11 +316,14 @@ export function removeLicense(licenseId) {
   const data = load();
   const lic = data.licenses[String(licenseId)];
   if (!lic) return false;
-  // Unlink all servers
   for (const sid of (lic.linkedServerIds || [])) {
     delete data.serverEntitlements[sid];
+    const ec = entitlementsCol();
+    if (ec) ec.deleteOne({ _serverId: sid }).catch(() => {});
   }
   delete data.licenses[String(licenseId)];
+  const lc = licensesCol();
+  if (lc) lc.deleteOne({ _licenseId: String(licenseId) }).catch(() => {});
   save(data);
   return true;
 }
@@ -298,7 +346,6 @@ export function extendLicense(licenseId, months) {
 export function listLicensesByContactEmail(email) {
   const normalizedEmail = normalizeContactEmail(email);
   if (!normalizedEmail) return [];
-
   const data = load();
   return Object.values(data.licenses)
     .filter((lic) => normalizeContactEmail(lic.contactEmail) === normalizedEmail)
@@ -312,25 +359,16 @@ export function listLicensesByContactEmail(email) {
     .sort((a, b) => {
       const aExpiry = Date.parse(a.expiresAt || "");
       const bExpiry = Date.parse(b.expiresAt || "");
-      const aUpdated = Date.parse(a.updatedAt || a.createdAt || "");
-      const bUpdated = Date.parse(b.updatedAt || b.createdAt || "");
-      return (Number.isFinite(bExpiry) ? bExpiry : 0) - (Number.isFinite(aExpiry) ? aExpiry : 0)
-        || (Number.isFinite(bUpdated) ? bUpdated : 0) - (Number.isFinite(aUpdated) ? aUpdated : 0);
+      return (Number.isFinite(bExpiry) ? bExpiry : 0) - (Number.isFinite(aExpiry) ? aExpiry : 0);
     });
 }
 
 export function createOrExtendLicenseForEmail({
-  plan,
-  seats = 1,
-  billingPeriod = "monthly",
-  months = 1,
-  activatedBy = "admin",
-  note = "",
-  contactEmail = "",
+  plan, seats = 1, billingPeriod = "monthly", months = 1,
+  activatedBy = "admin", note = "", contactEmail = "",
   preferredLanguage = getDefaultLanguage(),
 }) {
   if (!PLANS[plan] || plan === "free") throw new Error("Plan must be 'pro' or 'ultimate'.");
-
   const normalizedEmail = normalizeContactEmail(contactEmail);
   if (!normalizedEmail) throw new Error("contactEmail is required.");
 
@@ -343,57 +381,26 @@ export function createOrExtendLicenseForEmail({
   let bestScore = Number.NEGATIVE_INFINITY;
   for (const lic of Object.values(data.licenses)) {
     if (normalizeContactEmail(lic.contactEmail) !== normalizedEmail) continue;
-
-    const existingPlanRank = planRank(lic.plan);
-    if (existingPlanRank > targetPlanRank) {
-      // Avoid silently downgrading or extending a higher-tier license with a lower-tier purchase.
-      continue;
-    }
-
+    if (planRank(lic.plan) > targetPlanRank) continue;
     let score = 0;
     if (String(lic.plan || "") === plan) score += 1_000;
     if (!isExpired(lic)) score += 500;
     score += Math.min((lic.linkedServerIds || []).length, 50);
-
     const expiryMs = Date.parse(lic.expiresAt || "");
     if (Number.isFinite(expiryMs)) score += expiryMs / 1e12;
-
-    const updatedMs = Date.parse(lic.updatedAt || lic.createdAt || "");
-    if (Number.isFinite(updatedMs)) score += updatedMs / 1e13;
-
-    if (!candidate || score > bestScore) {
-      candidate = lic;
-      bestScore = score;
-    }
+    if (!candidate || score > bestScore) { candidate = lic; bestScore = score; }
   }
 
   if (!candidate) {
-    const created = createLicense({
-      plan,
-      seats: normalizedSeats,
-      billingPeriod,
-      months: normalizedMonths,
-      activatedBy,
-      note,
-      contactEmail: normalizedEmail,
-      preferredLanguage,
-    });
-    const withMeta = getLicenseById(created.id) || created;
-    return {
-      license: withMeta,
-      created: true,
-      extended: false,
-      upgraded: false,
-      previousPlan: null,
-      previousExpiresAt: null,
-    };
+    const created = createLicense({ plan, seats: normalizedSeats, billingPeriod, months: normalizedMonths, activatedBy, note, contactEmail: normalizedEmail, preferredLanguage });
+    const withMeta = _getLicenseByIdSync(created.id) || created;
+    return { license: withMeta, created: true, extended: false, upgraded: false, previousPlan: null, previousExpiresAt: null };
   }
 
   const previousPlan = String(candidate.plan || "free");
   const previousExpiresAt = candidate.expiresAt || null;
   const wasExpired = isExpired(candidate);
   const linkedCount = (candidate.linkedServerIds || []).length;
-
   const now = new Date();
   const currentExpiry = candidate.expiresAt ? new Date(candidate.expiresAt) : now;
   const base = currentExpiry > now ? currentExpiry : now;
@@ -410,24 +417,13 @@ export function createOrExtendLicenseForEmail({
   candidate.activatedBy = activatedBy || candidate.activatedBy || "admin";
   candidate.contactEmail = normalizedEmail;
   candidate.preferredLanguage = normalizeLanguage(preferredLanguage, getDefaultLanguage());
-
-  const incomingNote = String(note || "").trim();
-  if (incomingNote) {
-    const existingNote = String(candidate.note || "").trim();
-    candidate.note = existingNote ? `${existingNote} | ${incomingNote}` : incomingNote;
+  if (String(note || "").trim()) {
+    candidate.note = String(candidate.note || "").trim() ? `${candidate.note} | ${note}` : note;
   }
 
   save(data);
-  const withMeta = getLicenseById(candidate.id) || candidate;
-  return {
-    license: withMeta,
-    created: false,
-    extended: true,
-    upgraded: planRank(previousPlan) < planRank(withMeta.plan),
-    previousPlan,
-    previousExpiresAt,
-    wasExpired,
-  };
+  const withMeta = _getLicenseByIdSync(candidate.id) || candidate;
+  return { license: withMeta, created: false, extended: true, upgraded: planRank(previousPlan) < planRank(withMeta.plan), previousPlan, previousExpiresAt, wasExpired };
 }
 
 // --- Dedup helpers ---
@@ -439,8 +435,11 @@ export function isSessionProcessed(sessionId) {
 
 export function markSessionProcessed(sessionId, meta = {}) {
   const data = load();
-  data.processedSessions[String(sessionId)] = { ...meta, processedAt: new Date().toISOString() };
+  const sid = String(sessionId);
+  data.processedSessions[sid] = { ...meta, processedAt: new Date().toISOString() };
   save(data);
+  const sc = sessionsCol();
+  if (sc) sc.replaceOne({ _sessionId: sid }, { ...data.processedSessions[sid], _sessionId: sid }, { upsert: true }).catch(() => {});
 }
 
 export function isEventProcessed(eventId) {
@@ -450,79 +449,62 @@ export function isEventProcessed(eventId) {
 
 export function markEventProcessed(eventId, meta = {}) {
   const data = load();
-  data.processedEvents[String(eventId)] = { ...meta, processedAt: new Date().toISOString() };
+  const eid = String(eventId);
+  data.processedEvents[eid] = { ...meta, processedAt: new Date().toISOString() };
   save(data);
+  const evc = eventsCol();
+  if (evc) evc.replaceOne({ _eventId: eid }, { ...data.processedEvents[eid], _eventId: eid }, { upsert: true }).catch(() => {});
 }
 
 // --- Trial claim helpers ---
 
-function normalizeTrialEmail(email) {
-  return String(email || "").trim().toLowerCase();
-}
-
 export function getTrialClaimByEmail(email) {
-  const normalizedEmail = normalizeTrialEmail(email);
+  const normalizedEmail = normalizeContactEmail(email);
   if (!normalizedEmail) return null;
   const data = load();
   return data.trialClaims[normalizedEmail] || null;
 }
 
 export function reserveTrialClaim(email, meta = {}) {
-  const normalizedEmail = normalizeTrialEmail(email);
+  const normalizedEmail = normalizeContactEmail(email);
   if (!normalizedEmail) return { ok: false, message: "email is required" };
-
   const data = load();
   const existing = data.trialClaims[normalizedEmail];
   if (existing) {
     const existingCreatedAtMs = Date.parse(existing.createdAt || "");
-    const isStaleReservation = (
-      existing.status === "reserved"
-      && !existing.licenseId
-      && Number.isFinite(existingCreatedAtMs)
-      && (Date.now() - existingCreatedAtMs) > TRIAL_RESERVATION_STALE_MS
-    );
-    if (!isStaleReservation) {
-      return { ok: false, message: "trial already claimed", claim: existing };
-    }
+    const isStale = existing.status === "reserved" && !existing.licenseId && Number.isFinite(existingCreatedAtMs) && (Date.now() - existingCreatedAtMs) > TRIAL_RESERVATION_STALE_MS;
+    if (!isStale) return { ok: false, message: "trial already claimed", claim: existing };
   }
 
-  data.trialClaims[normalizedEmail] = {
-    email: normalizedEmail,
-    status: "reserved",
-    createdAt: new Date().toISOString(),
-    ...meta,
-  };
+  data.trialClaims[normalizedEmail] = { email: normalizedEmail, status: "reserved", createdAt: new Date().toISOString(), ...meta };
   save(data);
+  const tc = trialsCol();
+  if (tc) tc.replaceOne({ email: normalizedEmail }, data.trialClaims[normalizedEmail], { upsert: true }).catch(() => {});
   return { ok: true, claim: data.trialClaims[normalizedEmail] };
 }
 
 export function finalizeTrialClaim(email, patch = {}) {
-  const normalizedEmail = normalizeTrialEmail(email);
+  const normalizedEmail = normalizeContactEmail(email);
   if (!normalizedEmail) return null;
-
   const data = load();
   const existing = data.trialClaims[normalizedEmail];
   if (!existing) return null;
-
-  data.trialClaims[normalizedEmail] = {
-    ...existing,
-    ...patch,
-    email: normalizedEmail,
-    status: "claimed",
-    claimedAt: new Date().toISOString(),
-  };
+  data.trialClaims[normalizedEmail] = { ...existing, ...patch, email: normalizedEmail, status: "claimed", claimedAt: new Date().toISOString() };
   save(data);
+  const tc = trialsCol();
+  if (tc) tc.replaceOne({ email: normalizedEmail }, data.trialClaims[normalizedEmail], { upsert: true }).catch(() => {});
   return data.trialClaims[normalizedEmail];
 }
 
 export function releaseTrialClaim(email) {
-  const normalizedEmail = normalizeTrialEmail(email);
+  const normalizedEmail = normalizeContactEmail(email);
   if (!normalizedEmail) return false;
-
   const data = load();
   if (!data.trialClaims[normalizedEmail]) return false;
   delete data.trialClaims[normalizedEmail];
   save(data);
+  const tc = trialsCol();
+  if (tc) tc.deleteOne({ email: normalizedEmail }).catch(() => {});
   return true;
 }
 
@@ -572,5 +554,4 @@ export function upgradeLicenseForServer(serverId, newPlan) {
   return lic;
 }
 
-// Expose for entitlements module
 export { isExpired, remainingDays };
