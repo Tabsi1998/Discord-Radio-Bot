@@ -2835,28 +2835,65 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "pause") {
+      const requestedBot = interaction.options.getInteger("bot");
+      if (this.role === "commander" && this.workerManager) {
+        const workers = requestedBot
+          ? [this.workerManager.getWorkerByIndex(requestedBot)].filter(Boolean)
+          : this.workerManager.getStreamingWorkers(interaction.guildId);
+        if (workers.length === 0) {
+          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
+          return;
+        }
+        for (const w of workers) w.pauseInGuild(interaction.guildId);
+        await interaction.reply({ content: t("Pausiert.", "Paused."), ephemeral: true });
+        return;
+      }
       if (!state.currentStationKey) {
         await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), ephemeral: true });
         return;
       }
-
       state.player.pause(true);
       await interaction.reply({ content: t("Pausiert.", "Paused."), ephemeral: true });
       return;
     }
 
     if (interaction.commandName === "resume") {
+      const requestedBot = interaction.options.getInteger("bot");
+      if (this.role === "commander" && this.workerManager) {
+        const workers = requestedBot
+          ? [this.workerManager.getWorkerByIndex(requestedBot)].filter(Boolean)
+          : this.workerManager.getStreamingWorkers(interaction.guildId);
+        if (workers.length === 0) {
+          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
+          return;
+        }
+        for (const w of workers) w.resumeInGuild(interaction.guildId);
+        await interaction.reply({ content: t("Weiter gehts.", "Resumed."), ephemeral: true });
+        return;
+      }
       if (!state.currentStationKey) {
         await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), ephemeral: true });
         return;
       }
-
       state.player.unpause();
       await interaction.reply({ content: t("Weiter gehts.", "Resumed."), ephemeral: true });
       return;
     }
 
     if (interaction.commandName === "stop") {
+      const requestedBot = interaction.options.getInteger("bot");
+      if (this.role === "commander" && this.workerManager) {
+        const workers = requestedBot
+          ? [this.workerManager.getWorkerByIndex(requestedBot)].filter(Boolean)
+          : this.workerManager.getStreamingWorkers(interaction.guildId);
+        if (workers.length === 0) {
+          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
+          return;
+        }
+        for (const w of workers) w.stopInGuild(interaction.guildId);
+        await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), ephemeral: true });
+        return;
+      }
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
@@ -2886,13 +2923,21 @@ class BotRuntime {
         await interaction.reply({ content: t("Wert muss zwischen 0 und 100 liegen.", "Value must be between 0 and 100."), ephemeral: true });
         return;
       }
-
+      if (this.role === "commander" && this.workerManager) {
+        const workers = this.workerManager.getStreamingWorkers(interaction.guildId);
+        if (workers.length === 0) {
+          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
+          return;
+        }
+        for (const w of workers) w.setVolumeInGuild(interaction.guildId, value);
+        await interaction.reply({ content: t(`Lautstaerke gesetzt: ${value}`, `Volume set to: ${value}`), ephemeral: true });
+        return;
+      }
       state.volume = value;
       const resource = state.player.state.resource;
       if (resource?.volume) {
         resource.volume.setVolume(clampVolume(value));
       }
-
       await interaction.reply({ content: t(`Lautstaerke gesetzt: ${value}`, `Volume set to: ${value}`), ephemeral: true });
       return;
     }
