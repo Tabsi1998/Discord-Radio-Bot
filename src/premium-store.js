@@ -424,7 +424,7 @@ export function createOrExtendLicenseForEmail({
   }
 
   save(data);
-  const withMeta = _getLicenseByIdSync(candidate.id) || candidate;
+  const withMeta = getLicenseById(candidate.id) || candidate;
   return { license: withMeta, created: false, extended: true, upgraded: planRank(previousPlan) < planRank(withMeta.plan), previousPlan, previousExpiresAt, wasExpired };
 }
 
