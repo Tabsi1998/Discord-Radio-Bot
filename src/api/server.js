@@ -11,17 +11,17 @@ import {
   TIERS,
   TIER_RANK,
   clipText,
-  normalizeSeats,
+  normalizeDuration,
   isValidEmailAddress,
   calculatePrice,
   calculateUpgradePrice,
-  seatPricingInEuro,
+  durationPricingInEuro,
   formatEuroCentsDe,
   sanitizeOfferCode,
   translateOfferReason,
   isProTrialEnabled,
-  SEAT_OPTIONS,
-  YEARLY_DISCOUNT_MONTHS,
+  DURATION_OPTIONS,
+  getPricePerMonthCents,
 } from "../lib/helpers.js";
 import { normalizeLanguage, getDefaultLanguage } from "../i18n.js";
 import { languagePick } from "../lib/language.js";
