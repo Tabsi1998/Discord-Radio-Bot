@@ -3350,6 +3350,142 @@ class BotRuntime {
     }
   }
 
+  // ---- Programmatic Worker Control Methods (called by Commander) ----
+
+  /**
+   * Programmatic play - used by Commander to tell a Worker to stream.
+   * Returns { ok, error? }
+   */
+  async playInGuild(guildId, channelId, stationKey, stationsData, volume = 100) {
+    try {
+      const guild = this.client.guilds.cache.get(guildId);
+      if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
+
+      const channel = guild.channels.cache.get(channelId);
+      if (!channel) return { ok: false, error: "Voice-Channel nicht gefunden." };
+
+      const state = this.getState(guildId);
+      state.volume = volume;
+      state.shouldReconnect = true;
+      state.lastChannelId = channelId;
+
+      // Connect to voice
+      const connection = joinVoiceChannel({
+        channelId,
+        guildId,
+        adapterCreator: guild.voiceAdapterCreator,
+        selfDeaf: true,
+        selfMute: false,
+        group: this.voiceGroup,
+      });
+      state.connection = connection;
+      connection.subscribe(state.player);
+      this.setupVoiceConnectionHandlers(state, guildId);
+
+      // Stage channel handling
+      if (channel.type === ChannelType.GuildStageVoice) {
+        await this.ensureStageChannelReady(guild, channel);
+      }
+
+      try {
+        await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+      } catch {
+        return { ok: false, error: "Voice-Verbindung konnte nicht hergestellt werden." };
+      }
+
+      // Play the station
+      await this.playStation(state, stationsData, stationKey, guildId);
+      this.updatePresence();
+
+      return { ok: true, workerName: this.config.name };
+    } catch (err) {
+      log("ERROR", `[${this.config.name}] playInGuild error: ${err?.message || err}`);
+      return { ok: false, error: err?.message || String(err) };
+    }
+  }
+
+  /**
+   * Programmatic stop - used by Commander to stop a Worker in a guild.
+   */
+  stopInGuild(guildId) {
+    const state = this.guildState.get(guildId);
+    if (!state) return { ok: false, error: "Kein State fuer diesen Server." };
+
+    state.shouldReconnect = false;
+    this.clearReconnectTimer(state);
+    this.clearNowPlayingTimer(state);
+    state.player.stop();
+    this.clearCurrentProcess(state);
+
+    if (state.connection) {
+      state.connection.destroy();
+      state.connection = null;
+    }
+
+    state.currentStationKey = null;
+    state.currentStationName = null;
+    state.currentMeta = null;
+    state.nowPlayingSignature = null;
+    state.reconnectAttempts = 0;
+    state.streamErrorCount = 0;
+    this.updatePresence();
+
+    return { ok: true };
+  }
+
+  /**
+   * Programmatic pause.
+   */
+  pauseInGuild(guildId) {
+    const state = this.guildState.get(guildId);
+    if (!state?.currentStationKey) return { ok: false, error: "Es laeuft nichts." };
+    state.player.pause(true);
+    return { ok: true };
+  }
+
+  /**
+   * Programmatic resume.
+   */
+  resumeInGuild(guildId) {
+    const state = this.guildState.get(guildId);
+    if (!state?.currentStationKey) return { ok: false, error: "Es laeuft nichts." };
+    state.player.unpause();
+    return { ok: true };
+  }
+
+  /**
+   * Programmatic volume set.
+   */
+  setVolumeInGuild(guildId, value) {
+    const state = this.guildState.get(guildId);
+    if (!state) return { ok: false, error: "Kein State." };
+    state.volume = value;
+    const resource = state.player.state.resource;
+    if (resource?.volume) {
+      resource.volume.setVolume(clampVolume(value));
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Get the current guild state info (for Commander queries).
+   */
+  getGuildInfo(guildId) {
+    const state = this.guildState.get(guildId);
+    if (!state) return null;
+    return {
+      playing: Boolean(state.currentStationKey),
+      stationKey: state.currentStationKey,
+      stationName: state.currentStationName,
+      meta: state.currentMeta,
+      volume: state.volume,
+      channelId: state.lastChannelId,
+      reconnectAttempts: state.reconnectAttempts || 0,
+      shouldReconnect: state.shouldReconnect,
+      streamErrorCount: state.streamErrorCount || 0,
+    };
+  }
+
   async start() {
     try {
       await this.client.login(this.config.token);
