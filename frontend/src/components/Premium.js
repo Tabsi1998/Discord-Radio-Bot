@@ -221,7 +221,7 @@ function Premium() {
             const meta = PLAN_META[planId];
             const Icon = meta.icon;
             const isPro = planId === 'pro';
-            const seatEntries = Object.entries(tier.seatPricing || {})
+            const seatEntries = Object.entries(tier.durationPricing || {})
               .sort((a, b) => Number(a[0]) - Number(b[0]));
 
             return (
