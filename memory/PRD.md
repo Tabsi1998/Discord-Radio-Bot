@@ -33,17 +33,20 @@ Refactoring & modernization of a Node.js Discord Radio Bot:
 - Phase 4: Web UI redesign + Pricing migration + CLI (TESTED)
 
 ## Bug Fixes (2026-02-25)
-- P0 FIXED: Import path crash in src/core/network-recovery.js (changed ./logging.js to ../lib/logging.js, ./helpers.js to ../lib/helpers.js)
-- P1 FIXED: Restored Buy buttons on Premium page (email input, duration selector, Pro kaufen/Ultimate kaufen buttons with Stripe checkout)
+- P0 FIXED: Import path crash in src/core/network-recovery.js (./logging.js -> ../lib/logging.js, ./helpers.js -> ../lib/helpers.js)
+- P0 FIXED: Import path crash in src/services/now-playing.js (./logging.js -> ../lib/logging.js, ./helpers.js -> ../lib/helpers.js)
+- P1 FIXED: Rebuilt Premium checkout as MODAL POPUP matching original design (icon+title, email/coupon/referral inputs, duration selector with +2 GRATIS badge, price summary, info box, pay button, cancel link)
+- Verified: No more broken relative imports exist anywhere in src/ directory
 
 ## Test Results
 - iteration_1: Phase 1 PASS
 - iteration_6: Phase 2 100%
 - iteration_7: Design update 100%
-- iteration_8: Bug fixes + Pricing migration 100% (31 tests)
-- iteration_9: P0+P1 Bug Fix verification 100% (Backend 100%, Frontend 100%)
+- iteration_8: Bug fixes + Pricing migration 100%
+- iteration_9: P0+P1 initial fix verification 100%
+- iteration_10: Full checkout modal + import fixes 100% (Backend 100%, Frontend 100%)
 
 ## Backlog
+- P2: Full testing of update.sh CLI with Commander/Worker management
 - P1: TypeScript migration, Node.js test suite
 - P2: Admin panel, Real Discord bot testing with tokens
-- P2: Full testing of update.sh CLI with Commander/Worker management
