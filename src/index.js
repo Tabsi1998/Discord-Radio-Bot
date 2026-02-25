@@ -33,6 +33,7 @@ const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER
 try {
   await connectDb();
   log("INFO", "MongoDB-Verbindung fuer Node.js Bot hergestellt.");
+  await initPremiumStore();
 } catch (err) {
   log("WARN", `MongoDB-Verbindung fehlgeschlagen: ${err.message}. Stores werden eingeschraenkt arbeiten.`);
 }
