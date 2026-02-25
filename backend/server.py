@@ -815,10 +815,21 @@ async def get_stations():
 @app.get("/api/stats")
 async def get_stats():
     bots = load_bots_from_env()
-    file_data = load_stations_from_file()
-    station_count = len(file_data.get("stations", {}))
-    free_count = sum(1 for s in file_data.get("stations", {}).values() if s.get("tier", "free") == "free")
-    pro_count = station_count - free_count
+    station_count = 0
+    free_count = 0
+    pro_count = 0
+    if db is not None:
+        try:
+            station_count = db.stations.count_documents({})
+            free_count = db.stations.count_documents({"tier": "free"})
+            pro_count = station_count - free_count
+        except Exception:
+            pass
+    if station_count == 0:
+        file_data = load_stations_from_file()
+        station_count = len(file_data.get("stations", {}))
+        free_count = sum(1 for s in file_data.get("stations", {}).values() if s.get("tier", "free") == "free")
+        pro_count = station_count - free_count
     totals = {"servers": 0, "users": 0, "connections": 0, "listeners": 0, "bots": len(bots), "stations": station_count, "freeStations": free_count, "proStations": pro_count}
     for bot in bots:
         totals["servers"] += bot.get("servers", 0)
