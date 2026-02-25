@@ -10,7 +10,7 @@ const PLAN_META = {
 };
 
 const FALLBACK_PRICING = {
-  seatOptions: [1, 2, 3, 5],
+  durations: [1, 2, 3, 6, 12],
   tiers: {
     free: {
       name: 'Free',
@@ -19,8 +19,9 @@ const FALLBACK_PRICING = {
         'Bis zu 2 Bots',
         '20 Free Stationen',
         'Standard Audio (64k)',
+        'Standard Reconnect',
       ],
-      seatPricing: {},
+      durationPricing: {},
     },
     pro: {
       name: 'Pro',
@@ -30,8 +31,11 @@ const FALLBACK_PRICING = {
         'Bis zu 8 Bots',
         '120 Stationen (Free + Pro)',
         'HQ Audio (128k Opus)',
+        'Priority Reconnect',
+        'Rollenbasierte Berechtigungen',
+        'Event-Scheduler',
       ],
-      seatPricing: { 1: 2.99, 2: 5.49, 3: 7.49, 5: 11.49 },
+      durationPricing: { 1: '2.99', 2: '2.79', 3: '2.49', 6: '2.29', 12: '1.99' },
     },
     ultimate: {
       name: 'Ultimate',
@@ -41,8 +45,10 @@ const FALLBACK_PRICING = {
         'Bis zu 16 Bots',
         'Alle Stationen + Custom URLs',
         'Ultra HQ Audio (320k)',
+        'Instant Reconnect',
+        'Rollenbasierte Berechtigungen',
       ],
-      seatPricing: { 1: 4.99, 2: 7.99, 3: 10.99, 5: 16.99 },
+      durationPricing: { 1: '4.99', 2: '4.49', 3: '3.99', 6: '3.49', 12: '2.99' },
     },
   },
 };
