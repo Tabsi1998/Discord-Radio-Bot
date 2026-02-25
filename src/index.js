@@ -505,7 +505,177 @@ function getFeatureRequirementMessage(featureResult, language = "de") {
   return `**${label}** erfordert ${BRAND.name} **${requiredPlanName}** oder hoeher.`;
 }
 
-function parseEventStartDateTime(rawInput, language = "de") {
+const REPEAT_MODES = new Set([
+  "none",
+  "daily",
+  "weekly",
+  "monthly_first_weekday",
+  "monthly_second_weekday",
+  "monthly_third_weekday",
+  "monthly_fourth_weekday",
+  "monthly_last_weekday",
+]);
+
+const MONTHLY_REPEAT_NTH = Object.freeze({
+  monthly_first_weekday: 1,
+  monthly_second_weekday: 2,
+  monthly_third_weekday: 3,
+  monthly_fourth_weekday: 4,
+  monthly_last_weekday: -1,
+});
+
+const EVENT_TIME_ZONE_ALIASES = Object.freeze({
+  UTC: "UTC",
+  GMT: "UTC",
+  CET: "Europe/Berlin",
+  CEST: "Europe/Berlin",
+  MEZ: "Europe/Berlin",
+  MESZ: "Europe/Berlin",
+  BERLIN: "Europe/Berlin",
+  VIENNA: "Europe/Vienna",
+  WIEN: "Europe/Vienna",
+});
+
+const EVENT_TIME_ZONE_SUGGESTIONS = [
+  { label: "CET / MEZ (Europe/Berlin)", value: "Europe/Berlin" },
+  { label: "Europe/Vienna", value: "Europe/Vienna" },
+  { label: "Europe/Zurich", value: "Europe/Zurich" },
+  { label: "Europe/Paris", value: "Europe/Paris" },
+  { label: "Europe/London", value: "Europe/London" },
+  { label: "UTC", value: "UTC" },
+  { label: "America/New_York", value: "America/New_York" },
+  { label: "America/Chicago", value: "America/Chicago" },
+  { label: "America/Denver", value: "America/Denver" },
+  { label: "America/Los_Angeles", value: "America/Los_Angeles" },
+  { label: "America/Toronto", value: "America/Toronto" },
+  { label: "Asia/Tokyo", value: "Asia/Tokyo" },
+  { label: "Australia/Sydney", value: "Australia/Sydney" },
+];
+
+function canonicalizeTimeZone(rawTimeZone) {
+  const raw = String(rawTimeZone || "").trim();
+  if (!raw) return null;
+
+  const aliasKey = raw.replace(/\s+/g, "").toUpperCase();
+  const alias = EVENT_TIME_ZONE_ALIASES[aliasKey];
+  const candidate = String(alias || raw).replace(/\s+/g, "_");
+  if (!candidate) return null;
+
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: candidate }).resolvedOptions().timeZone || candidate;
+  } catch {
+    return null;
+  }
+}
+
+const EVENT_FALLBACK_TIME_ZONE =
+  canonicalizeTimeZone(process.env.EVENT_DEFAULT_TIMEZONE)
+  || canonicalizeTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  || "UTC";
+
+function normalizeEventTimeZone(rawTimeZone, fallback = EVENT_FALLBACK_TIME_ZONE) {
+  const raw = String(rawTimeZone || "").trim();
+  if (!raw) return fallback;
+  return canonicalizeTimeZone(raw);
+}
+
+function getZonedPartsFromUtcMs(utcMs, timeZone) {
+  const tz = normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour12: false,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  const rawParts = formatter.formatToParts(new Date(utcMs));
+  const map = {};
+  for (const part of rawParts) {
+    if (part.type === "literal") continue;
+    map[part.type] = part.value;
+  }
+
+  return {
+    year: Number.parseInt(map.year || "0", 10),
+    month: Number.parseInt(map.month || "0", 10),
+    day: Number.parseInt(map.day || "0", 10),
+    hour: Number.parseInt(map.hour || "0", 10),
+    minute: Number.parseInt(map.minute || "0", 10),
+    second: Number.parseInt(map.second || "0", 10),
+  };
+}
+
+function getTimeZoneOffsetMs(utcMs, timeZone) {
+  const zoned = getZonedPartsFromUtcMs(utcMs, timeZone);
+  const asUtc = Date.UTC(zoned.year, zoned.month - 1, zoned.day, zoned.hour, zoned.minute, zoned.second, 0);
+  return asUtc - utcMs;
+}
+
+function zonedDateTimeToUtcMs(parts, timeZone) {
+  const guessUtcMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0, 0);
+  let offset = getTimeZoneOffsetMs(guessUtcMs, timeZone);
+  let resolvedUtcMs = guessUtcMs - offset;
+  const nextOffset = getTimeZoneOffsetMs(resolvedUtcMs, timeZone);
+  if (offset !== nextOffset) {
+    resolvedUtcMs = guessUtcMs - nextOffset;
+  }
+  return resolvedUtcMs;
+}
+
+function getWeekdayIndexInTimeZone(utcMs, timeZone) {
+  const tz = normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+  const short = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(new Date(utcMs));
+  const key = String(short || "").toLowerCase().replace(/[^a-z]/g, "").slice(0, 3);
+  const map = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  return map[key] ?? new Date(utcMs).getUTCDay();
+}
+
+function getWeekdayName(utcMs, language = "de", timeZone = EVENT_FALLBACK_TIME_ZONE) {
+  const locale = normalizeLanguage(language, "de") === "de" ? "de-DE" : "en-US";
+  const tz = normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+  return new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: "long" }).format(new Date(utcMs));
+}
+
+function addDaysCalendar(year, month, day, dayDelta) {
+  const next = new Date(Date.UTC(year, month - 1, day + dayDelta, 12, 0, 0, 0));
+  return {
+    year: next.getUTCFullYear(),
+    month: next.getUTCMonth() + 1,
+    day: next.getUTCDate(),
+  };
+}
+
+function addMonthsYearMonth(year, month, monthDelta) {
+  const next = new Date(Date.UTC(year, month - 1 + monthDelta, 1, 0, 0, 0, 0));
+  return {
+    year: next.getUTCFullYear(),
+    month: next.getUTCMonth() + 1,
+  };
+}
+
+function getDaysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0, 0, 0, 0, 0)).getUTCDate();
+}
+
+function nthWeekdayOfMonth(year, month, weekdayIndex, nth) {
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0)).getUTCDay();
+  const firstTargetDay = 1 + ((7 + weekdayIndex - firstWeekday) % 7);
+  const day = firstTargetDay + ((nth - 1) * 7);
+  return day <= getDaysInMonth(year, month) ? day : null;
+}
+
+function lastWeekdayOfMonth(year, month, weekdayIndex) {
+  const maxDay = getDaysInMonth(year, month);
+  const lastWeekday = new Date(Date.UTC(year, month - 1, maxDay, 0, 0, 0, 0)).getUTCDay();
+  return maxDay - ((7 + lastWeekday - weekdayIndex) % 7);
+}
+
+function parseEventStartDateTime(rawInput, language = "de", preferredTimeZone = "") {
   const raw = String(rawInput || "").trim();
   if (!raw) {
     return {
@@ -515,14 +685,14 @@ function parseEventStartDateTime(rawInput, language = "de") {
   }
 
   const normalized = raw.replace("T", " ");
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?:\s+([A-Za-z0-9_+\-\/]+))?$/);
   if (!match) {
     return {
       ok: false,
       message: languagePick(
         language,
-        "Ungueltiges Format. Nutze `YYYY-MM-DD HH:MM` (z.B. `2026-03-01 20:30`).",
-        "Invalid format. Use `YYYY-MM-DD HH:MM` (for example `2026-03-01 20:30`)."
+        "Ungueltiges Format. Nutze `YYYY-MM-DD HH:MM` (optional mit TZ, z.B. `2026-03-01 20:30 CET`).",
+        "Invalid format. Use `YYYY-MM-DD HH:MM` (optionally with TZ, e.g. `2026-03-01 20:30 CET`)."
       ),
     };
   }
@@ -532,6 +702,7 @@ function parseEventStartDateTime(rawInput, language = "de") {
   const day = Number.parseInt(match[3], 10);
   const hour = Number.parseInt(match[4], 10);
   const minute = Number.parseInt(match[5], 10);
+  const inlineTimeZone = String(match[6] || "").trim();
 
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) {
     return {
@@ -540,13 +711,13 @@ function parseEventStartDateTime(rawInput, language = "de") {
     };
   }
 
-  const parsed = new Date(year, month - 1, day, hour, minute, 0, 0);
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
   if (
-    parsed.getFullYear() !== year
-    || parsed.getMonth() !== (month - 1)
-    || parsed.getDate() !== day
-    || parsed.getHours() !== hour
-    || parsed.getMinutes() !== minute
+    parsed.getUTCFullYear() !== year
+    || parsed.getUTCMonth() !== (month - 1)
+    || parsed.getUTCDate() !== day
+    || parsed.getUTCHours() !== hour
+    || parsed.getUTCMinutes() !== minute
   ) {
     return {
       ok: false,
@@ -554,14 +725,53 @@ function parseEventStartDateTime(rawInput, language = "de") {
     };
   }
 
-  return { ok: true, runAtMs: parsed.getTime(), parsed };
+  const rawTimeZone = String(preferredTimeZone || inlineTimeZone || EVENT_FALLBACK_TIME_ZONE).trim();
+  const timeZone = normalizeEventTimeZone(rawTimeZone, EVENT_FALLBACK_TIME_ZONE);
+  if (!timeZone) {
+    return {
+      ok: false,
+      message: languagePick(
+        language,
+        "Zeitzone ungueltig. Beispiele: `Europe/Berlin`, `Europe/Vienna`, `CET`, `MEZ`, `UTC`.",
+        "Invalid time zone. Examples: `Europe/Berlin`, `Europe/Vienna`, `CET`, `MEZ`, `UTC`."
+      ),
+    };
+  }
+
+  const runAtMs = zonedDateTimeToUtcMs({ year, month, day, hour, minute, second: 0 }, timeZone);
+  const roundTrip = getZonedPartsFromUtcMs(runAtMs, timeZone);
+  if (
+    roundTrip.year !== year
+    || roundTrip.month !== month
+    || roundTrip.day !== day
+    || roundTrip.hour !== hour
+    || roundTrip.minute !== minute
+  ) {
+    return {
+      ok: false,
+      message: languagePick(
+        language,
+        "Die Uhrzeit ist in dieser Zeitzone ungueltig (z.B. DST-Umstellung). Bitte andere Uhrzeit waehlen.",
+        "That local time is invalid in this time zone (for example DST transition). Please choose another time."
+      ),
+    };
+  }
+
+  return {
+    ok: true,
+    runAtMs,
+    timeZone,
+    parsed: new Date(runAtMs),
+  };
 }
 
-function formatDateTime(ms, language = "de") {
+function formatDateTime(ms, language = "de", timeZone = null) {
   const value = Number.parseInt(String(ms || ""), 10);
   if (!Number.isFinite(value) || value <= 0) return "-";
   const locale = normalizeLanguage(language, "de") === "de" ? "de-DE" : "en-US";
+  const tz = normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
   return new Date(value).toLocaleString(locale, {
+    timeZone: tz,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -572,31 +782,78 @@ function formatDateTime(ms, language = "de") {
 
 function normalizeRepeatMode(raw) {
   const repeat = String(raw || "none").trim().toLowerCase();
-  if (repeat === "daily" || repeat === "weekly") return repeat;
+  if (REPEAT_MODES.has(repeat)) return repeat;
   return "none";
 }
 
-function getRepeatLabel(raw, language = "de") {
+function getRepeatLabel(raw, language = "de", { runAtMs = null, timeZone = null } = {}) {
   const repeat = normalizeRepeatMode(raw);
   const isDe = normalizeLanguage(language, "de") === "de";
+  const weekday = Number.isFinite(Number(runAtMs)) && Number(runAtMs) > 0
+    ? getWeekdayName(Number(runAtMs), language, timeZone || EVENT_FALLBACK_TIME_ZONE)
+    : null;
+
   if (repeat === "daily") return isDe ? "taeglich" : "daily";
-  if (repeat === "weekly") return isDe ? "woechentlich" : "weekly";
+  if (repeat === "weekly") {
+    return weekday
+      ? (isDe ? `woechentlich (${weekday})` : `weekly (${weekday})`)
+      : (isDe ? "woechentlich" : "weekly");
+  }
+  if (repeat === "monthly_first_weekday") return isDe ? `monatlich (1. ${weekday || "Wochentag"})` : `monthly (1st ${weekday || "weekday"})`;
+  if (repeat === "monthly_second_weekday") return isDe ? `monatlich (2. ${weekday || "Wochentag"})` : `monthly (2nd ${weekday || "weekday"})`;
+  if (repeat === "monthly_third_weekday") return isDe ? `monatlich (3. ${weekday || "Wochentag"})` : `monthly (3rd ${weekday || "weekday"})`;
+  if (repeat === "monthly_fourth_weekday") return isDe ? `monatlich (4. ${weekday || "Wochentag"})` : `monthly (4th ${weekday || "weekday"})`;
+  if (repeat === "monthly_last_weekday") return isDe ? `monatlich (letzter ${weekday || "Wochentag"})` : `monthly (last ${weekday || "weekday"})`;
   return isDe ? "einmalig" : "once";
 }
 
-function computeNextEventRunAtMs(runAtMs, repeat, nowMs = Date.now()) {
+function computeNextEventRunAtMs(runAtMs, repeat, nowMs = Date.now(), timeZone = null) {
   const base = Number.parseInt(String(runAtMs || ""), 10);
   if (!Number.isFinite(base) || base <= 0) return null;
 
   const mode = normalizeRepeatMode(repeat);
   if (mode === "none") return null;
 
-  const stepMs = mode === "weekly" ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-  let next = base + stepMs;
-  while (next <= nowMs) {
-    next += stepMs;
+  const tz = normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+  const baseParts = getZonedPartsFromUtcMs(base, tz);
+  const baseClock = {
+    hour: baseParts.hour,
+    minute: baseParts.minute,
+    second: 0,
+  };
+
+  if (mode === "daily" || mode === "weekly") {
+    const stepDays = mode === "weekly" ? 7 : 1;
+    let cursor = { year: baseParts.year, month: baseParts.month, day: baseParts.day };
+    let next = base;
+    for (let i = 0; i < 5000 && next <= nowMs; i += 1) {
+      cursor = addDaysCalendar(cursor.year, cursor.month, cursor.day, stepDays);
+      next = zonedDateTimeToUtcMs({ ...cursor, ...baseClock }, tz);
+    }
+    return next > nowMs ? next : null;
   }
-  return next;
+
+  const monthlyNth = MONTHLY_REPEAT_NTH[mode];
+  if (!monthlyNth) return null;
+
+  const weekdayIndex = getWeekdayIndexInTimeZone(base, tz);
+  let monthCursor = addMonthsYearMonth(baseParts.year, baseParts.month, 1);
+  for (let i = 0; i < 2400; i += 1) {
+    const targetDay = monthlyNth === -1
+      ? lastWeekdayOfMonth(monthCursor.year, monthCursor.month, weekdayIndex)
+      : nthWeekdayOfMonth(monthCursor.year, monthCursor.month, weekdayIndex, monthlyNth);
+    if (targetDay) {
+      const next = zonedDateTimeToUtcMs({
+        year: monthCursor.year,
+        month: monthCursor.month,
+        day: targetDay,
+        ...baseClock,
+      }, tz);
+      if (next > nowMs) return next;
+    }
+    monthCursor = addMonthsYearMonth(monthCursor.year, monthCursor.month, 1);
+  }
+  return null;
 }
 
 function renderEventAnnouncement(template, values, language = "de") {
@@ -2454,13 +2711,13 @@ class BotRuntime {
         `Plan: ${tierConfig.name} | Audio: ${tierConfig.bitrate} | Max Bots: ${tierConfig.maxBots}`,
         "",
         "**Schnellstart**",
-        "1) `/play [station] [channel]` startet Musik im Voice-Channel.",
+        "1) `/play [station] [voice]` startet Musik im Voice/Stage-Channel.",
         "2) `/stations` zeigt alle verfuegbaren Sender fuer deinen Plan.",
         "3) `/stop` beendet den Stream und verlaesst den Channel.",
         "",
         "**Basis-Commands**",
         "`/help` Hilfe anzeigen",
-        "`/play [station] [channel]` Sender starten",
+        "`/play [station] [voice]` Sender starten",
         "`/pause` `/resume` Pause/Fortsetzen",
         "`/stop` Stream stoppen",
         "`/setvolume <0-100>` Lautstaerke setzen",
@@ -2474,7 +2731,7 @@ class BotRuntime {
         "",
         "**Pro/Ultimate**",
         "`/perm allow|deny|remove|list|reset` Rollenrechte pro Command (Berechtigung: Server verwalten)",
-        "`/event create|list|delete` Events planen (Voice/Stage + optionale Text-Info + Server-Event)",
+        "`/event create|list|delete` Events planen (Voice/Stage + Zeitzone + flexible Wiederholung + optionale Text-Info + Server-Event)",
         "",
         "**Ultimate**",
         "`/addstation <key> <name> <url>` eigene Station hinzufuegen",
@@ -2492,13 +2749,13 @@ class BotRuntime {
       `Plan: ${tierConfig.name} | Audio: ${tierConfig.bitrate} | Max bots: ${tierConfig.maxBots}`,
       "",
       "**Quick start**",
-      "1) `/play [station] [channel]` starts radio in your voice channel.",
+      "1) `/play [station] [voice]` starts radio in your voice/stage channel.",
       "2) `/stations` shows available stations for your plan.",
       "3) `/stop` ends playback and leaves the channel.",
       "",
       "**Core commands**",
       "`/help` show this help",
-      "`/play [station] [channel]` start station",
+      "`/play [station] [voice]` start station",
       "`/pause` `/resume` pause/resume",
       "`/stop` stop stream",
       "`/setvolume <0-100>` set volume",
@@ -2512,7 +2769,7 @@ class BotRuntime {
       "",
       "**Pro/Ultimate**",
       "`/perm allow|deny|remove|list|reset` role permissions per command (requires: Manage Server)",
-      "`/event create|list|delete` schedule events (voice/stage + optional text notice + server event)",
+      "`/event create|list|delete` schedule events (voice/stage + time zone + flexible recurrence + optional text notice + server event)",
       "",
       "**Ultimate**",
       "`/addstation <key> <name> <url>` add custom station",
@@ -3002,7 +3259,7 @@ class BotRuntime {
       event: event.name,
       station: station?.name || event.stationKey,
       voice: `<#${event.voiceChannelId}>`,
-      time: formatDateTime(event.runAtMs, language),
+      time: formatDateTime(event.runAtMs, language, event.timeZone),
     }, language);
     if (!rendered) return;
 
@@ -3047,7 +3304,7 @@ class BotRuntime {
         const stageTopic = renderStageTopic(event.stageTopic, {
           event: event.name,
           station: stationResult.station?.name || event.stationKey,
-          time: formatDateTime(event.runAtMs, eventLanguage),
+          time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
         });
         await this.ensureStageChannelReady(connectionInfo.guild, connectionInfo.channel, {
           topic: stageTopic,
@@ -3060,7 +3317,7 @@ class BotRuntime {
       await this.playStation(state, stationResult.stations, stationResult.key, event.guildId);
       await this.postScheduledEventAnnouncement(event, stationResult.station, eventLanguage);
 
-      const nextRunAtMs = computeNextEventRunAtMs(event.runAtMs, event.repeat, now);
+      const nextRunAtMs = computeNextEventRunAtMs(event.runAtMs, event.repeat, now, event.timeZone);
       if (nextRunAtMs) {
         let nextDiscordScheduledEventId = event.discordScheduledEventId || null;
         if (event.createDiscordEvent) {
@@ -3185,6 +3442,7 @@ class BotRuntime {
       const stationRaw = interaction.options.getString("station", true);
       const voiceChannel = interaction.options.getChannel("voice", true);
       const startRaw = interaction.options.getString("start", true);
+      const requestedTimeZone = interaction.options.getString("timezone") || "";
       const repeat = normalizeRepeatMode(interaction.options.getString("repeat") || "none");
       const textChannel = interaction.options.getChannel("text");
       const createDiscordEvent = interaction.options.getBoolean("serverevent") === true;
@@ -3218,7 +3476,7 @@ class BotRuntime {
         return;
       }
 
-      const parsed = parseEventStartDateTime(startRaw, language);
+      const parsed = parseEventStartDateTime(startRaw, language, requestedTimeZone);
       if (!parsed.ok) {
         await interaction.reply({ content: parsed.message, ephemeral: true });
         return;
@@ -3257,6 +3515,7 @@ class BotRuntime {
         textChannelId: textChannel?.id || null,
         announceMessage: message || null,
         stageTopic: stageTopicTemplate || null,
+        timeZone: parsed.timeZone,
         createDiscordEvent,
         discordScheduledEventId: null,
         repeat,
@@ -3288,26 +3547,27 @@ class BotRuntime {
         }
       }
 
-      const channelLabel = voiceChannel.type === ChannelType.GuildStageVoice ? "Stage" : "Voice";
+      const channelLabel = voiceChannel.type === ChannelType.GuildStageVoice ? t("Stage", "Stage") : t("Voice", "Voice");
       const stageTopicPreview = voiceChannel.type === ChannelType.GuildStageVoice
         ? renderStageTopic(stageTopicTemplate, {
           event: created.event.name,
           station: station.station?.name || created.event.stationKey,
-          time: formatDateTime(created.event.runAtMs, language),
+          time: formatDateTime(created.event.runAtMs, language, created.event.timeZone),
         })
         : null;
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || t("Serverzeit", "server time");
+      const eventTimeZone = normalizeEventTimeZone(created.event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
       await interaction.reply({
         content:
           `${t("Event erstellt", "Event created")}: **${created.event.name}**\n` +
           `ID: \`${created.event.id}\`\n` +
           `${t("Station", "Station")}: \`${created.event.stationKey}\` (${station.station?.name || "-"})\n` +
           `${channelLabel}: <#${created.event.voiceChannelId}>\n` +
-          `${t("Start", "Start")}: ${formatDateTime(created.event.runAtMs, language)} (${tz})\n` +
-          `${t("Wiederholung", "Repeat")}: ${getRepeatLabel(created.event.repeat, language)}\n` +
+          `${t("Start", "Start")}: ${formatDateTime(created.event.runAtMs, language, eventTimeZone)} (${eventTimeZone})\n` +
+          `${t("Wiederholung", "Repeat")}: ${getRepeatLabel(created.event.repeat, language, { runAtMs: created.event.runAtMs, timeZone: eventTimeZone })}\n` +
           `${t("Ankuendigung", "Announcement")}: ${created.event.textChannelId ? `<#${created.event.textChannelId}>` : t("aus", "off")}\n` +
           `${t("Server-Event", "Server event")}: ${createDiscordEvent ? (serverEventId ? `${t("aktiv", "active")} (\`${serverEventId}\`)` : t("aktiviert, Erstellung fehlgeschlagen", "enabled, creation failed")) : t("aus", "off")}\n` +
-          `${t("Stage-Thema", "Stage topic")}: ${stageTopicPreview ? `\`${stageTopicPreview}\`` : t("auto/aus", "auto/off")}` +
+          `${t("Stage-Thema", "Stage topic")}: ${stageTopicPreview ? `\`${stageTopicPreview}\`` : t("auto/aus", "auto/off")}\n` +
+          `${t("Zeitzone", "Time zone")}: \`${eventTimeZone}\`` +
           serverEventWarning,
         ephemeral: true,
       });
@@ -3328,7 +3588,7 @@ class BotRuntime {
 
       const lines = events.map((event) =>
         `\`${event.id}\` | **${clipText(event.name, 70)}** | \`${event.stationKey}\` | ` +
-        `Voice/Stage <#${event.voiceChannelId}> | ${formatDateTime(event.runAtMs, language)} | ${getRepeatLabel(event.repeat, language)}` +
+        `${t("Voice/Stage", "Voice/Stage")} <#${event.voiceChannelId}> | ${formatDateTime(event.runAtMs, language, event.timeZone)} (${normalizeEventTimeZone(event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE}) | ${getRepeatLabel(event.repeat, language, { runAtMs: event.runAtMs, timeZone: event.timeZone })}` +
         `${event.createDiscordEvent ? ` | ${t("Server-Event", "Server event")} ${event.discordScheduledEventId ? `\`${event.discordScheduledEventId}\`` : t("an", "on")}` : ""}` +
         `${event.stageTopic ? ` | ${t("Stage-Thema", "Stage topic")}` : ""}`
       );
@@ -3364,6 +3624,13 @@ class BotRuntime {
     const { t, language } = this.createInteractionTranslator(interaction);
     const override = getGuildLanguage(guildId);
     const effectiveLanguage = this.resolveInteractionLanguage(interaction);
+    const clientLanguage = resolveLanguageFromDiscordLocale(interaction.locale, language);
+    const suggestOverride = !override && clientLanguage !== effectiveLanguage
+      ? `\n${t(
+        `Tipp: Mit \`/language set value:${clientLanguage}\` kannst du OmniFM fuer diesen Server fest auf \`${clientLanguage}\` stellen.`,
+        `Tip: Use \`/language set value:${clientLanguage}\` to force OmniFM to \`${clientLanguage}\` for this server.`
+      )}`
+      : "";
 
     if (sub === "show") {
       await interaction.reply({
@@ -3371,7 +3638,8 @@ class BotRuntime {
           `**${t("OmniFM Sprache", "OmniFM language")}**\n` +
           `${t("Aktiv", "Active")}: \`${effectiveLanguage}\`\n` +
           `${t("Quelle", "Source")}: ${override ? t("Manuell gesetzt", "Manually set") : t("Discord Server-Sprache", "Discord server locale")}\n` +
-          `${t("Deine Discord-Client-Sprache", "Your Discord client language")}: \`${resolveLanguageFromDiscordLocale(interaction.locale, language)}\``,
+          `${t("Deine Discord-Client-Sprache", "Your Discord client language")}: \`${clientLanguage}\`` +
+          suggestOverride,
         ephemeral: true,
       });
       return;
@@ -3830,6 +4098,30 @@ class BotRuntime {
         return;
       }
 
+      if (focused.name === "timezone" && interaction.commandName === "event") {
+        const query = String(focused.value || "").trim().toLowerCase();
+        const dedup = new Map();
+        for (const entry of EVENT_TIME_ZONE_SUGGESTIONS) {
+          if (!entry?.value) continue;
+          dedup.set(entry.value, entry.label || entry.value);
+        }
+        dedup.set(EVENT_FALLBACK_TIME_ZONE, EVENT_FALLBACK_TIME_ZONE);
+
+        const items = [...dedup.entries()]
+          .filter(([value, label]) => {
+            if (!query) return true;
+            return value.toLowerCase().includes(query) || String(label || "").toLowerCase().includes(query);
+          })
+          .slice(0, 25)
+          .map(([value, label]) => ({
+            name: clipText(String(label || value), 100),
+            value,
+          }));
+
+        await interaction.respond(items);
+        return;
+      }
+
       if (focused.name === "id" && interaction.commandName === "event") {
         const guildId = interaction.guildId;
         const query = String(focused.value || "").toLowerCase().trim();
@@ -3849,7 +4141,7 @@ class BotRuntime {
           )
           .slice(0, 25)
           .map((event) => ({
-            name: clipText(`${event.name} | ${formatDateTime(event.runAtMs, language)} | ${event.id}`, 100),
+            name: clipText(`${event.name} | ${formatDateTime(event.runAtMs, language, event.timeZone)} | ${event.id}`, 100),
             value: event.id,
           }));
 
@@ -4435,10 +4727,32 @@ class BotRuntime {
 
     if (interaction.commandName === "play") {
       const requested = interaction.options.getString("station");
+      const requestedVoiceChannel = interaction.options.getChannel("voice");
       const requestedChannelInput = interaction.options.getString("channel");
       let requestedChannel = null;
 
-      if (requestedChannelInput) {
+      if (requestedVoiceChannel) {
+        if (requestedVoiceChannel.guildId !== interaction.guildId) {
+          await interaction.reply({
+            content: t("Der gewaehlte Voice/Stage-Channel ist nicht in diesem Server.", "The selected voice/stage channel is not in this server."),
+            ephemeral: true,
+          });
+          return;
+        }
+        if (
+          !requestedVoiceChannel.isVoiceBased()
+          || (requestedVoiceChannel.type !== ChannelType.GuildVoice && requestedVoiceChannel.type !== ChannelType.GuildStageVoice)
+        ) {
+          await interaction.reply({
+            content: t("Bitte waehle einen Voice- oder Stage-Channel.", "Please choose a voice or stage channel."),
+            ephemeral: true,
+          });
+          return;
+        }
+        requestedChannel = requestedVoiceChannel;
+      }
+
+      if (!requestedChannel && requestedChannelInput) {
         requestedChannel = await this.resolveVoiceChannelFromInput(interaction.guild, requestedChannelInput);
       }
 

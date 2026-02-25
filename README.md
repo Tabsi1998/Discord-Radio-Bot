@@ -33,6 +33,7 @@
 ./update.sh --stripe  # Stripe API Key konfigurieren
 ./update.sh --email   # SMTP konfigurieren
 ./update.sh --premium # Lizenz-, Coupon- und Referral-Verwaltung (Wizard)
+./update.sh --offers  # Direkt in Coupon/Referral-Verwaltung (Pro/Ultimate Codes)
 ```
 
 ## Docker
@@ -83,6 +84,7 @@ web/
 | `EVENT_SCHEDULER_ENABLED` | `1` = Geplante `/event`-Starts aktiv, `0` = Scheduler aus |
 | `EVENT_SCHEDULER_POLL_MS` | Polling-Intervall fuer Event-Ausfuehrung (Default: `15000`) |
 | `EVENT_SCHEDULER_RETRY_MS` | Retry-Delay bei Event-Fehler (Default: `120000`) |
+| `EVENT_DEFAULT_TIMEZONE` | Fallback-Zeitzone fuer `/event` (Default: Server-Zone, sonst `UTC`) |
 | `API_ADMIN_TOKEN` | Optionales Admin-Token fuer sensible API-Felder |
 | `TRUST_PROXY_HEADERS` | `1` wenn der Bot hinter einem Reverse Proxy laeuft (nutzt `X-Forwarded-*` fuer Origin/IP) |
 | `API_RATE_STATE_MAX_ENTRIES` | Maximale Anzahl Rate-Limit-Eintraege im Speicher (Default: `50000`) |
@@ -106,6 +108,27 @@ web/
 
 Coupon/Referral Codes koennen direkt ueber `./update.sh --premium` verwaltet werden
 (im Premium-CLI: Option `10`).
+Fuer schnellen Direktzugang: `./update.sh --offers`.
+
+### Coupon/Referral Praxis: getrennte Pro/Ultimate Codes
+
+Empfehlung: pro Tier eigene Codes mit eigenen Rabatten nutzen.
+
+- Beispiel Coupon-Codes:
+  - `PRO10` -> nur Pro, 10%
+  - `ULTI15` -> nur Ultimate, 15%
+- Beispiel Referral-Codes:
+  - `CREATORPRO` -> nur Pro, z.B. 5%
+  - `CREATORULTI` -> nur Ultimate, z.B. 8%
+
+Das geht im CLI jetzt direkt ueber den Schnellsetup:
+
+1. `./update.sh --offers`
+2. `2) Schnellsetup PRO + ULTIMATE Codes`
+3. Typ waehlen (`coupon` oder `referral`)
+4. Pro/Ultimate Code + Rabatt getrennt eintragen
+
+Technisch wird pro Code automatisch `allowedTiers` gesetzt (`pro` bzw. `ultimate`), damit keine falsche Plan-Anwendung passiert.
 
 - `POST /api/premium/offer/preview`:
   - Body: `tier`, `seats`, `months`, `email`, optional `couponCode`, `referralCode`

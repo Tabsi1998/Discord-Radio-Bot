@@ -4,7 +4,16 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVENTS_FILE = path.resolve(__dirname, "..", "scheduled-events.json");
-const SUPPORTED_REPEAT = new Set(["none", "daily", "weekly"]);
+const SUPPORTED_REPEAT = new Set([
+  "none",
+  "daily",
+  "weekly",
+  "monthly_first_weekday",
+  "monthly_second_weekday",
+  "monthly_third_weekday",
+  "monthly_fourth_weekday",
+  "monthly_last_weekday",
+]);
 
 function emptyState() {
   return {
@@ -37,6 +46,12 @@ function sanitizeStationKey(raw) {
 function sanitizeRepeat(raw) {
   const repeat = String(raw || "none").trim().toLowerCase();
   return SUPPORTED_REPEAT.has(repeat) ? repeat : "none";
+}
+
+function sanitizeTimeZone(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  return value.slice(0, 80);
 }
 
 function sanitizeText(raw, maxLen = 300) {
@@ -83,6 +98,7 @@ function normalizeEvent(raw) {
   const textChannelId = sanitizeDiscordId(raw.textChannelId);
   const announceMessage = sanitizeText(raw.announceMessage, 1200);
   const stageTopic = sanitizeText(raw.stageTopic, 120);
+  const timeZone = sanitizeTimeZone(raw.timeZone);
   const createDiscordEvent = sanitizeBoolean(raw.createDiscordEvent, false);
   const discordScheduledEventId = sanitizeDiscordId(raw.discordScheduledEventId);
 
@@ -100,6 +116,7 @@ function normalizeEvent(raw) {
     textChannelId: textChannelId || null,
     announceMessage: announceMessage || null,
     stageTopic: stageTopic || null,
+    timeZone: timeZone || null,
     createDiscordEvent,
     discordScheduledEventId: discordScheduledEventId || null,
     repeat,

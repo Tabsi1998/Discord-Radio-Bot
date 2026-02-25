@@ -65,7 +65,7 @@ function tr(deText, enText) {
 
 var COMMANDS_DE = [
   { name: '/help',          args: '',                     desc: 'Zeigt alle Commands und Erklaerungen direkt im Bot' },
-  { name: '/play',          args: '[station] [channel]', desc: 'Startet einen Radio-Stream im Voice-Channel' },
+  { name: '/play',          args: '[station] [voice]',   desc: 'Startet einen Radio-Stream im Voice/Stage-Channel' },
   { name: '/pause',         args: '',                     desc: 'Pausiert die aktuelle Wiedergabe' },
   { name: '/resume',        args: '',                     desc: 'Setzt die Wiedergabe fort' },
   { name: '/stop',          args: '',                     desc: 'Stoppt die Wiedergabe und verlaesst den Channel' },
@@ -78,16 +78,18 @@ var COMMANDS_DE = [
   { name: '/health',        args: '',                     desc: 'Zeigt Stream-Health und Reconnect-Info' },
   { name: '/diag',          args: '',                     desc: 'Zeigt ffmpeg/Audio-Diagnose fuer Troubleshooting' },
   { name: '/premium',       args: '',                     desc: 'Zeigt den Premium-Status dieses Servers' },
+  { name: '/language',      args: '<show|set|reset>',    desc: 'Stellt die Bot-Sprache (DE/EN) fuer den Server ein' },
   { name: '/addstation',    args: '<key> <name> <url>',   desc: '[Ultimate] Eigene Station hinzufuegen' },
   { name: '/removestation', args: '<key>',                desc: '[Ultimate] Eigene Station entfernen' },
   { name: '/mystations',    args: '',                     desc: '[Ultimate] Zeigt deine Custom-Stationen' },
+  { name: '/event',         args: '<create|list|delete>', desc: '[Pro] Plant Auto-Starts mit Wiederholung und Zeitzone' },
   { name: '/license',       args: '<activate|info|remove>', desc: 'Lizenz verwalten: aktivieren, anzeigen oder entfernen' },
   { name: '/perm',          args: '<allow|deny|remove|list|reset>', desc: '[Pro] Rollenrechte fuer Commands verwalten' },
 ];
 
 var COMMANDS_EN = [
   { name: '/help',          args: '',                     desc: 'Shows all commands and explanations in Discord' },
-  { name: '/play',          args: '[station] [channel]', desc: 'Starts a radio stream in a voice channel' },
+  { name: '/play',          args: '[station] [voice]',   desc: 'Starts a radio stream in a voice/stage channel' },
   { name: '/pause',         args: '',                     desc: 'Pauses current playback' },
   { name: '/resume',        args: '',                     desc: 'Resumes playback' },
   { name: '/stop',          args: '',                     desc: 'Stops playback and leaves the channel' },
@@ -100,9 +102,11 @@ var COMMANDS_EN = [
   { name: '/health',        args: '',                     desc: 'Shows stream health and reconnect info' },
   { name: '/diag',          args: '',                     desc: 'Shows ffmpeg/audio diagnostics' },
   { name: '/premium',       args: '',                     desc: 'Shows premium status for this server' },
+  { name: '/language',      args: '<show|set|reset>',    desc: 'Sets bot language (DE/EN) for the server' },
   { name: '/addstation',    args: '<key> <name> <url>',   desc: '[Ultimate] Adds a custom station' },
   { name: '/removestation', args: '<key>',                desc: '[Ultimate] Removes a custom station' },
   { name: '/mystations',    args: '',                     desc: '[Ultimate] Lists your custom stations' },
+  { name: '/event',         args: '<create|list|delete>', desc: '[Pro] Schedules auto-starts with recurrence and time zone' },
   { name: '/license',       args: '<activate|info|remove>', desc: 'Manage license: activate, view, or remove' },
   { name: '/perm',          args: '<allow|deny|remove|list|reset>', desc: '[Pro] Manage role permissions for commands' },
 ];
@@ -499,19 +503,27 @@ function renderCommands(commands) {
   (commands || []).forEach(function(cmd) {
     var row = document.createElement('div');
     row.className = 'cmd-row';
+
+    var cmdMain = document.createElement('div');
+    cmdMain.className = 'cmd-main';
+
     var badge = document.createElement('span');
     badge.className = 'cmd-badge';
     badge.textContent = cmd.name;
+    cmdMain.appendChild(badge);
+
     if (cmd.args) {
       var argsSpan = document.createElement('span');
       argsSpan.className = 'cmd-args';
-      argsSpan.textContent = ' ' + cmd.args;
-      badge.appendChild(argsSpan);
+      argsSpan.textContent = cmd.args;
+      cmdMain.appendChild(argsSpan);
     }
+
     var desc = document.createElement('span');
     desc.className = 'cmd-desc';
     desc.textContent = cmd.desc;
-    row.appendChild(badge);
+
+    row.appendChild(cmdMain);
     row.appendChild(desc);
     list.appendChild(row);
   });
@@ -534,7 +546,7 @@ function normalizeApiCommands(commands) {
       var name = String(cmd && cmd.name || '').trim();
       if (!name || name.charAt(0) !== '/') return null;
       var fallback = fallbackByName[name] || null;
-      var args = String((cmd && cmd.args) || (fallback && fallback.args) || '').trim();
+      var args = String((fallback && fallback.args) || (cmd && cmd.args) || '').trim();
       var desc = String((fallback && fallback.desc) || (cmd && cmd.description) || (cmd && cmd.desc) || '').trim();
       return { name: name, args: args, desc: desc };
     })

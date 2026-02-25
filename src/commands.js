@@ -9,7 +9,13 @@ export function buildCommandBuilders() {
       .setName("play")
       .setDescription("Starte einen Radio-Stream in deinem Voice-Channel")
       .addStringOption((o) => o.setName("station").setDescription("Stationsname oder ID").setRequired(false).setAutocomplete(true))
-      .addStringOption((o) => o.setName("channel").setDescription("Voice-Channel (optional)").setRequired(false).setAutocomplete(true)),
+      .addChannelOption((o) =>
+        o.setName("voice")
+          .setDescription("Voice- oder Stage-Channel (optional)")
+          .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)
+          .setRequired(false)
+      )
+      .addStringOption((o) => o.setName("channel").setDescription("Voice/Stage per Name oder ID (Legacy)").setRequired(false).setAutocomplete(true)),
     new SlashCommandBuilder().setName("pause").setDescription("Wiedergabe pausieren"),
     new SlashCommandBuilder().setName("resume").setDescription("Wiedergabe fortsetzen"),
     new SlashCommandBuilder().setName("stop").setDescription("Stoppen und Channel verlassen"),
@@ -93,8 +99,14 @@ export function buildCommandBuilders() {
           )
           .addStringOption((o) =>
             o.setName("start")
-              .setDescription("Startzeit: YYYY-MM-DD HH:MM (Serverzeit)")
+              .setDescription("Startzeit: YYYY-MM-DD HH:MM (z.B. 2026-03-01 20:30)")
               .setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("timezone")
+              .setDescription("Zeitzone (z.B. Europe/Berlin, CET, MEZ)")
+              .setRequired(false)
+              .setAutocomplete(true)
           )
           .addStringOption((o) =>
             o.setName("repeat")
@@ -103,7 +115,12 @@ export function buildCommandBuilders() {
               .addChoices(
                 { name: "Einmalig", value: "none" },
                 { name: "Taeglich", value: "daily" },
-                { name: "Woechentlich", value: "weekly" }
+                { name: "Woechentlich (gleicher Wochentag)", value: "weekly" },
+                { name: "Monatlich: 1. Wochentag", value: "monthly_first_weekday" },
+                { name: "Monatlich: 2. Wochentag", value: "monthly_second_weekday" },
+                { name: "Monatlich: 3. Wochentag", value: "monthly_third_weekday" },
+                { name: "Monatlich: 4. Wochentag", value: "monthly_fourth_weekday" },
+                { name: "Monatlich: letzter Wochentag", value: "monthly_last_weekday" }
               )
           )
           .addChannelOption((o) =>

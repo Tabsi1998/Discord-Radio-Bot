@@ -503,9 +503,10 @@ if [[ -z "$MODE" ]]; then
     echo -e "    ${DIM}6${NC})  Einstellungen     - Port, Domain und mehr"
     echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"
     echo -e "    ${DIM}8${NC})  Speicher cleanup  - Logs/Backups/Docker-Cache aufraeumen"
+    echo -e "    ${BOLD}9${NC})  Codes verwalten  - Coupon/Referral (Pro/Ultimate Setup)"
     echo -e "    ${DIM}q${NC})  Beenden"
     echo ""
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-8/q]${NC}: ")" MODE_CHOICE
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-9/q]${NC}: ")" MODE_CHOICE
     case "${MODE_CHOICE:-}" in
       1) MODE="--update"; break ;;
       2) MODE="--bots"; break ;;
@@ -515,9 +516,10 @@ if [[ -z "$MODE" ]]; then
       6) MODE="--settings"; break ;;
       7) MODE="--status"; break ;;
       8) MODE="--cleanup"; break ;;
+      9) MODE="--offers"; break ;;
       q|Q|exit|quit) info "Abbruch."; exit 0 ;;
       *)
-        warn "Ungueltige Auswahl '${MODE_CHOICE}'. Bitte 1-8 oder q eingeben."
+        warn "Ungueltige Auswahl '${MODE_CHOICE}'. Bitte 1-9 oder q eingeben."
         echo ""
         ;;
     esac
@@ -525,11 +527,11 @@ if [[ -z "$MODE" ]]; then
 fi
 
 case "$MODE" in
-  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--stripe|--premium|--email|--settings|--status|--cleanup)
+  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--stripe|--premium|--offers|--email|--settings|--status|--cleanup)
     ;;
   *)
     fail "Unbekannter Modus: ${MODE}"
-    echo -e "  ${DIM}Erlaubt: --update, --bots, --stripe, --premium, --email, --settings, --status, --cleanup${NC}"
+    echo -e "  ${DIM}Erlaubt: --update, --bots, --stripe, --premium, --offers, --email, --settings, --status, --cleanup${NC}"
     exit 1
     ;;
 esac
@@ -949,6 +951,27 @@ if [[ "$MODE" == "--premium" ]]; then
 fi
 
 # ============================================================
+# MODE: Coupon/Referral Codes verwalten (via Docker)
+# ============================================================
+if [[ "$MODE" == "--offers" ]]; then
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then
+    docker compose exec omnifm node src/premium-cli.js offers
+  else
+    warn "Container nicht aktiv."
+    echo ""
+    if prompt_yes_no "Container jetzt starten?" "j"; then
+      ensure_all_json_files
+      docker compose up -d --build --remove-orphans
+      sleep 3
+      docker compose exec omnifm node src/premium-cli.js offers
+    else
+      echo -e "  ${DIM}Starte manuell: docker compose up -d${NC}"
+    fi
+  fi
+  exit 0
+fi
+
+# ============================================================
 # MODE: Bots verwalten (Submenu)
 # ============================================================
 if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" || "$MODE" == "--edit-bot" || "$MODE" == "--remove-bot" ]]; then
@@ -1293,6 +1316,7 @@ echo -e "  ${BOLD}Befehle:${NC}"
 echo -e "    Bots verwalten:   ${GREEN}./update.sh --bots${NC}"
 echo -e "    Stripe Setup:     ${GREEN}./update.sh --stripe${NC}"
 echo -e "    Premium:          ${GREEN}./update.sh --premium${NC}"
+echo -e "    Codes:            ${GREEN}./update.sh --offers${NC}"
 echo -e "    E-Mail Setup:     ${GREEN}./update.sh --email${NC}"
 echo -e "    Einstellungen:    ${GREEN}./update.sh --settings${NC}"
 echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"

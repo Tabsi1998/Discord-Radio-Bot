@@ -367,15 +367,125 @@ function printRedemptionsTable(redemptions) {
   console.log("");
 }
 
+function findOfferByCode(code) {
+  const normalizedCode = normalizeCodeInput(code);
+  if (!normalizedCode) return null;
+  return listOffers({ includeInactive: true, includeStats: false })
+    .find((entry) => String(entry.code || "").toUpperCase() === normalizedCode) || null;
+}
+
+async function askOfferDiscount(existing, labelPrefix = "") {
+  const prefix = labelPrefix ? `${labelPrefix} ` : "";
+  const percentDefault = String(existing?.percentOff || 0);
+  const amountDefault = Number(existing?.amountOffCents || 0) > 0
+    ? (Number(existing.amountOffCents) / 100).toFixed(2).replace(".", ",")
+    : "0";
+
+  const percentOff = Math.max(0, parseInt(await askWithDefault(`${prefix}Rabatt in Prozent (0-95)`, percentDefault), 10) || 0);
+  const amountOffCents = parseEuroToCents(await askWithDefault(`${prefix}Fix-Rabatt in EUR (z.B. 2,50)`, amountDefault));
+  if (percentOff <= 0 && amountOffCents <= 0) return null;
+
+  return {
+    percentOff: Math.min(95, percentOff),
+    amountOffCents,
+  };
+}
+
+function parseAllowedSeatsInput(raw) {
+  return parseCsvValues(raw)
+    .map((entry) => parseInt(entry, 10))
+    .filter((entry) => [1, 2, 3, 5].includes(entry));
+}
+
+async function quickTierOfferSetup() {
+  console.log("");
+  info("Schnellsetup: getrennte Codes fuer PRO und ULTIMATE mit eigenen Rabatten.");
+  info("Jeder Code wird automatisch auf sein Tier begrenzt (allowedTiers).");
+  console.log("");
+
+  const kindRaw = (await askWithDefault("Typ (coupon/referral)", "coupon")).toLowerCase();
+  const kind = kindRaw === "referral" ? "referral" : "coupon";
+  const ownerLabel = await askWithDefault("Owner Label (optional)", "");
+  const note = await askWithDefault("Notiz (optional)", "");
+  const activeAnswer = (await askWithDefault("Aktiv? (j/n)", "j")).toLowerCase();
+  const active = activeAnswer === "j" || activeAnswer === "y";
+  const seatsCsv = await askWithDefault("Allowed seats (csv, leer=alle)", "");
+  const allowedSeats = parseAllowedSeatsInput(seatsCsv);
+  const minMonthsRaw = await askWithDefault("Mindestlaufzeit Monate (leer=keine)", "");
+  const minMonths = minMonthsRaw ? Math.max(1, parseInt(minMonthsRaw, 10) || 0) : null;
+  const maxRedemptionsRaw = await askWithDefault("Max Redemptions total (leer=unbegrenzt)", "");
+  const maxRedemptions = maxRedemptionsRaw ? Math.max(1, parseInt(maxRedemptionsRaw, 10) || 0) : null;
+  const maxPerEmailRaw = await askWithDefault("Max pro E-Mail (leer=unbegrenzt)", "");
+  const maxPerEmail = maxPerEmailRaw ? Math.max(1, parseInt(maxPerEmailRaw, 10) || 0) : null;
+  const startsAt = await askWithDefault("Startzeit ISO (leer=sofort)", "");
+  const expiresAt = await askWithDefault("Ablaufzeit ISO (leer=kein Ablauf)", "");
+
+  const tiers = [
+    { tier: "pro", label: "PRO", codeDefault: "PRO10" },
+    { tier: "ultimate", label: "ULTIMATE", codeDefault: "ULTI15" },
+  ];
+
+  let savedCount = 0;
+  for (const entry of tiers) {
+    console.log("");
+    const codeRaw = await askWithDefault(`Code fuer ${entry.label} (leer=ueberspringen)`, entry.codeDefault);
+    const code = normalizeCodeInput(codeRaw);
+    if (!code) {
+      info(`${entry.label}: uebersprungen.`);
+      continue;
+    }
+
+    const existing = findOfferByCode(code);
+    const discount = await askOfferDiscount(existing, `${entry.label}:`);
+    if (!discount) {
+      fail(`${entry.label}: kein gueltiger Rabatt angegeben, uebersprungen.`);
+      continue;
+    }
+
+    try {
+      const saved = upsertOffer({
+        code,
+        kind,
+        active,
+        percentOff: discount.percentOff,
+        amountOffCents: discount.amountOffCents,
+        allowedTiers: [entry.tier],
+        allowedSeats,
+        minMonths,
+        maxRedemptions,
+        maxPerEmail,
+        startsAt: startsAt || null,
+        expiresAt: expiresAt || null,
+        ownerLabel: ownerLabel || null,
+        note: note || null,
+        updatedBy: "premium-cli-quick",
+        createdBy: existing?.createdBy || "premium-cli-quick",
+      }, { partial: false });
+      ok(`${entry.label}: Code ${saved.code} gespeichert (${saved.kind}, tier=${entry.tier}).`);
+      savedCount += 1;
+    } catch (err) {
+      fail(`${entry.label}: Speichern fehlgeschlagen: ${err?.message || err}`);
+    }
+  }
+
+  if (savedCount > 0) {
+    ok(`Schnellsetup abgeschlossen (${savedCount} Code(s) gespeichert).`);
+  } else {
+    warn("Schnellsetup abgeschlossen, aber kein Code gespeichert.");
+  }
+  console.log("");
+}
+
 async function manageOffersMenu() {
   while (true) {
     console.log("  Coupon/Referral Verwaltung:");
     console.log("    1) Codes anzeigen");
-    console.log("    2) Code anlegen/aktualisieren");
-    console.log("    3) Code aktiv/inaktiv setzen");
-    console.log("    4) Code loeschen");
-    console.log("    5) Letzte Redemptions anzeigen");
-    console.log("    6) Zurueck");
+    console.log("    2) Schnellsetup PRO + ULTIMATE Codes");
+    console.log("    3) Code anlegen/aktualisieren (erweitert)");
+    console.log("    4) Code aktiv/inaktiv setzen");
+    console.log("    5) Code loeschen");
+    console.log("    6) Letzte Redemptions anzeigen");
+    console.log("    7) Zurueck");
     console.log("");
     const choice = (await ask("Aktion")).trim();
 
@@ -386,23 +496,23 @@ async function manageOffersMenu() {
     }
 
     if (choice === "2") {
+      await quickTierOfferSetup();
+      continue;
+    }
+
+    if (choice === "3") {
       const code = normalizeCodeInput(await ask("Code (z.B. PRO10)"));
       if (!code) {
         fail("Code fehlt oder ungueltig.");
         continue;
       }
 
-      const existing = listOffers({ includeInactive: true, includeStats: false })
-        .find((entry) => String(entry.code || "").toUpperCase() === code) || null;
+      const existing = findOfferByCode(code);
 
       const kindRaw = (await askWithDefault("Typ (coupon/referral)", existing?.kind || "coupon")).toLowerCase();
       const kind = kindRaw === "referral" ? "referral" : "coupon";
-      const percentOff = Math.max(0, parseInt(await askWithDefault("Rabatt in Prozent (0-95)", String(existing?.percentOff || 0)), 10) || 0);
-      const amountDefault = Number(existing?.amountOffCents || 0) > 0
-        ? (Number(existing.amountOffCents) / 100).toFixed(2).replace(".", ",")
-        : "0";
-      const amountOffCents = parseEuroToCents(await askWithDefault("Fix-Rabatt in EUR (z.B. 2,50)", amountDefault));
-      if (percentOff <= 0 && amountOffCents <= 0) {
+      const discount = await askOfferDiscount(existing);
+      if (!discount) {
         fail("Mindestens Prozent- oder Fix-Rabatt muss > 0 sein.");
         continue;
       }
@@ -412,9 +522,7 @@ async function manageOffersMenu() {
       const tiers = parseCsvValues(await askWithDefault("Allowed tiers (csv, leer=alle)", (existing?.allowedTiers || []).join(",")))
         .map((entry) => entry.toLowerCase())
         .filter((entry) => entry === "pro" || entry === "ultimate");
-      const seats = parseCsvValues(await askWithDefault("Allowed seats (csv, leer=alle)", (existing?.allowedSeats || []).join(",")))
-        .map((entry) => parseInt(entry, 10))
-        .filter((entry) => [1, 2, 3, 5].includes(entry));
+      const seats = parseAllowedSeatsInput(await askWithDefault("Allowed seats (csv, leer=alle)", (existing?.allowedSeats || []).join(",")));
       const minMonthsRaw = await askWithDefault("Mindestlaufzeit Monate (leer=keine)", existing?.minMonths ? String(existing.minMonths) : "");
       const minMonths = minMonthsRaw ? Math.max(1, parseInt(minMonthsRaw, 10) || 0) : null;
       const maxRedemptionsRaw = await askWithDefault("Max Redemptions total (leer=unbegrenzt)", existing?.maxRedemptions ? String(existing.maxRedemptions) : "");
@@ -431,8 +539,8 @@ async function manageOffersMenu() {
           code,
           kind,
           active,
-          percentOff,
-          amountOffCents,
+          percentOff: discount.percentOff,
+          amountOffCents: discount.amountOffCents,
           allowedTiers: tiers,
           allowedSeats: seats,
           minMonths,
@@ -452,7 +560,7 @@ async function manageOffersMenu() {
       continue;
     }
 
-    if (choice === "3") {
+    if (choice === "4") {
       const code = normalizeCodeInput(await ask("Code"));
       if (!code) {
         fail("Code fehlt.");
@@ -469,7 +577,7 @@ async function manageOffersMenu() {
       continue;
     }
 
-    if (choice === "4") {
+    if (choice === "5") {
       const code = normalizeCodeInput(await ask("Code"));
       if (!code) {
         fail("Code fehlt.");
@@ -489,7 +597,7 @@ async function manageOffersMenu() {
       continue;
     }
 
-    if (choice === "5") {
+    if (choice === "6") {
       const limitRaw = await askWithDefault("Limit", "25");
       const limit = Math.max(1, Math.min(200, parseInt(limitRaw, 10) || 25));
       const redemptions = listRecentRedemptions(limit);
@@ -497,7 +605,7 @@ async function manageOffersMenu() {
       continue;
     }
 
-    if (choice === "6" || choice.toLowerCase() === "q" || choice.toLowerCase() === "exit") {
+    if (choice === "7" || choice.toLowerCase() === "q" || choice.toLowerCase() === "exit") {
       return;
     }
 
@@ -530,7 +638,7 @@ async function wizardMenu() {
   console.log("    7) Preisrechner");
   console.log("    8) Tier-Infos");
   console.log("    9) Lizenz-Mail + Invite-Links erneut senden");
-  console.log("    10) Coupon/Referral Codes verwalten");
+  console.log("    10) Coupon/Referral Codes verwalten (inkl. Pro/Ultimate Schnellsetup)");
   console.log("    11) Beenden");
   console.log("");
   return ask("Aktion waehlen");
@@ -803,6 +911,15 @@ async function run() {
   }
 }
 
-const code = await run();
+const cliMode = String(process.argv[2] || "wizard").trim().toLowerCase();
+let code = 0;
+
+if (cliMode === "offers" || cliMode === "--offers") {
+  printHeader();
+  await manageOffersMenu();
+} else {
+  code = await run();
+}
+
 rl.close();
 process.exit(code);
