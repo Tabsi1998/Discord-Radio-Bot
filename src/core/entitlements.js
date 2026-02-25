@@ -113,3 +113,7 @@ export function getMaxBots(serverId) {
 export function isBotAllowed(serverId, botIndex) {
   return botIndex <= getMaxBots(serverId);
 }
+
+// Aliases for backward compatibility
+export const getTier = getServerPlan;
+export const checkFeatureAccess = serverHasFeature;
