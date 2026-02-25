@@ -1006,6 +1006,7 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
   # --- Show Bots ---
   if [[ "$MODE" == "--show-bots" ]]; then
     bot_count=$(count_bots)
+    commander_idx=$(read_env "COMMANDER_BOT_INDEX" "1")
     echo ""
     echo -e "  ${BOLD}Konfigurierte Bots (${bot_count}):${NC}"
     echo ""
@@ -1016,7 +1017,13 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
         name=$(read_env "BOT_${i}_NAME" "Bot ${i}")
         cid=$(read_env "BOT_${i}_CLIENT_ID" "?")
         tier=$(read_env "BOT_${i}_TIER" "free")
-        echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC} $(tier_badge "$tier")"
+        role="Worker"
+        role_color="$GREEN"
+        if [[ "$i" == "$commander_idx" ]]; then
+          role="COMMANDER"
+          role_color="$CYAN"
+        fi
+        echo -e "    ${CYAN}${i}.${NC} ${BOLD}${name}${NC} $(tier_badge "$tier") ${role_color}[${role}]${NC}"
         echo -e "       Client ID: ${DIM}${cid}${NC}"
         if [[ "$tier" == "free" ]]; then
           echo -e "       Invite:    ${GREEN}https://discord.com/oauth2/authorize?client_id=${cid}&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands${NC}"
