@@ -395,7 +395,7 @@ export function createOrExtendLicenseForEmail({
 
   if (!candidate) {
     const created = createLicense({ plan, seats: normalizedSeats, billingPeriod, months: normalizedMonths, activatedBy, note, contactEmail: normalizedEmail, preferredLanguage });
-    const withMeta = _getLicenseByIdSync(created.id) || created;
+    const withMeta = getLicenseById(created.id) || created;
     return { license: withMeta, created: true, extended: false, upgraded: false, previousPlan: null, previousExpiresAt: null };
   }
 
