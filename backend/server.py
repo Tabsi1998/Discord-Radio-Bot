@@ -667,7 +667,7 @@ def add_license(email, tier, months, seats=1, activated_by="stripe", note=""):
     if tier not in TIERS or tier == "free":
         raise ValueError("Tier muss 'pro' oder 'ultimate' sein.")
     months = normalize_months(months)
-    seats = normalize_seats(seats)
+    seats = 1
     if months < 1:
         raise ValueError("Mindestens 1 Monat.")
     data = load_premium()
