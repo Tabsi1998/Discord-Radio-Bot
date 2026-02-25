@@ -5,6 +5,7 @@ const DISCORD_URL = 'https://discord.gg/UeRkfGS43R';
 
 const navLinks = [
   { label: 'Bots', href: '#bots' },
+  { label: 'Workers', href: '#workers' },
   { label: 'Features', href: '#features' },
   { label: 'Stations', href: '#stations' },
   { label: 'Commands', href: '#commands' },
