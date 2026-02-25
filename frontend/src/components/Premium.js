@@ -336,18 +336,53 @@ function Premium() {
                       Laufzeit-Preise / Monat
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {seatEntries.map(([months, value]) => (
-                        <span key={months} style={{
-                          padding: '3px 8px', borderRadius: 6,
-                          background: `${meta.color}08`, border: `1px solid ${meta.color}15`,
-                          fontFamily: "'JetBrains Mono', monospace",
-                          fontSize: 11, color: '#A1A1AA',
-                        }}>
-                          {months} Mon = {formatEuro(value)}
-                        </span>
-                      ))}
+                      {seatEntries.map(([months, value]) => {
+                        const selected = (buyDuration[planId] || 1) === Number(months);
+                        return (
+                          <button
+                            key={months}
+                            data-testid={`duration-${planId}-${months}`}
+                            onClick={() => setBuyDuration((prev) => ({ ...prev, [planId]: Number(months) }))}
+                            style={{
+                              padding: '3px 8px', borderRadius: 6,
+                              background: selected ? `${meta.color}25` : `${meta.color}08`,
+                              border: `1px solid ${selected ? meta.color : `${meta.color}15`}`,
+                              fontFamily: "'JetBrains Mono', monospace",
+                              fontSize: 11,
+                              color: selected ? '#fff' : '#A1A1AA',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              outline: 'none',
+                            }}
+                          >
+                            {months} Mon = {formatEuro(value)}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+                )}
+
+                {planId !== 'free' && (
+                  <button
+                    data-testid={`buy-btn-${planId}`}
+                    onClick={() => handleBuy(planId)}
+                    disabled={buyLoading === planId}
+                    style={{
+                      marginTop: 16, width: '100%', padding: '12px 0',
+                      borderRadius: 10, border: 'none',
+                      background: buyLoading === planId ? `${meta.color}80` : meta.color,
+                      color: '#050505', fontWeight: 700, fontSize: 14,
+                      fontFamily: "'DM Sans', sans-serif",
+                      cursor: buyLoading === planId ? 'default' : 'pointer',
+                      transition: 'transform 0.15s, box-shadow 0.2s',
+                      boxShadow: `0 0 20px ${meta.color}30`,
+                    }}
+                    onMouseEnter={(e) => { if (buyLoading !== planId) { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = `0 0 30px ${meta.color}50`; }}}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = `0 0 20px ${meta.color}30`; }}
+                  >
+                    {buyLoading === planId ? 'Weiterleitung...' : `${tier.name} kaufen`}
+                  </button>
                 )}
               </div>
             );
