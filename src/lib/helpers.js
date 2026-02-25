@@ -309,6 +309,7 @@ export {
   // Constants
   YEARLY_DISCOUNT_MONTHS,
   PRO_TRIAL_MONTHS,
+  PRO_TRIAL_SEATS,
   DEFAULT_EXPIRY_REMINDER_DAYS,
   DURATION_OPTIONS,
   DURATION_PRICING_CENTS,
@@ -318,6 +319,7 @@ export {
   MIME_TYPES,
   // Validation
   normalizeDuration,
+  normalizeSeats,
   isValidEmailAddress,
   isProTrialEnabled,
   parseExpiryReminderDays,
