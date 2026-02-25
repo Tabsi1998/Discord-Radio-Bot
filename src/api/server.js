@@ -948,39 +948,36 @@ function startWebServer(runtimes) {
           pro: {
             name: "Pro",
             pricePerMonth: TIERS.pro.pricePerMonth,
-            startingAt: formatEuroCentsDe(getSeatPricePerMonthCents("pro", 1)),
-            seatPricing: seatPricingInEuro("pro"),
+            startingAt: formatEuroCentsDe(getPricePerMonthCents("pro", 1)),
+            durationPricing: durationPricingInEuro("pro"),
             features: [
               "128k Bitrate (HQ Opus)",
               "Bis zu 8 Bots",
               "120 Stationen (Free + Pro)",
               "Priority Reconnect (1,5s)",
-              "Server-Lizenz (1/2/3/5 Server)",
               "Rollenbasierte Command-Berechtigungen",
+              "Event-Scheduler",
             ]
           },
           ultimate: {
             name: "Ultimate",
             pricePerMonth: TIERS.ultimate.pricePerMonth,
-            startingAt: formatEuroCentsDe(getSeatPricePerMonthCents("ultimate", 1)),
-            seatPricing: seatPricingInEuro("ultimate"),
+            startingAt: formatEuroCentsDe(getPricePerMonthCents("ultimate", 1)),
+            durationPricing: durationPricingInEuro("ultimate"),
             features: [
               "320k Bitrate (Ultra HQ)",
               "Bis zu 16 Bots",
               "Alle Stationen + Custom URLs",
               "Instant Reconnect (0,4s)",
-              "Server-Lizenz Bundles",
               "Rollenbasierte Command-Berechtigungen",
             ]
           },
         },
-        yearlyDiscount: "12 Monate = 10 bezahlen (2 Monate gratis)",
-        seatOptions: [...SEAT_OPTIONS],
+        durations: [...DURATION_OPTIONS],
         trial: {
           enabled: isProTrialEnabled(),
           tier: "pro",
           months: PRO_TRIAL_MONTHS,
-          seats: PRO_TRIAL_SEATS,
           oneTimePerEmail: true,
         },
       };
