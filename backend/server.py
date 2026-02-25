@@ -412,8 +412,36 @@ def seed_stations_if_empty():
 
 seed_stations_if_empty()
 
+# Seed premium data to MongoDB
+def seed_premium_if_needed():
+    if db is None:
+        return
+    try:
+        if db.licenses.count_documents({}) == 0 and PREMIUM_FILE.exists():
+            data = json.loads(PREMIUM_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                licenses = data.get("licenses", {})
+                for lic_id, lic in licenses.items():
+                    if isinstance(lic, dict):
+                        lic["_licenseId"] = lic_id
+                        db.licenses.replace_one({"_licenseId": lic_id}, lic, upsert=True)
+                entitlements = data.get("serverEntitlements", {})
+                for srv_id, ent in entitlements.items():
+                    if isinstance(ent, dict):
+                        ent["_serverId"] = srv_id
+                        db.server_entitlements.replace_one({"_serverId": srv_id}, ent, upsert=True)
+                sessions = data.get("processedSessions", {})
+                for sess_id, sess in sessions.items():
+                    if isinstance(sess, dict):
+                        sess["_sessionId"] = sess_id
+                        db.processed_sessions.replace_one({"_sessionId": sess_id}, sess, upsert=True)
+    except Exception:
+        pass
 
-# === Premium Helper Functions ===
+seed_premium_if_needed()
+
+
+# === Premium Helper Functions (MongoDB) ===
 
 def load_premium():
     try:
