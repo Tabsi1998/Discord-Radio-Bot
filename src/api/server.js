@@ -472,16 +472,16 @@ function startWebServer(runtimes) {
           return;
         }
         const tierName = TIERS[tier].name;
-        const seatsLabel = seats > 1 ? (isDe ? ` (${seats} Server)` : ` (${seats} server${seats > 1 ? "s" : ""})`) : "";
+        const seats = 1;
         let description;
         if (durationMonths >= 12) {
           description = isDe
-            ? `${tierName}${seatsLabel} - ${durationMonths} Monate (Jahresrabatt: 2 Monate gratis!)`
-            : `${tierName}${seatsLabel} - ${durationMonths} months (yearly discount: 2 months free!)`;
+            ? `${tierName} - ${durationMonths} Monate`
+            : `${tierName} - ${durationMonths} months`;
         } else {
           description = isDe
-            ? `${tierName}${seatsLabel} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`
-            : `${tierName}${seatsLabel} - ${durationMonths} month${durationMonths > 1 ? "s" : ""}`;
+            ? `${tierName} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`
+            : `${tierName} - ${durationMonths} month${durationMonths > 1 ? "s" : ""}`;
         }
 
         const stripe = await import("stripe");
