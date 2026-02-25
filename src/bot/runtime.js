@@ -2,6 +2,7 @@
 // OmniFM: BotRuntime Class
 // ============================================================
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -9,15 +10,22 @@ import {
   GatewayIntentBits,
   ChannelType,
   PermissionsBitField,
+  PermissionFlagsBits,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
   Events,
+  ActivityType,
+  Routes,
+  GuildScheduledEventPrivacyLevel,
+  GuildScheduledEventEntityType,
 } from "discord.js";
+import { REST } from "@discordjs/rest";
 import {
   joinVoiceChannel,
   createAudioPlayer,
+  NoSubscriberBehavior,
   AudioPlayerStatus,
   VoiceConnectionStatus,
   entersState,
