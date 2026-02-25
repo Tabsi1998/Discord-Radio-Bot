@@ -431,16 +431,8 @@ function startWebServer(runtimes) {
           return;
         }
 
-        const seats = normalizeSeats(rawSeats);
-
-        const stripeKey = getStripeSecretKey();
-        if (!stripeKey) {
-          sendJson(res, 503, { error: t("Stripe nicht konfiguriert. Nutze: ./update.sh --stripe", "Stripe is not configured. Use: ./update.sh --stripe") });
-          return;
-        }
-
-        const durationMonths = Math.max(1, parseInt(months) || 1);
-        const basePriceInCents = calculatePrice(tier, durationMonths, seats);
+        const durationMonths = normalizeDuration(months);
+        const basePriceInCents = calculatePrice(tier, durationMonths);
         if (basePriceInCents <= 0) {
           sendJson(res, 400, { error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination.") });
           return;
