@@ -1088,7 +1088,7 @@ async def premium_checkout(request: Request, body: dict):
     tier = str(body.get("tier", "")).strip().lower()
     email = str(body.get("email", "")).strip().lower()
     duration_months = normalize_months(body.get("months", 1))
-    seats = normalize_seats(body.get("seats", 1))
+    seats = 1  # Seats always 1 (Laufzeit-basiert)
     return_url = str(body.get("returnUrl", "")).strip()
 
     if tier not in ("pro", "ultimate"):
