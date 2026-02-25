@@ -68,6 +68,12 @@ web/
 | `CHECKOUT_RETURN_ORIGINS` | Komma-Liste erlaubter Return-URLs fuer Stripe Checkout |
 | `PRO_TRIAL_ENABLED` | `1` = Pro-Testmonat (1 Monat, 1x pro E-Mail) aktiv, `0` = deaktiviert |
 | `LICENSE_EXPIRY_REMINDER_DAYS` | Komma-Liste der Erinnerungen vor Ablauf (Default: `30,14,7,1`) |
+| `NOW_PLAYING_ENABLED` | `1` = Live-Now-Playing Embed im Voice-Textchat aktiv, `0` = aus |
+| `NOW_PLAYING_POLL_MS` | Polling-Intervall fuer Track-Metadaten (Default: `45000`) |
+| `NOW_PLAYING_COVER_ENABLED` | `1` = Album-Cover (iTunes Lookup) aktiv, `0` = ohne Cover |
+| `EVENT_SCHEDULER_ENABLED` | `1` = Geplante `/event`-Starts aktiv, `0` = Scheduler aus |
+| `EVENT_SCHEDULER_POLL_MS` | Polling-Intervall fuer Event-Ausfuehrung (Default: `15000`) |
+| `EVENT_SCHEDULER_RETRY_MS` | Retry-Delay bei Event-Fehler (Default: `120000`) |
 | `API_ADMIN_TOKEN` | Optionales Admin-Token fuer sensible API-Felder |
 | `TRUST_PROXY_HEADERS` | `1` wenn der Bot hinter einem Reverse Proxy laeuft (nutzt `X-Forwarded-*` fuer Origin/IP) |
 | `API_RATE_STATE_MAX_ENTRIES` | Maximale Anzahl Rate-Limit-Eintraege im Speicher (Default: `50000`) |

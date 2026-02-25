@@ -13,6 +13,7 @@ export const COMMAND_PERMISSION_COMMANDS = [
   "addstation",
   "removestation",
   "mystations",
+  "event",
 ];
 
 const MANAGED_SET = new Set(COMMAND_PERMISSION_COMMANDS);

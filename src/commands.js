@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from "discord.js";
+import { ChannelType, SlashCommandBuilder } from "discord.js";
 import { getPermissionCommandChoices } from "./config/command-permissions.js";
 
 export function buildCommandBuilders() {
@@ -39,6 +39,71 @@ export function buildCommandBuilders() {
       .setDescription("[Ultimate] Eigene Station entfernen")
       .addStringOption((o) => o.setName("key").setDescription("Station-Key").setRequired(true).setAutocomplete(true)),
     new SlashCommandBuilder().setName("mystations").setDescription("[Ultimate] Deine eigenen Stationen anzeigen"),
+    // Scheduled events (Pro+)
+    new SlashCommandBuilder()
+      .setName("event")
+      .setDescription("[Pro] Event-Scheduler fuer automatische Starts")
+      .addSubcommand((sub) =>
+        sub.setName("create")
+          .setDescription("Neues Event planen (Voice-Start zu Zeitpunkt X)")
+          .addStringOption((o) =>
+            o.setName("name")
+              .setDescription("Eventname (z.B. Morning Show)")
+              .setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("station")
+              .setDescription("Stations-Key")
+              .setRequired(true)
+              .setAutocomplete(true)
+          )
+          .addChannelOption((o) =>
+            o.setName("voice")
+              .setDescription("Voice- oder Stage-Channel")
+              .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)
+              .setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("start")
+              .setDescription("Startzeit: YYYY-MM-DD HH:MM (Serverzeit)")
+              .setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("repeat")
+              .setDescription("Wiederholung")
+              .setRequired(false)
+              .addChoices(
+                { name: "Einmalig", value: "none" },
+                { name: "Taeglich", value: "daily" },
+                { name: "Woechentlich", value: "weekly" }
+              )
+          )
+          .addChannelOption((o) =>
+            o.setName("text")
+              .setDescription("Optionaler Text-Channel fuer Ankuendigung")
+              .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("message")
+              .setDescription("Optionale Nachricht ({event},{station},{voice},{time})")
+              .setRequired(false)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("list")
+          .setDescription("Geplante Events anzeigen")
+      )
+      .addSubcommand((sub) =>
+        sub.setName("delete")
+          .setDescription("Event entfernen")
+          .addStringOption((o) =>
+            o.setName("id")
+              .setDescription("Event-ID")
+              .setRequired(true)
+              .setAutocomplete(true)
+          )
+      ),
     // License Management
     new SlashCommandBuilder()
       .setName("license")

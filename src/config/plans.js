@@ -20,6 +20,7 @@ export const PLANS = {
       premiumStations: false,
       customStationURLs: false,
       commandPermissions: false,
+      scheduledEvents: false,
     },
   },
   pro: {
@@ -37,6 +38,7 @@ export const PLANS = {
       premiumStations: true,
       customStationURLs: false,
       commandPermissions: true,
+      scheduledEvents: true,
     },
   },
   ultimate: {
@@ -54,6 +56,7 @@ export const PLANS = {
       premiumStations: true,
       customStationURLs: true,
       commandPermissions: true,
+      scheduledEvents: true,
     },
   },
 };
@@ -66,6 +69,7 @@ export const FEATURE_LABELS = {
   premiumStations:    "100+ Premium Stations",
   customStationURLs:  "Custom Station URLs",
   commandPermissions: "Rollenbasierte Command-Berechtigungen",
+  scheduledEvents:    "Event-Scheduler mit Auto-Play",
 };
 
 export const BRAND = {
