@@ -1008,20 +1008,18 @@ async def get_pricing(request: Request, serverId: str = ""):
                 "name": "Pro",
                 "pricePerMonth": TIERS["pro"]["pricePerMonth"],
                 "startingAt": "2,99",
-                "seatPricing": SEAT_PRICING["pro"],
-                "features": ["128k Bitrate (HQ Opus)", "Bis zu 8 Bots", "120 Stationen (Free + Pro)", "Priority Reconnect (1,5s)", "Server-Lizenz (1/2/3/5 Server)"]
+                "durationPricing": {str(k): f"{v/100:.2f}" for k, v in DURATION_PRICING["pro"].items()},
+                "features": ["128k Bitrate (HQ Opus)", "Bis zu 8 Bots", "120 Stationen (Free + Pro)", "Priority Reconnect (1,5s)", "Rollenbasierte Berechtigungen", "Event-Scheduler"]
             },
             "ultimate": {
                 "name": "Ultimate",
                 "pricePerMonth": TIERS["ultimate"]["pricePerMonth"],
                 "startingAt": "4,99",
-                "seatPricing": SEAT_PRICING["ultimate"],
-                "features": ["320k Bitrate (Ultra HQ)", "Bis zu 16 Bots", "Alle Stationen + Custom URLs", "Instant Reconnect (0,4s)", "Server-Lizenz Bundles"]
+                "durationPricing": {str(k): f"{v/100:.2f}" for k, v in DURATION_PRICING["ultimate"].items()},
+                "features": ["320k Bitrate (Ultra HQ)", "Bis zu 16 Bots", "Alle Stationen + Custom URLs", "Instant Reconnect (0,4s)", "Rollenbasierte Berechtigungen"]
             },
         },
-        "yearlyDiscount": "12 Monate = 10 bezahlen (2 Monate gratis)",
-        "yearlyDiscountMonths": YEARLY_DISCOUNT_MONTHS,
-        "seatOptions": SEAT_OPTIONS,
+        "durations": DURATION_OPTIONS,
     }
     if is_valid_server_id(serverId):
         server_id = str(serverId).strip()
