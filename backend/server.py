@@ -620,21 +620,17 @@ def get_license(server_id):
     return get_server_license(server_id)
 
 
-def get_seat_price(tier, seats):
-    seats = normalize_seats(seats)
-    pricing = SEAT_PRICING.get(tier, {})
-    return pricing.get(seats, pricing.get(1, 0))
+def get_duration_price(tier, months):
+    months = normalize_duration(months)
+    pricing = DURATION_PRICING.get(tier, {})
+    return pricing.get(months, pricing.get(1, 0))
 
 
 def calculate_price(tier, months, seats=1):
-    months = normalize_months(months)
-    ppm = get_seat_price(tier, seats)
+    months = normalize_duration(months)
+    ppm = get_duration_price(tier, months)
     if not ppm:
         return 0
-    if months >= 12:
-        full_years = months // 12
-        rem = months % 12
-        return (full_years * YEARLY_DISCOUNT_MONTHS * ppm) + (rem * ppm)
     return months * ppm
 
 
