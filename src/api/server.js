@@ -432,6 +432,13 @@ function startWebServer(runtimes) {
         }
 
         const durationMonths = normalizeDuration(months);
+
+        const stripeKey = getStripeSecretKey();
+        if (!stripeKey) {
+          sendJson(res, 503, { error: t("Stripe nicht konfiguriert. Nutze: ./update.sh --stripe", "Stripe is not configured. Use: ./update.sh --stripe") });
+          return;
+        }
+
         const basePriceInCents = calculatePrice(tier, durationMonths);
         if (basePriceInCents <= 0) {
           sendJson(res, 400, { error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination.") });
