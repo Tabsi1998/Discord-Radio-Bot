@@ -170,8 +170,8 @@ function CheckoutModal({ planId, tier, meta, durations, onClose }) {
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
         background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 20, overflowY: 'auto',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+        padding: '40px 20px', overflowY: 'auto',
       }}
     >
       <div
