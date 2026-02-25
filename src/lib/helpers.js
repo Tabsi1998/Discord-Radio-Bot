@@ -47,6 +47,11 @@ function normalizeDuration(rawMonths) {
   return closest;
 }
 
+function normalizeSeats(rawSeats) {
+  const value = Math.max(1, Math.floor(Number(rawSeats) || 1));
+  return value;
+}
+
 function isValidEmailAddress(email) {
   return typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
