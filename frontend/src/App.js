@@ -140,6 +140,7 @@ function App() {
       <Navbar />
       <Hero stats={stats} />
       <BotDirectory bots={bots} loading={loading} />
+      <WorkerDashboard />
       <Features />
       <StationBrowser stations={stations} loading={loading} />
       <Commands commands={commands} loading={loading} />
