@@ -246,6 +246,17 @@ export function buildCommandBuilders() {
               .addChoices(...permissionChoices)
           )
       ),
+    new SlashCommandBuilder()
+      .setName("invite")
+      .setDescription("Lade einen Worker-Bot auf deinen Server ein")
+      .addIntegerOption((o) =>
+        o.setName("worker")
+          .setDescription("Worker-Bot Nummer (1-16)")
+          .setRequired(true)
+      ),
+    new SlashCommandBuilder()
+      .setName("workers")
+      .setDescription("Zeigt den Status aller Worker-Bots auf diesem Server"),
   ];
 }
 
