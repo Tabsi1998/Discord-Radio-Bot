@@ -1,7 +1,7 @@
 // ============================================================
 // OmniFM: Now-Playing / ICY Metadata / Album Cover
 // ============================================================
-import { log } from "./logging.js";
+import { log } from "../lib/logging.js";
 import {
   clipText,
   concatUint8Arrays,
@@ -10,7 +10,7 @@ import {
   NOW_PLAYING_COVER_CACHE_TTL_MS,
   NOW_PLAYING_FETCH_TIMEOUT_MS,
   NOW_PLAYING_MAX_METAINT_BYTES,
-} from "./helpers.js";
+} from "../lib/helpers.js";
 
 const nowPlayingCoverCache = new Map();
 const nowPlayingCoverInFlight = new Map();
