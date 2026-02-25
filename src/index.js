@@ -34,6 +34,7 @@ try {
   await connectDb();
   log("INFO", "MongoDB-Verbindung fuer Node.js Bot hergestellt.");
   await initPremiumStore();
+  await initStationsStore();
 } catch (err) {
   log("WARN", `MongoDB-Verbindung fehlgeschlagen: ${err.message}. Stores werden eingeschraenkt arbeiten.`);
 }
