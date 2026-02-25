@@ -15,10 +15,14 @@ export function buildCommandBuilders() {
           .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)
           .setRequired(false)
       )
+      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (z.B. 1-16, optional)").setRequired(false))
       .addStringOption((o) => o.setName("channel").setDescription("Voice/Stage per Name oder ID (Legacy)").setRequired(false).setAutocomplete(true)),
-    new SlashCommandBuilder().setName("pause").setDescription("Wiedergabe pausieren"),
-    new SlashCommandBuilder().setName("resume").setDescription("Wiedergabe fortsetzen"),
-    new SlashCommandBuilder().setName("stop").setDescription("Stoppen und Channel verlassen"),
+    new SlashCommandBuilder().setName("pause").setDescription("Wiedergabe pausieren")
+      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
+    new SlashCommandBuilder().setName("resume").setDescription("Wiedergabe fortsetzen")
+      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
+    new SlashCommandBuilder().setName("stop").setDescription("Stoppen und Channel verlassen")
+      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
     new SlashCommandBuilder().setName("stations").setDescription("Verfuegbare Stationen fuer deinen Plan anzeigen"),
     new SlashCommandBuilder().setName("now").setDescription("Zeigt was gerade laeuft"),
     new SlashCommandBuilder()
