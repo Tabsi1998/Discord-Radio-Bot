@@ -719,7 +719,7 @@ def sanitize_license_for_api(license_info, include_sensitive=False):
     payload = {
         "tier": plan,
         "plan": plan,
-        "seats": normalize_seats(license_info.get("seats", 1)),
+        "seats": 1,
         "active": not bool(license_info.get("expired")),
         "expired": bool(license_info.get("expired")),
         "expiresAt": license_info.get("expiresAt"),
