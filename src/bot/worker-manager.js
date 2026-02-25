@@ -37,7 +37,7 @@ class WorkerManager {
       if (!w.client?.isReady()) return false;
       const guild = w.client.guilds.cache.get(guildId);
       if (!guild) return false;
-      const state = w.guildStates.get(guildId);
+      const state = w.guildState.get(guildId);
       if (state?.playing) return false;
       return true;
     });
@@ -91,7 +91,7 @@ class WorkerManager {
       const idx = Number(w.config.index || 0);
       const guilds = [];
       if (w.client?.isReady()) {
-        for (const [guildId, state] of w.guildStates.entries()) {
+        for (const [guildId, state] of w.guildState.entries()) {
           if (state?.playing) {
             const guild = w.client.guilds.cache.get(guildId);
             guilds.push({
