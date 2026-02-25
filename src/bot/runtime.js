@@ -153,10 +153,9 @@ import {
   deleteScheduledEventsByFilter,
 } from "../scheduled-events-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
-import { normalizeLanguage, getDefaultLanguage, getDiscordLocale } from "../i18n.js";
+import { normalizeLanguage, getDefaultLanguage } from "../i18n.js";
 import { premiumStationEmbed, customStationEmbed } from "../ui/upgradeEmbeds.js";
 import { syncGuildCommandsSafe } from "../discord/syncGuildCommandsSafe.js";
-import { commandSyncGuard } from "../utils/commandSyncGuard.js";
 import { buildCommandBuilders } from "../commands.js";
 import { buildInviteUrl } from "../bot-config.js";
 import {
