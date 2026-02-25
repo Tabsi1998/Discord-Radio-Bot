@@ -13,38 +13,47 @@ Refactoring & modernization of a Node.js Discord Radio Bot:
 ├── backend/          # FastAPI (MongoDB, pricing API)
 ├── frontend/         # React (redesigned dashboard)
 ├── src/              # Node.js bot (Commander/Worker)
-│   ├── lib/db.js     # Shared MongoDB connection
-│   ├── bot/runtime.js, worker-manager.js
-│   ├── services/pricing.js  # Duration-based pricing
-│   └── ...stores (all MongoDB)
+│   ├── lib/          # logging.js, helpers.js, db.js etc.
+│   ├── bot/          # runtime.js, worker-manager.js
+│   ├── services/     # stream.js, now-playing.js, pricing.js
+│   └── core/         # network-recovery.js, entitlements.js
 ├── update.sh         # Admin CLI (Commander/Worker mgmt)
 └── web/              # Legacy static UI
 ```
 
-## Pricing Model (Laufzeit-basiert)
-- Free: 0 EUR
-- Pro: 1M=2.99, 2M=2.79, 3M=2.49, 6M=2.29, 12M=1.99 EUR/Monat
-- Ultimate: 1M=4.99, 2M=4.49, 3M=3.99, 6M=3.49, 12M=2.99 EUR/Monat
+## Pricing Model
+- Durations: 1, 3, 6, 12 months
+- Server counts: 1, 2, 3, 5 servers per license
+- Pro: 1S=2.99, 2S=5.49, 3S=7.49, 5S=11.49 EUR/mo (1mo base)
+- Ultimate: 1S=4.99, 2S=9.19, 3S=12.49, 5S=19.19 EUR/mo (1mo base)
+- Duration discounts applied proportionally
 
-## Completed Phases
-- Phase 1: Code modularization + MongoDB backend (TESTED)
-- Phase 2: Commander/Worker architecture (TESTED)
-- Phase 3: All 9 JSON stores -> MongoDB (TESTED)
-- Phase 4: Web UI redesign + Pricing migration + CLI (TESTED)
+## Worker-Bot Tiers
+- Free: Bot 1-2 (via Commander invite on website)
+- Pro: Bot 3-8 (via /invite command in Discord)
+- Ultimate: Bot 9-16 (via /invite command in Discord)
+
+## Completed Work
+- Phase 1: Code modularization + MongoDB backend
+- Phase 2: Commander/Worker architecture
+- Phase 3: All 9 JSON stores -> MongoDB
+- Phase 4: Web UI redesign + Pricing migration + CLI
 
 ## Bug Fixes (2026-02-25)
-- P0 FIXED: Import path crash in src/core/network-recovery.js (./logging.js -> ../lib/logging.js, ./helpers.js -> ../lib/helpers.js)
-- P0 FIXED: Import path crash in src/services/now-playing.js (./logging.js -> ../lib/logging.js, ./helpers.js -> ../lib/helpers.js)
-- P1 FIXED: Rebuilt Premium checkout as MODAL POPUP matching original design (icon+title, email/coupon/referral inputs, duration selector with +2 GRATIS badge, price summary, info box, pay button, cancel link)
-- Verified: No more broken relative imports exist anywhere in src/ directory
+- FIXED: Import crash in src/core/network-recovery.js (./logging.js -> ../lib/logging.js)
+- FIXED: Import crash in src/services/now-playing.js (./logging.js -> ../lib/logging.js)
+- FIXED: Import crash in src/services/stream.js (shouldLogFfmpegStderrLine from ../lib/logging.js)
+- FIXED: All src/ files verified - zero broken imports remaining
+- FIXED: Checkout popup rebuilt as modal with Anzahl Server (1,2,3,5) + Laufzeit (1,3,6,12)
+- FIXED: Laufzeit-Preise box removed from plan card overview
+- FIXED: Commands tiers collapsed by default
+- FIXED: BotDirectory shows only Commander + Worker-Tiers info panel
+- FIXED: Footer z-index blocking modal Abbrechen button
 
 ## Test Results
-- iteration_1: Phase 1 PASS
-- iteration_6: Phase 2 100%
-- iteration_7: Design update 100%
-- iteration_8: Bug fixes + Pricing migration 100%
-- iteration_9: P0+P1 initial fix verification 100%
-- iteration_10: Full checkout modal + import fixes 100% (Backend 100%, Frontend 100%)
+- iteration_9: P0+P1 initial fix 100%
+- iteration_10: Checkout modal 100%
+- iteration_11: Full feature set 93% (z-index bug found + fixed)
 
 ## Backlog
 - P2: Full testing of update.sh CLI with Commander/Worker management
