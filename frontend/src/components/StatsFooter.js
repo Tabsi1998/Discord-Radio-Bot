@@ -8,7 +8,7 @@ function StatsFooter({ stats }) {
       style={{
         padding: '60px 0 32px',
         position: 'relative',
-        zIndex: 1,
+        zIndex: 0,
         borderTop: '1px solid rgba(255,255,255,0.04)',
       }}
     >
