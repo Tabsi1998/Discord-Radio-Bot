@@ -137,8 +137,10 @@ import {
 } from "../coupon-store.js";
 
 class BotRuntime {
-  constructor(config) {
+  constructor(config, { role = "worker", workerManager = null } = {}) {
     this.config = config;
+    this.role = role; // "commander" or "worker"
+    this.workerManager = workerManager;
     this.voiceGroup = `bot-${this.config.clientId}`;
     this.rest = new REST({ version: "10" }).setToken(this.config.token);
     this.client = new Client({
@@ -156,7 +158,7 @@ class BotRuntime {
 
     this.client.once("clientReady", () => {
       this.readyAt = Date.now();
-      log("INFO", `[${this.config.name}] Eingeloggt als ${this.client.user.tag}`);
+      log("INFO", `[${this.config.name}] Eingeloggt als ${this.client.user.tag} (role=${this.role})`);
       const runtimeAppId = this.getApplicationId();
       if (runtimeAppId && runtimeAppId !== String(this.config.clientId || "")) {
         log(
@@ -165,50 +167,57 @@ class BotRuntime {
         );
       }
       this.updatePresence();
-      this.enforcePremiumGuildScope("startup").catch((err) => {
-        log("ERROR", `[${this.config.name}] Premium-Guild-Scope Pruefung fehlgeschlagen: ${err?.message || err}`);
-      });
-      this.refreshGuildCommandsOnReady().catch((err) => {
-        log("ERROR", `[${this.config.name}] Guild-Command-Sync fehlgeschlagen: ${err?.message || err}`);
-      });
-      this.startEventScheduler();
+      if (this.role === "commander") {
+        this.enforcePremiumGuildScope("startup").catch((err) => {
+          log("ERROR", `[${this.config.name}] Premium-Guild-Scope Pruefung fehlgeschlagen: ${err?.message || err}`);
+        });
+        this.refreshGuildCommandsOnReady().catch((err) => {
+          log("ERROR", `[${this.config.name}] Guild-Command-Sync fehlgeschlagen: ${err?.message || err}`);
+        });
+        this.startEventScheduler();
+      }
     });
 
-    this.client.on("interactionCreate", (interaction) => {
-      this.handleInteraction(interaction).catch(async (err) => {
-        log("ERROR", `[${this.config.name}] interaction error: ${err?.stack || err}`);
-        try {
-          if (!interaction.isRepliable || !interaction.isRepliable()) return;
-          const { t } = this.createInteractionTranslator(interaction);
-          const errorMessage = t(
-            "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.",
-            "An error occurred. Please try again."
-          );
-          if (interaction.deferred || interaction.replied) {
-            await interaction.editReply({ content: errorMessage });
-          } else {
-            await interaction.reply({ content: errorMessage, ephemeral: true });
+    // Only commander handles interactions (slash commands)
+    if (this.role === "commander") {
+      this.client.on("interactionCreate", (interaction) => {
+        this.handleInteraction(interaction).catch(async (err) => {
+          log("ERROR", `[${this.config.name}] interaction error: ${err?.stack || err}`);
+          try {
+            if (!interaction.isRepliable || !interaction.isRepliable()) return;
+            const { t } = this.createInteractionTranslator(interaction);
+            const errorMessage = t(
+              "Es ist ein Fehler aufgetreten. Bitte versuche es erneut.",
+              "An error occurred. Please try again."
+            );
+            if (interaction.deferred || interaction.replied) {
+              await interaction.editReply({ content: errorMessage });
+            } else {
+              await interaction.reply({ content: errorMessage, ephemeral: true });
+            }
+          } catch {
+            // ignore secondary reply failures
           }
-        } catch {
-          // ignore secondary reply failures
-        }
+        });
       });
-    });
+    }
 
     this.client.on("voiceStateUpdate", (oldState, newState) => {
       this.handleBotVoiceStateUpdate(oldState, newState);
     });
 
-    this.client.on("guildCreate", (guild) => {
-      this.handleGuildJoin(guild).then((allowed) => {
-        if (!allowed) return;
-        this.syncGuildCommands("join", { guildId: guild?.id }).catch((err) => {
-          log("ERROR", `[${this.config.name}] Guild-Command-Sync (join) fehlgeschlagen: ${err?.message || err}`);
+    if (this.role === "commander") {
+      this.client.on("guildCreate", (guild) => {
+        this.handleGuildJoin(guild).then((allowed) => {
+          if (!allowed) return;
+          this.syncGuildCommands("join", { guildId: guild?.id }).catch((err) => {
+            log("ERROR", `[${this.config.name}] Guild-Command-Sync (join) fehlgeschlagen: ${err?.message || err}`);
+          });
+        }).catch((err) => {
+          log("ERROR", `[${this.config.name}] guildCreate handling error: ${err?.message || err}`);
         });
-      }).catch((err) => {
-        log("ERROR", `[${this.config.name}] guildCreate handling error: ${err?.message || err}`);
       });
-    });
+    }
 
     this.client.on("guildDelete", (guild) => {
       this.resetGuildRuntimeState(guild?.id);
