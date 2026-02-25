@@ -2693,6 +2693,106 @@ class BotRuntime {
       return;
     }
 
+    // ---- Commander-only commands ----
+    if (interaction.commandName === "invite") {
+      if (this.role !== "commander" || !this.workerManager) {
+        await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), ephemeral: true });
+        return;
+      }
+      const workerIndex = interaction.options.getInteger("worker", true);
+      const guildTier = getTier(interaction.guildId);
+      const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
+
+      if (workerIndex < 1 || workerIndex > 16) {
+        await interaction.reply({ content: t("Worker-Nummer muss zwischen 1 und 16 sein.", "Worker number must be between 1 and 16."), ephemeral: true });
+        return;
+      }
+      if (workerIndex > maxIndex) {
+        const tierNames = { 2: "Free", 8: "Pro", 16: "Ultimate" };
+        const neededTier = workerIndex <= 2 ? "Free" : workerIndex <= 8 ? "Pro" : "Ultimate";
+        await interaction.reply({
+          content: t(
+            `Worker ${workerIndex} erfordert mindestens **${neededTier}**. Dein Plan erlaubt Worker 1-${maxIndex}.`,
+            `Worker ${workerIndex} requires at least **${neededTier}**. Your plan allows workers 1-${maxIndex}.`
+          ),
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const worker = this.workerManager.getWorkerByIndex(workerIndex);
+      if (!worker) {
+        await interaction.reply({ content: t(`Worker ${workerIndex} ist nicht konfiguriert.`, `Worker ${workerIndex} is not configured.`), ephemeral: true });
+        return;
+      }
+
+      const clientId = worker.getApplicationId() || worker.config.clientId;
+      const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=36700160&integration_type=0&scope=bot`;
+      const alreadyInvited = worker.client?.isReady() && worker.client.guilds.cache.has(interaction.guildId);
+
+      if (alreadyInvited) {
+        await interaction.reply({
+          content: t(
+            `**${worker.config.name}** ist bereits auf diesem Server!`,
+            `**${worker.config.name}** is already on this server!`
+          ),
+          ephemeral: true,
+        });
+      } else {
+        await interaction.reply({
+          content: t(
+            `Lade **${worker.config.name}** ein:\n${inviteUrl}`,
+            `Invite **${worker.config.name}**:\n${inviteUrl}`
+          ),
+          ephemeral: true,
+        });
+      }
+      return;
+    }
+
+    if (interaction.commandName === "workers") {
+      if (this.role !== "commander" || !this.workerManager) {
+        await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), ephemeral: true });
+        return;
+      }
+
+      const guildId = interaction.guildId;
+      const guildTier = getTier(guildId);
+      const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
+      const statuses = this.workerManager.getAllStatuses();
+      const lines = [`**Worker-Status** (${guildTier.toUpperCase()}, max ${maxIndex} Worker):\n`];
+
+      for (const ws of statuses) {
+        const inGuild = ws.online && this.workerManager.getWorkerByIndex(ws.index)?.client?.guilds.cache.has(guildId);
+        const streaming = ws.streams.find(s => s.guildId === guildId);
+        const tierLocked = ws.index > maxIndex;
+
+        let statusEmoji = "";
+        let statusText = "";
+        if (tierLocked) {
+          statusEmoji = "---";
+          statusText = t("(Upgrade erforderlich)", "(Upgrade required)");
+        } else if (!ws.online) {
+          statusEmoji = "---";
+          statusText = t("Offline", "Offline");
+        } else if (!inGuild) {
+          statusEmoji = "---";
+          statusText = t("Nicht eingeladen", "Not invited");
+        } else if (streaming) {
+          statusEmoji = ">>>";
+          statusText = `${t("Spielt", "Playing")}: ${streaming.stationName || streaming.stationKey || "-"}`;
+        } else {
+          statusEmoji = "...";
+          statusText = t("Bereit", "Ready");
+        }
+
+        lines.push(`\`${statusEmoji}\` **${ws.name}** - ${statusText} (${ws.totalGuilds} Server, ${ws.activeStreams} aktiv)`);
+      }
+
+      await this.respondLongInteraction(interaction, lines.join("\n"), { ephemeral: true });
+      return;
+    }
+
     const stations = loadStations();
     const state = this.getState(interaction.guildId);
 
