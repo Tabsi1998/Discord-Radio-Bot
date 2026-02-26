@@ -64,6 +64,113 @@ function parseTrackFromStreamTitle(rawTitle) {
   };
 }
 
+async function fetchCoverArtFromItunes(query) {
+  try {
+    const endpoint = new URL("https://itunes.apple.com/search");
+    endpoint.searchParams.set("term", query);
+    endpoint.searchParams.set("media", "music");
+    endpoint.searchParams.set("entity", "song");
+    endpoint.searchParams.set("limit", "1");
+
+    const response = await fetch(endpoint.toString(), {
+      method: "GET",
+      headers: { "User-Agent": "OmniFM/3.0" },
+      signal: AbortSignal.timeout(Math.min(NOW_PLAYING_COVER_TIMEOUT_MS, 2000)),
+    });
+    
+    if (!response.ok) return null;
+    
+    const payload = await response.json().catch(() => null);
+    const result = Array.isArray(payload?.results) ? payload.results[0] : null;
+    let artworkUrl = result?.artworkUrl100 || result?.artworkUrl60 || null;
+    
+    if (artworkUrl) {
+      artworkUrl = artworkUrl.replace(/\/\d+x\d+bb\./i, "/600x600bb.");
+    }
+    
+    return artworkUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCoverArtFromMusicBrainz(artist, title) {
+  try {
+    // MusicBrainz Recording Search API
+    const query = `artist:"${artist}" recording:"${title}"`;
+    const endpoint = new URL("https://musicbrainz.org/ws/2/recording");
+    endpoint.searchParams.set("query", query);
+    endpoint.searchParams.set("fmt", "json");
+    endpoint.searchParams.set("limit", "1");
+
+    const response = await fetch(endpoint.toString(), {
+      method: "GET",
+      headers: { "User-Agent": "OmniFM/3.0 (+omnifm.radio)" },
+      signal: AbortSignal.timeout(2500),
+    });
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json().catch(() => null);
+    if (!data?.recordings || !Array.isArray(data.recordings) || data.recordings.length === 0) {
+      return null;
+    }
+    
+    // Try to find cover art from releases
+    const recording = data.recordings[0];
+    const releases = recording.releases || [];
+    
+    for (const release of releases) {
+      if (release.images && Array.isArray(release.images) && release.images.length > 0) {
+        // Prefer front cover, fall back to any image
+        const frontImage = release.images.find(img => img.front);
+        const coverImage = frontImage || release.images[0];
+        if (coverImage?.image) {
+          return coverImage.image;
+        }
+      }
+    }
+    
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCoverArtFromDiscogs(artist, title) {
+  try {
+    // Discogs API - Release Search
+    const query = `${artist} ${title}`;
+    const endpoint = new URL("https://api.discogs.com/database/search");
+    endpoint.searchParams.set("q", query);
+    endpoint.searchParams.set("type", "release");
+    endpoint.searchParams.set("per_page", "1");
+
+    const response = await fetch(endpoint.toString(), {
+      method: "GET",
+      headers: { "User-Agent": "OmniFM/3.0 (+omnifm.radio)" },
+      signal: AbortSignal.timeout(2500),
+    });
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json().catch(() => null);
+    if (!data?.results || !Array.isArray(data.results) || data.results.length === 0) {
+      return null;
+    }
+    
+    // Discogs gibt cover_image direkt zurück
+    const release = data.results[0];
+    if (release?.cover_image && release.cover_image.trim() !== "") {
+      return release.cover_image;
+    }
+    
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchCoverArtForTrack(artist, title) {
   if (!NOW_PLAYING_COVER_ENABLED) return null;
 
@@ -83,38 +190,51 @@ async function fetchCoverArtForTrack(artist, title) {
 
   const request = (async () => {
     let artworkUrl = null;
+    
     try {
-      const endpoint = new URL("https://itunes.apple.com/search");
-      endpoint.searchParams.set("term", query);
-      endpoint.searchParams.set("media", "music");
-      endpoint.searchParams.set("entity", "song");
-      endpoint.searchParams.set("limit", "1");
-
-      const response = await fetch(endpoint.toString(), {
-        method: "GET",
-        headers: { "User-Agent": "OmniFM/3.0" },
-        signal: AbortSignal.timeout(NOW_PLAYING_COVER_TIMEOUT_MS),
-      });
-      if (!response.ok) {
-        nowPlayingCoverCache.set(cacheKey, { url: null, expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS });
-        return null;
-      }
-
-      const payload = await response.json().catch(() => null);
-      const result = Array.isArray(payload?.results) ? payload.results[0] : null;
-      artworkUrl = result?.artworkUrl100 || result?.artworkUrl60 || null;
+      // Versuch 1: iTunes (schnell & populär)
+      artworkUrl = await fetchCoverArtFromItunes(query);
       if (artworkUrl) {
-        artworkUrl = artworkUrl.replace(/\/\d+x\d+bb\./i, "/600x600bb.");
+        nowPlayingCoverCache.set(cacheKey, {
+          url: artworkUrl,
+          expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
+        });
+        return artworkUrl;
+      }
+      
+      // Versuch 2: MusicBrainz (zuverlässig für klassische Musik & Professionelle Labels)
+      if (artistPart && titlePart) {
+        artworkUrl = await fetchCoverArtFromMusicBrainz(artistPart, titlePart);
+        if (artworkUrl) {
+          nowPlayingCoverCache.set(cacheKey, {
+            url: artworkUrl,
+            expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
+          });
+          return artworkUrl;
+        }
+      }
+      
+      // Versuch 3: Discogs (Elektronik, Indie, Alternative)
+      if (artistPart && titlePart) {
+        artworkUrl = await fetchCoverArtFromDiscogs(artistPart, titlePart);
+        if (artworkUrl) {
+          nowPlayingCoverCache.set(cacheKey, {
+            url: artworkUrl,
+            expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
+          });
+          return artworkUrl;
+        }
       }
     } catch {
-      artworkUrl = null;
+      // ignore all errors
     }
 
+    // Kein Cover gefunden
     nowPlayingCoverCache.set(cacheKey, {
-      url: artworkUrl || null,
+      url: null,
       expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
     });
-    return artworkUrl || null;
+    return null;
   })().finally(() => {
     nowPlayingCoverInFlight.delete(cacheKey);
   });
