@@ -28,6 +28,32 @@ function load() {
         if (filePath === CUSTOM_BACKUP_FILE) {
           console.warn("[custom-stations] Verwende Backup-Datei custom-stations.json.bak");
         }
+        // Migrate legacy array-per-guild format to canonical object-per-guild format
+        let migrated = false;
+        for (const [gid, value] of Object.entries(data)) {
+          if (Array.isArray(value)) {
+            const objMap = {};
+            for (const item of value) {
+              const key = sanitizeKey(item.id || item.key || item.name || "");
+              if (!key) continue;
+              objMap[key] = {
+                name: String(item.name || item.title || key).trim().substring(0, 100),
+                url: String(item.streamURL || item.url || item.streamUrl || "").trim(),
+                addedAt: item.addedAt || new Date().toISOString(),
+              };
+            }
+            data[gid] = objMap;
+            migrated = true;
+          }
+        }
+        if (migrated) {
+          try {
+            save(data);
+            console.info("[custom-stations] Migration: legacy array format konvertiert und gespeichert.");
+          } catch (err) {
+            console.error(`[custom-stations] Migration Save failed: ${err?.message || err}`);
+          }
+        }
         return data;
       }
     } catch (err) {

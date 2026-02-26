@@ -105,7 +105,29 @@ function loadCustomData() {
 function saveCustomData(data) {
   try {
     if (fs.existsSync(customFile) && fs.statSync(customFile).isDirectory()) return;
-    fs.writeFileSync(customFile, JSON.stringify(data, null, 2) + "\n", "utf-8");
+    // Normalize legacy array format to canonical object-per-guild mapping before saving
+    const normalized = {};
+    for (const [gid, val] of Object.entries(data || {})) {
+      if (Array.isArray(val)) {
+        const obj = {};
+        for (const item of val) {
+          const id = String(item.id || item.key || item.name || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").substring(0, 40) || null;
+          if (!id) continue;
+          obj[id] = {
+            name: item.name || item.title || id,
+            url: item.streamURL || item.url || item.streamUrl || item.stream || "",
+            bitrate: item.bitrate || 0,
+            tags: item.tags || ["custom"],
+            addedAt: item.addedAt || new Date().toISOString(),
+          };
+        }
+        normalized[gid] = obj;
+      } else if (val && typeof val === "object") {
+        normalized[gid] = val;
+      }
+    }
+
+    fs.writeFileSync(customFile, JSON.stringify(normalized, null, 2) + "\n", "utf-8");
   } catch (err) {
     console.error(`[OmniFM] Custom stations save error: ${err.message}`);
   }
@@ -113,13 +135,28 @@ function saveCustomData(data) {
 
 export function getCustomStations(serverId) {
   const data = loadCustomData();
-  const arr = data[String(serverId)];
-  if (!Array.isArray(arr)) return [];
-  return arr.map(s => ({
-    ...s,
-    requiredPlan: "ultimate",
-    tags: s.tags || ["custom"],
-  }));
+  const raw = data[String(serverId)];
+  if (!raw) return [];
+  // Support both array (legacy) and object map (canonical)
+  if (Array.isArray(raw)) {
+    return raw.map(s => ({
+      ...s,
+      requiredPlan: "ultimate",
+      tags: s.tags || ["custom"],
+    }));
+  }
+  if (typeof raw === "object") {
+    return Object.entries(raw).map(([key, s]) => ({
+      id: String(key),
+      name: s.name || s.title || key,
+      streamURL: s.streamURL || s.url || s.streamUrl || s.stream || "",
+      bitrate: s.bitrate || 0,
+      tags: s.tags || ["custom"],
+      requiredPlan: "ultimate",
+      addedAt: s.addedAt || null,
+    }));
+  }
+  return [];
 }
 
 export function addCustomStation(serverId, stationData) {
