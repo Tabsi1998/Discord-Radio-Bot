@@ -14,6 +14,11 @@ import {
 
 const nowPlayingCoverCache = new Map();
 const nowPlayingCoverInFlight = new Map();
+let globalNowPlayingQueue = null; // Will be set by runtime.js
+
+function setNowPlayingQueue(queue) {
+  globalNowPlayingQueue = queue;
+}
 
 function extractIcyField(metadataText, fieldName) {
   const escapedFieldName = String(fieldName || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -181,6 +186,14 @@ async function fetchCoverArtForTrack(artist, title) {
 
   const cacheKey = query.toLowerCase();
   const now = Date.now();
+
+  // Check shared queue cache first (accessed by multiple guilds)
+  if (globalNowPlayingQueue) {
+    const cached = globalNowPlayingQueue.getCachedCover(cacheKey);
+    if (cached) return cached;
+  }
+
+  // Check local cache
   const cached = nowPlayingCoverCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.url || null;
 
@@ -199,6 +212,10 @@ async function fetchCoverArtForTrack(artist, title) {
           url: artworkUrl,
           expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
         });
+        // Also store in shared queue cache
+        if (globalNowPlayingQueue) {
+          globalNowPlayingQueue.setCachedCover(cacheKey, artworkUrl, NOW_PLAYING_COVER_CACHE_TTL_MS);
+        }
         return artworkUrl;
       }
       
@@ -210,6 +227,9 @@ async function fetchCoverArtForTrack(artist, title) {
             url: artworkUrl,
             expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
           });
+          if (globalNowPlayingQueue) {
+            globalNowPlayingQueue.setCachedCover(cacheKey, artworkUrl, NOW_PLAYING_COVER_CACHE_TTL_MS);
+          }
           return artworkUrl;
         }
       }
@@ -222,6 +242,9 @@ async function fetchCoverArtForTrack(artist, title) {
             url: artworkUrl,
             expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
           });
+          if (globalNowPlayingQueue) {
+            globalNowPlayingQueue.setCachedCover(cacheKey, artworkUrl, NOW_PLAYING_COVER_CACHE_TTL_MS);
+          }
           return artworkUrl;
         }
       }
@@ -234,6 +257,9 @@ async function fetchCoverArtForTrack(artist, title) {
       url: null,
       expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
     });
+    if (globalNowPlayingQueue) {
+      globalNowPlayingQueue.setCachedCover(cacheKey, null, NOW_PLAYING_COVER_CACHE_TTL_MS);
+    }
     return null;
   })().finally(() => {
     nowPlayingCoverInFlight.delete(cacheKey);
@@ -362,4 +388,5 @@ export {
   fetchStreamSnapshot,
   fetchStreamInfo,
   nowPlayingCoverCache,
+  setNowPlayingQueue,
 };

@@ -33,6 +33,7 @@ import {
 } from "@discordjs/voice";
 
 import { log } from "../lib/logging.js";
+import { NowPlayingQueue } from "../lib/now-playing-queue.js";
 import {
   TIERS,
   TIER_RANK,
@@ -97,6 +98,7 @@ import {
   fetchCoverArtForTrack,
   fetchStreamSnapshot,
   fetchStreamInfo,
+  setNowPlayingQueue,
 } from "../services/now-playing.js";
 import { createResource } from "../services/stream.js";
 import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier } from "../stations-store.js";
@@ -225,6 +227,8 @@ class BotRuntime {
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
     });
     this.guildState = new Map();
+    this.nowPlayingQueue = new NowPlayingQueue(5);
+    setNowPlayingQueue(this.nowPlayingQueue);
     this.startedAt = Date.now();
     this.readyAt = null;
     this.startError = null;
@@ -845,14 +849,30 @@ class BotRuntime {
     state.nowPlayingSignature = null;
     if (!NOW_PLAYING_ENABLED || !state.currentStationKey) return;
 
-    const update = () => {
-      this.updateNowPlayingEmbed(guildId, state).catch((err) => {
+    const taskId = `guild-${guildId}-nowplaying`;
+    const update = async () => {
+      try {
+        await this.updateNowPlayingEmbed(guildId, state);
+      } catch (err) {
         this.logNowPlayingIssue(guildId, state, clipText(err?.message || String(err), 200));
-      });
+      }
     };
 
-    update();
-    state.nowPlayingRefreshTimer = setInterval(update, NOW_PLAYING_POLL_MS);
+    // Enqueue first update immediately
+    this.nowPlayingQueue.enqueue(taskId, update);
+
+    // Schedule recurring updates with jitter to spread load
+    const scheduleNextUpdate = () => {
+      if (!state.currentStationKey) return; // Stop if station changed
+
+      const jitterMs = applyJitter(NOW_PLAYING_POLL_MS, 0.2); // ±20% jitter
+      state.nowPlayingRefreshTimer = setTimeout(() => {
+        this.nowPlayingQueue.enqueue(taskId, update);
+        scheduleNextUpdate(); // Reschedule next
+      }, jitterMs);
+    };
+
+    scheduleNextUpdate();
   }
 
   clearCurrentProcess(state) {
