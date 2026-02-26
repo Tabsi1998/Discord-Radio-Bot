@@ -21,7 +21,8 @@ export function buildCommandBuilders() {
     new SlashCommandBuilder().setName("resume").setDescription("Wiedergabe fortsetzen")
       .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
     new SlashCommandBuilder().setName("stop").setDescription("Stoppen und Channel verlassen")
-      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false)),
+      .addIntegerOption((o) => o.setName("bot").setDescription("Worker-Bot Nummer (optional)").setRequired(false))
+      .addBooleanOption((o) => o.setName("all").setDescription("Alle Worker stoppen (optional)").setRequired(false)),
     new SlashCommandBuilder().setName("stations").setDescription("Verfügbare Stationen für deinen Plan anzeigen"),
     new SlashCommandBuilder().setName("now").setDescription("Zeigt, was gerade läuft"),
     new SlashCommandBuilder()

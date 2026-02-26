@@ -3760,18 +3760,66 @@ class BotRuntime {
 
     if (interaction.commandName === "stop") {
       const requestedBot = interaction.options.getInteger("bot");
+      const stopAll = interaction.options.getBoolean("all");
+      
       if (this.role === "commander" && this.workerManager) {
-        const workers = requestedBot
-          ? [this.workerManager.getWorkerByIndex(requestedBot)].filter(Boolean)
-          : this.workerManager.getStreamingWorkers(interaction.guildId);
+        const guildId = interaction.guildId;
+        let workers = [];
+        
+        // Priorität 1: Explizit bot: Parameter
+        if (requestedBot) {
+          const worker = this.workerManager.getWorkerByIndex(requestedBot);
+          if (worker) workers = [worker];
+        }
+        // Priorität 2: all: true Parameter
+        else if (stopAll) {
+          workers = this.workerManager.getStreamingWorkers(guildId);
+        }
+        // Priorität 3: User im Voice-Channel → stoppe nur Worker in diesem Channel
+        else {
+          const guild = interaction.guild || this.client.guilds.cache.get(guildId);
+          const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+          const userChannelId = String(member?.voice?.channelId || "").trim();
+          
+          if (userChannelId) {
+            // User ist in Channel → stoppe nur Worker in diesem Channel
+            const allStreamingWorkers = this.workerManager.getStreamingWorkers(guildId);
+            const matchingWorkers = allStreamingWorkers.filter((worker) => {
+              const info = worker.getGuildInfo(guildId);
+              return String(info?.channelId || "").trim() === userChannelId;
+            });
+            workers = matchingWorkers.length > 0 ? matchingWorkers : allStreamingWorkers.slice(0, 1);
+          } else {
+            // User nicht im Channel → Error
+            await interaction.reply({
+              content: t(
+                "Du musst in einem Voice-Channel sein oder `/stop bot:<nummer>` / `/stop all:true` nutzen.",
+                "You must be in a voice channel or use `/stop bot:<number>` / `/stop all:true`."
+              ),
+              ephemeral: true
+            });
+            return;
+          }
+        }
+        
         if (workers.length === 0) {
           await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
           return;
         }
-        for (const w of workers) w.stopInGuild(interaction.guildId);
-        await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), ephemeral: true });
+        
+        for (const w of workers) w.stopInGuild(guildId);
+        const workerNames = workers.map(w => w.config?.name || "Worker").join(", ");
+        await interaction.reply({
+          content: t(
+            `Gestoppt: ${workerNames}`,
+            `Stopped: ${workerNames}`
+          ),
+          ephemeral: true
+        });
         return;
       }
+      
+      // Worker/Legacy Mode: lokaler Stop
       this.syncVoiceChannelStatus(interaction.guildId, "").catch(() => null);
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
