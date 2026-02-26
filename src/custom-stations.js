@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json");
 const CUSTOM_BACKUP_FILE = path.resolve(__dirname, "..", "custom-stations.json.bak");
-const MAX_STATIONS_PER_GUILD = 10;
+const MAX_STATIONS_PER_GUILD = 50;
 
 function readStationsFile(filePath) {
   if (!fs.existsSync(filePath)) return null;

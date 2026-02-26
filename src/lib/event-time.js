@@ -37,20 +37,43 @@ const EVENT_TIME_ZONE_ALIASES = Object.freeze({
 });
 
 const EVENT_TIME_ZONE_SUGGESTIONS = [
-  { label: "CET / MEZ (Europe/Berlin)", value: "Europe/Berlin" },
-  { label: "Europe/Vienna", value: "Europe/Vienna" },
-  { label: "Europe/Zurich", value: "Europe/Zurich" },
-  { label: "Europe/Paris", value: "Europe/Paris" },
-  { label: "Europe/London", value: "Europe/London" },
-  { label: "UTC", value: "UTC" },
-  { label: "America/New_York", value: "America/New_York" },
-  { label: "America/Chicago", value: "America/Chicago" },
-  { label: "America/Denver", value: "America/Denver" },
-  { label: "America/Los_Angeles", value: "America/Los_Angeles" },
-  { label: "America/Toronto", value: "America/Toronto" },
-  { label: "Asia/Tokyo", value: "Asia/Tokyo" },
-  { label: "Australia/Sydney", value: "Australia/Sydney" },
+  // Häufigste (Top 20) mit Emojis für bessere Lesbarkeit
+  { label: "🇩🇪 Europe/Berlin (CET)", value: "Europe/Berlin" },
+  { label: "🌍 UTC / GMT", value: "UTC" },
+  { label: "🇺🇸 America/New_York (EST)", value: "America/New_York" },
+  { label: "🇺🇸 America/Los_Angeles (PST)", value: "America/Los_Angeles" },
+  { label: "🇬🇧 Europe/London (GMT)", value: "Europe/London" },
+  { label: "🇦🇹 Europe/Vienna", value: "Europe/Vienna" },
+  { label: "🇨🇭 Europe/Zurich", value: "Europe/Zurich" },
+  { label: "🇫🇷 Europe/Paris", value: "Europe/Paris" },
+  { label: "🇮🇹 Europe/Rome", value: "Europe/Rome" },
+  { label: "🇪🇸 Europe/Madrid", value: "Europe/Madrid" },
+  { label: "🇸🇪 Europe/Stockholm", value: "Europe/Stockholm" },
+  { label: "🇨🇦 America/Toronto", value: "America/Toronto" },
+  { label: "🇺🇸 America/Chicago", value: "America/Chicago" },
+  { label: "🇲🇽 America/Mexico_City", value: "America/Mexico_City" },
+  { label: "🇧🇷 America/Sao_Paulo", value: "America/Sao_Paulo" },
+  { label: "🇦🇪 Asia/Dubai", value: "Asia/Dubai" },
+  { label: "🇮🇳 Asia/Kolkata", value: "Asia/Kolkata" },
+  { label: "🇹🇭 Asia/Bangkok", value: "Asia/Bangkok" },
+  { label: "🇨🇳 Asia/Shanghai", value: "Asia/Shanghai" },
+  { label: "🇯🇵 Asia/Tokyo", value: "Asia/Tokyo" },
+  { label: "🇦🇺 Australia/Sydney", value: "Australia/Sydney" },
 ];
+
+// Alle ~400 IANA Zeitzonen gruppiert nach Region (kostenlos via Intl API)
+function getGroupedTimeZones() {
+  const allZones = Intl.supportedValuesOf('timeZone');
+  const grouped = {};
+  
+  allZones.forEach(zone => {
+    const region = zone.split('/')[0]; // "Europe", "America", etc.
+    if (!grouped[region]) grouped[region] = [];
+    grouped[region].push(zone);
+  });
+  
+  return grouped;
+}
 
 function canonicalizeTimeZone(rawTimeZone) {
   const raw = String(rawTimeZone || "").trim();
@@ -380,6 +403,22 @@ function renderStageTopic(template, values) {
     .trim();
 }
 
+// Alle Zeitzonen gruppiert abrufen (für Advanced Users)
+function getAllTimeZonesGrouped() {
+  return getGroupedTimeZones();
+}
+
+// Validierung: Checkt ob Timezone korrekt ist
+function isValidTimeZone(tz) {
+  if (!tz || typeof tz !== 'string') return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export {
   REPEAT_MODES,
   MONTHLY_REPEAT_NTH,
@@ -405,4 +444,7 @@ export {
   computeNextEventRunAtMs,
   renderEventAnnouncement,
   renderStageTopic,
+  getGroupedTimeZones,
+  getAllTimeZonesGrouped,
+  isValidTimeZone,
 };
