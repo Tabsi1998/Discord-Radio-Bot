@@ -53,7 +53,7 @@ class NetworkRecoveryCoordinator {
     };
   }
 
-  getCooldownMs() {
+  getRecoveryDelayMs() {
     if (this.failureCount <= 0) return 0;
     const backoff = NETWORK_COOLDOWN_BASE_MS * Math.pow(1.6, Math.min(this.failureCount - 1, 10));
     return Math.min(NETWORK_COOLDOWN_MAX_MS, applyJitter(backoff, 0.25));
