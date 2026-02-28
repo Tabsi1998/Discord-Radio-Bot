@@ -95,11 +95,10 @@ import {
 } from "../lib/event-time.js";
 import { networkRecoveryCoordinator } from "../core/network-recovery.js";
 import {
-  parseTrackFromStreamTitle,
-  fetchCoverArtForTrack,
   fetchStreamSnapshot,
   fetchStreamInfo,
   setNowPlayingQueue,
+  normalizeTrackSearchText,
 } from "../services/now-playing.js";
 import { createResource } from "../services/stream.js";
 import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier } from "../stations-store.js";
@@ -246,6 +245,7 @@ class BotRuntime {
     this.startError = null;
     this.eventSchedulerTimer = null;
     this.voiceHealthTimer = null;
+    this.pendingVoiceReconcileTimers = new Map();
     this.scheduledEventInFlight = new Set();
     this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered(() => {
       this.handleNetworkRecovered();
@@ -418,6 +418,7 @@ class BotRuntime {
 
   resetGuildRuntimeState(guildId) {
     if (!guildId) return;
+    this.clearQueuedVoiceReconcile(guildId);
     const state = this.guildState.get(guildId);
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     if (state) {
@@ -730,9 +731,9 @@ class BotRuntime {
   }
 
   buildTrackSearchQuery(station, meta) {
-    const artist = this.normalizeNowPlayingValue(meta?.artist, station, meta, 100);
-    const title = this.normalizeNowPlayingValue(meta?.title, station, meta, 100);
-    const displayTitle = this.normalizeNowPlayingValue(meta?.displayTitle || meta?.streamTitle, station, meta, 180);
+    const artist = normalizeTrackSearchText(this.normalizeNowPlayingValue(meta?.artist, station, meta, 100));
+    const title = normalizeTrackSearchText(this.normalizeNowPlayingValue(meta?.title, station, meta, 120));
+    const displayTitle = normalizeTrackSearchText(this.normalizeNowPlayingValue(meta?.displayTitle || meta?.streamTitle, station, meta, 180));
     const query = artist && title ? `${artist} ${title}` : displayTitle;
     return clipText(query || "", 180) || null;
   }
@@ -744,11 +745,11 @@ class BotRuntime {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel("YouTube")
+        .setLabel("▶ YouTube")
         .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`),
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel("Spotify")
+        .setLabel("♫ Spotify")
         .setURL(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
     );
 
@@ -845,8 +846,8 @@ class BotRuntime {
       : t("Aktuell laeuft auf diesem Server kein Stream.", "No stream is currently running on this server.");
 
     const embed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(t("Listening-Stats", "Listening stats"))
+      .setColor(0x5865F2)
+      .setTitle(t("📊 Listening-Stats", "📊 Listening stats"))
       .setDescription(
         t(
           `Server: **${guild?.name || guildId}**\nLive-Zuhoerer jetzt: **${totalLiveListeners}**`,
@@ -855,36 +856,36 @@ class BotRuntime {
       )
       .addFields(
         {
-          name: t("Live gerade", "Live now"),
+          name: t("🎧 Live gerade", "🎧 Live now"),
           value: clipText(liveStationsText, 900),
           inline: false,
         },
         {
-          name: t("Meist gespielte Station", "Most played station"),
+          name: t("📻 Meist gespielte Station", "📻 Most played station"),
           value: topStationEntry
             ? `${clipText(topStationEntry[0], 100)} (${topStationEntry[1]})`
             : t("Noch keine Daten", "No data yet"),
           inline: true,
         },
         {
-          name: t("Peak-Zeit", "Peak time"),
+          name: t("⏰ Peak-Zeit", "⏰ Peak time"),
           value: topHourEntry && Number(topHourEntry[1]) > 0
             ? `${this.formatStatsHourBucket(topHourEntry[0], language)} (${topHourEntry[1]})`
             : t("Noch keine Daten", "No data yet"),
           inline: true,
         },
         {
-          name: t("Peak-Zuhoerer", "Peak listeners"),
+          name: t("🔥 Peak-Zuhoerer", "🔥 Peak listeners"),
           value: String(Number(stats?.peakListeners || 0)),
           inline: true,
         },
         {
-          name: t("Aktivste Voice-Channels", "Most active voice channels"),
+          name: t("🗣 Aktivste Voice-Channels", "🗣 Most active voice channels"),
           value: topChannels.length ? clipText(topChannels.join("\n"), 900) : t("Noch keine Daten", "No data yet"),
           inline: false,
         },
         {
-          name: t("Server gesamt", "Server totals"),
+          name: t("📈 Server gesamt", "Server totals"),
           value: t(
             `Starts: **${Number(stats?.totalStarts || 0)}**\nLetzter Start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`,
             `Starts: **${Number(stats?.totalStarts || 0)}**\nLast start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`
@@ -892,7 +893,7 @@ class BotRuntime {
           inline: true,
         },
         {
-          name: t("Top-Server global", "Top server global"),
+          name: t("🌍 Top-Server global", "Top server global"),
           value: topGuild
             ? `${clipText(topGuildName, 80)} (${topGuild.totalStarts} ${t("Starts", "starts")})`
             : t("Noch keine Daten", "No data yet"),
@@ -919,8 +920,8 @@ class BotRuntime {
 
     const latest = history[0] || null;
     const embed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(t("Song-History", "Song history"))
+      .setColor(0x3BA55D)
+      .setTitle(t("🕘 Song-History", "🕘 Song history"))
       .setDescription(clipText(lines.join("\n\n"), 3800))
       .setFooter({
         text: playbackRuntime
@@ -983,65 +984,86 @@ class BotRuntime {
     const isDe = language === "de";
     const tierConfig = getTierConfig(guildId);
     const stationName = clipText(station?.name || meta?.name || "-", 120) || "-";
-    const artist = this.normalizeNowPlayingValue(meta?.artist, station, meta, 120);
-    const title = this.normalizeNowPlayingValue(meta?.title, station, meta, 120);
+    const artist = clipText(this.normalizeNowPlayingValue(meta?.artist, station, meta, 120), 120);
+    const title = clipText(this.normalizeNowPlayingValue(meta?.title, station, meta, 140), 140);
     const trackLabel = clipText(
       this.normalizeNowPlayingValue(meta?.displayTitle || meta?.streamTitle, station, meta, 180)
       || ([artist, title].filter(Boolean).join(" - ")),
-      180
+      140
     );
+    const headline = clipText(title || trackLabel || "", 110) || trackLabel;
     const streamInfo = this.normalizeNowPlayingValue(meta?.description, station, meta, 240);
     const hasTrack = Boolean(trackLabel);
     const listenerCount = Math.max(0, Number.parseInt(String(context?.listenerCount || 0), 10) || 0);
     const voiceChannelId = String(context?.channelId || "").trim();
     const workerName = clipText(String(context?.workerName || this.config.name || BRAND.name), 60) || BRAND.name;
+    const metadataStatus = String(meta?.metadataStatus || (hasTrack ? "ok" : "empty")).trim().toLowerCase();
+    const metadataHint = hasTrack
+      ? null
+      : (metadataStatus === "unsupported"
+        ? (isDe
+          ? "Dieser Stream sendet aktuell keine auslesbaren Songdaten."
+          : "This stream is not sending readable track metadata right now.")
+        : (isDe
+          ? "Dieser Sender liefert aktuell keine verwertbaren Songdaten."
+          : "This station is not providing usable track metadata right now."));
     const embed = new EmbedBuilder()
-      .setColor(hasTrack ? 0x1DB954 : BRAND.color)
-      .setTitle(isDe ? "Jetzt live" : "Live now")
+      .setColor(hasTrack ? 0x1DB954 : 0xF1C40F)
+      .setTitle(isDe ? "🎵 Jetzt live" : "🎵 Live now")
       .setDescription(
         hasTrack
-          ? `**${trackLabel}**`
-          : (isDe
-            ? "Der Radiosender liefert gerade keine sauberen Song-Metadaten."
-            : "The radio station is not providing clean song metadata right now.")
+          ? `**${headline}**`
+          : `⚠️ ${metadataHint}`
       )
       .addFields(
         {
-          name: isDe ? "Sender" : "Station",
+          name: isDe ? "📻 Sender" : "📻 Station",
           value: stationName,
           inline: true,
         },
         {
-          name: isDe ? "Qualitaet" : "Quality",
+          name: isDe ? "🔊 Qualitaet" : "🔊 Quality",
           value: tierConfig.bitrate || "-",
           inline: true,
         },
         {
-          name: isDe ? "Zuhoerer" : "Listeners",
+          name: isDe ? "👥 Zuhoerer" : "👥 Listeners",
           value: String(listenerCount),
           inline: true,
         },
         {
-          name: isDe ? "Voice" : "Voice",
+          name: isDe ? "🎙 Voice" : "🎙 Voice",
           value: voiceChannelId ? `<#${voiceChannelId}>` : (isDe ? "unbekannt" : "unknown"),
           inline: true,
         }
       )
+      .setAuthor({
+        name: `${workerName} • ${BRAND.name}`,
+      })
       .setFooter({
         text: isDe
-          ? `${workerName} | Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`
-          : `${workerName} | Auto update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`,
+          ? `↻ Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`
+          : `↻ Auto update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`,
       })
       .setTimestamp(new Date(meta?.updatedAt || Date.now()));
 
     if (artist) {
-      embed.addFields({ name: isDe ? "Artist" : "Artist", value: artist, inline: true });
+      embed.addFields({ name: isDe ? "🎤 Artist" : "🎤 Artist", value: artist, inline: true });
     }
     if (title) {
-      embed.addFields({ name: isDe ? "Titel" : "Title", value: title, inline: true });
+      embed.addFields({ name: isDe ? "📝 Titel" : "📝 Title", value: title, inline: true });
     }
     if (streamInfo) {
-      embed.addFields({ name: isDe ? "Stream-Info" : "Stream info", value: streamInfo, inline: false });
+      embed.addFields({ name: isDe ? "ℹ Stream-Info" : "ℹ Stream info", value: streamInfo, inline: false });
+    }
+    if (!hasTrack) {
+      embed.addFields({
+        name: isDe ? "🧭 Hinweis" : "🧭 Note",
+        value: isDe
+          ? "Der Stream laeuft normal weiter. Sobald der Radiosender wieder Metadaten liefert, aktualisiert OmniFM die Einbettung automatisch."
+          : "The stream continues normally. As soon as the station sends metadata again, OmniFM updates the embed automatically.",
+        inline: false,
+      });
     }
     if (meta?.artworkUrl) {
       embed.setThumbnail(meta.artworkUrl);
@@ -1167,6 +1189,10 @@ class BotRuntime {
         title: title || (keepPreviousTrack ? previousMeta.title || null : null),
         displayTitle: displayTitle || (keepPreviousTrack ? previousMeta.displayTitle || null : null),
         artworkUrl: snapshot.artworkUrl || ((keepPreviousTrack || sameTrackAsPrevious) ? previousMeta.artworkUrl || null : null),
+        metadataSource: snapshot.metadataSource || previousMeta.metadataSource || null,
+        metadataStatus: hasFreshTrack
+          ? (snapshot.metadataStatus || "ok")
+          : (keepPreviousTrack ? previousMeta.metadataStatus || "ok" : (snapshot.metadataStatus || "empty")),
         updatedAt: new Date().toISOString(),
         trackDetectedAtMs: hasFreshTrack
           ? Date.now()
@@ -1181,6 +1207,9 @@ class BotRuntime {
         nextMeta.artist || "",
         nextMeta.title || "",
         nextMeta.artworkUrl || "",
+        nextMeta.metadataStatus || "",
+        state.connection?.joinConfig?.channelId || state.lastChannelId || "",
+        this.getCurrentListenerCount(guildId, state),
       ].join("|").toLowerCase();
 
       if (!force && signature === state.nowPlayingSignature) {
@@ -1448,6 +1477,8 @@ class BotRuntime {
             title: title || prevMeta.title || null,
             displayTitle: displayTitle || prevMeta.displayTitle || null,
             artworkUrl: prevMeta.artworkUrl || null,
+            metadataSource: meta.metadataSource || prevMeta.metadataSource || null,
+            metadataStatus: hasTrack ? (meta.metadataStatus || "ok") : (meta.metadataStatus || prevMeta.metadataStatus || "empty"),
             updatedAt: new Date().toISOString(),
             trackDetectedAtMs: hasTrack ? Date.now() : (Number.parseInt(String(prevMeta.trackDetectedAtMs || 0), 10) || 0),
           };
@@ -1698,7 +1729,12 @@ class BotRuntime {
     // Bot hat Channel gewechselt oder ist einem beigetreten
     if (newChannelId) {
       state.lastChannelId = newChannelId;
+      if (state.reconnectTimer) {
+        this.clearReconnectTimer(state);
+        state.reconnectAttempts = 0;
+      }
       this.persistState();
+      this.queueVoiceStateReconcile(guildId, "voice-state-update", 1500);
       return;
     }
 
@@ -1730,6 +1766,7 @@ class BotRuntime {
 
   resetVoiceSession(guildId, state, { preservePlaybackTarget = false, clearLastChannel = false } = {}) {
     if (!state) return;
+    this.clearQueuedVoiceReconcile(guildId);
 
     if (state.connection) {
       try { state.connection.destroy(); } catch {}
@@ -1763,6 +1800,47 @@ class BotRuntime {
     this.persistState();
   }
 
+  clearQueuedVoiceReconcile(guildId) {
+    const key = String(guildId || "").trim();
+    const timer = this.pendingVoiceReconcileTimers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingVoiceReconcileTimers.delete(key);
+    }
+  }
+
+  queueVoiceStateReconcile(guildId, reason = "queued", delayMs = 1200) {
+    const key = String(guildId || "").trim();
+    if (!key) return;
+    this.clearQueuedVoiceReconcile(key);
+    const timer = setTimeout(() => {
+      this.pendingVoiceReconcileTimers.delete(key);
+      this.reconcileGuildVoiceState(key, { reason }).catch((err) => {
+        log("WARN", `[${this.config.name}] Voice-State-Reconcile (${reason}) fehlgeschlagen guild=${key}: ${err?.message || err}`);
+      });
+    }, Math.max(0, delayMs));
+    if (typeof timer?.unref === "function") {
+      timer.unref();
+    }
+    this.pendingVoiceReconcileTimers.set(key, timer);
+  }
+
+  async confirmBotVoiceChannel(guildId, expectedChannelId, { timeoutMs = 10_000, intervalMs = 800 } = {}) {
+    const normalizedGuildId = String(guildId || "").trim();
+    const normalizedChannelId = String(expectedChannelId || "").trim();
+    if (!normalizedGuildId || !normalizedChannelId) return false;
+
+    const startedAt = Date.now();
+    while ((Date.now() - startedAt) <= Math.max(intervalMs, timeoutMs)) {
+      const { channelId } = await this.fetchBotVoiceState(normalizedGuildId);
+      if (String(channelId || "").trim() === normalizedChannelId) {
+        return true;
+      }
+      await waitMs(intervalMs);
+    }
+    return false;
+  }
+
   async fetchBotVoiceState(guildId) {
     const guild = this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
     if (!guild) return { guild: null, voiceState: null, channelId: null };
@@ -1792,6 +1870,9 @@ class BotRuntime {
     if (!actualChannelId) {
       const shouldReconnect = Boolean(state.shouldReconnect && state.currentStationKey && state.lastChannelId);
       if (!state.connection && !state.currentProcess && !shouldReconnect) return;
+      if (!state.connection && shouldReconnect && state.reconnectTimer) {
+        return;
+      }
 
       log(
         "WARN",
@@ -1822,11 +1903,12 @@ class BotRuntime {
     }
 
     if (!state.connection && state.currentStationKey && state.lastChannelId) {
+      if (state.reconnectTimer) return;
       this.scheduleReconnect(guildId, { resetAttempts: true, reason: `voice-no-local-connection-${reason}` });
       return;
     }
 
-    if (state.currentStationKey && state.player.state.status === AudioPlayerStatus.Idle && !state.streamRestartTimer) {
+    if (state.currentStationKey && state.player.state.status === AudioPlayerStatus.Idle && !state.streamRestartTimer && !state.reconnectTimer) {
       this.scheduleStreamRestart(guildId, state, 750, `voice-health-${reason}`);
     }
   }
@@ -1859,6 +1941,9 @@ class BotRuntime {
     if (this.voiceHealthTimer) {
       clearInterval(this.voiceHealthTimer);
       this.voiceHealthTimer = null;
+    }
+    for (const guildId of this.pendingVoiceReconcileTimers.keys()) {
+      this.clearQueuedVoiceReconcile(guildId);
     }
   }
 
@@ -2512,7 +2597,7 @@ class BotRuntime {
 
     const headerEmbed = new EmbedBuilder()
       .setColor(BRAND.color)
-      .setTitle(isDe ? `${BRAND.name} Hilfe` : `${BRAND.name} Help`)
+      .setTitle(isDe ? `🧭 ${BRAND.name} Hilfe` : `🧭 ${BRAND.name} Help`)
       .setDescription(
         isDe
           ? `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker-Slots: **${tierConfig.maxBots}**`
@@ -2537,7 +2622,7 @@ class BotRuntime {
 
     const playbackEmbed = new EmbedBuilder()
       .setColor(BRAND.color)
-      .setTitle(isDe ? "Wiedergabe & Live" : "Playback & Live")
+      .setTitle(isDe ? "🎧 Wiedergabe & Live" : "🎧 Playback & Live")
       .addFields(
         {
           name: "/play /pause /resume /stop",
@@ -2564,7 +2649,7 @@ class BotRuntime {
 
     const automationEmbed = new EmbedBuilder()
       .setColor(BRAND.color)
-      .setTitle(isDe ? "Events & Automationen" : "Events & Automation")
+      .setTitle(isDe ? "🗓 Events & Automationen" : "🗓 Events & Automation")
       .addFields(
         {
           name: "/event create|edit|list|delete",
@@ -2591,7 +2676,7 @@ class BotRuntime {
 
     const adminEmbed = new EmbedBuilder()
       .setColor(tierConfig.tier === "ultimate" ? BRAND.ultimateColor : BRAND.proColor)
-      .setTitle(isDe ? "Admin & Premium" : "Admin & Premium")
+      .setTitle(isDe ? "🛠 Admin & Premium" : "🛠 Admin & Premium")
       .addFields(
         {
           name: "/invite /workers /perm",
@@ -3469,6 +3554,7 @@ class BotRuntime {
         if (channel.type === ChannelType.GuildStageVoice) {
           await this.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
         }
+        this.queueVoiceStateReconcile(guildId, "voice-existing", 900);
         return { connection: state.connection, guild, channel };
       }
 
@@ -3496,6 +3582,12 @@ class BotRuntime {
       throw new Error("Voice-Verbindung konnte nicht hergestellt werden.");
     }
 
+    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
+    if (!joinedVoiceState) {
+      try { connection.destroy(); } catch {}
+      throw new Error("Voice-Verbindung ist nicht stabil genug.");
+    }
+
     connection.subscribe(state.player);
     state.connection = connection;
     state.reconnectAttempts = 0;
@@ -3508,6 +3600,8 @@ class BotRuntime {
     if (channel.type === ChannelType.GuildStageVoice) {
       await this.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
     }
+
+    this.queueVoiceStateReconcile(guildId, "voice-ensure", 1200);
 
     return { connection, guild, channel };
   }
@@ -4421,6 +4515,7 @@ class BotRuntime {
         if (channel.type === ChannelType.GuildStageVoice) {
           await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
         }
+        this.queueVoiceStateReconcile(guildId, "voice-existing", 900);
         return { connection: state.connection, error: null };
       }
 
@@ -4447,6 +4542,12 @@ class BotRuntime {
       return sendError(t("Konnte dem Voice-Channel nicht beitreten.", "Could not join the voice channel."));
     }
 
+    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
+    if (!joinedVoiceState) {
+      try { connection.destroy(); } catch {}
+      return sendError(t("Voice-Verbindung war instabil. Bitte erneut versuchen.", "Voice connection was unstable. Please try again."));
+    }
+
     connection.subscribe(state.player);
     state.connection = connection;
     state.reconnectAttempts = 0;
@@ -4458,6 +4559,7 @@ class BotRuntime {
     if (channel.type === ChannelType.GuildStageVoice) {
       await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
     }
+    this.queueVoiceStateReconcile(guildId, "voice-joined", 1200);
     return { connection, error: null };
   }
 
@@ -4479,10 +4581,25 @@ class BotRuntime {
     }
 
     const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) return;
+    if (!guild) {
+      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+      return;
+    }
 
     const channel = await guild.channels.fetch(state.lastChannelId).catch(() => null);
-    if (!channel || !channel.isVoiceBased()) return;
+    if (!channel || !channel.isVoiceBased()) {
+      log("WARN", `[${this.config.name}] Reconnect abgebrochen: Voice-Channel fehlt guild=${guildId} channel=${state.lastChannelId || "-"}`);
+      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+      return;
+    }
+
+    const me = await this.resolveBotMember(guild);
+    const perms = me ? channel.permissionsFor(me) : null;
+    if (!me || !perms?.has(PermissionFlagsBits.Connect) || (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak))) {
+      log("WARN", `[${this.config.name}] Reconnect abgebrochen: Rechte fehlen guild=${guildId} channel=${channel.id}`);
+      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+      return;
+    }
 
     if (state.connection) {
       try { state.connection.destroy(); } catch {}
@@ -4506,6 +4623,13 @@ class BotRuntime {
       return;
     }
 
+    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
+    if (!joinedVoiceState) {
+      networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-ghost`, `guild=${guildId}`);
+      try { connection.destroy(); } catch {}
+      return;
+    }
+
     connection.subscribe(state.player);
     state.connection = connection;
     state.reconnectAttempts = 0;
@@ -4516,6 +4640,7 @@ class BotRuntime {
     if (channel.type === ChannelType.GuildStageVoice) {
       await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
     }
+    this.queueVoiceStateReconcile(guildId, "voice-rejoin", 1200);
 
     // Always restart station on reconnect (stream is stale after disconnect)
     if (state.currentStationKey) {

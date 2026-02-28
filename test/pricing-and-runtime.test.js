@@ -10,7 +10,11 @@ import {
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
-import { parseTrackFromStreamTitle } from "../src/services/now-playing.js";
+import {
+  parseTrackFromStreamTitle,
+  extractTrackFromMetadataText,
+  normalizeTrackSearchText,
+} from "../src/services/now-playing.js";
 
 test("seat pricing stays aligned with documented bundle totals", () => {
   assert.deepEqual(seatPricingInEuro("pro"), {
@@ -160,6 +164,20 @@ test("track parsing removes common prefixes and dash variants", () => {
   assert.equal(parsed.artist, "Artist");
   assert.equal(parsed.title, "Song Title");
   assert.equal(parsed.displayTitle, "Artist - Song Title");
+});
+
+test("metadata parser falls back to artist/title fields when StreamTitle is missing", () => {
+  const parsed = extractTrackFromMetadataText("artist='Don Diablo';title='The Rhythm Of The Night';");
+
+  assert.equal(parsed.artist, "Don Diablo");
+  assert.equal(parsed.title, "The Rhythm Of The Night");
+  assert.equal(parsed.displayTitle, "Don Diablo - The Rhythm Of The Night");
+});
+
+test("track search text removes broadcast noise for better cover lookup", () => {
+  const cleaned = normalizeTrackSearchText("Metro (Played by Mau P Freedom TML 24)");
+
+  assert.equal(cleaned, "Metro");
 });
 
 test("event time parser accepts screenshot-style YYYY-DD-MM input", () => {

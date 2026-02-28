@@ -1,7 +1,6 @@
 // ============================================================
 // OmniFM: Now-Playing / ICY Metadata / Album Cover
 // ============================================================
-import { log } from "../lib/logging.js";
 import {
   clipText,
   concatUint8Arrays,
@@ -23,6 +22,14 @@ const TRACK_PREFIX_PATTERNS = [
   /^on air\s*[:|\-]+\s*/i,
   /^playing\s*[:|\-]+\s*/i,
   /^np\s*[:|\-]+\s*/i,
+];
+const METADATA_TRACK_FIELDS = ["streamtitle", "title", "song", "track", "trackname"];
+const METADATA_ARTIST_FIELDS = ["artist", "streamartist", "creator"];
+const METADATA_TITLE_FIELDS = ["title", "song", "track", "trackname", "streamtitle"];
+const SEARCH_NOISE_PATTERNS = [
+  /\((?:played by|mix(?:ed)? by|live (?:at|from)|freedom tml|radio edit|clean edit|explicit edit).*?\)/gi,
+  /\[(?:played by|mix(?:ed)? by|live (?:at|from)|radio edit|clean edit|explicit edit).*?\]/gi,
+  /\s+-\s+played by .*$/gi,
 ];
 
 function setNowPlayingQueue(queue) {
@@ -83,6 +90,64 @@ function parseTrackFromStreamTitle(rawTitle) {
     artist: null,
     title: cleaned,
     displayTitle: cleaned,
+  };
+}
+
+function normalizeTrackSearchText(raw) {
+  let text = normalizeTrackText(raw);
+  if (!text) return null;
+
+  for (const pattern of SEARCH_NOISE_PATTERNS) {
+    text = text.replace(pattern, " ").trim();
+  }
+
+  text = text.replace(/\s{2,}/g, " ").trim();
+  return text ? clipText(text, 160) : null;
+}
+
+function extractMetadataEntries(metadataText) {
+  const entries = new Map();
+  const regex = /([A-Za-z0-9_-]+)\s*=\s*'([^']*)'/g;
+  const text = String(metadataText || "");
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const key = String(match[1] || "").trim().toLowerCase();
+    const value = String(match[2] || "").trim();
+    if (!key || !value || entries.has(key)) continue;
+    entries.set(key, value);
+  }
+  return entries;
+}
+
+function pickMetadataValue(entries, fieldNames = []) {
+  for (const fieldName of fieldNames) {
+    const rawValue = entries.get(String(fieldName || "").trim().toLowerCase());
+    const normalized = normalizeTrackText(rawValue);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function extractTrackFromMetadataText(metadataText) {
+  const entries = extractMetadataEntries(metadataText);
+  const streamTitleRaw = pickMetadataValue(entries, METADATA_TRACK_FIELDS);
+  const parsedStreamTitle = parseTrackFromStreamTitle(streamTitleRaw);
+  const artist = parsedStreamTitle.artist || pickMetadataValue(entries, METADATA_ARTIST_FIELDS);
+  const title = parsedStreamTitle.title || pickMetadataValue(entries, METADATA_TITLE_FIELDS);
+  const combinedDisplayTitle = normalizeTrackText([artist, title].filter(Boolean).join(" - "));
+  const displayTitle = (artist && title && !parsedStreamTitle.artist)
+    ? combinedDisplayTitle
+    : parsedStreamTitle.displayTitle
+    || combinedDisplayTitle
+    || title
+    || artist
+    || null;
+
+  return {
+    raw: parsedStreamTitle.raw || streamTitleRaw || displayTitle || null,
+    artist: artist || null,
+    title: title || null,
+    displayTitle: displayTitle || null,
   };
 }
 
@@ -209,12 +274,15 @@ async function fetchCoverArtFromDiscogs(artist, title) {
 async function fetchCoverArtForTrack(artist, title) {
   if (!NOW_PLAYING_COVER_ENABLED) return null;
 
-  const artistPart = normalizeTrackText(artist);
-  const titlePart = normalizeTrackText(title);
-  const query = clipText([artistPart, titlePart].filter(Boolean).join(" "), 180);
-  if (!query || query.length < 3) return null;
+  const artistPart = normalizeTrackSearchText(artist);
+  const titlePart = normalizeTrackSearchText(title);
+  const queries = [
+    clipText([artistPart, titlePart].filter(Boolean).join(" "), 180),
+    clipText(titlePart || "", 180),
+  ].filter((value, index, items) => value && value.length >= 3 && items.indexOf(value) === index);
+  if (!queries.length) return null;
 
-  const cacheKey = query.toLowerCase();
+  const cacheKey = queries[0].toLowerCase();
   const now = Date.now();
 
   // Check shared queue cache first (accessed by multiple guilds)
@@ -236,13 +304,13 @@ async function fetchCoverArtForTrack(artist, title) {
     
     try {
       // Versuch 1: iTunes (schnell & populär)
-      artworkUrl = await fetchCoverArtFromItunes(query);
-      if (artworkUrl) {
+      for (const query of queries) {
+        artworkUrl = await fetchCoverArtFromItunes(query);
+        if (!artworkUrl) continue;
         nowPlayingCoverCache.set(cacheKey, {
           url: artworkUrl,
           expiresAt: now + NOW_PLAYING_COVER_CACHE_TTL_MS,
         });
-        // Also store in shared queue cache
         if (globalNowPlayingQueue) {
           globalNowPlayingQueue.setCachedCover(cacheKey, artworkUrl, NOW_PLAYING_COVER_CACHE_TTL_MS);
         }
@@ -308,6 +376,8 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
     title: null,
     displayTitle: null,
     artworkUrl: null,
+    metadataSource: null,
+    metadataStatus: "unavailable",
   };
 
   let res = null;
@@ -332,6 +402,8 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
 
     const metaint = Number.parseInt(String(res.headers.get("icy-metaint") || "").trim(), 10);
     if (!res.body || !Number.isFinite(metaint) || metaint <= 0 || metaint > NOW_PLAYING_MAX_METAINT_BYTES) {
+      snapshot.metadataSource = "stream";
+      snapshot.metadataStatus = "unsupported";
       return snapshot;
     }
 
@@ -349,34 +421,45 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
       return true;
     };
 
-    if (!(await readAtLeast(metaint + 1))) {
-      return snapshot;
+    let track = null;
+    for (let metadataBlock = 0; metadataBlock < 4; metadataBlock += 1) {
+      if (!(await readAtLeast(metaint + 1))) {
+        break;
+      }
+
+      buffer = buffer.slice(metaint);
+      const metadataLength = (buffer[0] || 0) * 16;
+      buffer = buffer.slice(1);
+      if (metadataLength <= 0) {
+        continue;
+      }
+
+      if (!(await readAtLeast(metadataLength))) {
+        break;
+      }
+
+      const metadataChunk = buffer.slice(0, metadataLength);
+      buffer = buffer.slice(metadataLength);
+      const metadataText = new TextDecoder("utf-8")
+        .decode(metadataChunk)
+        .replace(/\u0000+/g, "")
+        .trim();
+      const extractedTrack = extractTrackFromMetadataText(metadataText);
+      if (extractedTrack.displayTitle || extractedTrack.artist || extractedTrack.title) {
+        track = extractedTrack;
+        break;
+      }
     }
 
-    buffer = buffer.slice(metaint);
-    const metadataLength = (buffer[0] || 0) * 16;
-    buffer = buffer.slice(1);
-    if (metadataLength <= 0) {
-      return snapshot;
-    }
+    snapshot.metadataSource = "icy";
+    snapshot.metadataStatus = track ? "ok" : "empty";
+    snapshot.streamTitle = track?.raw || null;
+    snapshot.artist = track?.artist || null;
+    snapshot.title = track?.title || null;
+    snapshot.displayTitle = track?.displayTitle || null;
 
-    if (!(await readAtLeast(metadataLength))) {
-      return snapshot;
-    }
-
-    const metadataChunk = buffer.slice(0, metadataLength);
-    const metadataText = new TextDecoder("utf-8")
-      .decode(metadataChunk)
-      .replace(/\u0000+/g, "")
-      .trim();
-    const track = parseTrackFromStreamTitle(extractIcyField(metadataText, "StreamTitle"));
-    snapshot.streamTitle = track.raw;
-    snapshot.artist = track.artist;
-    snapshot.title = track.title;
-    snapshot.displayTitle = track.displayTitle;
-
-    if (includeCover && track.displayTitle) {
-      snapshot.artworkUrl = await fetchCoverArtForTrack(track.artist, track.title || track.displayTitle);
+    if (includeCover && (track?.displayTitle || track?.title)) {
+      snapshot.artworkUrl = await fetchCoverArtForTrack(track?.artist, track?.title || track?.displayTitle);
     }
 
     return snapshot;
@@ -406,13 +489,18 @@ async function fetchStreamInfo(url) {
     title: snapshot.title,
     displayTitle: snapshot.displayTitle,
     artworkUrl: null,
+    metadataSource: snapshot.metadataSource,
+    metadataStatus: snapshot.metadataStatus,
     updatedAt: new Date().toISOString(),
   };
 }
 
 export {
   extractIcyField,
+  extractMetadataEntries,
+  extractTrackFromMetadataText,
   normalizeTrackText,
+  normalizeTrackSearchText,
   parseTrackFromStreamTitle,
   fetchCoverArtForTrack,
   fetchStreamSnapshot,
