@@ -8,6 +8,7 @@ import Commands from './components/Commands';
 import Premium from './components/Premium';
 import StatsFooter from './components/StatsFooter';
 import Navbar from './components/Navbar';
+import { I18nProvider } from './i18n';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
@@ -38,7 +39,7 @@ async function fetchJson(path, signal) {
   return data || {};
 }
 
-function App() {
+function AppContent() {
   const [bots, setBots] = useState([]);
   const [stations, setStations] = useState([]);
   const [stats, setStats] = useState({});
@@ -147,6 +148,14 @@ function App() {
       <Premium />
       <StatsFooter stats={stats} />
     </div>
+  );
+}
+
+function App() {
+  return (
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
   );
 }
 

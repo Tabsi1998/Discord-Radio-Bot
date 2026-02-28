@@ -1,41 +1,49 @@
-import React, { useState } from "react";
-import { Terminal, Shield, Zap, Crown, ChevronDown, ChevronUp } from "lucide-react";
+import React, { useMemo, useState } from 'react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Crown,
+  Shield,
+  Terminal,
+  Zap,
+} from 'lucide-react';
+import { useI18n } from '../i18n';
 
 const COMMAND_TIERS = {
   free: {
-    label: "Free",
-    color: "#39FF14",
+    label: 'Free',
+    color: '#39FF14',
     icon: Shield,
-    commands: ["help", "play", "pause", "resume", "stop", "stations", "list", "setvolume", "status", "health", "diag", "premium", "language", "license", "invite", "workers"],
+    commands: ['help', 'play', 'pause', 'resume', 'stop', 'stations', 'list', 'setvolume', 'status', 'health', 'diag', 'premium', 'language', 'license', 'invite', 'workers', 'stats'],
   },
   pro: {
-    label: "Pro",
-    color: "#FFB800",
+    label: 'Pro',
+    color: '#FFB800',
     icon: Zap,
-    commands: ["now", "history", "event", "perm"],
+    commands: ['now', 'history', 'event', 'perm'],
   },
   ultimate: {
-    label: "Ultimate",
-    color: "#BD00FF",
+    label: 'Ultimate',
+    color: '#BD00FF',
     icon: Crown,
-    commands: ["addstation", "removestation", "mystations"],
+    commands: ['addstation', 'removestation', 'mystations'],
   },
 };
 
 function classifyCommand(command) {
-  const tierFromApi = String(command?.tier || "").toLowerCase();
+  const tierFromApi = String(command?.tier || '').toLowerCase();
   if (tierFromApi && COMMAND_TIERS[tierFromApi]) return tierFromApi;
 
-  const name = String(command?.name || command || "").replace(/^\//, "").toLowerCase();
-  for (const [tier, cfg] of Object.entries(COMMAND_TIERS)) {
-    if (cfg.commands.includes(name)) return tier;
+  const name = String(command?.name || command || '').replace(/^\//, '').toLowerCase();
+  for (const [tier, config] of Object.entries(COMMAND_TIERS)) {
+    if (config.commands.includes(name)) return tier;
   }
-  return "free";
+  return 'free';
 }
 
-function TierColumn({ tier, config, commands, expanded, onToggle }) {
+function TierColumn({ tier, config, commands, expanded, onToggle, countLabel, translateCommandDescription }) {
   const Icon = config.icon;
-  const tierCommands = commands.filter((cmd) => classifyCommand(cmd) === tier);
+  const tierCommands = commands.filter((command) => classifyCommand(command) === tier);
   const isCollapsed = !expanded;
 
   return (
@@ -48,38 +56,47 @@ function TierColumn({ tier, config, commands, expanded, onToggle }) {
         borderRadius: 16,
         border: `1px solid ${config.color}20`,
         background: `${config.color}04`,
-        overflow: "hidden",
+        overflow: 'hidden',
       }}
     >
       <div
         onClick={onToggle}
         style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "16px 20px",
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 20px',
           background: `${config.color}08`,
           borderBottom: `1px solid ${config.color}15`,
-          cursor: "pointer",
-          userSelect: "none",
+          cursor: 'pointer',
+          userSelect: 'none',
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
-            width: 36, height: 36, borderRadius: 10,
+            width: 36,
+            height: 36,
+            borderRadius: 10,
             background: `${config.color}12`,
             border: `1px solid ${config.color}30`,
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}>
             <Icon size={18} color={config.color} />
           </div>
           <div>
             <div style={{
-              fontFamily: "'Orbitron', sans-serif", fontSize: 13, fontWeight: 700,
-              color: config.color, letterSpacing: "0.08em",
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 13,
+              fontWeight: 700,
+              color: config.color,
+              letterSpacing: '0.08em',
             }}>
               {config.label}
             </div>
-            <div style={{ fontSize: 11, color: "#52525B", fontWeight: 600 }}>
-              {tierCommands.length} Commands
+            <div style={{ fontSize: 11, color: '#52525B', fontWeight: 600 }}>
+              {countLabel({ count: tierCommands.length })}
             </div>
           </div>
         </div>
@@ -87,41 +104,47 @@ function TierColumn({ tier, config, commands, expanded, onToggle }) {
       </div>
 
       {!isCollapsed && (
-        <div style={{ padding: "8px 0" }}>
-          {tierCommands.map((cmd, i) => (
+        <div style={{ padding: '8px 0' }}>
+          {tierCommands.map((command, index) => (
             <div
-              key={`${cmd.name}-${i}`}
-              data-testid={`command-${tier}-${i}`}
+              key={`${command.name}-${index}`}
+              data-testid={`command-${tier}-${index}`}
               style={{
-                padding: "10px 20px",
-                transition: "background 0.15s",
+                padding: '10px 20px',
+                transition: 'background 0.15s',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = `${config.color}06`; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.background = `${config.color}06`;
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.background = 'transparent';
+              }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                 <span style={{
                   fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 13, fontWeight: 600, color: config.color,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: config.color,
                 }}>
-                  {cmd.name}
+                  {command.name}
                 </span>
-                {cmd.args && (
+                {command.args && (
                   <span
                     style={{
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: 11,
-                      color: "#52525B",
-                      overflowWrap: "anywhere",
-                      wordBreak: "break-word",
+                      color: '#52525B',
+                      overflowWrap: 'anywhere',
+                      wordBreak: 'break-word',
                     }}
                   >
-                    {cmd.args}
+                    {command.args}
                   </span>
                 )}
               </div>
-              <p style={{ fontSize: 13, color: "#A1A1AA", lineHeight: 1.5, margin: 0 }}>
-                {cmd.description}
+              <p style={{ fontSize: 13, color: '#A1A1AA', lineHeight: 1.5, margin: 0 }}>
+                {translateCommandDescription(command.name, command.description)}
               </p>
             </div>
           ))}
@@ -132,59 +155,72 @@ function TierColumn({ tier, config, commands, expanded, onToggle }) {
 }
 
 function Commands({ commands, loading }) {
+  const { copy, translateCommandDescription } = useI18n();
   const items = Array.isArray(commands) ? commands : [];
   const [expanded, setExpanded] = useState({ free: true, pro: true, ultimate: true });
 
+  const tierConfigs = useMemo(() => ({
+    free: { ...COMMAND_TIERS.free, label: 'Free' },
+    pro: { ...COMMAND_TIERS.pro, label: 'Pro' },
+    ultimate: { ...COMMAND_TIERS.ultimate, label: 'Ultimate' },
+  }), []);
+
   const toggleTier = (tier) => {
-    setExpanded((prev) => ({ ...prev, [tier]: !prev[tier] }));
+    setExpanded((current) => ({ ...current, [tier]: !current[tier] }));
   };
 
   return (
     <section
       id="commands"
       data-testid="commands-section"
-      style={{ padding: "80px 0", position: "relative", zIndex: 1 }}
+      style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}
     >
       <div className="section-container">
         <div style={{ marginBottom: 48 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <Terminal size={16} color="#BD00FF" />
             <span style={{
-              fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 600,
-              letterSpacing: "0.15em", textTransform: "uppercase", color: "#BD00FF",
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.15em',
+              textTransform: 'uppercase',
+              color: '#BD00FF',
             }}>
-              Slash Commands
+              {copy.commands.eyebrow}
             </span>
           </div>
           <h2
             data-testid="commands-title"
             style={{
-              fontFamily: "'Orbitron', sans-serif", fontWeight: 800,
-              fontSize: "clamp(24px, 4vw, 40px)", marginBottom: 12,
+              fontFamily: "'Orbitron', sans-serif",
+              fontWeight: 800,
+              fontSize: 'clamp(24px, 4vw, 40px)',
+              marginBottom: 12,
             }}
           >
-            Alle Befehle nach Tier
+            {copy.commands.title}
           </h2>
-          <p style={{ color: "#A1A1AA", fontSize: 16, maxWidth: 600 }}>
-            {"Jedes Tier schaltet zus\u00E4tzliche Commands frei. Free-Commands sind immer verf\u00FCgbar."}
+          <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 600 }}>
+            {copy.commands.subtitle}
           </p>
         </div>
 
         {loading && (
-          <div style={{ padding: 40, color: "#52525B", fontSize: 14, textAlign: "center" }}>
-            Lade Commands...
+          <div style={{ padding: 40, color: '#52525B', fontSize: 14, textAlign: 'center' }}>
+            {copy.commands.loading}
           </div>
         )}
 
         {!loading && items.length === 0 && (
-          <div style={{ padding: 40, color: "#52525B", fontSize: 14, textAlign: "center" }}>
-            {"Keine Commands verf\u00FCgbar."}
+          <div style={{ padding: 40, color: '#52525B', fontSize: 14, textAlign: 'center' }}>
+            {copy.commands.empty}
           </div>
         )}
 
         {!loading && items.length > 0 && (
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            {Object.entries(COMMAND_TIERS).map(([tier, config]) => (
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            {Object.entries(tierConfigs).map(([tier, config]) => (
               <TierColumn
                 key={tier}
                 tier={tier}
@@ -192,6 +228,8 @@ function Commands({ commands, loading }) {
                 commands={items}
                 expanded={expanded[tier]}
                 onToggle={() => toggleTier(tier)}
+                countLabel={copy.commands.countLabel}
+                translateCommandDescription={translateCommandDescription}
               />
             ))}
           </div>

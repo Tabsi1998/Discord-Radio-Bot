@@ -1275,7 +1275,7 @@ function startWebServer(runtimes) {
       return;
     }
 
-    // --- Static file serving from web/ ---
+    // --- Static file serving from the built frontend ---
     const staticPath = requestUrl.pathname === "/"
       ? "index.html"
       : requestUrl.pathname.replace(/^\/+/, "");

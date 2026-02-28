@@ -8,22 +8,26 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..", "..");
 const legacyWebDir = path.join(rootDir, "web");
-const frontendPublicDir = path.join(rootDir, "frontend", "public");
 const frontendBuildDir = path.join(rootDir, "frontend", "build");
 const frontendBuildIndex = path.join(frontendBuildDir, "index.html");
-const frontendPublicIndex = path.join(frontendPublicDir, "index.html");
+const legacyWebIndex = path.join(legacyWebDir, "index.html");
 const hasFrontendBuild = fs.existsSync(frontendBuildIndex);
-const hasFrontendPublic = fs.existsSync(frontendPublicIndex);
+const hasLegacyWeb = fs.existsSync(legacyWebIndex);
+const allowLegacyWebFallback = String(process.env.WEB_ALLOW_LEGACY_FALLBACK ?? "0") === "1";
 const strictFrontendBuild = String(process.env.WEB_STRICT_FRONTEND_BUILD ?? "0") === "1";
-if (strictFrontendBuild && !hasFrontendBuild) {
+if (!hasFrontendBuild && strictFrontendBuild && !(allowLegacyWebFallback && hasLegacyWeb)) {
   throw new Error(
-    "WEB_STRICT_FRONTEND_BUILD=1 aber frontend/build/index.html fehlt. Bitte Frontend-Build erzeugen."
+    "frontend/build/index.html fehlt. Bitte React-Frontend bauen oder nur fuer Notfaelle WEB_ALLOW_LEGACY_FALLBACK=1 setzen."
   );
 }
-const webDir = hasFrontendBuild ? frontendBuildDir : (hasFrontendPublic ? frontendPublicDir : legacyWebDir);
+const webDir = hasFrontendBuild
+  ? frontendBuildDir
+  : (allowLegacyWebFallback && hasLegacyWeb ? legacyWebDir : frontendBuildDir);
 const webRootSource = hasFrontendBuild
   ? "frontend/build"
-  : (hasFrontendPublic ? "frontend/public (fallback)" : "web (legacy fallback)");
+  : (allowLegacyWebFallback && hasLegacyWeb
+      ? "web (legacy fallback via WEB_ALLOW_LEGACY_FALLBACK=1)"
+      : "frontend/build (missing, build required)");
 let frontendBuildStamp = null;
 try {
   const stat = fs.statSync(frontendBuildIndex);

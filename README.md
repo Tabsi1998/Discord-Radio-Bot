@@ -358,5 +358,5 @@ npm --prefix frontend run build
 ## Notes
 
 - The installer and updater are designed to preserve runtime JSON data across updates.
-- The production site uses the React build under `frontend/build`.
-- The legacy `frontend/public/app.js` and static fallback still exist, but the main deployment path is the React build.
+- The production site requires the React build under `frontend/build`.
+- The old `web/` fallback is no longer used automatically. It is only available as an explicit emergency fallback with `WEB_ALLOW_LEGACY_FALLBACK=1`.

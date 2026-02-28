@@ -1,5 +1,6 @@
 import React from 'react';
-import { ExternalLink, Copy, Check, Lock, Crown } from 'lucide-react';
+import { Check, Copy, Crown, ExternalLink, Lock } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 const BOT_COLORS = {
   cyan: { accent: '#00F0FF', bg: 'rgba(0, 240, 255, 0.08)', glow: 'rgba(0, 240, 255, 0.15)', border: 'rgba(0, 240, 255, 0.25)' },
@@ -10,16 +11,16 @@ const BOT_COLORS = {
   red: { accent: '#FF2A2A', bg: 'rgba(255, 42, 42, 0.08)', glow: 'rgba(255, 42, 42, 0.15)', border: 'rgba(255, 42, 42, 0.25)' },
 };
 
-const fmt = new Intl.NumberFormat('de-DE');
-
-function BotCard({ bot, index }) {
+function BotCard({ bot, index, copy, formatNumber }) {
   const [copied, setCopied] = React.useState(false);
   const [hovered, setHovered] = React.useState(false);
 
   const colorKey = bot.color || Object.keys(BOT_COLORS)[index % Object.keys(BOT_COLORS).length];
   const colors = BOT_COLORS[colorKey] || BOT_COLORS.cyan;
   const isPremiumBot = bot.requiredTier && bot.requiredTier !== 'free';
-  const inviteUrl = isPremiumBot ? null : (bot.inviteUrl || bot.invite_url || `https://discord.com/oauth2/authorize?client_id=${bot.clientId || bot.client_id || ''}&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands`);
+  const inviteUrl = isPremiumBot
+    ? null
+    : (bot.inviteUrl || bot.invite_url || `https://discord.com/oauth2/authorize?client_id=${bot.clientId || bot.client_id || ''}&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands`);
   const botImage = bot.avatarUrl || bot.avatar_url || `/img/bot-${(index % 4) + 1}.png`;
   const tierBadgeColors = { pro: '#FFB800', ultimate: '#BD00FF' };
 
@@ -29,7 +30,9 @@ function BotCard({ bot, index }) {
       await navigator.clipboard.writeText(inviteUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {}
+    } catch {
+      // ignore clipboard failure
+    }
   };
 
   return (
@@ -38,29 +41,42 @@ function BotCard({ bot, index }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        position: 'relative', display: 'flex', flexDirection: 'column', padding: 28, borderRadius: 20,
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 28,
+        borderRadius: 20,
         background: hovered
           ? `linear-gradient(180deg, ${colors.bg} 0%, rgba(0,0,0,0.5) 100%)`
           : 'rgba(255, 255, 255, 0.02)',
-        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
         border: `1px solid ${hovered ? colors.border : 'rgba(255,255,255,0.06)'}`,
         transition: 'border-color 0.4s, background 0.4s, box-shadow 0.4s',
         boxShadow: hovered ? `0 0 40px ${colors.glow}` : 'none',
         overflow: 'hidden',
       }}
     >
-      {/* Farbiger Akzent-Balken */}
       <div style={{ position: 'absolute', top: 0, left: 28, right: 28, height: 2, background: colors.accent, opacity: hovered ? 1 : 0.3, transition: 'opacity 0.3s' }} />
 
-      {/* Bot-Avatar + Name */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
         <div style={{
-          width: 56, height: 56, borderRadius: 14, overflow: 'hidden', flexShrink: 0,
+          width: 56,
+          height: 56,
+          borderRadius: 14,
+          overflow: 'hidden',
+          flexShrink: 0,
           background: `linear-gradient(135deg, ${colors.accent}22, ${colors.accent}08)`,
           border: `1px solid ${colors.accent}33`,
         }}>
-          <img src={botImage} alt={bot.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={(e) => { e.target.style.display = 'none'; }} />
+          <img
+            src={botImage}
+            alt={bot.name}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={(event) => {
+              event.currentTarget.style.display = 'none';
+            }}
+          />
         </div>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -68,14 +84,23 @@ function BotCard({ bot, index }) {
               {bot.name}
             </h3>
             {isPremiumBot && (
-              <span data-testid={`bot-tier-badge-${index}`} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800,
-                fontFamily: "'Orbitron', sans-serif", letterSpacing: '0.1em',
-                background: `${tierBadgeColors[bot.requiredTier] || '#FFB800'}15`,
-                color: tierBadgeColors[bot.requiredTier] || '#FFB800',
-                border: `1px solid ${tierBadgeColors[bot.requiredTier] || '#FFB800'}30`,
-              }}>
+              <span
+                data-testid={`bot-tier-badge-${index}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 8px',
+                  borderRadius: 6,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  fontFamily: "'Orbitron', sans-serif",
+                  letterSpacing: '0.1em',
+                  background: `${tierBadgeColors[bot.requiredTier] || '#FFB800'}15`,
+                  color: tierBadgeColors[bot.requiredTier] || '#FFB800',
+                  border: `1px solid ${tierBadgeColors[bot.requiredTier] || '#FFB800'}30`,
+                }}
+              >
                 <Crown size={10} />
                 {bot.requiredTier === 'ultimate' ? 'ULTIMATE' : 'PRO'}
               </span>
@@ -83,63 +108,82 @@ function BotCard({ bot, index }) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
             <div style={{
-              width: 8, height: 8, borderRadius: '50%',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
               background: bot.ready ? '#39FF14' : '#52525B',
               boxShadow: bot.ready ? '0 0 8px rgba(57,255,20,0.5)' : 'none',
             }} />
             <span style={{ fontSize: 12, color: bot.ready ? '#39FF14' : '#52525B', fontWeight: 600 }}>
-              {bot.ready ? 'Online' : 'Konfigurierbar'}
+              {bot.ready ? copy.bots.status.online : copy.bots.status.configurable}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Bot Statistics - wie Jockie Music */}
       <div style={{
-        padding: '14px 0', marginBottom: 16,
+        padding: '14px 0',
+        marginBottom: 16,
         borderTop: `1px solid ${colors.accent}15`,
         borderBottom: `1px solid ${colors.accent}15`,
       }}>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: colors.accent, marginBottom: 10, fontFamily: "'Orbitron', sans-serif" }}>
-          BOT STATISTIKEN
+          {copy.bots.statsTitle}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
           {[
-            { label: 'Server', value: bot.servers || 0 },
-            { label: 'Nutzer', value: bot.users || 0 },
-            { label: 'Verbindungen', value: bot.connections || 0 },
-            { label: 'Zuh\u00F6rer', value: bot.listeners || 0 },
-          ].map((s) => (
-            <div key={s.label}>
-              <div style={{ fontSize: 11, color: '#52525B', fontWeight: 600, letterSpacing: '0.05em' }}>{s.label}</div>
+            { label: copy.bots.stats.servers, value: bot.servers || 0 },
+            { label: copy.bots.stats.users, value: bot.users || 0 },
+            { label: copy.bots.stats.connections, value: bot.connections || 0 },
+            { label: copy.bots.stats.listeners, value: bot.listeners || 0 },
+          ].map((item) => (
+            <div key={item.label}>
+              <div style={{ fontSize: 11, color: '#52525B', fontWeight: 600, letterSpacing: '0.05em' }}>
+                {item.label}
+              </div>
               <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: '#fff' }}>
-                {fmt.format(s.value)}
+                {formatNumber(item.value)}
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Actions */}
       <div style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
         {isPremiumBot ? (
           <a
             href="#premium"
             data-testid={`invite-btn-${index}`}
             style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              padding: '12px 20px', borderRadius: 12,
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: '12px 20px',
+              borderRadius: 12,
               background: `${tierBadgeColors[bot.requiredTier] || '#FFB800'}15`,
               border: `1px solid ${tierBadgeColors[bot.requiredTier] || '#FFB800'}30`,
               color: tierBadgeColors[bot.requiredTier] || '#FFB800',
-              fontWeight: 700, fontSize: 13, textDecoration: 'none', textTransform: 'uppercase',
-              letterSpacing: '0.05em', cursor: 'pointer', transition: 'transform 0.15s, background 0.2s',
+              fontWeight: 700,
+              fontSize: 13,
+              textDecoration: 'none',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              cursor: 'pointer',
+              transition: 'transform 0.15s, background 0.2s',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.background = `${tierBadgeColors[bot.requiredTier] || '#FFB800'}25`; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.background = `${tierBadgeColors[bot.requiredTier] || '#FFB800'}15`; }}
+            onMouseEnter={(event) => {
+              event.currentTarget.style.transform = 'scale(1.02)';
+              event.currentTarget.style.background = `${tierBadgeColors[bot.requiredTier] || '#FFB800'}25`;
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.transform = 'scale(1)';
+              event.currentTarget.style.background = `${tierBadgeColors[bot.requiredTier] || '#FFB800'}15`;
+            }}
           >
             <Lock size={14} />
-            {bot.requiredTier === 'ultimate' ? 'Ultimate' : 'Pro'} erforderlich
+            {bot.requiredTier === 'ultimate' ? 'Ultimate' : 'Pro'} {copy.bots.actions.required}
           </a>
         ) : (
           <>
@@ -149,25 +193,51 @@ function BotCard({ bot, index }) {
               rel="noopener noreferrer"
               data-testid={`invite-btn-${index}`}
               style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                padding: '12px 20px', borderRadius: 12, background: colors.accent, color: '#050505',
-                fontWeight: 700, fontSize: 13, textDecoration: 'none', textTransform: 'uppercase',
-                letterSpacing: '0.05em', cursor: 'pointer', transition: 'transform 0.15s, opacity 0.15s',
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                padding: '12px 20px',
+                borderRadius: 12,
+                background: colors.accent,
+                color: '#050505',
+                fontWeight: 700,
+                fontSize: 13,
+                textDecoration: 'none',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                cursor: 'pointer',
+                transition: 'transform 0.15s, opacity 0.15s',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(1.02)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.opacity = '0.9';
+                event.currentTarget.style.transform = 'scale(1.02)';
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.opacity = '1';
+                event.currentTarget.style.transform = 'scale(1)';
+              }}
             >
               <ExternalLink size={14} />
-              Einladen
+              {copy.bots.actions.invite}
             </a>
             <button
               onClick={handleCopy}
               data-testid={`copy-btn-${index}`}
+              title={copied ? copy.bots.actions.copied : copy.bots.actions.copy}
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 44, height: 44, borderRadius: 12,
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                color: copied ? '#39FF14' : '#A1A1AA', cursor: 'pointer', transition: 'color 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: copied ? '#39FF14' : '#A1A1AA',
+                cursor: 'pointer',
+                transition: 'color 0.2s',
               }}
             >
               {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -180,60 +250,73 @@ function BotCard({ bot, index }) {
 }
 
 function BotDirectory({ bots, loading }) {
-  const commanderBot = Array.isArray(bots) ? bots.find((b) => (b.index || 0) === 1 || b.botId === 'bot-1') || bots[0] : null;
+  const { copy, formatNumber } = useI18n();
+  const commanderBot = Array.isArray(bots)
+    ? bots.find((bot) => (bot.index || 0) === 1 || bot.botId === 'bot-1') || bots[0]
+    : null;
 
   return (
     <section id="bots" data-testid="bot-directory" style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}>
       <div className="section-container">
         <div style={{ marginBottom: 48 }}>
           <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#00F0FF' }}>
-            Commander Bot
+            {copy.bots.eyebrow}
           </span>
           <h2 data-testid="bot-directory-title" style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 'clamp(24px, 4vw, 40px)', marginTop: 8, marginBottom: 12 }}>
-            OmniFM einladen
+            {copy.bots.title}
           </h2>
-          <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 600 }}>
-            Lade den Commander-Bot auf deinen Server ein. Weitere Worker-Bots kannst du per <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>/invite</span> Befehl im Discord hinzuf\u00FCgen.
+          <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 620 }}>
+            {copy.bots.subtitleLead}{' '}
+            <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>
+              /invite
+            </span>{' '}
+            {copy.bots.subtitleTail}
           </p>
         </div>
 
         {loading ? (
-          <div style={{ color: '#52525B', padding: 40 }}>Lade Bot-Infos...</div>
+          <div style={{ color: '#52525B', padding: 40 }}>{copy.bots.loading}</div>
         ) : !commanderBot ? (
-          <div style={{ color: '#52525B', padding: 40 }}>Noch kein Bot konfiguriert.</div>
+          <div style={{ color: '#52525B', padding: 40 }}>{copy.bots.empty}</div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-            <BotCard bot={commanderBot} index={0} />
+            <BotCard bot={commanderBot} index={0} copy={copy} formatNumber={formatNumber} />
 
-            {/* Worker-Tiers Info */}
             <div style={{
-              borderRadius: 20, padding: 28,
-              background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
-              display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              borderRadius: 20,
+              padding: 28,
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
             }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#FFB800', marginBottom: 16, fontFamily: "'Orbitron', sans-serif" }}>
-                Worker-Bots per Tier
+                {copy.bots.workerTiersTitle}
               </div>
-              {[
-                { tier: 'Free', bots: 'Bot 1-2', color: '#39FF14', count: 2 },
-                { tier: 'Pro', bots: 'Bot 3-8', color: '#FFB800', count: 6 },
-                { tier: 'Ultimate', bots: 'Bot 9-16', color: '#BD00FF', count: 8 },
-              ].map((t) => (
-                <div key={t.tier} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
+              {copy.bots.workerTiers.map((tier) => (
+                <div key={tier.tier} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 0',
+                  borderBottom: '1px solid rgba(255,255,255,0.05)',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: t.color }} />
-                    <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{t.tier}</span>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: tier.tier === 'Free' ? '#39FF14' : tier.tier === 'Pro' ? '#FFB800' : '#BD00FF' }} />
+                    <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{tier.tier}</span>
                   </div>
                   <span style={{ fontSize: 12, color: '#A1A1AA', fontFamily: "'JetBrains Mono', monospace" }}>
-                    {t.bots}
+                    {tier.bots}
                   </span>
                 </div>
               ))}
               <p style={{ marginTop: 16, fontSize: 12, color: '#52525B', lineHeight: 1.5 }}>
-                Nutze <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace" }}>/invite {'<worker>'}</span> im Discord um Worker-Bots einzuladen.
+                {copy.bots.workerHintLead}{' '}
+                <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace" }}>
+                  /invite {'<worker>'}
+                </span>{' '}
+                {copy.bots.workerHintTail}
               </p>
             </div>
           </div>

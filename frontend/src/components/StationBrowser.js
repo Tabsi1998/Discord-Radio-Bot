@@ -1,13 +1,19 @@
-import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { Search, Radio, Music, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Music, Pause, Play, Radio, Search, Volume2, VolumeX } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 const STATION_COLORS = ['#00F0FF', '#39FF14', '#EC4899', '#FFB800', '#BD00FF', '#FF2A2A'];
 
-function StationCard({ station, index, isPlaying, onPlay, onStop }) {
+function StationCard({ station, index, isPlaying, onPlay, onStop, copy }) {
   const [hovered, setHovered] = useState(false);
   const color = STATION_COLORS[index % STATION_COLORS.length];
-  const tier = (station.tier || 'free').toLowerCase();
-  const tierBadge = { free: { text: 'FREE', bg: 'rgba(57,255,20,0.08)', border: 'rgba(57,255,20,0.2)', color: '#39FF14' }, pro: { text: 'PRO', bg: 'rgba(255,184,0,0.12)', border: 'rgba(255,184,0,0.3)', color: '#FFB800' }, ultimate: { text: 'ULTIMATE', bg: 'rgba(189,0,255,0.12)', border: 'rgba(189,0,255,0.3)', color: '#BD00FF' } }[tier] || { text: 'FREE', bg: 'rgba(57,255,20,0.08)', border: 'rgba(57,255,20,0.2)', color: '#39FF14' };
+  const tier = String(station.tier || 'free').toLowerCase();
+  const tierText = copy.stations.tiers[tier] || copy.stations.tiers.free;
+  const tierBadge = {
+    free: { text: tierText, bg: 'rgba(57,255,20,0.08)', border: 'rgba(57,255,20,0.2)', color: '#39FF14' },
+    pro: { text: tierText, bg: 'rgba(255,184,0,0.12)', border: 'rgba(255,184,0,0.3)', color: '#FFB800' },
+    ultimate: { text: tierText, bg: 'rgba(189,0,255,0.12)', border: 'rgba(189,0,255,0.3)', color: '#BD00FF' },
+  }[tier] || { text: copy.stations.tiers.free, bg: 'rgba(57,255,20,0.08)', border: 'rgba(57,255,20,0.2)', color: '#39FF14' };
 
   return (
     <div
@@ -15,20 +21,29 @@ function StationCard({ station, index, isPlaying, onPlay, onStop }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 14,
-        padding: '14px 18px', borderRadius: 14,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        padding: '14px 18px',
+        borderRadius: 14,
         background: isPlaying ? `${color}10` : (hovered ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)'),
         border: `1px solid ${isPlaying ? `${color}30` : (hovered ? 'rgba(255,255,255,0.1)' : 'transparent')}`,
-        cursor: 'pointer', transition: 'background 0.2s, border-color 0.2s',
+        cursor: 'pointer',
+        transition: 'background 0.2s, border-color 0.2s',
         WebkitTapHighlightColor: 'transparent',
       }}
-      onClick={() => isPlaying ? onStop() : onPlay(station)}
+      onClick={() => (isPlaying ? onStop() : onPlay(station))}
     >
       <div style={{
-        width: 42, height: 42, borderRadius: 10,
+        width: 42,
+        height: 42,
+        borderRadius: 10,
         background: isPlaying ? color : `${color}12`,
         border: `1px solid ${isPlaying ? color : `${color}22`}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
         transition: 'background 0.2s',
       }}>
         {isPlaying ? (
@@ -47,19 +62,31 @@ function StationCard({ station, index, isPlaying, onPlay, onStop }) {
           </div>
         </div>
         <span style={{
-          fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', padding: '3px 8px', borderRadius: 6,
-          fontFamily: "'Orbitron', sans-serif", whiteSpace: 'nowrap', flexShrink: 0,
-          background: tierBadge.bg, border: `1px solid ${tierBadge.border}`, color: tierBadge.color,
+          fontSize: 9,
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          padding: '3px 8px',
+          borderRadius: 6,
+          fontFamily: "'Orbitron', sans-serif",
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+          background: tierBadge.bg,
+          border: `1px solid ${tierBadge.border}`,
+          color: tierBadge.color,
         }}>
-          {tierBadge.text}
+          {tierBadge.text.toUpperCase()}
         </span>
       </div>
       {isPlaying && (
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 16 }}>
-          {[0.6, 1, 0.7, 0.9].map((h, i) => (
-            <div key={i} className="eq-bar" style={{
-              width: 3, borderRadius: 1, height: `${h * 100}%`, background: color,
-              animationDuration: `${0.4 + Math.random() * 0.6}s`, animationDelay: `${i * 0.1}s`,
+          {[0.6, 1, 0.7, 0.9].map((height, barIndex) => (
+            <div key={barIndex} className="eq-bar" style={{
+              width: 3,
+              borderRadius: 1,
+              height: `${height * 100}%`,
+              background: color,
+              animationDuration: `${0.4 + Math.random() * 0.6}s`,
+              animationDelay: `${barIndex * 0.1}s`,
             }} />
           ))}
         </div>
@@ -69,6 +96,7 @@ function StationCard({ station, index, isPlaying, onPlay, onStop }) {
 }
 
 function StationBrowser({ stations, loading }) {
+  const { copy, formatNumber } = useI18n();
   const [search, setSearch] = useState('');
   const [activeTier, setActiveTier] = useState(null);
   const [playingKey, setPlayingKey] = useState(null);
@@ -78,22 +106,24 @@ function StationBrowser({ stations, loading }) {
   const audioRef = useRef(null);
 
   const tierFilters = [
-    { id: null, label: 'ALLE', color: '#fff' },
-    { id: 'free', label: 'FREE', color: '#39FF14' },
-    { id: 'pro', label: 'PRO', color: '#FFB800' },
+    { id: null, label: copy.stations.filters.all, color: '#fff' },
+    { id: 'free', label: copy.stations.filters.free, color: '#39FF14' },
+    { id: 'pro', label: copy.stations.filters.pro, color: '#FFB800' },
+    { id: 'ultimate', label: copy.stations.filters.ultimate, color: '#BD00FF' },
   ];
 
-  const freeCount = useMemo(() => stations.filter(s => (s.tier || 'free') === 'free').length, [stations]);
-  const proCount = useMemo(() => stations.filter(s => (s.tier || 'free') === 'pro').length, [stations]);
+  const counts = useMemo(() => ({
+    free: stations.filter((station) => String(station.tier || 'free').toLowerCase() === 'free').length,
+    pro: stations.filter((station) => String(station.tier || 'free').toLowerCase() === 'pro').length,
+    ultimate: stations.filter((station) => String(station.tier || 'free').toLowerCase() === 'ultimate').length,
+  }), [stations]);
 
-  const filtered = useMemo(() => {
-    return stations.filter((s) => {
-      const q = search.toLowerCase();
-      const matchSearch = !q || s.name.toLowerCase().includes(q) || s.key.toLowerCase().includes(q);
-      const matchTier = !activeTier || (s.tier || 'free') === activeTier;
-      return matchSearch && matchTier;
-    });
-  }, [stations, search, activeTier]);
+  const filtered = useMemo(() => stations.filter((station) => {
+    const query = search.toLowerCase();
+    const matchSearch = !query || station.name.toLowerCase().includes(query) || station.key.toLowerCase().includes(query);
+    const matchTier = !activeTier || String(station.tier || 'free').toLowerCase() === activeTier;
+    return matchSearch && matchTier;
+  }), [activeTier, search, stations]);
 
   useEffect(() => {
     setVisibleCount(8);
@@ -116,77 +146,112 @@ function StationBrowser({ stations, loading }) {
     const audio = getAudio();
     audio.src = station.url;
     audio.volume = muted ? 0 : volume / 100;
-    audio.play().then(() => setPlayingKey(station.key)).catch(() => setPlayingKey(null));
-  }, [getAudio, volume, muted]);
+    audio.play()
+      .then(() => setPlayingKey(station.key))
+      .catch(() => setPlayingKey(null));
+  }, [getAudio, muted, volume]);
 
   const handleStop = useCallback(() => {
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
     setPlayingKey(null);
   }, []);
 
-  const handleVolume = useCallback((e) => {
-    const v = Number(e.target.value);
-    setVolume(v);
-    setMuted(v === 0);
-    if (audioRef.current) audioRef.current.volume = v / 100;
+  const handleVolume = useCallback((event) => {
+    const nextVolume = Number(event.target.value);
+    setVolume(nextVolume);
+    setMuted(nextVolume === 0);
+    if (audioRef.current) audioRef.current.volume = nextVolume / 100;
   }, []);
 
   const toggleMute = useCallback(() => {
-    const next = !muted;
-    setMuted(next);
-    if (audioRef.current) audioRef.current.volume = next ? 0 : volume / 100;
+    const nextMuted = !muted;
+    setMuted(nextMuted);
+    if (audioRef.current) {
+      audioRef.current.volume = nextMuted ? 0 : volume / 100;
+    }
   }, [muted, volume]);
 
-  const playingStation = stations.find(s => s.key === playingKey);
+  const playingStation = stations.find((station) => station.key === playingKey);
+  const summaryText = copy.stations.summary({
+    count: formatNumber(stations.length),
+    free: formatNumber(counts.free),
+    pro: formatNumber(counts.pro),
+    ultimate: formatNumber(counts.ultimate),
+  });
+  const filterSummaryText = copy.stations.filterSummary({
+    count: formatNumber(stations.length),
+    free: formatNumber(counts.free),
+    pro: formatNumber(counts.pro),
+    ultimate: formatNumber(counts.ultimate),
+  });
 
   return (
     <section id="stations" data-testid="station-browser" style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}>
       <div className="section-container">
         <div style={{ marginBottom: 36 }}>
           <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#00F0FF' }}>
-            Live Station Directory
+            {copy.stations.eyebrow}
           </span>
           <h2 data-testid="stations-title" style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 'clamp(24px, 4vw, 40px)', marginTop: 8, marginBottom: 12 }}>
-            OmniFM Stationen
+            {copy.stations.title}
           </h2>
-          <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 500 }}>
-            {stations.length} Stationen ({freeCount} Free, {proCount} Pro). Klicke zum Vorh\u00F6ren oder nutze <code style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>/play</code> im Discord.
+          <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 620 }}>
+            {summaryText}
           </p>
         </div>
 
-        {/* Now Playing Bar mit Lautst\u00E4rke */}
         {playingStation && (
           <div
             data-testid="now-playing-bar"
             style={{
-              display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
-              padding: '14px 20px', borderRadius: 14, marginBottom: 20,
-              background: 'rgba(0, 240, 255, 0.06)', border: '1px solid rgba(0, 240, 255, 0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              flexWrap: 'wrap',
+              padding: '14px 20px',
+              borderRadius: 14,
+              marginBottom: 20,
+              background: 'rgba(0, 240, 255, 0.06)',
+              border: '1px solid rgba(0, 240, 255, 0.15)',
             }}
           >
-            {/* EQ Animation */}
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 20, flexShrink: 0 }}>
-              {[0.5, 0.8, 0.6, 1, 0.7].map((h, i) => (
-                <div key={i} className="eq-bar" style={{
-                  width: 3, borderRadius: 1, height: `${h * 100}%`, background: '#00F0FF',
-                  animationDuration: `${0.4 + Math.random() * 0.6}s`, animationDelay: `${i * 0.08}s`,
+              {[0.5, 0.8, 0.6, 1, 0.7].map((height, index) => (
+                <div key={index} className="eq-bar" style={{
+                  width: 3,
+                  borderRadius: 1,
+                  height: `${height * 100}%`,
+                  background: '#00F0FF',
+                  animationDuration: `${0.4 + Math.random() * 0.6}s`,
+                  animationDelay: `${index * 0.08}s`,
                 }} />
               ))}
             </div>
 
-            {/* Station Name */}
-            <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {playingStation.name}
-            </span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 11, color: '#00F0FF', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+                {copy.stations.nowPlaying}
+              </div>
+              <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                {playingStation.name}
+              </span>
+            </div>
 
-            {/* Volume Controls */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
               <button
                 data-testid="mute-btn"
                 onClick={toggleMute}
+                title={copy.stations.previewVolume}
                 style={{
-                  background: 'none', border: 'none', color: muted ? '#FF2A2A' : '#A1A1AA',
-                  cursor: 'pointer', padding: 4, lineHeight: 0,
+                  background: 'none',
+                  border: 'none',
+                  color: muted ? '#FF2A2A' : '#A1A1AA',
+                  cursor: 'pointer',
+                  padding: 4,
+                  lineHeight: 0,
                 }}
               >
                 {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
@@ -199,9 +264,14 @@ function StationBrowser({ stations, loading }) {
                 value={muted ? 0 : volume}
                 onChange={handleVolume}
                 style={{
-                  width: 100, height: 4, appearance: 'none', WebkitAppearance: 'none',
+                  width: 100,
+                  height: 4,
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
                   background: `linear-gradient(to right, #00F0FF ${muted ? 0 : volume}%, rgba(255,255,255,0.1) ${muted ? 0 : volume}%)`,
-                  borderRadius: 2, outline: 'none', cursor: 'pointer',
+                  borderRadius: 2,
+                  outline: 'none',
+                  cursor: 'pointer',
                 }}
               />
               <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: '#52525B', width: 28, textAlign: 'right' }}>
@@ -209,14 +279,22 @@ function StationBrowser({ stations, loading }) {
               </span>
             </div>
 
-            {/* Stop Button */}
             <button
               data-testid="stop-playing-btn"
               onClick={handleStop}
+              title={copy.stations.stopPreview}
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                flexShrink: 0,
+                background: 'rgba(255,255,255,0.1)',
+                border: 'none',
+                color: '#fff',
+                cursor: 'pointer',
               }}
             >
               <Pause size={14} />
@@ -224,69 +302,107 @@ function StationBrowser({ stations, loading }) {
           </div>
         )}
 
-        {/* Search + Tier Filters */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ position: 'relative', maxWidth: 400, marginBottom: 12 }}>
             <Search size={18} color="#52525B" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            <input type="text" data-testid="station-search" className="station-search" placeholder="Station suchen..."
-              value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input
+              type="text"
+              data-testid="station-search"
+              className="station-search"
+              placeholder={copy.stations.searchPlaceholder}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {tierFilters.map((f) => {
-              const isActive = activeTier === f.id;
+            {tierFilters.map((filter) => {
+              const isActive = activeTier === filter.id;
               return (
-                <button key={f.id || 'all'} data-testid={`tier-filter-${f.id || 'all'}`}
-                  onClick={() => setActiveTier(f.id)}
+                <button
+                  key={filter.id || 'all'}
+                  data-testid={`tier-filter-${filter.id || 'all'}`}
+                  onClick={() => setActiveTier(filter.id)}
                   style={{
-                    fontSize: 11, fontWeight: 700, padding: '6px 16px', borderRadius: 20,
-                    cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.2s',
-                    border: `1px solid ${isActive ? `${f.color}50` : `${f.color}20`}`,
-                    background: isActive ? `${f.color}12` : 'transparent',
-                    color: f.color,
-                  }}>
-                  {f.label}
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '6px 16px',
+                    borderRadius: 20,
+                    cursor: 'pointer',
+                    letterSpacing: '0.05em',
+                    transition: 'all 0.2s',
+                    border: `1px solid ${isActive ? `${filter.color}50` : `${filter.color}20`}`,
+                    background: isActive ? `${filter.color}12` : 'transparent',
+                    color: filter.color,
+                  }}
+                >
+                  {filter.label}
                 </button>
               );
             })}
           </div>
           <p style={{ fontSize: 12, color: '#52525B', marginTop: 8 }}>
-            {stations.length} Stationen ({freeCount} Free, {proCount} Pro)
+            {filterSummaryText}
           </p>
         </div>
 
-        {/* Station list */}
         {loading ? (
-          <div style={{ color: '#52525B', padding: 40 }}>Lade Stationen...</div>
+          <div style={{ color: '#52525B', padding: 40 }}>{copy.stations.loading}</div>
         ) : filtered.length === 0 ? (
           <div data-testid="no-stations" style={{ color: '#52525B', padding: 40, textAlign: 'center', borderRadius: 16, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
             <Music size={32} style={{ marginBottom: 12, opacity: 0.3 }} />
-            <p>Keine Stationen gefunden.</p>
+            <p>{copy.stations.empty}</p>
           </div>
         ) : (
           <>
             <div data-testid="station-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 8, padding: '4px 0' }}>
-              {visibleStations.map((s, i) => (
-                <StationCard key={s.key} station={s} index={i} isPlaying={playingKey === s.key} onPlay={handlePlay} onStop={handleStop} />
+              {visibleStations.map((station, index) => (
+                <StationCard
+                  key={station.key}
+                  station={station}
+                  index={index}
+                  isPlaying={playingKey === station.key}
+                  onPlay={handlePlay}
+                  onStop={handleStop}
+                  copy={copy}
+                />
               ))}
             </div>
             {hasMore && (
               <div style={{ textAlign: 'center', marginTop: 24 }}>
                 <button
                   data-testid="load-more-stations"
-                  onClick={() => setVisibleCount(prev => prev + 8)}
+                  onClick={() => setVisibleCount((current) => current + 8)}
                   style={{
-                    padding: '12px 32px', borderRadius: 12, cursor: 'pointer',
-                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
-                    color: '#A1A1AA', fontSize: 13, fontWeight: 600, letterSpacing: '0.03em',
+                    padding: '12px 32px',
+                    borderRadius: 12,
+                    cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    color: '#A1A1AA',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    letterSpacing: '0.03em',
                     transition: 'all 0.2s',
                   }}
-                  onMouseEnter={(e) => { e.target.style.background = 'rgba(255,255,255,0.1)'; e.target.style.color = '#fff'; }}
-                  onMouseLeave={(e) => { e.target.style.background = 'rgba(255,255,255,0.05)'; e.target.style.color = '#A1A1AA'; }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                    event.currentTarget.style.color = '#fff';
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                    event.currentTarget.style.color = '#A1A1AA';
+                  }}
                 >
-                  Mehr anzeigen ({Math.min(remaining, 8)} von {remaining})
+                  {copy.stations.loadMore({
+                    shown: formatNumber(Math.min(remaining, 8)),
+                    remaining: formatNumber(remaining),
+                  })}
                 </button>
                 <p style={{ fontSize: 11, color: '#52525B', marginTop: 8 }}>
-                  {visibleCount} von {filtered.length} Stationen angezeigt
+                  {copy.stations.visible({
+                    visible: formatNumber(Math.min(visibleCount, filtered.length)),
+                    total: formatNumber(filtered.length),
+                  })}
                 </p>
               </div>
             )}
