@@ -37,6 +37,14 @@ The installer can configure:
 - DiscordBotList
 - Optional AcoustID/MusicBrainz recognition fallback
 
+The interactive scripts now also cover:
+
+- Stripe API keys
+- DiscordBotList token, webhook secret, and stats scope
+- SMTP credentials
+- AcoustID recognition settings
+- Default language fallback via `DEFAULT_LANGUAGE` (`en` recommended)
+
 After installation:
 
 ```bash
@@ -108,6 +116,27 @@ Relevant official docs:
 - AcoustID API client docs: <https://acoustid.org/webservice#lookup>
 - MusicBrainz API rate limiting: <https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting>
 - Chromaprint project: <https://github.com/acoustid/chromaprint>
+
+### Chromaprint installation in Docker
+
+OmniFM installs `fpcalc` inside the Docker image during build.
+
+- Preferred Debian package: `libchromaprint-tools`
+- Fallback package name: `chromaprint-tools`
+- The build now verifies both `ffmpeg` and `fpcalc` before the image is finalized.
+
+After `./install.sh` or `./update.sh`, OmniFM also prints runtime checks so you can see whether `fpcalc` is actually available inside the running container.
+
+### Troubleshooting fingerprint fallback
+
+If recognition does not work reliably, check these points in order:
+
+1. `./update.sh --settings` -> `Track-Erkennung` is enabled and the `ACOUSTID_API_KEY` is set.
+2. `docker compose logs -f omnifm` shows both `ffmpeg verfuegbar` and `Audio-Erkennung bereit`.
+3. The station itself is reachable and sends enough clean audio for a short fingerprint sample.
+4. Your usage matches the AcoustID terms for the free API.
+
+If the Docker build fails while installing Chromaprint, inspect the build log directly. The management scripts now stop on build failures instead of reporting a false success.
 
 ## Important environment variables
 

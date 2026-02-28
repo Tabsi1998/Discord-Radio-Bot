@@ -484,7 +484,7 @@ async function activateProTrial({ email, language, runtimes, source = "trial" })
       success: false,
       status: 409,
       message: t(
-        "Fuer diese E-Mail existiert bereits eine Lizenz. Der Testmonat ist nur einmalig fuer Neukunden verfuegbar.",
+        "Für diese E-Mail existiert bereits eine Lizenz. Der Testmonat ist nur einmalig für Neukunden verfügbar.",
         "A license already exists for this email. The trial month is only available once for new customers."
       ),
     };

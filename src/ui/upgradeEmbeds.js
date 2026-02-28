@@ -4,13 +4,13 @@
 
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { BRAND, PLANS } from "../config/plans.js";
-import { normalizeLanguage } from "../i18n.js";
+import { getDefaultLanguage, normalizeLanguage } from "../i18n.js";
 
 function pick(language, de, en) {
-  return normalizeLanguage(language, "de") === "de" ? de : en;
+  return normalizeLanguage(language, getDefaultLanguage()) === "de" ? de : en;
 }
 
-function upgradeButton(language = "de", label = null) {
+function upgradeButton(language = getDefaultLanguage(), label = null) {
   const url = BRAND.upgradeUrl || "https://omnifm.bot";
   const resolvedLabel = label || pick(language, "Upgrade", "Upgrade");
   return new ActionRowBuilder().addComponents(
@@ -27,21 +27,19 @@ function baseEmbed() {
     .setFooter({ text: BRAND.footer });
 }
 
-// --- Specific upgrade embeds ---
-
-export function premiumStationEmbed(stationName, requiredPlan, language = "de") {
+export function premiumStationEmbed(stationName, requiredPlan, language = getDefaultLanguage()) {
   const planConfig = PLANS[requiredPlan] || PLANS.pro;
   return {
     embeds: [
       baseEmbed()
-        .setTitle(pick(language, "Premium Station", "Premium station"))
+        .setTitle(pick(language, "Premium-Station", "Premium station"))
         .setDescription(
           pick(
             language,
-            `**${stationName || "Diese Station"}** ist ab ${BRAND.name} **${planConfig.name}** verfuegbar.\n\n`
-              + "Upgrade fuer:\n"
-              + "> 100+ Premium Stationen\n"
-              + "> HQ Audio-Qualitaet\n"
+            `**${stationName || "Diese Station"}** ist ab ${BRAND.name} **${planConfig.name}** verfügbar.\n\n`
+              + "Upgrade für:\n"
+              + "> 100+ Premium-Stationen\n"
+              + "> HQ-Audioqualität\n"
               + "> Priority Reconnect",
             `**${stationName || "This station"}** is available from ${BRAND.name} **${planConfig.name}**.\n\n`
               + "Upgrade for:\n"
@@ -50,14 +48,14 @@ export function premiumStationEmbed(stationName, requiredPlan, language = "de") 
               + "> Priority reconnect"
           )
         )
-        .setColor(BRAND.proColor)
+        .setColor(BRAND.proColor),
     ],
     components: [upgradeButton(language, pick(language, `Upgrade auf ${planConfig.name}`, `Upgrade to ${planConfig.name}`))],
     ephemeral: true,
   };
 }
 
-export function hqAudioEmbed(currentPlan, language = "de") {
+export function hqAudioEmbed(currentPlan, language = getDefaultLanguage()) {
   return {
     embeds: [
       baseEmbed()
@@ -65,7 +63,7 @@ export function hqAudioEmbed(currentPlan, language = "de") {
         .setDescription(
           pick(
             language,
-            `HQ Audio ist in folgenden ${BRAND.name} Plaenen verfuegbar:\n\n`
+            `HQ Audio ist in diesen ${BRAND.name}-Plänen verfügbar:\n\n`
               + "> **Pro** - 128k Opus\n"
               + "> **Ultimate** - 320k Opus\n\n"
               + `Dein aktueller Plan: **${PLANS[currentPlan]?.name || "Free"}** (${PLANS[currentPlan]?.bitrate || "64k"})`,
@@ -75,39 +73,39 @@ export function hqAudioEmbed(currentPlan, language = "de") {
               + `Your current plan: **${PLANS[currentPlan]?.name || "Free"}** (${PLANS[currentPlan]?.bitrate || "64k"})`
           )
         )
-        .setColor(BRAND.proColor)
+        .setColor(BRAND.proColor),
     ],
     components: [upgradeButton(language)],
     ephemeral: true,
   };
 }
 
-export function customStationEmbed(language = "de") {
+export function customStationEmbed(language = getDefaultLanguage()) {
   return {
     embeds: [
       baseEmbed()
-        .setTitle(pick(language, "Custom Stationen", "Custom stations"))
+        .setTitle(pick(language, "Eigene Stationen", "Custom stations"))
         .setDescription(
           pick(
             language,
-            `Eigene Station-URLs sind ein **${BRAND.name} Ultimate** Feature.\n\n`
-              + "> Eigene Stream-URLs hinzufuegen\n"
-              + "> Bis zu 50 Custom Stationen pro Server\n"
-              + "> Volle Kontrolle ueber deine Playlist",
+            `Eigene Stations-URLs sind ein **${BRAND.name} Ultimate**-Feature.\n\n`
+              + "> Eigene Stream-URLs hinzufügen\n"
+              + "> Bis zu 50 eigene Stationen pro Server\n"
+              + "> Volle Kontrolle über deine Playlist",
             `Custom station URLs are a **${BRAND.name} Ultimate** feature.\n\n`
               + "> Add your own stream URLs\n"
               + "> Up to 50 custom stations per server\n"
               + "> Full control over your playlist"
           )
         )
-        .setColor(BRAND.ultimateColor)
+        .setColor(BRAND.ultimateColor),
     ],
     components: [upgradeButton(language, pick(language, "Upgrade auf Ultimate", "Upgrade to Ultimate"))],
     ephemeral: true,
   };
 }
 
-export function botLimitEmbed(currentPlan, maxBots, requestedIndex, language = "de") {
+export function botLimitEmbed(currentPlan, maxBots, requestedIndex, language = getDefaultLanguage()) {
   return {
     embeds: [
       baseEmbed()
@@ -115,7 +113,7 @@ export function botLimitEmbed(currentPlan, maxBots, requestedIndex, language = "
         .setDescription(
           pick(
             language,
-            `Dein **${PLANS[currentPlan]?.name || "Free"}** Plan erlaubt maximal **${maxBots}** Worker.\n`
+            `Dein **${PLANS[currentPlan]?.name || "Free"}**-Plan erlaubt maximal **${maxBots}** Worker.\n`
               + `Du hast Worker #${requestedIndex} angefragt.\n\n`
               + "> **Pro** - bis zu 8 Worker\n"
               + "> **Ultimate** - bis zu 16 Worker",
@@ -125,22 +123,22 @@ export function botLimitEmbed(currentPlan, maxBots, requestedIndex, language = "
               + "> **Ultimate** - up to 16 workers"
           )
         )
-        .setColor(BRAND.proColor)
+        .setColor(BRAND.proColor),
     ],
     components: [upgradeButton(language)],
     ephemeral: true,
   };
 }
 
-export function reconnectPriorityEmbed(currentPlan, language = "de") {
+export function reconnectPriorityEmbed(currentPlan, language = getDefaultLanguage()) {
   return {
     embeds: [
       baseEmbed()
-        .setTitle(pick(language, "Reconnect Prioritaet", "Reconnect priority"))
+        .setTitle(pick(language, "Reconnect-Priorität", "Reconnect priority"))
         .setDescription(
           pick(
             language,
-            `Schnellere Reconnects mit ${BRAND.name} Upgrades:\n\n`
+            `Schnellere Reconnects mit ${BRAND.name}-Upgrades:\n\n`
               + "> **Pro** - Priority Reconnect (1,5s)\n"
               + "> **Ultimate** - Instant Reconnect (0,4s)\n\n"
               + `Dein aktueller Plan: **${PLANS[currentPlan]?.name || "Free"}** (5s)`,
@@ -150,14 +148,14 @@ export function reconnectPriorityEmbed(currentPlan, language = "de") {
               + `Your current plan: **${PLANS[currentPlan]?.name || "Free"}** (5s)`
           )
         )
-        .setColor(BRAND.proColor)
+        .setColor(BRAND.proColor),
     ],
     components: [upgradeButton(language)],
     ephemeral: true,
   };
 }
 
-export function seatLimitEmbed(seats, language = "de") {
+export function seatLimitEmbed(seats, language = getDefaultLanguage()) {
   return {
     embeds: [
       baseEmbed()
@@ -165,27 +163,27 @@ export function seatLimitEmbed(seats, language = "de") {
         .setDescription(
           pick(
             language,
-            `Diese Lizenz deckt **${seats}** Server ab und alle Plaetze sind belegt.\n\n`
+            `Diese Lizenz deckt **${seats}** Server ab und alle Plätze sind belegt.\n\n`
               + "> Trenne zuerst einen bestehenden Server, oder\n"
-              + "> Upgrade auf ein groesseres Bundle",
+              + "> upgrade auf ein größeres Bundle",
             `This license covers **${seats}** servers and all seats are used.\n\n`
               + "> Unlink an existing server first, or\n"
               + "> upgrade to a larger bundle"
           )
         )
-        .setColor(BRAND.proColor)
+        .setColor(BRAND.proColor),
     ],
     components: [upgradeButton(language, pick(language, "Lizenz verwalten", "Manage license"))],
     ephemeral: true,
   };
 }
 
-export function genericUpgradeEmbed(title, description, language = "de") {
+export function genericUpgradeEmbed(title, description, language = getDefaultLanguage()) {
   return {
     embeds: [
       baseEmbed()
         .setTitle(title)
-        .setDescription(description)
+        .setDescription(description),
     ],
     components: [upgradeButton(language)],
     ephemeral: true,

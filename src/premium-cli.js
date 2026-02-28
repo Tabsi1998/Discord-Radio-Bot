@@ -180,7 +180,7 @@ function renderInviteList(title, bots, language = "de") {
   if (!bots.length) {
     return `
       <h3 style="margin:18px 0 8px;font-size:15px;color:#A1A1AA">${escapeHtml(title)}</h3>
-      <p style="margin:0;color:#52525B;font-size:12px">${isDe ? "Keine direkten Bot-Links verfuegbar." : "No direct bot links available."}</p>`;
+      <p style="margin:0;color:#52525B;font-size:12px">${isDe ? "Keine direkten Bot-Links verfügbar." : "No direct bot links available."}</p>`;
   }
 
   const rows = bots
@@ -231,7 +231,7 @@ function buildResendEmailHtml({ license, tierName, inviteOverview, language }) {
           <p style="margin:0 0 8px;color:#A1A1AA">${isDe ? "Server zuweisen:" : "Assign server:"}</p>
           <ol style="margin:0;padding-left:20px;color:#A1A1AA;line-height:1.8">
             <li>${isDe ? "Im Zielserver" : "In the target server"}: <code>/license activate ${escapeHtml(license.id || "")}</code></li>
-            <li>${isDe ? "Status pruefen" : "Check status"}: <code>/license info</code></li>
+            <li>${isDe ? "Status prüfen" : "Check status"}: <code>/license info</code></li>
             <li>${isDe ? "Invite-Links unten verwenden." : "Use the invite links below."}</li>
           </ol>
         </div>
@@ -612,7 +612,7 @@ async function wizardMenu() {
   console.log("    \x1b[35m3\x1b[0m) Upgrade (Pro -> Ultimate)");
   console.log("    \x1b[31m4\x1b[0m) Premium entfernen");
   console.log("    \x1b[36m5\x1b[0m) Alle Lizenzen anzeigen");
-  console.log("    6) Server pruefen");
+  console.log("    6) Server prüfen");
   console.log("    7) Preisrechner");
   console.log("    8) Tier-Infos");
   console.log("    9) Lizenz-Mail + Invite-Links erneut senden");
@@ -755,7 +755,7 @@ async function run() {
         break;
       }
 
-      // --- Server pruefen ---
+      // --- Server prüfen ---
       case "6": {
         const serverId = await ask("Server ID");
         const lic = getServerLicense(serverId);

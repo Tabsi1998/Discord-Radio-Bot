@@ -2,7 +2,7 @@ const RAW_DEFAULT_LANGUAGE = String(
   process.env.DEFAULT_LANGUAGE
   || process.env.DEFAULT_LANG
   || process.env.APP_LANGUAGE
-  || "de"
+  || "en"
 ).trim().toLowerCase();
 
 const DEFAULT_LANGUAGE = RAW_DEFAULT_LANGUAGE.startsWith("de") ? "de" : "en";

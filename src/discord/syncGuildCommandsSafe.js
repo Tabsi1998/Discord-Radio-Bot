@@ -199,7 +199,7 @@ async function putGuildCommandsViaFetchWithTimeout({
   botToken,
 }) {
   if (typeof fetch !== "function") {
-    throw new Error("Guild command sync fetch transport: fetch ist in dieser Node-Version nicht verfuegbar.");
+    throw new Error("Guild command sync fetch transport: fetch ist in dieser Node-Version nicht verfügbar.");
   }
 
   if (!botToken || !String(botToken).trim()) {

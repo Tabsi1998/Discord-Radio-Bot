@@ -5,6 +5,8 @@
 
 # KEIN set -e! Interaktive Scripts brechen sonst bei jedem grep-Miss ab.
 set -uo pipefail
+export LANG="${LANG:-C.UTF-8}"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
 
 # --- Self-Exec Trick ---
 # Wenn update.sh sich selbst via git reset ersetzt,
@@ -433,13 +435,60 @@ show_storage_overview() {
   fi
 }
 
+report_runtime_tools_status() {
+  if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
+    return 0
+  fi
+
+  if docker compose exec -T omnifm sh -lc 'command -v ffmpeg >/dev/null 2>&1' >/dev/null 2>&1; then
+    ok "Container-Tooling: ffmpeg verfuegbar."
+  else
+    warn "Container-Tooling: ffmpeg fehlt."
+  fi
+
+  if docker compose exec -T omnifm sh -lc 'command -v fpcalc >/dev/null 2>&1' >/dev/null 2>&1; then
+    ok "Container-Tooling: fpcalc/Chromaprint verfuegbar."
+  else
+    warn "Container-Tooling: fpcalc/Chromaprint fehlt."
+  fi
+}
+
+compose_build() {
+  if docker compose build "$@"; then
+    return 0
+  fi
+  fail "Docker-Build fehlgeschlagen."
+  return 1
+}
+
+compose_up() {
+  if docker compose up -d --remove-orphans; then
+    return 0
+  fi
+  fail "Container konnten nicht gestartet werden."
+  return 1
+}
+
+compose_up_with_build() {
+  if docker compose up -d --build --remove-orphans; then
+    report_runtime_tools_status
+    return 0
+  fi
+  fail "Container-Rebuild fehlgeschlagen."
+  return 1
+}
+
 restart_container() {
   echo ""
   if prompt_yes_no "Container jetzt neu starten (noetig fuer Aenderungen)?" "j"; then
     ensure_all_json_files
     info "Starte Container neu..."
-    docker compose up -d --build --remove-orphans 2>&1 | tail -3
-    ok "Container neu gestartet."
+    if compose_up_with_build; then
+      ok "Container neu gestartet."
+    else
+      fail "Neustart fehlgeschlagen. Bitte Build-Log oben pruefen."
+      return 1
+    fi
   else
     warn "Nicht vergessen: ${BOLD}docker compose up -d --build${NC} ausfuehren!"
   fi
@@ -481,6 +530,7 @@ ensure_env_default "LOG_PRUNE_CHECK_MS" "600000"
 ensure_env_default "UPDATE_BUILD_NO_CACHE" "0"
 ensure_env_default "AUTO_DOCKER_PRUNE" "1"
 ensure_env_default "DOCKER_BUILDER_PRUNE_UNTIL" "168h"
+ensure_env_default "DEFAULT_LANGUAGE" "en"
 ensure_env_default "NOW_PLAYING_RECOGNITION_ENABLED" "0"
 ensure_env_default "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18"
 ensure_env_default "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000"
@@ -850,6 +900,15 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_acoustid_key=$(read_env "ACOUSTID_API_KEY" "")
   cur_recognition_sample=$(read_env "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18")
   cur_recognition_timeout=$(read_env "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000")
+  cur_default_language=$(read_env "DEFAULT_LANGUAGE" "en")
+  cur_fpcalc_status="Container gestoppt"
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
+    if docker compose exec -T omnifm sh -lc 'command -v fpcalc >/dev/null 2>&1' >/dev/null 2>&1; then
+      cur_fpcalc_status="verfuegbar"
+    else
+      cur_fpcalc_status="fehlt"
+    fi
+  fi
 
   echo -e "  Web-Port (extern):     ${CYAN}${cur_port}${NC}"
   echo -e "  Web-Port (intern):     ${DIM}${cur_iport}${NC}"
@@ -874,6 +933,7 @@ if [[ "$MODE" == "--settings" ]]; then
   else
     echo -e "  Pro-Testmonat:         ${GREEN}aktiv${NC}"
   fi
+  echo -e "  Standardsprache:       ${CYAN}${cur_default_language}${NC}"
   echo -e "  Bots konfiguriert:     ${CYAN}${bot_count}${NC}"
   if [[ -n "$cur_stripe" ]]; then
     echo -e "  Stripe:                ${GREEN}konfiguriert${NC}"
@@ -897,6 +957,7 @@ if [[ "$MODE" == "--settings" ]]; then
   else
     echo -e "  Track-Erkennung:       ${DIM}deaktiviert${NC}"
   fi
+  echo -e "  fpcalc/Chromaprint:    ${DIM}${cur_fpcalc_status}${NC}"
   echo ""
 
   echo -e "  ${BOLD}Was aendern?${NC}"
@@ -964,6 +1025,11 @@ if [[ "$MODE" == "--settings" ]]; then
       restart_container
       ;;
     6)
+      echo ""
+      info "DiscordBotList Doku:"
+      echo -e "    ${DIM}https://docs.discordbotlist.com/${NC}"
+      echo -e "    ${DIM}https://docs.discordbotlist.com/vote-webhooks${NC}"
+      echo -e "    ${DIM}https://docs.discordbotlist.com/bot-statistics${NC}"
       if prompt_yes_no "DiscordBotList aktivieren?" "$(if [[ "$cur_dbl_enabled" == "0" ]]; then echo n; else echo j; fi)"; then
         new_dbl_token="$(prompt_default "DiscordBotList Token" "$cur_dbl_token")"
         new_dbl_secret="$(prompt_default "DiscordBotList Webhook Secret" "$cur_dbl_secret")"
@@ -994,6 +1060,10 @@ if [[ "$MODE" == "--settings" ]]; then
     7)
       echo ""
       warn "Hinweis: Die freie AcoustID-Web-API ist laut offizieller Doku nur fuer nicht-kommerzielle Nutzung gedacht."
+      info "Chromaprint/fpcalc wird beim Docker-Build automatisch im Container installiert."
+      echo -e "    ${DIM}Chromaprint: https://github.com/acoustid/chromaprint${NC}"
+      echo -e "    ${DIM}AcoustID: https://acoustid.org/webservice${NC}"
+      echo -e "    ${DIM}MusicBrainz: https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting${NC}"
       if prompt_yes_no "Audio-Fingerprint-Erkennung aktivieren?" "$(if [[ "$cur_recognition_enabled" == "1" ]]; then echo j; else echo n; fi)"; then
         new_acoustid_key="$(prompt_default "AcoustID API Key" "$cur_acoustid_key")"
         if [[ -z "$new_acoustid_key" ]]; then
@@ -1485,11 +1555,12 @@ info "Baue Container neu..."
 build_no_cache="$(read_env "UPDATE_BUILD_NO_CACHE" "0")"
 if [[ "$build_no_cache" == "1" ]]; then
   warn "UPDATE_BUILD_NO_CACHE=1 - baue ohne Cache (langsamer, mehr Speicherverbrauch)."
-  docker compose build --no-cache 2>&1 | tail -5
+  compose_build --no-cache || exit 1
 else
-  docker compose build 2>&1 | tail -5
+  compose_build || exit 1
 fi
-docker compose up -d --remove-orphans 2>&1 | tail -3
+compose_up || exit 1
+report_runtime_tools_status
 
 # Housekeeping nach Update
 prune_update_backups

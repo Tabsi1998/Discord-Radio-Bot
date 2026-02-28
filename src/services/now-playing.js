@@ -384,7 +384,7 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
     title: null,
     displayTitle: null,
     album: null,
-    artworkUrl: snapshot.artworkUrl,
+    artworkUrl: null,
     metadataSource: null,
     metadataStatus: "unavailable",
     recognitionProvider: null,

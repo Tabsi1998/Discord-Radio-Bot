@@ -12,7 +12,7 @@ function resolveLanguageFromDiscordLocale(rawLocale, fallbackLanguage = getDefau
 }
 
 function languagePick(language, de, en) {
-  return normalizeLanguage(language, "de") === "de" ? de : en;
+  return normalizeLanguage(language, getDefaultLanguage()) === "de" ? de : en;
 }
 
 function translatePermissionStoreMessage(message, language = "de") {
@@ -62,7 +62,7 @@ function translateCustomStationErrorMessage(message, language = "de") {
 
 function getFeatureRequirementMessage(featureResult, language = "de") {
   if (!featureResult || featureResult.ok) return "";
-  if (normalizeLanguage(language, "de") !== "de") {
+  if (normalizeLanguage(language, getDefaultLanguage()) !== "de") {
     return String(featureResult.message || "Feature not available.");
   }
   const labels = {

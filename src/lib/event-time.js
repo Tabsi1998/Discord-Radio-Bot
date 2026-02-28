@@ -159,7 +159,7 @@ function getWeekdayIndexInTimeZone(utcMs, timeZone) {
 }
 
 function getWeekdayName(utcMs, language = "de", timeZone = EVENT_FALLBACK_TIME_ZONE) {
-  const locale = normalizeLanguage(language, "de") === "de" ? "de-DE" : "en-US";
+  const locale = normalizeLanguage(language, getDefaultLanguage()) === "de" ? "de-DE" : "en-US";
   const tz = normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
   return new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: "long" }).format(new Date(utcMs));
 }
@@ -457,7 +457,7 @@ function parseEventStartDateTime(rawInput, language = "de", preferredTimeZone = 
 function formatDateTime(ms, language = "de", timeZone = null) {
   const value = Number.parseInt(String(ms || ""), 10);
   if (!Number.isFinite(value) || value <= 0) return "-";
-  const locale = normalizeLanguage(language, "de") === "de" ? "de-DE" : "en-US";
+  const locale = normalizeLanguage(language, getDefaultLanguage()) === "de" ? "de-DE" : "en-US";
   const tz = normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
   return new Date(value).toLocaleString(locale, {
     timeZone: tz,
@@ -477,7 +477,7 @@ function normalizeRepeatMode(raw) {
 
 function getRepeatLabel(raw, language = "de", { runAtMs = null, timeZone = null } = {}) {
   const repeat = normalizeRepeatMode(raw);
-  const isDe = normalizeLanguage(language, "de") === "de";
+  const isDe = normalizeLanguage(language, getDefaultLanguage()) === "de";
   const weekday = Number.isFinite(Number(runAtMs)) && Number(runAtMs) > 0
     ? getWeekdayName(Number(runAtMs), language, timeZone || EVENT_FALLBACK_TIME_ZONE)
     : null;

@@ -528,7 +528,7 @@ class BotRuntime {
         {
           name: isDe ? "1) Worker checken" : "1) Check workers",
           value: isDe
-            ? "`/workers` zeigt verfuegbare und bereits eingeladene Worker."
+            ? "`/workers` zeigt verfügbare und bereits eingeladene Worker."
             : "`/workers` shows available and already invited workers.",
         },
         {
@@ -878,7 +878,7 @@ class BotRuntime {
       ? liveStreams.map((item) => {
         const stationName = clipText(item.stationName || item.stationKey || "-", 80);
         const voiceLabel = item.channelId ? `<#${item.channelId}>` : t("unbekannt", "unknown");
-        return `**${stationName}** - ${voiceLabel} - ${item.listenerCount} ${t("Zuhoerer", "listeners")}`;
+        return `**${stationName}** - ${voiceLabel} - ${item.listenerCount} ${t("Zuhörer", "listeners")}`;
       }).join("\n")
       : t("Aktuell laeuft auf diesem Server kein Stream.", "No stream is currently running on this server.");
 
@@ -887,7 +887,7 @@ class BotRuntime {
       .setTitle(t("📊 Listening-Stats", "📊 Listening stats"))
       .setDescription(
         t(
-          `Server: **${guild?.name || guildId}**\nLive-Zuhoerer jetzt: **${totalLiveListeners}**`,
+          `Server: **${guild?.name || guildId}**\nLive-Zuhörer jetzt: **${totalLiveListeners}**`,
           `Server: **${guild?.name || guildId}**\nLive listeners now: **${totalLiveListeners}**`
         )
       )
@@ -912,7 +912,7 @@ class BotRuntime {
           inline: true,
         },
         {
-          name: t("🔥 Peak-Zuhoerer", "🔥 Peak listeners"),
+          name: t("🔥 Peak-Zuhörer", "🔥 Peak listeners"),
           value: String(Number(stats?.peakListeners || 0)),
           inline: true,
         },
@@ -1039,10 +1039,10 @@ class BotRuntime {
       ? null
       : (metadataStatus === "unsupported"
         ? (isDe
-          ? "Dieser Stream sendet aktuell keine auslesbaren Songdaten."
+          ? "Dieser Stream sendet aktuell keine auslesbaren Song-Metadaten."
           : "This stream is not sending readable track metadata right now.")
         : (isDe
-          ? "Dieser Sender liefert aktuell keine verwertbaren Songdaten."
+          ? "Dieser Sender liefert aktuell keine verwertbaren Song-Metadaten."
           : "This station is not providing usable track metadata right now."));
     const embed = new EmbedBuilder()
       .setColor(hasTrack ? 0x1DB954 : 0xF1C40F)
@@ -1059,12 +1059,12 @@ class BotRuntime {
           inline: true,
         },
         {
-          name: isDe ? "🔊 Qualitaet" : "🔊 Quality",
+          name: isDe ? "🔊 Qualität" : "🔊 Quality",
           value: tierConfig.bitrate || "-",
           inline: true,
         },
         {
-          name: isDe ? "👥 Zuhoerer" : "👥 Listeners",
+          name: isDe ? "👥 Zuhörer" : "👥 Listeners",
           value: String(listenerCount),
           inline: true,
         },
@@ -1085,7 +1085,7 @@ class BotRuntime {
       .setTimestamp(new Date(meta?.updatedAt || Date.now()));
 
     if (artist) {
-      embed.addFields({ name: isDe ? "🎤 Artist" : "🎤 Artist", value: artist, inline: true });
+      embed.addFields({ name: isDe ? "🎤 Künstler" : "🎤 Artist", value: artist, inline: true });
     }
     if (title) {
       embed.addFields({ name: isDe ? "📝 Titel" : "📝 Title", value: title, inline: true });
@@ -1177,12 +1177,12 @@ class BotRuntime {
           inline: true,
         },
         {
-          name: isDe ? "🔊 Qualitaet" : "🔊 Quality",
+          name: isDe ? "🔊 Qualität" : "🔊 Quality",
           value: tierConfig.bitrate || "-",
           inline: true,
         },
         {
-          name: isDe ? "👥 Zuhoerer" : "👥 Listeners",
+          name: isDe ? "👥 Zuhörer" : "👥 Listeners",
           value: String(listenerCount),
           inline: true,
         },
@@ -1221,7 +1221,7 @@ class BotRuntime {
       embed.addFields({
         name: isDe ? "🧭 Hinweis" : "🧭 Note",
         value: isDe
-          ? "Der Stream laeuft normal weiter. Sobald der Radiosender wieder Metadaten liefert oder die Audio-Erkennung greift, aktualisiert OmniFM die Einbettung automatisch."
+          ? "Der Stream läuft normal weiter. Sobald der Radiosender wieder Metadaten liefert oder die Audio-Erkennung greift, aktualisiert OmniFM die Einbettung automatisch."
           : "The stream continues normally. As soon as the station sends metadata again or audio recognition succeeds, OmniFM updates the embed automatically.",
         inline: false,
       });
@@ -2529,7 +2529,7 @@ class BotRuntime {
         new ButtonBuilder()
           .setCustomId(`${INVITE_COMPONENT_PREFIX}noop`)
           .setStyle(ButtonStyle.Secondary)
-          .setLabel(t("Kein Invite verfuegbar", "No invite available"))
+          .setLabel(t("Kein Invite verfügbar", "No invite available"))
           .setDisabled(true)
       );
     }
@@ -2788,14 +2788,14 @@ class BotRuntime {
         {
           name: isDe ? "Schnellstart" : "Quick start",
           value: isDe
-            ? "1. `/workers` oder `/invite` pruefen, welche Worker bereit sind.\n2. `/play station:<sender> voice:<kanal>` startet den Stream.\n3. `/now`, `/history` und `/stats` zeigen Live-Daten."
+            ? "1. `/workers` oder `/invite` prüfen, welche Worker bereit sind.\n2. `/play station:<sender> voice:<kanal>` startet den Stream.\n3. `/now`, `/history` und `/stats` zeigen Live-Daten."
             : "1. Use `/workers` or `/invite` to check which workers are available.\n2. `/play station:<station> voice:<channel>` starts the stream.\n3. `/now`, `/history`, and `/stats` show live data.",
           inline: false,
         },
         {
           name: isDe ? "Sprache" : "Language",
           value: isDe
-            ? "OmniFM erkennt Server-/Discord-Sprache automatisch. Mit `/language set value:de|en` kannst du sie fest setzen."
+            ? "OmniFM erkennt Server- und Discord-Sprache automatisch. Mit `/language set value:de|en` kannst du sie fest setzen."
             : "OmniFM auto-detects the server/Discord language. Use `/language set value:de|en` to force it.",
           inline: false,
         }
@@ -2815,14 +2815,14 @@ class BotRuntime {
         {
           name: "/stations /list /now /history /stats",
           value: isDe
-            ? "Zeigt verfuegbare Sender, aktuelle Songs, History und Server-Statistiken."
+            ? "Zeigt verfügbare Sender, aktuelle Songs, History und Server-Statistiken."
             : "Shows available stations, current songs, history, and server statistics.",
           inline: false,
         },
         {
           name: "/setvolume /status /health /diag",
           value: isDe
-            ? "Audio, Worker-Zustand und technische Checks fuer Admins."
+            ? "Audio, Worker-Zustand und technische Checks für Admins."
             : "Audio, worker status, and technical checks for admins.",
           inline: false,
         }
@@ -2835,14 +2835,14 @@ class BotRuntime {
         {
           name: "/event create|edit|list|delete",
           value: isDe
-            ? "Flexible Event-Planung mit Voice-/Stage-Channel, Wiederholung, Server-Event und Ankuendigung."
+            ? "Flexible Event-Planung mit Voice-/Stage-Channel, Wiederholung, Server-Event und Ankündigung."
             : "Flexible event scheduling with voice/stage channel, recurrence, server event, and announcement.",
           inline: false,
         },
         {
           name: isDe ? "Datumsformate" : "Date formats",
           value: isDe
-            ? "`DD.MM.YYYY HH:MM`, `YYYY-MM-DD HH:MM`, `20:00`, `heute`, `morgen` oder getrennt ueber `startdate` + `starttime`."
+            ? "`DD.MM.YYYY HH:MM`, `YYYY-MM-DD HH:MM`, `20:00`, `heute`, `morgen` oder getrennt über `startdate` + `starttime`."
             : "`DD.MM.YYYY HH:MM`, `YYYY-MM-DD HH:MM`, `20:00`, `today`, `tomorrow`, or split across `startdate` + `starttime`.",
           inline: false,
         },
@@ -2862,21 +2862,21 @@ class BotRuntime {
         {
           name: "/invite /workers /perm",
           value: isDe
-            ? "Worker einladen, aktive Worker ansehen und Rollenrechte fuer Commands regeln."
+            ? "Worker einladen, aktive Worker ansehen und Rollenrechte für Commands regeln."
             : "Invite workers, inspect active workers, and manage role permissions for commands.",
           inline: false,
         },
         {
           name: "/premium /license",
           value: isDe
-            ? "Lizenzstatus, Upgrades und Seat-Verwaltung fuer deinen Server."
+            ? "Lizenzstatus, Upgrades und Seat-Verwaltung für deinen Server."
             : "License status, upgrades, and seat management for your server.",
           inline: false,
         },
         {
           name: "/addstation /removestation /mystations",
           value: isDe
-            ? "Ultimate-only fuer eigene Sender und private Streams."
+            ? "Ultimate-only für eigene Sender und private Streams."
             : "Ultimate-only for custom stations and private streams.",
           inline: false,
         }
@@ -3178,7 +3178,7 @@ class BotRuntime {
       return {
         ok: false,
         message: t(
-          `Station \`${stationRef.key}\` ist in deinem Plan nicht verfuegbar.`,
+          `Station \`${stationRef.key}\` ist in deinem Plan nicht verfügbar.`,
           `Station \`${stationRef.key}\` is not available in your plan.`
         )
       };
@@ -4543,7 +4543,7 @@ class BotRuntime {
     const clientLanguage = resolveLanguageFromDiscordLocale(interaction.locale, language);
     const suggestOverride = !override && clientLanguage !== effectiveLanguage
       ? `\n${t(
-        `Tipp: Mit \`/language set value:${clientLanguage}\` kannst du OmniFM fuer diesen Server fest auf \`${clientLanguage}\` stellen.`,
+        `Tipp: Mit \`/language set value:${clientLanguage}\` kannst du OmniFM für diesen Server fest auf \`${clientLanguage}\` stellen.`,
         `Tip: Use \`/language set value:${clientLanguage}\` to force OmniFM to \`${clientLanguage}\` for this server.`
       )}`
       : "";
@@ -4564,7 +4564,7 @@ class BotRuntime {
     if (!this.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
         content: t(
-          "Du brauchst die Berechtigung `Server verwalten` fuer `/language set` und `/language reset`.",
+          "Du brauchst die Berechtigung `Server verwalten` für `/language set` und `/language reset`.",
           "You need the `Manage Server` permission for `/language set` and `/language reset`."
         ),
         ephemeral: true,
@@ -4577,7 +4577,7 @@ class BotRuntime {
       setGuildLanguage(guildId, value);
       await interaction.reply({
         content: t(
-          `Sprache fuer diesen Server wurde auf \`${value}\` gesetzt.`,
+          `Sprache für diesen Server wurde auf \`${value}\` gesetzt.`,
           `Language for this server was set to \`${value}\`.`
         ),
         ephemeral: true,
@@ -5344,7 +5344,7 @@ class BotRuntime {
       if ((TIER_RANK[guildTier] ?? 0) < (TIER_RANK.pro ?? 1)) {
         await interaction.reply({
           content: t(
-            "`/now` ist ab **Pro** verfuegbar. Upgrade: https://omnifm.xyz#premium",
+            "`/now` ist ab **Pro** verfügbar. Upgrade: https://omnifm.xyz#premium",
             "`/now` is available with **Pro** and above. Upgrade: https://omnifm.xyz#premium"
           ),
           ephemeral: true,
@@ -5433,7 +5433,7 @@ class BotRuntime {
       if (!history.length) {
         await interaction.reply({
           content: t(
-            "Noch keine Song-History verfuegbar. Starte zuerst eine Station mit `/play`.",
+            "Noch keine Song-History verfügbar. Starte zuerst eine Station mit `/play`.",
             "No song history yet. Start a station with `/play` first."
           ),
           ephemeral: true
@@ -5600,7 +5600,7 @@ class BotRuntime {
               offline: t(`Worker ${requestedBot} ist offline.`, `Worker ${requestedBot} is offline.`),
               not_invited: t(`Worker ${requestedBot} ist nicht auf diesem Server eingeladen.`, `Worker ${requestedBot} is not invited on this server.`),
             };
-            await interaction.reply({ content: reasons[check.reason] || t("Worker nicht verfuegbar.", "Worker not available."), ephemeral: true });
+            await interaction.reply({ content: reasons[check.reason] || t("Worker nicht verfügbar.", "Worker not available."), ephemeral: true });
             return;
           }
           const info = check.worker.getGuildInfo(interaction.guildId);
@@ -5660,7 +5660,7 @@ class BotRuntime {
         const targetNames = targetWorkers.map((worker) => worker.config?.name || "Worker").join(", ");
         await interaction.reply({
           content: t(
-            `Lautstaerke gesetzt: ${value} (${targetNames})`,
+            `Lautstärke gesetzt: ${value} (${targetNames})`,
             `Volume set to: ${value} (${targetNames})`
           ),
           ephemeral: true
@@ -5672,7 +5672,7 @@ class BotRuntime {
       if (resource?.volume) {
         resource.volume.setVolume(clampVolume(value));
       }
-      await interaction.reply({ content: t(`Lautstaerke gesetzt: ${value}`, `Volume set to: ${value}`), ephemeral: true });
+      await interaction.reply({ content: t(`Lautstärke gesetzt: ${value}`, `Volume set to: ${value}`), ephemeral: true });
       return;
     }
 
@@ -5703,7 +5703,7 @@ class BotRuntime {
         lines.push(t("Status: ABGELAUFEN", "Status: EXPIRED"));
       }
       if (tierConfig.tier === "free") {
-        lines.push("", t(`Upgrade auf ${BRAND.name} Pro/Ultimate fuer hoehere Qualitaet!`, `Upgrade to ${BRAND.name} Pro/Ultimate for higher quality!`));
+        lines.push("", t(`Upgrade auf ${BRAND.name} Pro/Ultimate für höhere Qualität!`, `Upgrade to ${BRAND.name} Pro/Ultimate for higher quality!`));
         lines.push(t("Infos & Support: https://discord.gg/UeRkfGS43R", "Info & support: https://discord.gg/UeRkfGS43R"));
       } else {
         lines.push("", "Support: https://discord.gg/UeRkfGS43R");
@@ -6112,7 +6112,7 @@ class BotRuntime {
               offline: t(`Worker ${requestedBotIndex} ist offline.`, `Worker ${requestedBotIndex} is offline.`),
               not_invited: t(`Worker ${requestedBotIndex} ist nicht auf diesem Server. Nutze \`/invite worker:${requestedBotIndex}\` zum Einladen.`, `Worker ${requestedBotIndex} is not on this server. Use \`/invite worker:${requestedBotIndex}\` to invite.`),
             };
-            await interaction.editReply(reasons[check.reason] || t("Worker nicht verfuegbar.", "Worker not available."));
+            await interaction.editReply(reasons[check.reason] || t("Worker nicht verfügbar.", "Worker not available."));
             return;
           }
           worker = check.worker;

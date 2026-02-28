@@ -7,6 +7,7 @@ import {
   seatPricingInEuro,
   isWithinWorkerPlanLimit,
 } from "../src/lib/helpers.js";
+import { buildCommandsJson } from "../src/commands.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
@@ -19,6 +20,7 @@ import {
   extractAcoustIdCandidate,
   selectBestAcoustIdMatch,
 } from "../src/services/audio-recognition.js";
+import { getDefaultLanguage } from "../src/i18n.js";
 
 test("seat pricing stays aligned with documented bundle totals", () => {
   assert.deepEqual(seatPricingInEuro("pro"), {
@@ -253,4 +255,22 @@ test("event time parser accepts time-only input and starts immediately around no
 
   assert.equal(parsed.ok, true);
   assert.equal(parsed.runAtMs, nowMs);
+});
+
+test("default language falls back to English when nothing explicit is set", () => {
+  assert.equal(getDefaultLanguage(), "en");
+});
+
+test("slash commands expose English defaults with German localizations", () => {
+  const commands = buildCommandsJson();
+  const play = commands.find((command) => command.name === "play");
+  const language = commands.find((command) => command.name === "language");
+
+  assert.ok(play);
+  assert.equal(play.description, "Start a radio stream in your voice channel");
+  assert.equal(play.description_localizations.de, "Startet einen Radio-Stream in deinem Voice-Channel");
+
+  assert.ok(language);
+  assert.equal(language.description, "Manage the language for this server");
+  assert.equal(language.description_localizations.de, "Sprache für diesen Server verwalten");
 });

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
+export LANG="${LANG:-C.UTF-8}"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
 
 # Colors
 RED='\033[0;31m'
@@ -14,6 +16,33 @@ info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC}   $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
+
+report_runtime_tools_status() {
+  if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
+    return 0
+  fi
+
+  if docker compose exec -T omnifm sh -lc 'command -v ffmpeg >/dev/null 2>&1' >/dev/null 2>&1; then
+    ok "Container-Tooling: ffmpeg verfuegbar."
+  else
+    warn "Container-Tooling: ffmpeg fehlt."
+  fi
+
+  if docker compose exec -T omnifm sh -lc 'command -v fpcalc >/dev/null 2>&1' >/dev/null 2>&1; then
+    ok "Container-Tooling: fpcalc/Chromaprint verfuegbar."
+  else
+    warn "Container-Tooling: fpcalc/Chromaprint fehlt."
+  fi
+}
+
+compose_up_with_build() {
+  if docker compose up -d --build; then
+    report_runtime_tools_status
+    return 0
+  fi
+  fail "Docker Compose Build/Start fehlgeschlagen."
+  return 1
+}
 
 prompt_nonempty() {
   local label="$1"
@@ -267,6 +296,7 @@ if [[ $existing_bots -eq 0 ]]; then
   write_env_line "UPDATE_BUILD_NO_CACHE" "0"
   write_env_line "AUTO_DOCKER_PRUNE" "1"
   write_env_line "DOCKER_BUILDER_PRUNE_UNTIL" "168h"
+  write_env_line "DEFAULT_LANGUAGE" "en"
   write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "0"
   write_env_line "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18"
   write_env_line "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000"
@@ -517,6 +547,8 @@ if ! grep -q "^ACOUSTID_API_KEY=.*[^[:space:]]" .env 2>/dev/null; then
   if prompt_yes_no "Audio-Fingerprint-Erkennung via AcoustID und MusicBrainz einrichten? (Optional)" "n"; then
     echo ""
     warn "Die freie AcoustID-Web-API ist laut offizieller Doku nur fuer nicht-kommerzielle Nutzung gedacht."
+    info "Chromaprint/fpcalc wird beim Docker-Build automatisch im Container installiert."
+    echo -e "  ${CYAN}Chromaprint: https://github.com/acoustid/chromaprint${NC}"
     echo -e "  ${CYAN}AcoustID: https://acoustid.org/webservice${NC}"
     echo -e "  ${CYAN}MusicBrainz Rate Limits: https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting${NC}"
     echo ""
@@ -560,7 +592,7 @@ done
 [[ -f scheduled-events.json ]] || echo '{"version":1,"events":[]}' > scheduled-events.json
 [[ -f coupons.json ]] || echo '{"offers":{},"redemptions":{}}' > coupons.json
 
-$DOCKER compose up -d --build
+compose_up_with_build || exit 1
 
 echo ""
 info "Warte auf Health-Check (max 30 Sekunden)..."

@@ -12,9 +12,25 @@ RUN npm run build
 
 FROM node:20-slim
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg chromaprint-tools ca-certificates libopus0 libopus-dev python3 make g++ pkg-config \
-  && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+  apt-get update; \
+  CHROMAPRINT_PKG="libchromaprint-tools"; \
+  if ! apt-cache show "${CHROMAPRINT_PKG}" >/dev/null 2>&1; then \
+    CHROMAPRINT_PKG="chromaprint-tools"; \
+  fi; \
+  apt-get install -y --no-install-recommends \
+    ffmpeg \
+    "${CHROMAPRINT_PKG}" \
+    ca-certificates \
+    libopus0 \
+    libopus-dev \
+    python3 \
+    make \
+    g++ \
+    pkg-config; \
+  command -v ffmpeg; \
+  command -v fpcalc; \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

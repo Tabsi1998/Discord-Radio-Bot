@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 
 # KEIN set -e hier! Wir behandeln Fehler selbst.
+export LANG="${LANG:-C.UTF-8}"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
 
 # === JSON-Dateien sicherstellen ===
 # Docker bind-mount erstellt ein VERZEICHNIS wenn die Datei auf dem Host fehlt.
@@ -42,6 +44,21 @@ init_json_file "/app/scheduled-events.json"
 init_json_file "/app/coupons.json"
 init_json_file "/app/premium.json"
 init_json_file "/app/stations.json"
+
+if command -v ffmpeg >/dev/null 2>&1; then
+  echo "[INFO] ffmpeg verfuegbar: $(ffmpeg -version | head -n 1)"
+else
+  echo "[WARN] ffmpeg fehlt im Container."
+fi
+
+if [ "${NOW_PLAYING_RECOGNITION_ENABLED:-0}" != "0" ]; then
+  if command -v fpcalc >/dev/null 2>&1; then
+    echo "[INFO] Audio-Erkennung bereit: $(fpcalc -version 2>/dev/null | head -n 1)"
+  else
+    echo "[WARN] Audio-Erkennung ist aktiviert, aber fpcalc/Chromaprint fehlt im Container."
+    echo "[WARN] Bitte Docker-Image neu bauen oder die Build-Logs auf Paketfehler pruefen."
+  fi
+fi
 
 # === Commands registrieren ===
 if [ "$#" -gt 0 ]; then
