@@ -12,6 +12,7 @@ const PLAN_META = {
 const FALLBACK_PRICING = {
   durations: [1, 3, 6, 12],
   seatOptions: [1, 2, 3, 5],
+  trial: { enabled: true, tier: 'pro', months: 1, oneTimePerEmail: true },
   tiers: {
     free: {
       name: 'Free', pricePerMonth: 0,
@@ -65,6 +66,14 @@ function normalizePricing(rawPricing) {
   const seatOptions = Array.isArray(raw.seatOptions) && raw.seatOptions.length > 0 ? raw.seatOptions : FALLBACK_PRICING.seatOptions;
   return {
     durations, seatOptions,
+    trial: raw.trial && typeof raw.trial === 'object'
+      ? {
+          enabled: raw.trial.enabled !== false,
+          tier: String(raw.trial.tier || 'pro').trim().toLowerCase() || 'pro',
+          months: Number(raw.trial.months) > 0 ? Number(raw.trial.months) : 1,
+          oneTimePerEmail: raw.trial.oneTimePerEmail !== false,
+        }
+      : { ...FALLBACK_PRICING.trial },
     tiers: {
       free: normalizeTier(rawTiers.free, FALLBACK_PRICING.tiers.free),
       pro: normalizeTier(rawTiers.pro, FALLBACK_PRICING.tiers.pro),
@@ -86,15 +95,19 @@ function mapTierToColor(tier) {
 }
 
 /* ── Checkout Popup Modal ── */
-function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) {
+function CheckoutModal({ planId, tier, meta, durations, seatOptions, trialConfig, onClose }) {
   const [email, setEmail] = useState('');
   const [coupon, setCoupon] = useState('');
   const [referral, setReferral] = useState('');
   const [selectedSeats, setSelectedSeats] = useState(1);
   const [selectedDuration, setSelectedDuration] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [trialLoading, setTrialLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [noticeColor, setNoticeColor] = useState('#39FF14');
   const Icon = meta.icon;
+  const trialEnabled = planId === 'pro' && trialConfig?.enabled !== false;
 
   // Seat pricing
   const seatEntries = Object.entries(tier.seatPricing || {})
@@ -124,6 +137,7 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
       setError('Bitte eine g\u00FCltige E-Mail-Adresse eingeben.');
       return;
     }
+    setNotice('');
     setError('');
     setLoading(true);
     try {
@@ -144,6 +158,40 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
       else { setError('Keine Checkout-URL erhalten.'); }
     } catch { setError('Checkout fehlgeschlagen. Bitte sp\u00E4ter erneut versuchen.'); }
     finally { setLoading(false); }
+  };
+
+  const handleTrial = async () => {
+    const trimmedEmail = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setError('Bitte eine g\u00FCltige E-Mail-Adresse eingeben.');
+      return;
+    }
+
+    setError('');
+    setNotice('');
+    setTrialLoading(true);
+
+    try {
+      const res = await fetch(buildApiUrl('/api/premium/trial'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          language: navigator.language?.toLowerCase().startsWith('de') ? 'de' : 'en',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) {
+        setError(data?.error || data?.message || 'Testmonat konnte nicht aktiviert werden.');
+        return;
+      }
+      setNoticeColor('#39FF14');
+      setNotice(data?.message || 'Pro-Testmonat aktiviert.');
+    } catch {
+      setError('Testmonat konnte nicht aktiviert werden. Bitte spaeter erneut versuchen.');
+    } finally {
+      setTrialLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -344,7 +392,12 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
           </p>
         </div>
 
-        {/* Error */}
+        {/* Feedback */}
+        {notice && (
+          <p style={{ margin: '0 0 12px', fontSize: 12, color: noticeColor, textAlign: 'center' }}>
+            {notice}
+          </p>
+        )}
         {error && (
           <p data-testid="checkout-error-msg" style={{ margin: '0 0 12px', fontSize: 12, color: '#FF2A2A', textAlign: 'center' }}>
             {error}
@@ -352,7 +405,7 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
         )}
 
         {/* Bezahlen-Button */}
-        <button data-testid={`checkout-pay-btn-${planId}`} onClick={handlePay} disabled={loading}
+        <button data-testid={`checkout-pay-btn-${planId}`} onClick={handlePay} disabled={loading || trialLoading}
           style={{
             width: '100%', padding: '14px 0', borderRadius: 12, border: 'none',
             background: loading ? `${meta.color}80` : meta.color, color: '#050505',
@@ -366,6 +419,31 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
         >
           {loading ? 'Weiterleitung...' : `${formatEuro(totalPrice)}\u20AC bezahlen`}
         </button>
+
+        {trialEnabled && (
+          <button
+            data-testid="checkout-trial-btn"
+            onClick={handleTrial}
+            disabled={loading || trialLoading}
+            style={{
+              width: '100%',
+              marginTop: 10,
+              padding: '12px 0',
+              borderRadius: 12,
+              border: `1px solid ${meta.color}55`,
+              background: 'rgba(255,255,255,0.03)',
+              color: meta.color,
+              fontWeight: 800,
+              fontSize: 14,
+              fontFamily: "'DM Sans', sans-serif",
+              cursor: loading || trialLoading ? 'default' : 'pointer',
+            }}
+          >
+            {trialLoading
+              ? 'Testmonat wird aktiviert...'
+              : `${trialConfig?.months || 1} Monat${(trialConfig?.months || 1) === 1 ? '' : 'e'} kostenlos testen`}
+          </button>
+        )}
 
         {/* Abbrechen */}
         <button data-testid="checkout-cancel-btn" onClick={onClose}
@@ -464,6 +542,7 @@ function Premium() {
             const meta = PLAN_META[planId];
             const Icon = meta.icon;
             const isPro = planId === 'pro';
+            const trialEnabled = isPro && pricing.trial?.enabled !== false;
 
             return (
               <div key={planId} data-testid={`plan-card-${planId}`}
@@ -510,19 +589,42 @@ function Premium() {
 
                 {/* Buy Button */}
                 {planId !== 'free' && (
-                  <button data-testid={`buy-btn-${planId}`} onClick={() => setCheckoutPlan(planId)}
-                    style={{
-                      width: '100%', padding: '12px 0', borderRadius: 10, border: 'none',
-                      background: meta.color, color: '#050505', fontWeight: 700, fontSize: 14,
-                      fontFamily: "'DM Sans', sans-serif", cursor: 'pointer',
-                      transition: 'transform 0.15s, box-shadow 0.2s',
-                      boxShadow: `0 0 20px ${meta.color}30`,
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = `0 0 30px ${meta.color}50`; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = `0 0 20px ${meta.color}30`; }}
-                  >
-                    {tier.name} kaufen
-                  </button>
+                  <>
+                    <button data-testid={`buy-btn-${planId}`} onClick={() => setCheckoutPlan(planId)}
+                      style={{
+                        width: '100%', padding: '12px 0', borderRadius: 10, border: 'none',
+                        background: meta.color, color: '#050505', fontWeight: 700, fontSize: 14,
+                        fontFamily: "'DM Sans', sans-serif", cursor: 'pointer',
+                        transition: 'transform 0.15s, box-shadow 0.2s',
+                        boxShadow: `0 0 20px ${meta.color}30`,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = `0 0 30px ${meta.color}50`; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = `0 0 20px ${meta.color}30`; }}
+                    >
+                      {tier.name} kaufen
+                    </button>
+                    {trialEnabled && (
+                      <button
+                        data-testid="premium-pro-trial-open-btn"
+                        onClick={() => setCheckoutPlan(planId)}
+                        style={{
+                          width: '100%',
+                          marginTop: 10,
+                          padding: '10px 0',
+                          borderRadius: 10,
+                          border: `1px solid ${meta.color}55`,
+                          background: 'rgba(255,255,255,0.03)',
+                          color: meta.color,
+                          fontWeight: 700,
+                          fontSize: 13,
+                          fontFamily: "'DM Sans', sans-serif",
+                          cursor: 'pointer',
+                        }}
+                      >
+                        1 Monat kostenlos testen
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             );
@@ -581,6 +683,7 @@ function Premium() {
           meta={PLAN_META[checkoutPlan]}
           durations={pricing.durations}
           seatOptions={pricing.seatOptions}
+          trialConfig={pricing.trial}
           onClose={closeCheckout}
         />
       )}

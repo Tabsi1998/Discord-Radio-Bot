@@ -481,6 +481,13 @@ ensure_env_default "LOG_PRUNE_CHECK_MS" "600000"
 ensure_env_default "UPDATE_BUILD_NO_CACHE" "0"
 ensure_env_default "AUTO_DOCKER_PRUNE" "1"
 ensure_env_default "DOCKER_BUILDER_PRUNE_UNTIL" "168h"
+ensure_env_default "NOW_PLAYING_RECOGNITION_ENABLED" "0"
+ensure_env_default "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18"
+ensure_env_default "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000"
+ensure_env_default "NOW_PLAYING_RECOGNITION_CACHE_TTL_MS" "90000"
+ensure_env_default "NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS" "180000"
+ensure_env_default "NOW_PLAYING_RECOGNITION_SCORE_THRESHOLD" "0.55"
+ensure_env_default "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
 
 # Einmalige Migration: fruehere Defaults hatten CLEAN_GUILD_COMMANDS_ON_BOOT=1.
 # Das kann bei transienten API-Fehlern Commands entfernen.
@@ -839,6 +846,10 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_dbl_token=$(read_env "DISCORDBOTLIST_TOKEN" "")
   cur_dbl_secret=$(read_env "DISCORDBOTLIST_WEBHOOK_SECRET" "")
   cur_dbl_scope=$(read_env "DISCORDBOTLIST_STATS_SCOPE" "aggregate")
+  cur_recognition_enabled=$(read_env "NOW_PLAYING_RECOGNITION_ENABLED" "0")
+  cur_acoustid_key=$(read_env "ACOUSTID_API_KEY" "")
+  cur_recognition_sample=$(read_env "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18")
+  cur_recognition_timeout=$(read_env "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000")
 
   echo -e "  Web-Port (extern):     ${CYAN}${cur_port}${NC}"
   echo -e "  Web-Port (intern):     ${DIM}${cur_iport}${NC}"
@@ -879,6 +890,13 @@ if [[ "$MODE" == "--settings" ]]; then
   if [[ -n "$cur_public_url" ]]; then
     echo -e "  DBL Webhook:           ${DIM}${cur_public_url}/api/discordbotlist/vote${NC}"
   fi
+  if [[ "$cur_recognition_enabled" == "1" && -n "$cur_acoustid_key" ]]; then
+    echo -e "  Track-Erkennung:       ${GREEN}aktiv${NC} (${cur_recognition_sample}s Sample, ${cur_recognition_timeout}ms Timeout)"
+  elif [[ "$cur_recognition_enabled" == "1" ]]; then
+    echo -e "  Track-Erkennung:       ${YELLOW}aktiv ohne API-Key${NC}"
+  else
+    echo -e "  Track-Erkennung:       ${DIM}deaktiviert${NC}"
+  fi
   echo ""
 
   echo -e "  ${BOLD}Was aendern?${NC}"
@@ -888,9 +906,10 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${BOLD}4${NC}) Web-Origin/CORS automatisch reparieren (empfohlen)"
   echo -e "    ${CYAN}5${NC}) Pro-Testmonat ein/aus"
   echo -e "    ${YELLOW}6${NC}) DiscordBotList konfigurieren"
-  echo -e "    ${DIM}7${NC}) Zurueck"
+  echo -e "    ${GREEN}7${NC}) Track-Erkennung (AcoustID/MusicBrainz)"
+  echo -e "    ${DIM}8${NC}) Zurueck"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-7]${NC}: ")" SET_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-8]${NC}: ")" SET_CHOICE
 
   case "${SET_CHOICE:-}" in
     1)
@@ -969,6 +988,29 @@ if [[ "$MODE" == "--settings" ]]; then
       else
         write_env_line "DISCORDBOTLIST_ENABLED" "0"
         ok "DiscordBotList deaktiviert."
+      fi
+      restart_container
+      ;;
+    7)
+      echo ""
+      warn "Hinweis: Die freie AcoustID-Web-API ist laut offizieller Doku nur fuer nicht-kommerzielle Nutzung gedacht."
+      if prompt_yes_no "Audio-Fingerprint-Erkennung aktivieren?" "$(if [[ "$cur_recognition_enabled" == "1" ]]; then echo j; else echo n; fi)"; then
+        new_acoustid_key="$(prompt_default "AcoustID API Key" "$cur_acoustid_key")"
+        if [[ -z "$new_acoustid_key" ]]; then
+          fail "AcoustID API Key ist erforderlich."
+          exit 1
+        fi
+        new_sample="$(prompt_default "Fingerprint Sample in Sekunden" "$cur_recognition_sample")"
+        new_timeout="$(prompt_default "Timeout in Millisekunden" "$cur_recognition_timeout")"
+        write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "1"
+        write_env_line "ACOUSTID_API_KEY" "$new_acoustid_key"
+        write_env_line "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "$new_sample"
+        write_env_line "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "$new_timeout"
+        write_env_line "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
+        ok "Track-Erkennung gespeichert."
+      else
+        write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "0"
+        ok "Track-Erkennung deaktiviert."
       fi
       restart_container
       ;;

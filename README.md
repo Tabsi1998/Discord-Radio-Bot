@@ -1,196 +1,362 @@
-# OmniFM v3.0
+# OmniFM v3
 
-24/7 Discord Radio Streaming Bot mit Premium Tier-System und Seat-basierter Lizenzierung.
+OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium licensing, scheduled events, live now-playing embeds, server statistics, DiscordBotList sync, and optional audio fingerprint fallback for weak station metadata.
 
-## Features
+## What it does
 
-- 3-Tier System (Free / Pro / Ultimate)
-- Seat-basierte Server-Lizenzierung (1/2/3/5 Server)
-- Auto-Verlaengerung bestehender Lizenz pro E-Mail (kein neuer Key bei Renewal/Upgrade)
-- Tiered Station Access (20 Free + 100 Pro Stationen)
-- Plan-basierte Audio-Qualitaet (64k/128k/320k)
-- Priority Reconnect (5s/1.5s/0.4s)
-- Custom Station URLs (Ultimate)
-- Stripe Checkout Integration
-- Einmaliger Pro-Testmonat pro E-Mail
-- E-Mail Benachrichtigungen (Kaufbeleg, Ablauf-Warnung)
-- Song-History pro Server (`/history`)
-- Coupon- und Referral-Codes fuer Checkout-Rabatte
-- Event-Scheduler mit Voice/Stage-Unterstuetzung (`/event`)
-- Optionales Discord-Server-Event + Stage-Topic fuer geplante Events
-- Konsistente DE/EN Bot-Sprache (automatisch nach Server-Locale, optional manuell via `/language`)
-- Interaktives Worker-Invite-Menue (`/invite [worker]`) mit Server-Abgleich
-- Smartes Commander-Volume-Routing (`/setvolume <value> [bot]`)
-- Optionales First-Join Onboarding im System-/Moderator-Kanal
-- Optionaler Voice-Channel-Status mit aktuellem Sender (best effort)
+- Streams radio stations into Discord voice and stage channels
+- Uses one commander bot for slash commands and multiple worker bots for playback
+- Supports Free, Pro, and Ultimate plans with seat-based licensing
+- Provides `/now`, `/history`, `/stats`, `/workers`, `/invite`, `/event`, `/premium`, and more
+- Publishes cleaner now-playing embeds with cover art and search buttons
+- Falls back to audio fingerprint recognition when stations provide bad or missing metadata
+- Syncs bot stats, commands, and vote webhooks with DiscordBotList
 
-## Setup
+## Requirements
+
+- Docker with `docker compose`
+- Linux host recommended for production
+- Discord bot tokens and client IDs
+- Optional:
+  - Stripe keys for Premium checkout
+  - SMTP credentials for license and invoice mail
+  - DiscordBotList token and webhook secret
+  - AcoustID API key for audio fingerprint fallback
+
+## Quick start
 
 ```bash
 ./install.sh
 ```
 
-## Management
+The installer can configure:
+
+- Discord bot accounts
+- Web port and public URL
+- Stripe
+- DiscordBotList
+- Optional AcoustID/MusicBrainz recognition fallback
+
+After installation:
 
 ```bash
-./update.sh           # Update & Management CLI
-./update.sh --stripe  # Stripe API Key konfigurieren
-./update.sh --email   # SMTP konfigurieren
-./update.sh --premium # Lizenz-, Coupon- und Referral-Verwaltung (Wizard)
-./update.sh --offers  # Direkt in Coupon/Referral-Verwaltung (Pro/Ultimate Codes)
-```
-
-## Docker
-
-```bash
-docker compose up -d
+docker compose up -d --build
 docker compose logs -f omnifm
 ```
 
-## Architektur
+## Daily management
 
-Commander/Worker-Modus:
-- Nur der Commander registriert und beantwortet Slash-Commands.
-- Worker fuehren Stream-Jobs aus (`/play`, `/event`) und halten Voice-Verbindungen.
-
-```
-src/
-  index.js            # Haupt-Applikation
-  config/plans.js     # Plan-Konfiguration (Single Source of Truth)
-  core/entitlements.js # Server-Plan & Feature-Checks
-  services/pricing.js  # Seat-basiertes Pricing
-  services/stations.js # Station-Management
-  ui/upgradeEmbeds.js  # Discord Upgrade-Embeds
-  premium-store.js     # Lizenz-Verwaltung (JSON Store)
-  bot-state.js         # Bot-State Persistenz
-  commands.js          # Slash-Command Definitionen
-  email.js             # E-Mail Service (Nodemailer)
-web/
-  index.html           # Legacy Website Fallback
-  app.js               # Legacy Frontend Logik
-  styles.css           # Legacy Styles
-frontend/
-  src/...              # React Website (Produktiv-Build unter frontend/build)
-  public/...           # Fallback-Static-Site, falls kein Build vorhanden
+```bash
+./update.sh
+./update.sh --bots
+./update.sh --settings
+./update.sh --stripe
+./update.sh --premium
+./update.sh --offers
+./update.sh --email
+./update.sh --status
+./update.sh --cleanup
 ```
 
-## Umgebungsvariablen
+## Architecture
 
-| Variable | Beschreibung |
-|----------|-------------|
-| `BOT_N_TOKEN` | Discord Bot Token |
-| `BOT_N_CLIENT_ID` | Discord Client ID |
-| `BOT_N_NAME` | Bot-Anzeigename |
-| `COMMANDER_BOT_INDEX` | Welcher `BOT_N` der Commander ist (Default: `1`) |
-| `PUBLIC_WEB_URL` | Oeffentliche URL der Website |
-| `WEB_STRICT_FRONTEND_BUILD` | `1` = Start abbrechen wenn `frontend/build/index.html` fehlt (kein stiller Legacy-Fallback) |
-| `MONGO_ENABLED` | `1` = MongoDB-Verbindung aktivieren, `0` = Datei-Store |
-| `MONGO_URL` | MongoDB Connection String (z.B. `mongodb://mongo:27017`) |
-| `DB_NAME` | MongoDB Datenbankname (Default: `radio_bot`) |
-| `CORS_ALLOWED_ORIGINS` | Komma-Liste erlaubter Web-Origin URLs (API CORS) |
-| `CHECKOUT_RETURN_ORIGINS` | Komma-Liste erlaubter Return-URLs fuer Stripe Checkout |
-| `CLEAN_WORKER_GUILD_COMMANDS_ON_BOOT` | `1` = Worker-Guild-Commands beim Start entfernen (empfohlen) |
-| `PRO_TRIAL_ENABLED` | `1` = Pro-Testmonat (1 Monat, 1x pro E-Mail) aktiv, `0` = deaktiviert |
-| `LICENSE_EXPIRY_REMINDER_DAYS` | Komma-Liste der Erinnerungen vor Ablauf (Default: `30,14,7,1`) |
-| `NOW_PLAYING_ENABLED` | `1` = Live-Now-Playing Embed im Voice-Textchat aktiv, `0` = aus |
-| `NOW_PLAYING_POLL_MS` | Polling-Intervall fuer Track-Metadaten (Default: `45000`) |
-| `NOW_PLAYING_COVER_ENABLED` | `1` = Album-Cover (iTunes Lookup) aktiv, `0` = ohne Cover |
-| `VOICE_CHANNEL_STATUS_ENABLED` | `1` = Voice-Status fuer laufenden Sender setzen, `0` = aus |
-| `VOICE_CHANNEL_STATUS_TEMPLATE` | Vorlage fuer Voice-Status (Default: `🔊 \| 24/7 {station}`, Platzhalter: `{station}`, `{bot}`) |
-| `VOICE_CHANNEL_STATUS_MAX_LENGTH` | Maximale Laenge des Voice-Status (Default: `80`) |
-| `ONBOARDING_MESSAGE_ENABLED` | `1` = Commander sendet beim ersten Join eine Setup-Nachricht, `0` = aus |
-| `SONG_HISTORY_ENABLED` | `1` = `/history` aktiv, `0` = deaktiviert |
-| `SONG_HISTORY_MAX_PER_GUILD` | Max. gespeicherte Songs pro Server (Default: `120`) |
-| `SONG_HISTORY_DEDUPE_WINDOW_MS` | Dedupe-Zeitfenster fuer identische Tracks (Default: `120000`) |
-| `EVENT_SCHEDULER_ENABLED` | `1` = Geplante `/event`-Starts aktiv, `0` = Scheduler aus |
-| `EVENT_SCHEDULER_POLL_MS` | Polling-Intervall fuer Event-Ausfuehrung (Default: `15000`) |
-| `EVENT_SCHEDULER_RETRY_MS` | Retry-Delay bei Event-Fehler (Default: `120000`) |
-| `EVENT_DEFAULT_TIMEZONE` | Fallback-Zeitzone fuer `/event` (Default: Server-Zone, sonst `UTC`) |
-| `API_ADMIN_TOKEN` | Optionales Admin-Token fuer sensible API-Felder |
-| `TRUST_PROXY_HEADERS` | `1` wenn der Bot hinter einem Reverse Proxy laeuft (nutzt `X-Forwarded-*` fuer Origin/IP) |
-| `API_RATE_STATE_MAX_ENTRIES` | Maximale Anzahl Rate-Limit-Eintraege im Speicher (Default: `50000`) |
-| `STRIPE_SECRET_KEY` | Stripe Secret Key |
-| `STRIPE_WEBHOOK_SECRET` | Stripe Webhook Secret |
+### Commander and workers
 
-### Netzwerk/Reconnect Tuning (optional)
+- The commander bot registers slash commands and answers interactions.
+- Worker bots join voice channels and handle the actual audio stream.
+- `/play` is routed to an already active worker in the same voice channel whenever possible.
+- Premium limits are enforced by worker slot, not raw `BOT_N` index.
 
-| Variable | Default | Beschreibung |
-|----------|---------|--------------|
-| `STREAM_STABLE_RESET_MS` | `15000` | Nach dieser stabilen Laufzeit werden Stream-Fehlerzaehler zurueckgesetzt |
-| `STREAM_RESTART_BASE_MS` | `1000` | Basis-Delay fuer Stream-Restarts bei Fehlern |
-| `STREAM_RESTART_MAX_MS` | `120000` | Maximaler Stream-Restart-Delay (Backoff-Cap) |
-| `STREAM_ERROR_COOLDOWN_THRESHOLD` | `8` | Ab wie vielen Fehlern in Reihe ein harter Cooldown greift |
-| `STREAM_ERROR_COOLDOWN_MS` | `60000` | Harter Cooldown bei vielen Stream-Fehlern |
-| `VOICE_RECONNECT_MAX_MS` | `120000` | Maximaler Voice-Reconnect-Delay (Backoff-Cap) |
-| `NETWORK_COOLDOWN_BASE_MS` | `10000` | Start-Cooldown bei erkannten DNS/Netzwerkfehlern |
-| `NETWORK_COOLDOWN_MAX_MS` | `180000` | Maximaler globaler Netzwerk-Cooldown |
+### Runtime flow
 
-### MongoDB (optional, Produktion)
+1. User runs a slash command on the commander.
+2. Commander validates permissions, tier, and worker availability.
+3. A worker joins the target voice channel.
+4. FFmpeg transcodes the station stream to Discord-friendly audio.
+5. OmniFM updates the now-playing embed, song history, and listening stats.
 
-Standardmaessig laeuft OmniFM ohne MongoDB (Datei-Store).
+## Track metadata and cover art
 
-- `MONGO_ENABLED=0` und keine `MONGO_URL` -> Datei-Store.
-- `MONGO_ENABLED=1` und gueltige `MONGO_URL` -> MongoDB wird genutzt, Datei-Store bleibt als Fallback/Backup aktiv.
+OmniFM resolves track data in this order:
 
-Empfehlung fuer produktive Bot-Anbieter:
+1. ICY metadata from the radio stream
+2. Cover lookup from iTunes, MusicBrainz/Cover Art Archive, and Discogs
+3. Optional audio fingerprint fallback if the stream metadata is missing, incomplete, or noisy
 
-1. MongoDB als eigenen Service betreiben (gleicher Host oder Managed).
-2. In `.env` setzen:
-   - `MONGO_ENABLED=1`
-   - `MONGO_URL=mongodb://<user>:<pass>@<host>:27017/?authSource=admin`
-   - `DB_NAME=omnifm`
-3. Container neu starten (`./update.sh`).
+### Audio fingerprint fallback
 
-Beim Start sollte im Log stehen:
-- `MongoDB-Verbindung fuer Node.js Bot hergestellt.`
+If enabled, OmniFM samples the live stream, fingerprints the audio with `fpcalc` (Chromaprint), looks up the match on AcoustID, and enriches the result with MusicBrainz and Cover Art Archive.
 
-### Coupon/Referral API (optional)
+Flow:
 
-Coupon/Referral Codes koennen direkt ueber `./update.sh --premium` verwaltet werden
-(im Premium-CLI: Option `10`).
-Fuer schnellen Direktzugang: `./update.sh --offers`.
+1. FFmpeg records a short mono WAV sample from the station URL
+2. `fpcalc` creates the Chromaprint fingerprint
+3. AcoustID matches the fingerprint
+4. MusicBrainz enriches artist, title, album, and release IDs
+5. Cover Art Archive is used for album art if available
 
-### Coupon/Referral Praxis: getrennte Pro/Ultimate Codes
+Important:
 
-Empfehlung: pro Tier eigene Codes mit eigenen Rabatten nutzen.
+- The free AcoustID web service is documented as non-commercial only.
+- OmniFM includes Premium and commercial-style billing features.
+- Because of that, fingerprint recognition is disabled by default and must be enabled explicitly.
+- You are responsible for using AcoustID in a way that matches their terms.
 
-- Beispiel Coupon-Codes:
-  - `PRO10` -> nur Pro, 10%
-  - `ULTI15` -> nur Ultimate, 15%
-- Beispiel Referral-Codes:
-  - `CREATORPRO` -> nur Pro, z.B. 5%
-  - `CREATORULTI` -> nur Ultimate, z.B. 8%
+Relevant official docs:
 
-Das geht im CLI jetzt direkt ueber den Schnellsetup:
+- AcoustID web service: <https://acoustid.org/webservice>
+- AcoustID API client docs: <https://acoustid.org/webservice#lookup>
+- MusicBrainz API rate limiting: <https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting>
+- Chromaprint project: <https://github.com/acoustid/chromaprint>
 
-1. `./update.sh --offers`
-2. `2) Schnellsetup PRO + ULTIMATE Codes`
-3. Typ waehlen (`coupon` oder `referral`)
-4. Pro/Ultimate Code + Rabatt getrennt eintragen
+## Important environment variables
 
-Technisch wird pro Code automatisch `allowedTiers` gesetzt (`pro` bzw. `ultimate`), damit keine falsche Plan-Anwendung passiert.
+### Core bot setup
 
-- `POST /api/premium/offer/preview`:
-  - Body: `tier`, `seats`, `months`, `email`, optional `couponCode`, `referralCode`
-  - Liefert Rabatt-Vorschau + finale Checkout-Summe.
-- `GET/POST/PATCH/DELETE /api/premium/offers` (Admin-Token erforderlich):
-  - Codes anlegen, aktualisieren, deaktivieren/loeschen.
-- `POST /api/premium/offers/active` (Admin-Token erforderlich):
-  - Code aktiv/inaktiv schalten.
-- `GET /api/premium/redemptions` (Admin-Token erforderlich):
-  - Letzte Code-Einloesungen.
+| Variable | Purpose |
+| --- | --- |
+| `BOT_1_TOKEN`, `BOT_2_TOKEN`, ... | Discord bot tokens |
+| `BOT_1_CLIENT_ID`, `BOT_2_CLIENT_ID`, ... | Discord application IDs |
+| `BOT_1_NAME`, `BOT_2_NAME`, ... | Display names |
+| `BOT_1_TIER`, `BOT_2_TIER`, ... | `free`, `pro`, or `ultimate` |
+| `COMMANDER_BOT_INDEX` | Which `BOT_N` acts as commander |
 
-### Event Scheduler (Stage + Voice)
+### Web and API
 
-- `/event create` unterstuetzt jetzt zusaetzlich:
-  - `serverevent` (boolean): Discord-Server-Event automatisch anlegen
-  - `stagetopic` (string): Stage-Thema mit Platzhaltern `{event}`, `{station}`, `{time}`
-- Stage-Channels werden beim Event-Start vorbereitet (Stage-Topic/Stage-Instance/Speaker-Request).
+| Variable | Purpose |
+| --- | --- |
+| `WEB_PORT` | External website/API port |
+| `WEB_INTERNAL_PORT` | Internal container port |
+| `PUBLIC_WEB_URL` | Public base URL for checkout and webhooks |
+| `WEB_DOMAIN` | Optional domain helper |
+| `CORS_ALLOWED_ORIGINS` | Allowed browser origins |
+| `CHECKOUT_RETURN_ORIGINS` | Allowed Stripe return URLs |
+| `API_ADMIN_TOKEN` | Admin token for sensitive API routes |
 
-### Discord Sprache (DE/EN)
+### Premium and billing
 
-- Standard: OmniFM nutzt die Discord-Serversprache (`guildLocale`) als Antwortsprache.
-- Optionaler Override pro Server:
-  - `/language show` - aktive Sprache + Quelle anzeigen
-  - `/language set value:de|en` - Sprache manuell setzen
-  - `/language reset` - auf automatische Server-Sprache zuruecksetzen
+| Variable | Purpose |
+| --- | --- |
+| `STRIPE_SECRET_KEY` | Stripe backend key |
+| `STRIPE_PUBLIC_KEY` | Optional Stripe public key |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook validation |
+| `PRO_TRIAL_ENABLED` | Enables or disables the one-time Pro trial |
+| `LICENSE_EXPIRY_REMINDER_DAYS` | Reminder schedule before expiry |
+
+### Now-playing and embeds
+
+| Variable | Purpose |
+| --- | --- |
+| `NOW_PLAYING_ENABLED` | Enables live embed updates |
+| `NOW_PLAYING_POLL_MS` | Refresh interval |
+| `NOW_PLAYING_COVER_ENABLED` | Enables cover lookup |
+| `NOW_PLAYING_FETCH_TIMEOUT_MS` | Timeout for ICY metadata fetch |
+| `NOW_PLAYING_MAX_METAINT_BYTES` | Max accepted ICY metadata interval |
+| `SONG_HISTORY_ENABLED` | Enables `/history` |
+| `SONG_HISTORY_MAX_PER_GUILD` | History retention per guild |
+
+### Audio fingerprint fallback
+
+| Variable | Purpose |
+| --- | --- |
+| `NOW_PLAYING_RECOGNITION_ENABLED` | Enables fingerprint fallback |
+| `ACOUSTID_API_KEY` | AcoustID client key |
+| `NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS` | FFmpeg sample duration |
+| `NOW_PLAYING_RECOGNITION_TIMEOUT_MS` | End-to-end recognition timeout |
+| `NOW_PLAYING_RECOGNITION_CACHE_TTL_MS` | Positive recognition cache TTL |
+| `NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS` | Negative cache TTL |
+| `NOW_PLAYING_RECOGNITION_SCORE_THRESHOLD` | Minimum accepted AcoustID score |
+| `NOW_PLAYING_MUSICBRAINZ_ENABLED` | Enables MusicBrainz enrichment |
+
+### Voice and reconnect behavior
+
+| Variable | Purpose |
+| --- | --- |
+| `VOICE_CHANNEL_STATUS_ENABLED` | Updates channel status where supported |
+| `VOICE_CHANNEL_STATUS_TEMPLATE` | Template for the voice channel status |
+| `VOICE_STATE_RECONCILE_ENABLED` | Enables periodic voice reconciliation |
+| `VOICE_STATE_RECONCILE_MS` | Voice reconciliation interval |
+| `STREAM_RESTART_BASE_MS` | Base stream restart delay |
+| `STREAM_RESTART_MAX_MS` | Max stream restart delay |
+| `STREAM_ERROR_COOLDOWN_THRESHOLD` | Error threshold before cooldown |
+| `STREAM_ERROR_COOLDOWN_MS` | Cooldown after repeated stream failures |
+| `VOICE_RECONNECT_MAX_MS` | Max voice reconnect backoff |
+
+### DiscordBotList
+
+| Variable | Purpose |
+| --- | --- |
+| `DISCORDBOTLIST_ENABLED` | Enables DBL sync features |
+| `DISCORDBOTLIST_TOKEN` | DBL API token |
+| `DISCORDBOTLIST_WEBHOOK_SECRET` | Vote webhook secret |
+| `DISCORDBOTLIST_STATS_SCOPE` | `commander` or `aggregate` |
+| `DISCORDBOTLIST_STATS_SYNC_MS` | Periodic stats sync interval |
+
+### Email
+
+| Variable | Purpose |
+| --- | --- |
+| `SMTP_HOST` | SMTP host |
+| `SMTP_PORT` | SMTP port |
+| `SMTP_USER` | SMTP username |
+| `SMTP_PASS` | SMTP password |
+| `SMTP_FROM` | Sender address |
+| `ADMIN_EMAIL` | Internal notification address |
+
+## API overview
+
+### General
+
+- `GET /api/health`
+- `GET /api/stats`
+- `GET /api/stations`
+- `GET /api/workers`
+
+### Premium
+
+- `GET /api/premium/pricing`
+- `GET /api/premium/check?serverId=...`
+- `POST /api/premium/checkout`
+- `POST /api/premium/trial`
+- `POST /api/premium/offer/preview`
+- `POST /api/premium/verify`
+- `POST /api/premium/webhook`
+- `GET/POST/PATCH/DELETE /api/premium/offers`
+- `GET /api/premium/redemptions`
+
+### DiscordBotList
+
+- `POST /api/discordbotlist/vote`
+- `POST /api/discordbotlist/sync`
+- `GET /api/discordbotlist/status`
+- `GET /api/discordbotlist/votes`
+
+## Discord commands
+
+### General
+
+- `/help`
+- `/play`
+- `/stop`
+- `/pause`
+- `/resume`
+- `/stations`
+- `/list`
+- `/workers`
+- `/invite`
+- `/status`
+- `/health`
+- `/diag`
+- `/language`
+- `/premium`
+- `/license`
+
+### Pro and Ultimate
+
+- `/now`
+- `/history`
+- `/stats`
+- `/event`
+- `/perm`
+
+### Ultimate-specific capability
+
+- Custom station URLs and guild-managed custom stations
+
+## Data files
+
+These JSON files are used in file-store mode and are preserved by `update.sh`:
+
+- `stations.json`
+- `premium.json`
+- `bot-state.json`
+- `custom-stations.json`
+- `command-permissions.json`
+- `guild-languages.json`
+- `song-history.json`
+- `listening-stats.json`
+- `scheduled-events.json`
+- `coupons.json`
+- `discordbotlist.json`
+
+## Editing the project
+
+### Useful paths
+
+- `src/bot/runtime.js`: main runtime, voice handling, embeds, slash command behavior
+- `src/services/now-playing.js`: ICY metadata, cover lookups, recognition handoff
+- `src/services/audio-recognition.js`: Chromaprint, AcoustID, MusicBrainz fallback
+- `src/api/server.js`: HTTP API, Premium routes, DBL routes
+- `frontend/src/components/Premium.js`: React Premium checkout UI
+- `install.sh`: initial interactive installer
+- `update.sh`: operations and settings menu
+
+### Common tasks
+
+Change stations:
+
+```bash
+node src/stations-cli.js
+```
+
+Manage Premium data:
+
+```bash
+node src/premium-cli.js wizard
+node src/premium-cli.js offers
+```
+
+Redeploy after code changes:
+
+```bash
+docker compose up -d --build
+```
+
+## Testing
+
+Node syntax and unit tests:
+
+```bash
+npm test
+```
+
+Frontend production build:
+
+```bash
+npm --prefix frontend install
+npm --prefix frontend run build
+```
+
+## Troubleshooting
+
+### Bots appear stuck in voice but are not actually there
+
+- Check `docker compose logs -f omnifm`
+- Make sure `VOICE_STATE_RECONCILE_ENABLED=1`
+- Check channel permissions for `Connect`, `Speak`, and `ViewChannel`
+- Rebuild after updates because reconnect logic lives in runtime code
+
+### Stream metadata is missing
+
+- Some stations simply do not send usable ICY metadata
+- OmniFM now handles that cleanly and can optionally try fingerprint fallback
+- Enable fingerprint fallback only if you have a valid AcoustID key and are allowed to use it
+
+### Premium trial button is missing
+
+- The React frontend must be rebuilt after deployment changes
+- Verify `PRO_TRIAL_ENABLED=1`
+- Check `GET /api/premium/pricing` and confirm `trial.enabled` is `true`
+
+### DiscordBotList votes or commands are not syncing
+
+- Verify `DISCORDBOTLIST_TOKEN`
+- Verify `DISCORDBOTLIST_WEBHOOK_SECRET`
+- Set `PUBLIC_WEB_URL`
+- Use `POST /api/discordbotlist/sync` with the admin token to force a sync
+
+## Notes
+
+- The installer and updater are designed to preserve runtime JSON data across updates.
+- The production site uses the React build under `frontend/build`.
+- The legacy `frontend/public/app.js` and static fallback still exist, but the main deployment path is the React build.

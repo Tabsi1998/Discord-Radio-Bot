@@ -15,6 +15,10 @@ import {
   extractTrackFromMetadataText,
   normalizeTrackSearchText,
 } from "../src/services/now-playing.js";
+import {
+  extractAcoustIdCandidate,
+  selectBestAcoustIdMatch,
+} from "../src/services/audio-recognition.js";
 
 test("seat pricing stays aligned with documented bundle totals", () => {
   assert.deepEqual(seatPricingInEuro("pro"), {
@@ -178,6 +182,51 @@ test("track search text removes broadcast noise for better cover lookup", () => 
   const cleaned = normalizeTrackSearchText("Metro (Played by Mau P Freedom TML 24)");
 
   assert.equal(cleaned, "Metro");
+});
+
+test("AcoustID candidate extraction keeps artist, title, album, and score", () => {
+  const candidate = extractAcoustIdCandidate(
+    { id: "acoustid-1", score: 0.91 },
+    {
+      id: "2f1f6b1f-0d34-4d84-ae8e-9b2d4c69f555",
+      title: "The Rhythm Of The Night",
+      artists: [{ name: "Corona" }],
+      releases: [{ id: "e50d244f-97db-4f3b-8208-0f5e4f89b8e1", title: "The Rhythm Of The Night" }],
+    }
+  );
+
+  assert.equal(candidate.artist, "Corona");
+  assert.equal(candidate.title, "The Rhythm Of The Night");
+  assert.equal(candidate.album, "The Rhythm Of The Night");
+  assert.equal(candidate.score, 0.91);
+});
+
+test("AcoustID best-match selection rejects weak matches and prefers the richest strong match", () => {
+  const match = selectBestAcoustIdMatch({
+    status: "ok",
+    results: [
+      {
+        id: "weak",
+        score: 0.31,
+        recordings: [{ title: "Unknown Song", artists: [{ name: "Unknown Artist" }] }],
+      },
+      {
+        id: "strong",
+        score: 0.88,
+        recordings: [{
+          id: "2f1f6b1f-0d34-4d84-ae8e-9b2d4c69f555",
+          title: "Starlight",
+          artists: [{ name: "The Supermen Lovers", joinphrase: " feat. " }, { name: "Mani Hoffman" }],
+          releases: [{ id: "e50d244f-97db-4f3b-8208-0f5e4f89b8e1", title: "The Player" }],
+        }],
+      },
+    ],
+  });
+
+  assert.ok(match);
+  assert.equal(match.displayTitle, "The Supermen Lovers feat. Mani Hoffman - Starlight");
+  assert.equal(match.album, "The Player");
+  assert.equal(match.acoustidId, "strong");
 });
 
 test("event time parser accepts screenshot-style YYYY-DD-MM input", () => {

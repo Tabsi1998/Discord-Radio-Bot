@@ -267,6 +267,14 @@ if [[ $existing_bots -eq 0 ]]; then
   write_env_line "UPDATE_BUILD_NO_CACHE" "0"
   write_env_line "AUTO_DOCKER_PRUNE" "1"
   write_env_line "DOCKER_BUILDER_PRUNE_UNTIL" "168h"
+  write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "0"
+  write_env_line "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18"
+  write_env_line "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000"
+  write_env_line "NOW_PLAYING_RECOGNITION_CACHE_TTL_MS" "90000"
+  write_env_line "NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS" "180000"
+  write_env_line "NOW_PLAYING_RECOGNITION_SCORE_THRESHOLD" "0.55"
+  write_env_line "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
+  write_env_line "ACOUSTID_API_KEY" ""
   write_env_line "WEB_PORT" "$web_port"
   write_env_line "WEB_INTERNAL_PORT" "8080"
   write_env_line "WEB_BIND" "0.0.0.0"
@@ -438,7 +446,7 @@ echo ""
 # ====================================
 # Step 5: Premium / Stripe (Optional)
 # ====================================
-echo -e "${BOLD}Schritt 5/7: Premium / Stripe (Optional)${NC}"
+echo -e "${BOLD}Schritt 5/8: Premium / Stripe (Optional)${NC}"
 echo "─────────────────────────────────────"
 
 if ! grep -q "^STRIPE_SECRET_KEY=" .env 2>/dev/null; then
@@ -466,7 +474,7 @@ echo ""
 # ====================================
 # Step 6: DiscordBotList (Optional)
 # ====================================
-echo -e "${BOLD}Schritt 6/7: DiscordBotList (Optional)${NC}"
+echo -e "${BOLD}Schritt 6/8: DiscordBotList (Optional)${NC}"
 echo "--------------------------------------"
 
 if ! grep -q "^DISCORDBOTLIST_TOKEN=" .env 2>/dev/null; then
@@ -500,9 +508,40 @@ fi
 echo ""
 
 # ====================================
-# Step 7: Docker starten
+# Step 7: Track Recognition (Optional)
 # ====================================
-echo -e "${BOLD}Schritt 7/7: Docker Compose starten${NC}"
+echo -e "${BOLD}Schritt 7/8: Track-Erkennung (Optional)${NC}"
+echo "------------------------------------------"
+
+if ! grep -q "^ACOUSTID_API_KEY=.*[^[:space:]]" .env 2>/dev/null; then
+  if prompt_yes_no "Audio-Fingerprint-Erkennung via AcoustID und MusicBrainz einrichten? (Optional)" "n"; then
+    echo ""
+    warn "Die freie AcoustID-Web-API ist laut offizieller Doku nur fuer nicht-kommerzielle Nutzung gedacht."
+    echo -e "  ${CYAN}AcoustID: https://acoustid.org/webservice${NC}"
+    echo -e "  ${CYAN}MusicBrainz Rate Limits: https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting${NC}"
+    echo ""
+    acoustid_key="$(prompt_nonempty "AcoustID API Key")"
+    recognition_sample="$(prompt_default "Fingerprint Sample in Sekunden" "18")"
+    recognition_timeout="$(prompt_default "Timeout in Millisekunden" "28000")"
+    write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "1"
+    write_env_line "ACOUSTID_API_KEY" "$acoustid_key"
+    write_env_line "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "$recognition_sample"
+    write_env_line "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "$recognition_timeout"
+    write_env_line "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
+    ok "Track-Erkennung konfiguriert."
+  else
+    info "Track-Erkennung uebersprungen."
+  fi
+else
+  ok "Track-Erkennung bereits konfiguriert."
+fi
+
+echo ""
+
+# ====================================
+# Step 8: Docker starten
+# ====================================
+echo -e "${BOLD}Schritt 8/8: Docker Compose starten${NC}"
 echo "─────────────────────────────────────"
 
 info "Baue und starte Container..."

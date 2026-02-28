@@ -10,6 +10,7 @@ import {
   NOW_PLAYING_FETCH_TIMEOUT_MS,
   NOW_PLAYING_MAX_METAINT_BYTES,
 } from "../lib/helpers.js";
+import { recognizeTrackFromStream } from "./audio-recognition.js";
 
 const nowPlayingCoverCache = new Map();
 const nowPlayingCoverInFlight = new Map();
@@ -149,6 +150,13 @@ function extractTrackFromMetadataText(metadataText) {
     title: title || null,
     displayTitle: displayTitle || null,
   };
+}
+
+function shouldAttemptRecognition(track) {
+  const displayTitle = normalizeTrackText(track?.displayTitle || track?.raw || "");
+  const artist = normalizeTrackText(track?.artist || "");
+  const title = normalizeTrackText(track?.title || "");
+  return !displayTitle || !artist || !title || displayTitle.length > 140;
 }
 
 async function fetchCoverArtFromItunes(query) {
@@ -375,9 +383,14 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
     artist: null,
     title: null,
     displayTitle: null,
-    artworkUrl: null,
+    album: null,
+    artworkUrl: snapshot.artworkUrl,
     metadataSource: null,
     metadataStatus: "unavailable",
+    recognitionProvider: null,
+    recognitionConfidence: null,
+    musicBrainzRecordingId: null,
+    musicBrainzReleaseId: null,
   };
 
   let res = null;
@@ -451,14 +464,38 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
       }
     }
 
-    snapshot.metadataSource = "icy";
-    snapshot.metadataStatus = track ? "ok" : "empty";
+    let recognizedTrack = null;
+    const hadStreamTrack = Boolean(track?.displayTitle || track?.artist || track?.title);
+    if (shouldAttemptRecognition(track)) {
+      recognizedTrack = await recognizeTrackFromStream(url, { existingTrack: track });
+    }
+
+    if (recognizedTrack?.displayTitle || recognizedTrack?.artist || recognizedTrack?.title) {
+      track = {
+        raw: recognizedTrack.raw || track?.raw || recognizedTrack.displayTitle || null,
+        artist: recognizedTrack.artist || track?.artist || null,
+        title: recognizedTrack.title || track?.title || null,
+        displayTitle: recognizedTrack.displayTitle || track?.displayTitle || recognizedTrack.raw || null,
+      };
+      snapshot.album = recognizedTrack.album || recognizedTrack.releaseTitle || null;
+      snapshot.artworkUrl = recognizedTrack.artworkUrl || null;
+      snapshot.recognitionProvider = recognizedTrack.recognitionProvider || null;
+      snapshot.recognitionConfidence = recognizedTrack.recognitionConfidence || null;
+      snapshot.musicBrainzRecordingId = recognizedTrack.musicBrainzRecordingId || null;
+      snapshot.musicBrainzReleaseId = recognizedTrack.musicBrainzReleaseId || null;
+      snapshot.metadataSource = hadStreamTrack ? "icy+recognition" : "recognition";
+      snapshot.metadataStatus = "recognized";
+    } else {
+      snapshot.metadataSource = "icy";
+      snapshot.metadataStatus = track ? "ok" : "empty";
+    }
+
     snapshot.streamTitle = track?.raw || null;
     snapshot.artist = track?.artist || null;
     snapshot.title = track?.title || null;
     snapshot.displayTitle = track?.displayTitle || null;
 
-    if (includeCover && (track?.displayTitle || track?.title)) {
+    if (!snapshot.artworkUrl && includeCover && (track?.displayTitle || track?.title)) {
       snapshot.artworkUrl = await fetchCoverArtForTrack(track?.artist, track?.title || track?.displayTitle);
     }
 
@@ -488,9 +525,14 @@ async function fetchStreamInfo(url) {
     artist: snapshot.artist,
     title: snapshot.title,
     displayTitle: snapshot.displayTitle,
+    album: snapshot.album,
     artworkUrl: null,
     metadataSource: snapshot.metadataSource,
     metadataStatus: snapshot.metadataStatus,
+    recognitionProvider: snapshot.recognitionProvider,
+    recognitionConfidence: snapshot.recognitionConfidence,
+    musicBrainzRecordingId: snapshot.musicBrainzRecordingId,
+    musicBrainzReleaseId: snapshot.musicBrainzReleaseId,
     updatedAt: new Date().toISOString(),
   };
 }

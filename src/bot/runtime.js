@@ -756,6 +756,43 @@ class BotRuntime {
     return [row];
   }
 
+  buildTrackLinkComponents(guildId, station, meta) {
+    const query = this.buildTrackSearchQuery(station, meta);
+    if (!query) return [];
+
+    const buttons = [
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("YouTube")
+        .setEmoji({ name: "▶" })
+        .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`),
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("Spotify")
+        .setEmoji({ name: "♫" })
+        .setURL(`https://open.spotify.com/search/${encodeURIComponent(query)}`),
+    ];
+
+    const musicBrainzUrl = meta?.musicBrainzReleaseId
+      ? `https://musicbrainz.org/release/${encodeURIComponent(meta.musicBrainzReleaseId)}`
+      : (meta?.musicBrainzRecordingId
+        ? `https://musicbrainz.org/recording/${encodeURIComponent(meta.musicBrainzRecordingId)}`
+        : null);
+
+    if (musicBrainzUrl) {
+      buttons.push(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel("MusicBrainz")
+          .setEmoji({ name: "🧠" })
+          .setURL(musicBrainzUrl)
+      );
+    }
+
+    const row = new ActionRowBuilder().addComponents(...buttons);
+    return [row];
+  }
+
   getVoiceListenerCount(guildId, channelId) {
     const guild = this.client.guilds.cache.get(guildId);
     const normalizedChannelId = String(channelId || "").trim();
@@ -1072,6 +1109,130 @@ class BotRuntime {
     return embed;
   }
 
+  buildNowPlayingEmbed(guildId, station, meta, context = {}) {
+    const language = this.resolveGuildLanguage(guildId);
+    const isDe = language === "de";
+    const tierConfig = getTierConfig(guildId);
+    const stationName = clipText(station?.name || meta?.name || "-", 120) || "-";
+    const artist = clipText(this.normalizeNowPlayingValue(meta?.artist, station, meta, 120), 120);
+    const title = clipText(this.normalizeNowPlayingValue(meta?.title, station, meta, 140), 140);
+    const album = clipText(this.normalizeNowPlayingValue(meta?.album, station, meta, 140), 140);
+    const trackLabel = clipText(
+      this.normalizeNowPlayingValue(meta?.displayTitle || meta?.streamTitle, station, meta, 180)
+      || ([artist, title].filter(Boolean).join(" - ")),
+      140
+    );
+    const headline = clipText(title || trackLabel || "", 110) || trackLabel;
+    const streamInfo = this.normalizeNowPlayingValue(meta?.description, station, meta, 240);
+    const hasTrack = Boolean(trackLabel);
+    const listenerCount = Math.max(0, Number.parseInt(String(context?.listenerCount || 0), 10) || 0);
+    const voiceChannelId = String(context?.channelId || "").trim();
+    const workerName = clipText(String(context?.workerName || this.config.name || BRAND.name), 60) || BRAND.name;
+    const metadataSource = String(meta?.metadataSource || "").trim().toLowerCase();
+    const metadataStatus = String(meta?.metadataStatus || (hasTrack ? "ok" : "empty")).trim().toLowerCase();
+    const recognitionConfidence = Number.parseFloat(String(meta?.recognitionConfidence ?? ""));
+    const sourceLabel = metadataSource.includes("recognition")
+      ? (isDe ? "Audio-Fingerprint" : "Audio fingerprint")
+      : (metadataSource === "icy"
+        ? (isDe ? "Sender-Metadaten" : "Station metadata")
+        : (metadataSource === "stream"
+          ? (isDe ? "Stream-Info" : "Stream info")
+          : (isDe ? "Unbekannt" : "Unknown")));
+    const sourceDetail = metadataSource.includes("recognition")
+      ? [
+          meta?.recognitionProvider || "AcoustID",
+          Number.isFinite(recognitionConfidence) ? `${Math.round(recognitionConfidence * 100)}%` : "",
+        ].filter(Boolean).join(" | ")
+      : sourceLabel;
+    const metadataHint = hasTrack
+      ? null
+      : (metadataStatus === "unsupported"
+        ? (isDe
+          ? "Dieser Stream sendet aktuell keine auslesbaren Songdaten."
+          : "This stream is not sending readable track metadata right now.")
+        : (isDe
+          ? "Dieser Sender liefert aktuell keine verwertbaren Songdaten."
+          : "This station is not providing usable track metadata right now."));
+    const footerParts = [
+      isDe
+        ? `↻ Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`
+        : `↻ Auto update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`,
+    ];
+    if (metadataSource.includes("recognition")) {
+      footerParts.push(isDe ? "Fingerprint aktiv" : "Fingerprint active");
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(hasTrack ? 0x1DB954 : 0xF1C40F)
+      .setTitle(isDe ? "🎵 Jetzt live" : "🎵 Live now")
+      .setDescription(
+        hasTrack
+          ? `**${headline}**`
+          : `⚠️ ${metadataHint}`
+      )
+      .addFields(
+        {
+          name: isDe ? "📻 Sender" : "📻 Station",
+          value: stationName,
+          inline: true,
+        },
+        {
+          name: isDe ? "🔊 Qualitaet" : "🔊 Quality",
+          value: tierConfig.bitrate || "-",
+          inline: true,
+        },
+        {
+          name: isDe ? "👥 Zuhoerer" : "👥 Listeners",
+          value: String(listenerCount),
+          inline: true,
+        },
+        {
+          name: "🎙 Voice",
+          value: voiceChannelId ? `<#${voiceChannelId}>` : (isDe ? "unbekannt" : "unknown"),
+          inline: true,
+        },
+        {
+          name: isDe ? "🧠 Quelle" : "🧠 Source",
+          value: sourceDetail || sourceLabel,
+          inline: true,
+        }
+      )
+      .setAuthor({
+        name: `${workerName} • ${BRAND.name}`,
+      })
+      .setFooter({
+        text: footerParts.join(" | "),
+      })
+      .setTimestamp(new Date(meta?.updatedAt || Date.now()));
+
+    if (artist) {
+      embed.addFields({ name: isDe ? "🎤 Artist" : "🎤 Artist", value: artist, inline: true });
+    }
+    if (title) {
+      embed.addFields({ name: isDe ? "📝 Titel" : "📝 Title", value: title, inline: true });
+    }
+    if (album) {
+      embed.addFields({ name: isDe ? "💿 Album" : "💿 Album", value: album, inline: true });
+    }
+    if (streamInfo) {
+      embed.addFields({ name: isDe ? "ℹ Stream-Info" : "ℹ Stream info", value: streamInfo, inline: false });
+    }
+    if (!hasTrack) {
+      embed.addFields({
+        name: isDe ? "🧭 Hinweis" : "🧭 Note",
+        value: isDe
+          ? "Der Stream laeuft normal weiter. Sobald der Radiosender wieder Metadaten liefert oder die Audio-Erkennung greift, aktualisiert OmniFM die Einbettung automatisch."
+          : "The stream continues normally. As soon as the station sends metadata again or audio recognition succeeds, OmniFM updates the embed automatically.",
+        inline: false,
+      });
+    }
+    if (meta?.artworkUrl) {
+      embed.setThumbnail(meta.artworkUrl);
+    }
+
+    return embed;
+  }
+
   buildNowPlayingMessagePayload(guildId, station, meta, context = {}) {
     return {
       embeds: [this.buildNowPlayingEmbed(guildId, station, meta, context)],
@@ -1189,10 +1350,19 @@ class BotRuntime {
         title: title || (keepPreviousTrack ? previousMeta.title || null : null),
         displayTitle: displayTitle || (keepPreviousTrack ? previousMeta.displayTitle || null : null),
         artworkUrl: snapshot.artworkUrl || ((keepPreviousTrack || sameTrackAsPrevious) ? previousMeta.artworkUrl || null : null),
+        album: this.normalizeNowPlayingValue(snapshot.album, station, snapshot, 120) || (keepPreviousTrack ? previousMeta.album || null : null),
         metadataSource: snapshot.metadataSource || previousMeta.metadataSource || null,
         metadataStatus: hasFreshTrack
           ? (snapshot.metadataStatus || "ok")
           : (keepPreviousTrack ? previousMeta.metadataStatus || "ok" : (snapshot.metadataStatus || "empty")),
+        recognitionProvider: snapshot.recognitionProvider || (keepPreviousTrack ? previousMeta.recognitionProvider || null : null),
+        recognitionConfidence: Number.isFinite(Number(snapshot.recognitionConfidence))
+          ? Number(snapshot.recognitionConfidence)
+          : (keepPreviousTrack && Number.isFinite(Number(previousMeta.recognitionConfidence))
+            ? Number(previousMeta.recognitionConfidence)
+            : null),
+        musicBrainzRecordingId: snapshot.musicBrainzRecordingId || (keepPreviousTrack ? previousMeta.musicBrainzRecordingId || null : null),
+        musicBrainzReleaseId: snapshot.musicBrainzReleaseId || (keepPreviousTrack ? previousMeta.musicBrainzReleaseId || null : null),
         updatedAt: new Date().toISOString(),
         trackDetectedAtMs: hasFreshTrack
           ? Date.now()
@@ -1207,7 +1377,11 @@ class BotRuntime {
         nextMeta.artist || "",
         nextMeta.title || "",
         nextMeta.artworkUrl || "",
+        nextMeta.album || "",
         nextMeta.metadataStatus || "",
+        nextMeta.metadataSource || "",
+        nextMeta.musicBrainzRecordingId || "",
+        nextMeta.musicBrainzReleaseId || "",
         state.connection?.joinConfig?.channelId || state.lastChannelId || "",
         this.getCurrentListenerCount(guildId, state),
       ].join("|").toLowerCase();
@@ -1476,9 +1650,16 @@ class BotRuntime {
             artist: artist || prevMeta.artist || null,
             title: title || prevMeta.title || null,
             displayTitle: displayTitle || prevMeta.displayTitle || null,
-            artworkUrl: prevMeta.artworkUrl || null,
+            album: this.normalizeNowPlayingValue(meta.album, station, meta, 120) || prevMeta.album || null,
+            artworkUrl: meta.artworkUrl || prevMeta.artworkUrl || null,
             metadataSource: meta.metadataSource || prevMeta.metadataSource || null,
             metadataStatus: hasTrack ? (meta.metadataStatus || "ok") : (meta.metadataStatus || prevMeta.metadataStatus || "empty"),
+            recognitionProvider: meta.recognitionProvider || prevMeta.recognitionProvider || null,
+            recognitionConfidence: Number.isFinite(Number(meta.recognitionConfidence))
+              ? Number(meta.recognitionConfidence)
+              : (Number.isFinite(Number(prevMeta.recognitionConfidence)) ? Number(prevMeta.recognitionConfidence) : null),
+            musicBrainzRecordingId: meta.musicBrainzRecordingId || prevMeta.musicBrainzRecordingId || null,
+            musicBrainzReleaseId: meta.musicBrainzReleaseId || prevMeta.musicBrainzReleaseId || null,
             updatedAt: new Date().toISOString(),
             trackDetectedAtMs: hasTrack ? Date.now() : (Number.parseInt(String(prevMeta.trackDetectedAtMs || 0), 10) || 0),
           };
