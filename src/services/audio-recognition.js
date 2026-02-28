@@ -15,6 +15,7 @@ const RECOGNITION_CAPTURE_RETRIES = parseEnvInt("NOW_PLAYING_RECOGNITION_CAPTURE
 const RECOGNITION_TIMEOUT_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_TIMEOUT_MS", 28_000, 8_000, 60_000);
 const RECOGNITION_CACHE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_CACHE_TTL_MS", 90_000, 30_000, 10 * 60_000);
 const RECOGNITION_FAILURE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS", 180_000, 30_000, 30 * 60_000);
+const RECOGNITION_STREAM_SOFT_FAILURE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_STREAM_SOFT_FAILURE_TTL_MS", 180_000, 30_000, 30 * 60_000);
 const RECOGNITION_SOFT_LOG_COOLDOWN_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_SOFT_LOG_COOLDOWN_MS", 10 * 60_000, 60_000, 60 * 60_000);
 const MUSICBRAINZ_MIN_DELAY_MS = parseEnvInt("NOW_PLAYING_MUSICBRAINZ_MIN_DELAY_MS", 1100, 1000, 10_000);
 const ACOUSTID_MIN_DELAY_MS = parseEnvInt("NOW_PLAYING_ACOUSTID_MIN_DELAY_MS", 350, 150, 5_000);
@@ -71,6 +72,10 @@ function buildRecognitionCacheKey(url, existingTrack = null) {
     120
   );
   return `${normalizedUrl}|${String(trackHint || "-").toLowerCase()}`;
+}
+
+function buildRecognitionStreamKey(url) {
+  return String(url || "").trim().toLowerCase();
 }
 
 async function waitForProviderWindow(provider, minDelayMs) {
@@ -571,9 +576,15 @@ async function recognizeTrackFromStream(url, { existingTrack = null } = {}) {
   if (!(await hasFpcalcSupport())) return null;
 
   const cacheKey = buildRecognitionCacheKey(url, existingTrack);
+  const streamKey = buildRecognitionStreamKey(url);
   const cached = recognitionCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;
+  }
+
+  const streamCached = recognitionCache.get(streamKey);
+  if (streamCached && streamCached.expiresAt > Date.now()) {
+    return streamCached.value;
   }
 
   if (recognitionInFlight.has(cacheKey)) {
@@ -612,10 +623,16 @@ async function recognizeTrackFromStream(url, { existingTrack = null } = {}) {
     } catch (error) {
       const message = clipText(error?.message || String(error), 220);
       const level = isSoftRecognitionFailure(error) ? "INFO" : "WARN";
-      if (shouldLogRecognitionFailure(cacheKey, error, message)) {
+      if (shouldLogRecognitionFailure(streamKey || cacheKey, error, message)) {
         log(level, `[NowPlaying] Audio recognition failed: ${message}`);
       }
       recognitionCache.set(cacheKey, { value: null, expiresAt: Date.now() + RECOGNITION_FAILURE_TTL_MS });
+      if (isSoftRecognitionFailure(error)) {
+        recognitionCache.set(streamKey, {
+          value: null,
+          expiresAt: Date.now() + RECOGNITION_STREAM_SOFT_FAILURE_TTL_MS,
+        });
+      }
       return null;
     }
   })().finally(() => {
