@@ -131,6 +131,20 @@ class WorkerManager {
   }
 
   /**
+   * Find the worker currently streaming inside a specific voice/stage channel.
+   */
+  findStreamingWorkerByChannel(guildId, channelId) {
+    const normalizedChannelId = String(channelId || "").trim();
+    if (!normalizedChannelId) return null;
+    return this.workers.find((worker) => {
+      const state = worker.guildState.get(guildId);
+      if (!state?.currentStationKey || !state?.connection) return false;
+      const activeChannelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
+      return activeChannelId === normalizedChannelId;
+    }) || null;
+  }
+
+  /**
    * Find the worker that currently owns a scheduled event playback in a guild.
    */
   findWorkerByScheduledEvent(guildId, eventId) {

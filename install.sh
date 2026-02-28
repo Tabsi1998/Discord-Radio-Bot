@@ -438,7 +438,7 @@ echo ""
 # ====================================
 # Step 5: Premium / Stripe (Optional)
 # ====================================
-echo -e "${BOLD}Schritt 5/6: Premium / Stripe (Optional)${NC}"
+echo -e "${BOLD}Schritt 5/7: Premium / Stripe (Optional)${NC}"
 echo "─────────────────────────────────────"
 
 if ! grep -q "^STRIPE_SECRET_KEY=" .env 2>/dev/null; then
@@ -464,9 +464,45 @@ fi
 echo ""
 
 # ====================================
-# Step 6: Docker starten
+# Step 6: DiscordBotList (Optional)
 # ====================================
-echo -e "${BOLD}Schritt 6/6: Docker Compose starten${NC}"
+echo -e "${BOLD}Schritt 6/7: DiscordBotList (Optional)${NC}"
+echo "--------------------------------------"
+
+if ! grep -q "^DISCORDBOTLIST_TOKEN=" .env 2>/dev/null; then
+  if prompt_yes_no "DiscordBotList Integration einrichten? (Optional)" "n"; then
+    echo ""
+    echo -e "  ${CYAN}Docs: https://docs.discordbotlist.com/${NC}"
+    echo -e "  ${DIM}Webhook Endpoint: /api/discordbotlist/vote${NC}"
+    echo ""
+    dbl_token="$(prompt_nonempty "DiscordBotList API Token")"
+    dbl_secret="$(prompt_nonempty "DiscordBotList Webhook Secret")"
+    dbl_scope="$(prompt_default "Stats Scope (commander/aggregate)" "aggregate")"
+    if [[ "$dbl_scope" != "commander" && "$dbl_scope" != "aggregate" ]]; then
+      dbl_scope="aggregate"
+    fi
+    write_env_line "DISCORDBOTLIST_ENABLED" "1"
+    write_env_line "DISCORDBOTLIST_TOKEN" "$dbl_token"
+    write_env_line "DISCORDBOTLIST_WEBHOOK_SECRET" "$dbl_secret"
+    write_env_line "DISCORDBOTLIST_STATS_SCOPE" "$dbl_scope"
+    current_public_url="$(grep -E '^PUBLIC_WEB_URL=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+    if [[ -n "$current_public_url" ]]; then
+      info "Webhook URL fuer DiscordBotList: ${current_public_url}/api/discordbotlist/vote"
+    fi
+    ok "DiscordBotList konfiguriert."
+  else
+    info "DiscordBotList uebersprungen. Kann spaeter mit ./update.sh --settings eingerichtet werden."
+  fi
+else
+  ok "DiscordBotList bereits konfiguriert."
+fi
+
+echo ""
+
+# ====================================
+# Step 7: Docker starten
+# ====================================
+echo -e "${BOLD}Schritt 7/7: Docker Compose starten${NC}"
 echo "─────────────────────────────────────"
 
 info "Baue und starte Container..."

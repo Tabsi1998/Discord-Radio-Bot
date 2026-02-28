@@ -7,7 +7,9 @@ import {
   seatPricingInEuro,
   isWithinWorkerPlanLimit,
 } from "../src/lib/helpers.js";
+import { WorkerManager } from "../src/bot/worker-manager.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
+import { parseTrackFromStreamTitle } from "../src/services/now-playing.js";
 
 test("seat pricing stays aligned with documented bundle totals", () => {
   assert.deepEqual(seatPricingInEuro("pro"), {
@@ -76,4 +78,40 @@ test("worker access limit uses worker slot instead of absolute BOT_N index", () 
     isWithinWorkerPlanLimit({ role: "worker", workerSlot: null, botIndex: 3, maxBots: 2 }),
     false
   );
+});
+
+test("worker manager reuses the worker already streaming in the requested channel", () => {
+  const workerA = {
+    config: { index: 2 },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "station-a",
+        connection: { joinConfig: { channelId: "voice-1" } },
+        lastChannelId: "voice-1",
+      }],
+    ]),
+  };
+  const workerB = {
+    config: { index: 3 },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "station-b",
+        connection: { joinConfig: { channelId: "voice-2" } },
+        lastChannelId: "voice-2",
+      }],
+    ]),
+  };
+
+  const manager = new WorkerManager([workerA, workerB]);
+  assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-1"), workerA);
+  assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-2"), workerB);
+  assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-9"), null);
+});
+
+test("track parsing removes common prefixes and dash variants", () => {
+  const parsed = parseTrackFromStreamTitle("Now Playing: Artist \u2013 Song Title");
+
+  assert.equal(parsed.artist, "Artist");
+  assert.equal(parsed.title, "Song Title");
+  assert.equal(parsed.displayTitle, "Artist - Song Title");
 });

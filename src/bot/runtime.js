@@ -505,7 +505,7 @@ class BotRuntime {
   }
 
   buildOnboardingMessagePayload(guild) {
-    const language = resolveLanguageFromDiscordLocale(guild?.preferredLocale, getDefaultLanguage());
+    const language = this.resolveGuildLanguage(guild?.id);
     const isDe = language === "de";
 
     const embed = new EmbedBuilder()
@@ -669,73 +669,189 @@ class BotRuntime {
     log("INFO", `[${this.config.name}] NowPlaying guild=${guildId}: ${message}`);
   }
 
+  canSendNowPlayingToChannel(channel, me) {
+    if (!channel || typeof channel.send !== "function") return false;
+    if (!me) return false;
+    if (channel.isThread?.() && channel.archived) return false;
+    const perms = channel.permissionsFor?.(me);
+    return Boolean(perms?.has(PermissionFlagsBits.ViewChannel) && perms?.has(PermissionFlagsBits.SendMessages));
+  }
+
+  async fetchGuildChannelById(guild, channelId) {
+    const normalizedChannelId = String(channelId || "").trim();
+    if (!normalizedChannelId) return null;
+    return guild.channels.cache.get(normalizedChannelId)
+      || await guild.channels.fetch(normalizedChannelId).catch(() => null);
+  }
+
+  scoreNowPlayingFallbackChannel(channel) {
+    const name = String(channel?.name || "").toLowerCase();
+    let score = 0;
+    if (name.includes("now-playing") || name.includes("nowplaying")) score += 500;
+    if (name.includes("music") || name.includes("radio") || name.includes("musik")) score += 420;
+    if (name.includes("bot") || name.includes("command") || name.includes("kommando")) score += 260;
+    if (name.includes("general") || name.includes("allgemein")) score += 180;
+    if (channel?.type === ChannelType.GuildText || channel?.type === ChannelType.GuildAnnouncement) score += 120;
+    score -= Number(channel?.rawPosition || 0);
+    return score;
+  }
+
+  normalizeNowPlayingValue(value, station, meta = null, maxLength = 240) {
+    const normalized = clipText(String(value || "").trim(), maxLength);
+    if (!normalized) return null;
+
+    const lower = normalized.toLowerCase();
+    const blockedValues = new Set(["-", "--", "n/a", "na", "none", "null", "undefined", "unknown"]);
+    if (blockedValues.has(lower)) return null;
+
+    const knownStationTexts = [
+      station?.name,
+      meta?.name,
+      meta?.description,
+    ]
+      .map((item) => String(item || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    if (knownStationTexts.includes(lower)) return null;
+    return normalized;
+  }
+
+  isFreshNowPlayingTrack(meta) {
+    const detectedAtMs = Number.parseInt(String(meta?.trackDetectedAtMs || 0), 10);
+    if (!Number.isFinite(detectedAtMs) || detectedAtMs <= 0) return false;
+    return (Date.now() - detectedAtMs) <= (NOW_PLAYING_POLL_MS * 4);
+  }
+
+  buildTrackSearchQuery(station, meta) {
+    const artist = this.normalizeNowPlayingValue(meta?.artist, station, meta, 100);
+    const title = this.normalizeNowPlayingValue(meta?.title, station, meta, 100);
+    const displayTitle = this.normalizeNowPlayingValue(meta?.displayTitle || meta?.streamTitle, station, meta, 180);
+    const query = artist && title ? `${artist} ${title}` : displayTitle;
+    return clipText(query || "", 180) || null;
+  }
+
+  buildTrackLinkComponents(guildId, station, meta) {
+    const query = this.buildTrackSearchQuery(station, meta);
+    if (!query) return [];
+
+    const language = this.resolveGuildLanguage(guildId);
+    const isDe = language === "de";
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "YouTube Suche" : "YouTube Search")
+        .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`),
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "Spotify Suche" : "Spotify Search")
+        .setURL(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
+    );
+
+    return [row];
+  }
+
   async resolveNowPlayingChannel(guildId, state) {
     const guild = this.client.guilds.cache.get(guildId);
     if (!guild) return null;
 
-    const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
-    if (!channelId) return null;
-
-    let channel = guild.channels.cache.get(channelId);
-    if (!channel) {
-      channel = await guild.channels.fetch(channelId).catch(() => null);
-    }
-    if (!channel || typeof channel.send !== "function") return null;
-
     const me = await this.resolveBotMember(guild);
     if (!me) return null;
-    const perms = channel.permissionsFor?.(me);
-    if (!perms?.has(PermissionFlagsBits.ViewChannel)) return null;
-    if (!perms?.has(PermissionFlagsBits.SendMessages)) return null;
 
-    return channel;
+    const candidateIds = [
+      state.nowPlayingChannelId,
+      state.connection?.joinConfig?.channelId,
+      state.lastChannelId,
+      guild.systemChannelId,
+    ];
+    const uniqueCandidateIds = [...new Set(candidateIds.map((id) => String(id || "").trim()).filter(Boolean))];
+
+    for (const candidateId of uniqueCandidateIds) {
+      const channel = await this.fetchGuildChannelById(guild, candidateId);
+      if (this.canSendNowPlayingToChannel(channel, me)) {
+        return channel;
+      }
+    }
+
+    if (!guild.channels?.cache?.size) {
+      await guild.channels.fetch().catch(() => null);
+    }
+
+    const fallbackChannels = [...guild.channels.cache.values()].filter((channel) => {
+      if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+        return false;
+      }
+      return this.canSendNowPlayingToChannel(channel, me);
+    });
+
+    fallbackChannels.sort((a, b) => this.scoreNowPlayingFallbackChannel(b) - this.scoreNowPlayingFallbackChannel(a));
+    return fallbackChannels[0] || null;
   }
 
   buildNowPlayingEmbed(guildId, station, meta) {
+    const language = this.resolveGuildLanguage(guildId);
+    const isDe = language === "de";
     const tierConfig = getTierConfig(guildId);
-    const trackLabel = clipText(meta?.displayTitle || meta?.streamTitle || "", 180);
+    const stationName = clipText(station?.name || meta?.name || "-", 120) || "-";
+    const artist = this.normalizeNowPlayingValue(meta?.artist, station, meta, 120);
+    const title = this.normalizeNowPlayingValue(meta?.title, station, meta, 120);
+    const trackLabel = clipText(
+      this.normalizeNowPlayingValue(meta?.displayTitle || meta?.streamTitle, station, meta, 180)
+      || ([artist, title].filter(Boolean).join(" - ")),
+      180
+    );
+    const streamInfo = this.normalizeNowPlayingValue(meta?.description, station, meta, 240);
     const hasTrack = Boolean(trackLabel);
-    const fields = [
-      {
-        name: "Sender",
-        value: clipText(station?.name || meta?.name || "-", 120) || "-",
-        inline: true,
-      },
-      {
-        name: "Qualitaet",
-        value: tierConfig.bitrate || "-",
-        inline: true,
-      },
-    ];
+    const embed = new EmbedBuilder()
+      .setColor(hasTrack ? 0x1DB954 : BRAND.color)
+      .setTitle(isDe ? "Jetzt live" : "Live now")
+      .setDescription(
+        hasTrack
+          ? `**${trackLabel}**`
+          : (isDe
+            ? "Der Radiosender liefert gerade keine sauberen Song-Metadaten."
+            : "The radio station is not providing clean song metadata right now.")
+      )
+      .addFields(
+        {
+          name: isDe ? "Sender" : "Station",
+          value: stationName,
+          inline: true,
+        },
+        {
+          name: isDe ? "Qualitaet" : "Quality",
+          value: tierConfig.bitrate || "-",
+          inline: true,
+        }
+      )
+      .setFooter({
+        text: isDe
+          ? `${this.config.name} | Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`
+          : `${this.config.name} | Auto update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`,
+      })
+      .setTimestamp(new Date(meta?.updatedAt || Date.now()));
 
-    if (meta?.artist) {
-      fields.push({ name: "Artist", value: clipText(meta.artist, 120), inline: true });
+    if (artist) {
+      embed.addFields({ name: isDe ? "Artist" : "Artist", value: artist, inline: true });
     }
-    if (meta?.title) {
-      fields.push({ name: "Titel", value: clipText(meta.title, 120), inline: true });
+    if (title) {
+      embed.addFields({ name: isDe ? "Titel" : "Title", value: title, inline: true });
     }
-    if (meta?.description) {
-      fields.push({ name: "Stream-Info", value: clipText(meta.description, 240), inline: false });
+    if (streamInfo) {
+      embed.addFields({ name: isDe ? "Stream-Info" : "Stream info", value: streamInfo, inline: false });
     }
-
-    const embed = {
-      color: hasTrack ? 0xFFB800 : 0x5865F2,
-      title: "Now Playing",
-      description: hasTrack
-        ? `**${trackLabel}**`
-        : "Keine Live-Track-Metadaten vom Radiosender verfuegbar.",
-      fields,
-      footer: {
-        text: `${this.config.name} | Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`
-      },
-      timestamp: new Date().toISOString(),
-    };
-
     if (meta?.artworkUrl) {
-      embed.thumbnail = { url: meta.artworkUrl };
+      embed.setThumbnail(meta.artworkUrl);
     }
 
     return embed;
+  }
+
+  buildNowPlayingMessagePayload(guildId, station, meta) {
+    return {
+      embeds: [this.buildNowPlayingEmbed(guildId, station, meta)],
+      components: this.buildTrackLinkComponents(guildId, station, meta),
+      allowedMentions: { parse: [] },
+    };
   }
 
   recordSongHistory(guildId, state, station, meta) {
@@ -765,7 +881,7 @@ class BotRuntime {
     }
   }
 
-  async upsertNowPlayingMessage(guildId, state, embed, channelOverride = null) {
+  async upsertNowPlayingMessage(guildId, state, payload, channelOverride = null) {
     const channel = channelOverride || await this.resolveNowPlayingChannel(guildId, state);
     if (!channel) return false;
 
@@ -774,16 +890,23 @@ class BotRuntime {
     }
     state.nowPlayingChannelId = channel.id;
 
-    const payload = {
-      embeds: [embed],
+    const messagePayload = {
+      embeds: [],
       allowedMentions: { parse: [] },
+      components: [],
     };
+    if (Array.isArray(payload?.embeds)) {
+      messagePayload.embeds = payload.embeds;
+    }
+    if (Array.isArray(payload?.components)) {
+      messagePayload.components = payload.components;
+    }
 
     if (state.nowPlayingMessageId && channel.messages?.fetch) {
       const existing = await channel.messages.fetch(state.nowPlayingMessageId).catch(() => null);
       if (existing?.edit) {
         try {
-          await existing.edit(payload);
+          await existing.edit(messagePayload);
           return true;
         } catch {
           state.nowPlayingMessageId = null;
@@ -792,7 +915,7 @@ class BotRuntime {
     }
 
     try {
-      const sent = await channel.send(payload);
+      const sent = await channel.send(messagePayload);
       if (sent?.id) {
         state.nowPlayingMessageId = sent.id;
       }
@@ -818,15 +941,32 @@ class BotRuntime {
       const snapshot = await fetchStreamSnapshot(station.url, { includeCover: NOW_PLAYING_COVER_ENABLED });
       if (state.currentStationKey !== stationKey) return;
 
+      const previousMeta = state.currentMeta || {};
+      const artist = this.normalizeNowPlayingValue(snapshot.artist, station, snapshot, 120);
+      const title = this.normalizeNowPlayingValue(snapshot.title, station, snapshot, 120);
+      const streamTitle = this.normalizeNowPlayingValue(snapshot.streamTitle, station, snapshot, 180);
+      const displayTitle = this.normalizeNowPlayingValue(snapshot.displayTitle || snapshot.streamTitle, station, snapshot, 180)
+        || ([artist, title].filter(Boolean).join(" - ") || null);
+      const hasFreshTrack = Boolean(displayTitle || artist || title);
+      const keepPreviousTrack = !hasFreshTrack && this.isFreshNowPlayingTrack(previousMeta);
+      const sameTrackAsPrevious = Boolean(
+        displayTitle
+        && String(previousMeta.displayTitle || "").trim()
+        && displayTitle.toLowerCase() === String(previousMeta.displayTitle || "").trim().toLowerCase()
+      );
+
       const nextMeta = {
-        name: snapshot.name || state.currentMeta?.name || station.name || stationKey,
-        description: snapshot.description || state.currentMeta?.description || null,
-        streamTitle: snapshot.streamTitle || null,
-        artist: snapshot.artist || null,
-        title: snapshot.title || null,
-        displayTitle: snapshot.displayTitle || snapshot.streamTitle || null,
-        artworkUrl: snapshot.artworkUrl || null,
+        name: this.normalizeNowPlayingValue(snapshot.name, station, snapshot, 120) || previousMeta?.name || station.name || stationKey,
+        description: this.normalizeNowPlayingValue(snapshot.description, station, snapshot, 240) || previousMeta?.description || null,
+        streamTitle: streamTitle || (keepPreviousTrack ? previousMeta.streamTitle || null : null),
+        artist: artist || (keepPreviousTrack ? previousMeta.artist || null : null),
+        title: title || (keepPreviousTrack ? previousMeta.title || null : null),
+        displayTitle: displayTitle || (keepPreviousTrack ? previousMeta.displayTitle || null : null),
+        artworkUrl: snapshot.artworkUrl || ((keepPreviousTrack || sameTrackAsPrevious) ? previousMeta.artworkUrl || null : null),
         updatedAt: new Date().toISOString(),
+        trackDetectedAtMs: hasFreshTrack
+          ? Date.now()
+          : (keepPreviousTrack ? Number.parseInt(String(previousMeta.trackDetectedAtMs || 0), 10) || 0 : 0),
       };
       state.currentMeta = nextMeta;
       this.recordSongHistory(guildId, state, station, nextMeta);
@@ -843,8 +983,8 @@ class BotRuntime {
         return;
       }
 
-      const embed = this.buildNowPlayingEmbed(guildId, station, nextMeta);
-      const sent = await this.upsertNowPlayingMessage(guildId, state, embed, channel);
+      const payload = this.buildNowPlayingMessagePayload(guildId, station, nextMeta);
+      const sent = await this.upsertNowPlayingMessage(guildId, state, payload, channel);
       if (sent) {
         state.nowPlayingSignature = signature;
       }
@@ -1072,16 +1212,23 @@ class BotRuntime {
       .then((meta) => {
         if (state.currentStationKey === key) {
           const prevMeta = state.currentMeta || {};
+          const artist = this.normalizeNowPlayingValue(meta.artist, station, meta, 120);
+          const title = this.normalizeNowPlayingValue(meta.title, station, meta, 120);
+          const streamTitle = this.normalizeNowPlayingValue(meta.streamTitle, station, meta, 180);
+          const displayTitle = this.normalizeNowPlayingValue(meta.displayTitle || meta.streamTitle, station, meta, 180)
+            || ([artist, title].filter(Boolean).join(" - ") || null);
+          const hasTrack = Boolean(displayTitle || artist || title);
           state.currentMeta = {
             ...prevMeta,
-            name: meta.name || prevMeta.name || station.name || key,
-            description: meta.description || prevMeta.description || null,
-            streamTitle: meta.streamTitle || prevMeta.streamTitle || null,
-            artist: meta.artist || prevMeta.artist || null,
-            title: meta.title || prevMeta.title || null,
-            displayTitle: meta.displayTitle || prevMeta.displayTitle || meta.streamTitle || prevMeta.streamTitle || null,
+            name: this.normalizeNowPlayingValue(meta.name, station, meta, 120) || prevMeta.name || station.name || key,
+            description: this.normalizeNowPlayingValue(meta.description, station, meta, 240) || prevMeta.description || null,
+            streamTitle: streamTitle || prevMeta.streamTitle || null,
+            artist: artist || prevMeta.artist || null,
+            title: title || prevMeta.title || null,
+            displayTitle: displayTitle || prevMeta.displayTitle || null,
             artworkUrl: prevMeta.artworkUrl || null,
             updatedAt: new Date().toISOString(),
+            trackDetectedAtMs: hasTrack ? Date.now() : (Number.parseInt(String(prevMeta.trackDetectedAtMs || 0), 10) || 0),
           };
           this.recordSongHistory(guildId, state, station, state.currentMeta);
         }
@@ -1571,13 +1718,15 @@ class BotRuntime {
     const guildOverride = guildId ? getGuildLanguage(guildId) : null;
     if (guildOverride) return guildOverride;
 
-    const raw = String(
-      interaction?.guildLocale
-      || interaction?.guild?.preferredLocale
-      || interaction?.locale
-      || ""
-    ).trim();
-    return resolveLanguageFromDiscordLocale(raw, getDefaultLanguage());
+    const localeCandidates = [
+      interaction?.locale,
+      interaction?.guildLocale,
+      interaction?.guild?.preferredLocale,
+    ];
+    const hasGerman = localeCandidates.some((locale) => {
+      return resolveLanguageFromDiscordLocale(locale, "en") === "de";
+    });
+    return hasGerman ? "de" : "en";
   }
 
   createInteractionTranslator(interaction) {
@@ -1588,6 +1737,65 @@ class BotRuntime {
       isDe,
       t: (de, en) => (isDe ? de : en),
     };
+  }
+
+  getStreamingRuntimeSelectionMessage(reason, language = "de") {
+    const isDe = String(language || "de").toLowerCase() === "de";
+    const messages = {
+      none: isDe
+        ? "Auf diesem Server streamt gerade kein Worker. Starte zuerst `/play`."
+        : "No worker is currently streaming on this server. Start `/play` first.",
+      multiple: isDe
+        ? "Mehrere Worker streamen aktuell. Tritt dem Ziel-Voice-Channel bei, damit ich den richtigen Stream waehle."
+        : "Multiple workers are currently streaming. Join the target voice channel so I can select the correct stream.",
+      multiple_in_channel: isDe
+        ? "In deinem Voice-Channel sind mehrere Worker aktiv. Stoppe einen davon oder waehle einen eindeutigen Ziel-Channel."
+        : "Multiple workers are active in your voice channel. Stop one of them or choose a unique target channel.",
+    };
+    return messages[reason] || messages.none;
+  }
+
+  async resolveStreamingRuntimeForInteraction(interaction) {
+    const guildId = String(interaction?.guildId || "").trim();
+    if (!guildId) {
+      return { runtime: null, state: null, reason: "none" };
+    }
+
+    if (this.role !== "commander" || !this.workerManager) {
+      return { runtime: this, state: this.getState(guildId), reason: null };
+    }
+
+    const workers = this.workerManager.getStreamingWorkers(guildId);
+    if (!workers.length) {
+      return { runtime: null, state: null, reason: "none" };
+    }
+
+    const guild = interaction.guild
+      || this.client.guilds.cache.get(guildId)
+      || await this.client.guilds.fetch(guildId).catch(() => null);
+    const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+    const userChannelId = String(member?.voice?.channelId || "").trim();
+
+    if (userChannelId) {
+      const matchingWorkers = workers.filter((worker) => {
+        const info = worker.getGuildInfo(guildId);
+        return String(info?.channelId || "").trim() === userChannelId;
+      });
+      if (matchingWorkers.length === 1) {
+        const runtime = matchingWorkers[0];
+        return { runtime, state: runtime.getState(guildId), reason: null };
+      }
+      if (matchingWorkers.length > 1) {
+        return { runtime: null, state: null, reason: "multiple_in_channel" };
+      }
+    }
+
+    if (workers.length === 1) {
+      const runtime = workers[0];
+      return { runtime, state: runtime.getState(guildId), reason: null };
+    }
+
+    return { runtime: null, state: null, reason: "multiple" };
   }
 
   getIntegerOptionFlexible(interaction, optionNames = []) {
@@ -3596,7 +3804,7 @@ class BotRuntime {
         content:
           `**${t("OmniFM Sprache", "OmniFM language")}**\n` +
           `${t("Aktiv", "Active")}: \`${effectiveLanguage}\`\n` +
-          `${t("Quelle", "Source")}: ${override ? t("Manuell gesetzt", "Manually set") : t("Discord Server-Sprache", "Discord server locale")}\n` +
+          `${t("Quelle", "Source")}: ${override ? t("Manuell gesetzt", "Manually set") : t("Discord-Server oder Client-Sprache", "Discord server or client locale")}\n` +
           `${t("Deine Discord-Client-Sprache", "Your Discord client language")}: \`${clientLanguage}\`` +
           suggestOverride,
         ephemeral: true,
@@ -3634,8 +3842,8 @@ class BotRuntime {
       await interaction.reply({
         content: changed
           ? t(
-            `Manuelle Sprache entfernt. OmniFM nutzt jetzt wieder die Discord-Server-Sprache (\`${next}\`).`,
-            `Manual language override removed. OmniFM now uses the Discord server locale again (\`${next}\`).`
+            `Manuelle Sprache entfernt. OmniFM nutzt jetzt wieder Discord-Server oder Client-Sprache (\`${next}\`).`,
+            `Manual language override removed. OmniFM now uses the Discord server or client locale again (\`${next}\`).`
           )
           : t(
             `Es war keine manuelle Sprache gesetzt. Aktive Sprache bleibt \`${next}\`.`,
@@ -4351,48 +4559,48 @@ class BotRuntime {
         return;
       }
 
-      const playingGuilds = this.getPlayingGuildCount();
-      if (!state.currentStationKey) {
+      const playback = await this.resolveStreamingRuntimeForInteraction(interaction);
+      if (!playback.runtime || !playback.state) {
         await interaction.reply({
-          content: t(
-            `Hier laeuft gerade nichts.\nDieser Bot streamt aktuell auf ${playingGuilds} Server${playingGuilds === 1 ? "" : "n"}.`,
-            `Nothing is playing here right now.\nThis bot is currently streaming in ${playingGuilds} server${playingGuilds === 1 ? "" : "s"}.`
-          ),
+          content: this.getStreamingRuntimeSelectionMessage(playback.reason, language),
           ephemeral: true
         });
         return;
       }
 
-      const current = this.getResolvedCurrentStation(interaction.guildId, state, language);
+      const activeRuntime = playback.runtime;
+      const activeState = playback.state;
+      const playingGuilds = activeRuntime.getPlayingGuildCount();
+      const current = activeRuntime.getResolvedCurrentStation(interaction.guildId, activeState, language);
       if (!current?.station) {
         await interaction.reply({ content: t("Aktuelle Station wurde entfernt.", "Current station was removed."), ephemeral: true });
         return;
       }
 
-      const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
-      const lines = [
-        `${t("Jetzt auf diesem Server", "Now playing in this server")}: ${current.station.name}`,
-        `${t("Channel", "Channel")}: ${channelId ? `<#${channelId}>` : t("unbekannt", "unknown")}`,
-        `${t("Aktiv auf", "Active in")} ${playingGuilds} ${t(`Server${playingGuilds === 1 ? "" : "n"}.`, `server${playingGuilds === 1 ? "" : "s"}.`)}`,
-      ];
+      const channelId = activeState.connection?.joinConfig?.channelId || activeState.lastChannelId || null;
+      const meta = activeState.currentMeta || {};
+      const embed = activeRuntime.buildNowPlayingEmbed(interaction.guildId, current.station, {
+        ...meta,
+        name: meta.name || current.station.name || null,
+      });
+      embed.addFields(
+        {
+          name: t("Voice-Channel", "Voice channel"),
+          value: channelId ? `<#${channelId}>` : t("unbekannt", "unknown"),
+          inline: true,
+        },
+        {
+          name: t("Aktiv auf", "Active on"),
+          value: `${playingGuilds} ${t(`Server${playingGuilds === 1 ? "" : "n"}`, `server${playingGuilds === 1 ? "" : "s"}`)}`,
+          inline: true,
+        }
+      );
 
-      const meta = state.currentMeta;
-      if (meta?.displayTitle || meta?.streamTitle) {
-        lines.push(`${t("Jetzt laeuft", "Now Playing")}: ${clipText(meta.displayTitle || meta.streamTitle, 160)}`);
-      }
-      if (meta?.artist && meta?.title) {
-        lines.push(`${t("Titel", "Track")}: ${clipText(meta.artist, 90)} - ${clipText(meta.title, 90)}`);
-      }
-      if (meta?.artworkUrl) {
-        lines.push(`${t("Cover", "Cover")}: ${meta.artworkUrl}`);
-      }
-      if (meta && (meta.name || meta.description)) {
-        const metaName = clipText(meta.name || "-", 120);
-        const metaDesc = clipText(meta.description || "", 240);
-        lines.push(`${t("Meta", "Meta")}: ${metaName}${metaDesc ? ` | ${metaDesc}` : ""}`);
-      }
-
-      await this.respondLongInteraction(interaction, lines.join("\n"), { ephemeral: true });
+      await interaction.reply({
+        embeds: [embed],
+        components: activeRuntime.buildTrackLinkComponents(interaction.guildId, current.station, meta),
+        ephemeral: true,
+      });
       return;
     }
 
@@ -4420,6 +4628,7 @@ class BotRuntime {
         return;
       }
 
+      const playback = await this.resolveStreamingRuntimeForInteraction(interaction);
       const requestedLimit = interaction.options.getInteger("limit") || 10;
       const limit = Math.max(1, Math.min(20, requestedLimit));
       const history = getSongHistory(interaction.guildId, { limit });
@@ -4444,11 +4653,18 @@ class BotRuntime {
         return `${index + 1}. ${when} - **${title}**${stationSuffix}`;
       });
 
-      await this.respondLongInteraction(
-        interaction,
-        `**${t("Song-History", "Song history")} (${t("letzte", "latest")} ${history.length}):**\n${lines.join("\n")}`,
-        { ephemeral: true }
-      );
+      const historyEmbed = new EmbedBuilder()
+        .setColor(BRAND.color)
+        .setTitle(t("Song-History", "Song history"))
+        .setDescription(clipText(lines.join("\n"), 3800))
+        .setFooter({
+          text: playback.runtime
+            ? `${playback.runtime.config?.name || BRAND.name} | ${t("letzte", "latest")} ${history.length}`
+            : `${BRAND.name} | ${t("letzte", "latest")} ${history.length}`,
+        })
+        .setTimestamp(new Date());
+
+      await interaction.reply({ embeds: [historyEmbed], ephemeral: true });
       return;
     }
 
@@ -4719,16 +4935,23 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "health") {
+      const playback = await this.resolveStreamingRuntimeForInteraction(interaction);
+      if (!playback.runtime || !playback.state) {
+        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), ephemeral: true });
+        return;
+      }
+      const activeRuntime = playback.runtime;
+      const activeState = playback.state;
       const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
       const content = [
-        `Bot: ${this.config.name}`,
-        `Ready: ${this.client.isReady() ? t("ja", "yes") : t("nein", "no")}`,
-        `${t("Letzter Stream-Fehler", "Last stream error")}: ${state.lastStreamErrorAt || "-"}`,
-        `${t("Stream-Fehler (Reihe)", "Stream errors (streak)")}: ${state.streamErrorCount || 0}`,
-        `${t("Letzter ffmpeg Exit-Code", "Last ffmpeg exit code")}: ${state.lastProcessExitCode ?? "-"}`,
-        `Reconnects: ${state.reconnectCount}`,
-        `${t("Letzter Reconnect", "Last reconnect")}: ${state.lastReconnectAt || "-"}`,
-        `${t("Auto-Reconnect aktiv", "Auto reconnect enabled")}: ${state.shouldReconnect ? t("ja", "yes") : t("nein", "no")}`,
+        `Bot: ${activeRuntime.config.name}`,
+        `Ready: ${activeRuntime.client.isReady() ? t("ja", "yes") : t("nein", "no")}`,
+        `${t("Letzter Stream-Fehler", "Last stream error")}: ${activeState.lastStreamErrorAt || "-"}`,
+        `${t("Stream-Fehler (Reihe)", "Stream errors (streak)")}: ${activeState.streamErrorCount || 0}`,
+        `${t("Letzter ffmpeg Exit-Code", "Last ffmpeg exit code")}: ${activeState.lastProcessExitCode ?? "-"}`,
+        `Reconnects: ${activeState.reconnectCount}`,
+        `${t("Letzter Reconnect", "Last reconnect")}: ${activeState.lastReconnectAt || "-"}`,
+        `${t("Auto-Reconnect aktiv", "Auto reconnect enabled")}: ${activeState.shouldReconnect ? t("ja", "yes") : t("nein", "no")}`,
         `${t("Netz-Cooldown", "Network cooldown")}: ${networkHoldMs > 0 ? `${t("ja", "yes")} (${Math.round(networkHoldMs)}ms)` : t("nein", "no")}`
       ].join("\n");
 
@@ -4737,22 +4960,29 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "diag") {
-      const connected = state.connection ? t("ja", "yes") : t("nein", "no");
-      const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || "-";
-      const station = state.currentStationKey || "-";
-      const diag = this.getStreamDiagnostics(interaction.guildId, state);
-      const restartPending = state.streamRestartTimer ? t("ja", "yes") : t("nein", "no");
-      const reconnectPending = state.reconnectTimer ? t("ja", "yes") : t("nein", "no");
+      const playback = await this.resolveStreamingRuntimeForInteraction(interaction);
+      if (!playback.runtime || !playback.state) {
+        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), ephemeral: true });
+        return;
+      }
+      const activeRuntime = playback.runtime;
+      const activeState = playback.state;
+      const connected = activeState.connection ? t("ja", "yes") : t("nein", "no");
+      const channelId = activeState.connection?.joinConfig?.channelId || activeState.lastChannelId || "-";
+      const station = activeState.currentStationKey || "-";
+      const diag = activeRuntime.getStreamDiagnostics(interaction.guildId, activeState);
+      const restartPending = activeState.streamRestartTimer ? t("ja", "yes") : t("nein", "no");
+      const reconnectPending = activeState.reconnectTimer ? t("ja", "yes") : t("nein", "no");
       const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
 
       const content = [
-        `Bot: ${this.config.name}`,
+        `Bot: ${activeRuntime.config.name}`,
         `Server: ${interaction.guild?.name || interaction.guildId}`,
         `Plan: ${diag.tier.toUpperCase()} | preset=${diag.preset} | transcode=${diag.transcodeEnabled ? "on" : "off"} (${diag.transcodeMode})`,
         `Bitrate Ziel: ${diag.bitrateOverride || "-"} (${diag.requestedBitrateKbps}k) | Profil: ${diag.profile}`,
         `FFmpeg Buffer: queue=${diag.queue} probe=${diag.probeSize} analyzeUs=${diag.analyzeUs}`,
         `Verbunden: ${connected} | Channel: ${channelId} | Station: ${station}`,
-        `Stream-Laufzeit: ${diag.streamLifetimeSec}s | Errors in Reihe: ${state.streamErrorCount || 0}`,
+        `Stream-Laufzeit: ${diag.streamLifetimeSec}s | Errors in Reihe: ${activeState.streamErrorCount || 0}`,
         `Restart geplant: ${restartPending} | Reconnect geplant: ${reconnectPending}`,
         `Netz-Cooldown: ${networkHoldMs > 0 ? `${Math.round(networkHoldMs)}ms` : "0ms"}`,
       ].join("\n");
@@ -4762,16 +4992,23 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "status") {
-      const connected = state.connection ? t("ja", "yes") : t("nein", "no");
-      const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || "-";
-      const uptimeSec = Math.floor((Date.now() - this.startedAt) / 1000);
+      const playback = await this.resolveStreamingRuntimeForInteraction(interaction);
+      if (!playback.runtime || !playback.state) {
+        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), ephemeral: true });
+        return;
+      }
+      const activeRuntime = playback.runtime;
+      const activeState = playback.state;
+      const connected = activeState.connection ? t("ja", "yes") : t("nein", "no");
+      const channelId = activeState.connection?.joinConfig?.channelId || activeState.lastChannelId || "-";
+      const uptimeSec = Math.floor((Date.now() - activeRuntime.startedAt) / 1000);
       const load = os.loadavg().map((v) => v.toFixed(2)).join(", ");
       const mem = `${Math.round(process.memoryUsage().rss / (1024 * 1024))}MB`;
-      const station = state.currentStationKey || "-";
+      const station = activeState.currentStationKey || "-";
 
       const content = [
-        `Bot: ${this.config.name}`,
-        `${t("Guilds (dieser Bot)", "Guilds (this bot)")}: ${this.client.guilds.cache.size}`,
+        `Bot: ${activeRuntime.config.name}`,
+        `${t("Guilds (dieser Bot)", "Guilds (this bot)")}: ${activeRuntime.client.guilds.cache.size}`,
         `${t("Verbunden", "Connected")}: ${connected}`,
         `Channel: ${channelId}`,
         `Station: ${station}`,
@@ -5087,6 +5324,7 @@ class BotRuntime {
         await interaction.deferReply({ ephemeral: true });
 
         let worker;
+        let reusingExistingWorker = false;
         if (requestedBotIndex) {
           const check = this.workerManager.canUseWorker(requestedBotIndex, guildId, guildTier);
           if (!check.ok) {
@@ -5101,7 +5339,13 @@ class BotRuntime {
           }
           worker = check.worker;
         } else {
-          worker = this.workerManager.findFreeWorker(guildId, guildTier);
+          const activeWorkerInChannel = this.workerManager.findStreamingWorkerByChannel(guildId, channelId);
+          if (activeWorkerInChannel) {
+            worker = activeWorkerInChannel;
+            reusingExistingWorker = true;
+          } else {
+            worker = this.workerManager.findFreeWorker(guildId, guildTier);
+          }
         }
 
         if (!worker) {
@@ -5131,8 +5375,12 @@ class BotRuntime {
         const tierConfig = getTierConfig(guildId);
         const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
         await interaction.editReply(t(
-          `${result.workerName} startet: ${selectedStation?.name || key}${tierLabel}`,
-          `${result.workerName} starting: ${selectedStation?.name || key}${tierLabel}`
+          reusingExistingWorker
+            ? `${result.workerName} wechselt auf: ${selectedStation?.name || key}${tierLabel}`
+            : `${result.workerName} startet: ${selectedStation?.name || key}${tierLabel}`,
+          reusingExistingWorker
+            ? `${result.workerName} switching to: ${selectedStation?.name || key}${tierLabel}`
+            : `${result.workerName} starting: ${selectedStation?.name || key}${tierLabel}`
         ));
         return;
       }

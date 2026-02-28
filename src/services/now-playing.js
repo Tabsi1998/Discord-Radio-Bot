@@ -15,6 +15,15 @@ import {
 const nowPlayingCoverCache = new Map();
 const nowPlayingCoverInFlight = new Map();
 let globalNowPlayingQueue = null; // Will be set by runtime.js
+const BLOCKED_TRACK_VALUES = new Set(["-", "--", "n/a", "na", "none", "null", "undefined", "unknown"]);
+const TRACK_PREFIX_PATTERNS = [
+  /^now playing\s*[:|\-]+\s*/i,
+  /^currently playing\s*[:|\-]+\s*/i,
+  /^playing now\s*[:|\-]+\s*/i,
+  /^on air\s*[:|\-]+\s*/i,
+  /^playing\s*[:|\-]+\s*/i,
+  /^np\s*[:|\-]+\s*/i,
+];
 
 function setNowPlayingQueue(queue) {
   globalNowPlayingQueue = queue;
@@ -28,15 +37,23 @@ function extractIcyField(metadataText, fieldName) {
 }
 
 function normalizeTrackText(raw) {
-  const text = String(raw || "")
+  let text = String(raw || "")
     .replace(/\u0000/g, "")
+    .replace(/[\u2010-\u2015]+/g, " - ")
+    .replace(/\u00e2\u0080[\u0090-\u0095]/g, " - ")
     .replace(/\s+/g, " ")
     .trim();
   if (!text) return null;
 
+  for (const pattern of TRACK_PREFIX_PATTERNS) {
+    text = text.replace(pattern, "").trim();
+  }
+
+  text = text.replace(/^[-:|~\/\s]+/, "").replace(/[-:|~\/\s]+$/, "").trim();
+  if (!text) return null;
+
   const lower = text.toLowerCase();
-  const blockedValues = new Set(["-", "--", "n/a", "na", "none", "null", "undefined", "unknown"]);
-  if (blockedValues.has(lower)) return null;
+  if (BLOCKED_TRACK_VALUES.has(lower)) return null;
   return text;
 }
 

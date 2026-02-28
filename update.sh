@@ -834,6 +834,10 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_trial=$(read_env "PRO_TRIAL_ENABLED" "1")
   bot_count=$(count_bots)
   cur_stripe=$(read_env "STRIPE_SECRET_KEY")
+  cur_dbl_enabled=$(read_env "DISCORDBOTLIST_ENABLED" "1")
+  cur_dbl_token=$(read_env "DISCORDBOTLIST_TOKEN" "")
+  cur_dbl_secret=$(read_env "DISCORDBOTLIST_WEBHOOK_SECRET" "")
+  cur_dbl_scope=$(read_env "DISCORDBOTLIST_STATS_SCOPE" "aggregate")
 
   echo -e "  Web-Port (extern):     ${CYAN}${cur_port}${NC}"
   echo -e "  Web-Port (intern):     ${DIM}${cur_iport}${NC}"
@@ -864,6 +868,16 @@ if [[ "$MODE" == "--settings" ]]; then
   else
     echo -e "  Stripe:                ${RED}nicht konfiguriert${NC}"
   fi
+  if [[ "$cur_dbl_enabled" == "0" ]]; then
+    echo -e "  DiscordBotList:        ${YELLOW}deaktiviert${NC}"
+  elif [[ -n "$cur_dbl_token" && -n "$cur_dbl_secret" ]]; then
+    echo -e "  DiscordBotList:        ${GREEN}konfiguriert${NC} (${cur_dbl_scope})"
+  else
+    echo -e "  DiscordBotList:        ${RED}nicht konfiguriert${NC}"
+  fi
+  if [[ -n "$cur_public_url" ]]; then
+    echo -e "  DBL Webhook:           ${DIM}${cur_public_url}/api/discordbotlist/vote${NC}"
+  fi
   echo ""
 
   echo -e "  ${BOLD}Was aendern?${NC}"
@@ -872,9 +886,10 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${YELLOW}3${NC}) Public Web URL"
   echo -e "    ${BOLD}4${NC}) Web-Origin/CORS automatisch reparieren (empfohlen)"
   echo -e "    ${CYAN}5${NC}) Pro-Testmonat ein/aus"
-  echo -e "    ${DIM}6${NC}) Zurueck"
+  echo -e "    ${YELLOW}6${NC}) DiscordBotList konfigurieren"
+  echo -e "    ${DIM}7${NC}) Zurueck"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-6]${NC}: ")" SET_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-7]${NC}: ")" SET_CHOICE
 
   case "${SET_CHOICE:-}" in
     1)
@@ -925,6 +940,34 @@ if [[ "$MODE" == "--settings" ]]; then
       else
         write_env_line "PRO_TRIAL_ENABLED" "0"
         ok "Pro-Testmonat deaktiviert."
+      fi
+      restart_container
+      ;;
+    6)
+      if prompt_yes_no "DiscordBotList aktivieren?" "$(if [[ "$cur_dbl_enabled" == "0" ]]; then echo n; else echo j; fi)"; then
+        new_dbl_token="$(prompt_default "DiscordBotList Token" "$cur_dbl_token")"
+        new_dbl_secret="$(prompt_default "DiscordBotList Webhook Secret" "$cur_dbl_secret")"
+        new_dbl_scope="$(prompt_default "Stats Scope (commander/aggregate)" "$cur_dbl_scope")"
+        if [[ "$new_dbl_scope" != "commander" && "$new_dbl_scope" != "aggregate" ]]; then
+          new_dbl_scope="aggregate"
+        fi
+        if [[ -z "$new_dbl_token" || -z "$new_dbl_secret" ]]; then
+          fail "Token und Webhook Secret sind erforderlich."
+          exit 1
+        fi
+        write_env_line "DISCORDBOTLIST_ENABLED" "1"
+        write_env_line "DISCORDBOTLIST_TOKEN" "$new_dbl_token"
+        write_env_line "DISCORDBOTLIST_WEBHOOK_SECRET" "$new_dbl_secret"
+        write_env_line "DISCORDBOTLIST_STATS_SCOPE" "$new_dbl_scope"
+        ok "DiscordBotList gespeichert."
+        if [[ -n "$cur_public_url" ]]; then
+          info "Webhook URL: ${cur_public_url}/api/discordbotlist/vote"
+        else
+          warn "PUBLIC_WEB_URL ist noch leer. Setze zuerst die Public Web URL fuer den Vote-Webhook."
+        fi
+      else
+        write_env_line "DISCORDBOTLIST_ENABLED" "0"
+        ok "DiscordBotList deaktiviert."
       fi
       restart_container
       ;;
@@ -1419,11 +1462,13 @@ echo ""
 # Zusammenfassung
 bot_count=$(count_bots)
 cur_stripe=$(read_env "STRIPE_SECRET_KEY")
+cur_dbl_token=$(read_env "DISCORDBOTLIST_TOKEN")
 web_port=$(read_env "WEB_PORT" "8081")
 
 echo -e "  ${BOLD}Zusammenfassung:${NC}"
 echo -e "    Bots:      ${CYAN}${bot_count}${NC}"
 echo -e "    Stripe:    $(if [[ -n "$cur_stripe" ]]; then echo -e "${GREEN}konfiguriert${NC}"; else echo -e "${RED}nicht gesetzt${NC}"; fi)"
+echo -e "    DBL:       $(if [[ -n "$cur_dbl_token" ]]; then echo -e "${GREEN}konfiguriert${NC}"; else echo -e "${RED}nicht gesetzt${NC}"; fi)"
 echo -e "    Web:       ${CYAN}http://localhost:${web_port}${NC}"
 echo ""
 echo -e "  ${BOLD}Befehle:${NC}"
