@@ -13,6 +13,10 @@ import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import {
+  buildNowPlayingSignature,
+  getNowPlayingCandidateIds,
+} from "../src/lib/now-playing-target.js";
+import {
   parseTrackFromStreamTitle,
   extractTrackFromMetadataText,
   normalizeTrackSearchText,
@@ -20,6 +24,7 @@ import {
 import {
   estimatePcmWavDurationSeconds,
   extractAcoustIdCandidate,
+  isFpcalcMissingInputError,
   isSoftRecognitionFailure,
   parseFpcalcOutput,
   selectBestAcoustIdMatch,
@@ -168,6 +173,41 @@ test("worker manager can reuse a bot that is still connected in the target chann
   assert.equal(resolved, connectedWorker);
 });
 
+test("now playing prefers the active voice channel over a remembered legacy target", () => {
+  const candidateIds = getNowPlayingCandidateIds({
+    nowPlayingChannelId: "legacy-text",
+    connection: { joinConfig: { channelId: "voice-1" } },
+    lastChannelId: "voice-1",
+  }, {
+    systemChannelId: "system-1",
+  });
+
+  assert.deepEqual(candidateIds, ["voice-1", "legacy-text", "system-1"]);
+});
+
+test("now playing signature changes when the embed target channel changes", () => {
+  const meta = {
+    displayTitle: "Artist - Track",
+    artist: "Artist",
+    title: "Track",
+    artworkUrl: "https://example.com/cover.jpg",
+    album: "Album",
+    metadataStatus: "ok",
+    metadataSource: "icy",
+    musicBrainzRecordingId: "recording-1",
+    musicBrainzReleaseId: "release-1",
+  };
+  const state = {
+    connection: { joinConfig: { channelId: "voice-1" } },
+    lastChannelId: "voice-1",
+  };
+
+  const activeVoiceSignature = buildNowPlayingSignature("station-a", meta, state, "voice-1");
+  const legacyTargetSignature = buildNowPlayingSignature("station-a", meta, state, "legacy-text");
+
+  assert.notEqual(activeVoiceSignature, legacyTargetSignature);
+});
+
 test("track parsing removes common prefixes and dash variants", () => {
   const parsed = parseTrackFromStreamTitle("Now Playing: Artist \u2013 Song Title");
 
@@ -232,6 +272,12 @@ test("wav duration estimate matches mono 11025 Hz PCM sizing", () => {
 
 test("recognition decode EOF errors are treated as soft failures", () => {
   const error = new Error("fpcalc exited with code 3: ERROR: Error decoding audio frame (End of file)");
+  assert.equal(isSoftRecognitionFailure(error), true);
+});
+
+test("recognition missing-input errors are treated as soft failures", () => {
+  const error = new Error("fpcalc exited with code 2: ERROR: Could not open the input file (No such file or directory)");
+  assert.equal(isFpcalcMissingInputError(error), true);
   assert.equal(isSoftRecognitionFailure(error), true);
 });
 

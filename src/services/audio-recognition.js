@@ -11,6 +11,7 @@ const ACOUSTID_API_KEY = String(process.env.ACOUSTID_API_KEY || "").trim();
 const MUSICBRAINZ_ENABLED = String(process.env.NOW_PLAYING_MUSICBRAINZ_ENABLED ?? "1").trim() !== "0";
 const RECOGNITION_SAMPLE_SECONDS = parseEnvInt("NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS", 18, 8, 30);
 const RECOGNITION_MIN_SECONDS = parseEnvInt("NOW_PLAYING_RECOGNITION_MIN_SECONDS", 10, 4, 20);
+const RECOGNITION_CAPTURE_RETRIES = parseEnvInt("NOW_PLAYING_RECOGNITION_CAPTURE_RETRIES", 2, 1, 4);
 const RECOGNITION_TIMEOUT_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_TIMEOUT_MS", 28_000, 8_000, 60_000);
 const RECOGNITION_CACHE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_CACHE_TTL_MS", 90_000, 30_000, 10 * 60_000);
 const RECOGNITION_FAILURE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS", 180_000, 30_000, 30 * 60_000);
@@ -170,10 +171,18 @@ function isFpcalcDecodeEofError(error) {
     || text.includes("end of file");
 }
 
+function isFpcalcMissingInputError(error) {
+  const text = String(error?.message || error?.stderr || error || "").toLowerCase();
+  return text.includes("could not open the input file")
+    || text.includes("no such file or directory")
+    || text.includes("sample file missing before fpcalc");
+}
+
 function isSoftRecognitionFailure(error) {
   if (!error) return false;
   const text = String(error?.message || error?.stderr || error || "").toLowerCase();
   return isFpcalcDecodeEofError(error)
+    || isFpcalcMissingInputError(error)
     || text.includes("captured sample too short")
     || text.includes("sample file is empty")
     || text.includes("invalid data found when processing input")
@@ -225,6 +234,11 @@ async function probeAudioDurationSeconds(filePath) {
 }
 
 async function runFpcalc(samplePath, fingerprintSeconds = null) {
+  const sampleStat = await fs.stat(samplePath).catch(() => null);
+  if (!sampleStat || sampleStat.size <= 44) {
+    throw new Error("sample file missing before fpcalc");
+  }
+
   const args = [];
   if (Number.isFinite(fingerprintSeconds) && fingerprintSeconds > 0) {
     args.push("-length", String(Math.max(1, Math.floor(fingerprintSeconds))));
@@ -241,7 +255,7 @@ async function runFpcalc(samplePath, fingerprintSeconds = null) {
   return parsed;
 }
 
-async function captureFingerprintFromStream(url) {
+async function captureFingerprintAttempt(url) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omnifm-fingerprint-"));
   const samplePath = path.join(tempDir, "sample.wav");
 
@@ -298,6 +312,24 @@ async function captureFingerprintFromStream(url) {
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => null);
   }
+}
+
+async function captureFingerprintFromStream(url) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= RECOGNITION_CAPTURE_RETRIES; attempt += 1) {
+    try {
+      return await captureFingerprintAttempt(url);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= RECOGNITION_CAPTURE_RETRIES || !isFpcalcMissingInputError(error)) {
+        throw error;
+      }
+      await waitMs(150 * attempt);
+    }
+  }
+
+  throw lastError || new Error("capture fingerprint failed");
 }
 
 function extractAcoustIdCandidate(result, recording) {
@@ -555,6 +587,7 @@ async function recognizeTrackFromStream(url, { existingTrack = null } = {}) {
 export {
   estimatePcmWavDurationSeconds,
   extractAcoustIdCandidate,
+  isFpcalcMissingInputError,
   isSoftRecognitionFailure,
   parseFpcalcOutput,
   selectBestAcoustIdMatch,

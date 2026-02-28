@@ -34,6 +34,7 @@ import {
 
 import { log } from "../lib/logging.js";
 import { NowPlayingQueue } from "../lib/now-playing-queue.js";
+import { buildNowPlayingSignature, getNowPlayingCandidateIds } from "../lib/now-playing-target.js";
 import {
   TIERS,
   TIER_RANK,
@@ -677,6 +678,21 @@ class BotRuntime {
     log("INFO", `[${this.config.name}] NowPlaying guild=${guildId}: ${message}`);
   }
 
+  markNowPlayingTargetDirty(state, preferredChannelId = null) {
+    const normalizedPreferredChannelId = String(preferredChannelId || "").trim();
+    const currentTargetChannelId = String(state?.nowPlayingChannelId || "").trim();
+    if (normalizedPreferredChannelId && currentTargetChannelId === normalizedPreferredChannelId) {
+      return false;
+    }
+
+    state.nowPlayingMessageId = null;
+    state.nowPlayingSignature = null;
+    if (!normalizedPreferredChannelId || currentTargetChannelId !== normalizedPreferredChannelId) {
+      state.nowPlayingChannelId = null;
+    }
+    return true;
+  }
+
   canSendNowPlayingToChannel(channel, me) {
     if (!channel || typeof channel.send !== "function") return false;
     if (!me) return false;
@@ -768,7 +784,6 @@ class BotRuntime {
     const buttons = [
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel("YouTube")
         .setLabel(isDe ? "YouTube-Suche" : "YouTube search")
         .setEmoji({ name: "▶" })
         .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`)
@@ -1047,13 +1062,7 @@ class BotRuntime {
     const me = await this.resolveBotMember(guild);
     if (!me) return null;
 
-    const candidateIds = [
-      state.nowPlayingChannelId,
-      state.connection?.joinConfig?.channelId,
-      state.lastChannelId,
-      guild.systemChannelId,
-    ];
-    const uniqueCandidateIds = [...new Set(candidateIds.map((id) => String(id || "").trim()).filter(Boolean))];
+    const uniqueCandidateIds = getNowPlayingCandidateIds(state, guild);
 
     for (const candidateId of uniqueCandidateIds) {
       const channel = await this.fetchGuildChannelById(guild, candidateId);
@@ -1574,7 +1583,12 @@ class BotRuntime {
         try {
           await existing.edit(messagePayload);
           return true;
-        } catch {
+        } catch (err) {
+          this.logNowPlayingIssue(
+            guildId,
+            state,
+            `Edit fehlgeschlagen in #${channel.name || channel.id}: ${clipText(err?.message || String(err), 160)}`
+          );
           state.nowPlayingMessageId = null;
         }
       }
@@ -1586,7 +1600,12 @@ class BotRuntime {
         state.nowPlayingMessageId = sent.id;
       }
       return true;
-    } catch {
+    } catch (err) {
+      this.logNowPlayingIssue(
+        guildId,
+        state,
+        `Senden fehlgeschlagen in #${channel.name || channel.id}: ${clipText(err?.message || String(err), 160)}`
+      );
       return false;
     }
   }
@@ -1596,7 +1615,10 @@ class BotRuntime {
     if (!state.currentStationKey) return;
     if (!state.connection) return;
     const channel = await this.resolveNowPlayingChannel(guildId, state);
-    if (!channel) return;
+    if (!channel) {
+      this.logNowPlayingIssue(guildId, state, "Kein geeigneter Kanal fuer die Live-Einbettung gefunden.");
+      return;
+    }
 
     const stationKey = state.currentStationKey;
     const resolvedStation = this.getResolvedCurrentStation(guildId, state);
@@ -1650,19 +1672,7 @@ class BotRuntime {
       state.currentMeta = nextMeta;
       this.recordSongHistory(guildId, state, station, nextMeta);
 
-      const signature = [
-        stationKey,
-        nextMeta.displayTitle || "",
-        nextMeta.artist || "",
-        nextMeta.title || "",
-        nextMeta.artworkUrl || "",
-        nextMeta.album || "",
-        nextMeta.metadataStatus || "",
-        nextMeta.metadataSource || "",
-        nextMeta.musicBrainzRecordingId || "",
-        nextMeta.musicBrainzReleaseId || "",
-        state.connection?.joinConfig?.channelId || state.lastChannelId || "",
-      ].join("|").toLowerCase();
+      const signature = buildNowPlayingSignature(stationKey, nextMeta, state, channel.id);
 
       if (!force && signature === state.nowPlayingSignature) {
         return;
@@ -2187,6 +2197,9 @@ class BotRuntime {
 
     // Bot hat Channel gewechselt oder ist einem beigetreten
     if (newChannelId) {
+      if (state.lastChannelId !== newChannelId) {
+        this.markNowPlayingTargetDirty(state, newChannelId);
+      }
       state.lastChannelId = newChannelId;
       if (state.reconnectTimer) {
         this.clearReconnectTimer(state);
@@ -2243,6 +2256,8 @@ class BotRuntime {
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
+      state.nowPlayingMessageId = null;
+      state.nowPlayingChannelId = null;
       this.clearScheduledEventPlayback(state);
     }
 
@@ -2322,6 +2337,7 @@ class BotRuntime {
     const expectedChannelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
 
     if (actualChannelId && state.lastChannelId !== actualChannelId) {
+      this.markNowPlayingTargetDirty(state, actualChannelId);
       state.lastChannelId = actualChannelId;
       this.persistState();
     }
@@ -2352,6 +2368,7 @@ class BotRuntime {
         "INFO",
         `[${this.config.name}] Voice-Channel-Mismatch korrigiert (guild=${guildId}, expected=${expectedChannelId}, actual=${actualChannelId}, reason=${reason}).`
       );
+      this.markNowPlayingTargetDirty(state, actualChannelId);
       state.lastChannelId = actualChannelId;
       if (state.connection?.joinConfig?.channelId && state.connection.joinConfig.channelId !== actualChannelId) {
         this.resetVoiceSession(guildId, state, { preservePlaybackTarget: true, clearLastChannel: false });
@@ -4004,7 +4021,11 @@ class BotRuntime {
       throw new Error(`Keine Speak-Berechtigung fuer ${channel.toString()}.`);
     }
 
+    const previousChannelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
     state.lastChannelId = channel.id;
+    if (previousChannelId && previousChannelId !== channel.id) {
+      this.markNowPlayingTargetDirty(state, channel.id);
+    }
 
     if (state.connection) {
       const currentChannelId = state.connection.joinConfig?.channelId;
