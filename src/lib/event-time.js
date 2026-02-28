@@ -198,60 +198,123 @@ function lastWeekdayOfMonth(year, month, weekdayIndex) {
   return maxDay - ((7 + lastWeekday - weekdayIndex) % 7);
 }
 
-function parseEventStartDateTime(rawInput, language = "de", preferredTimeZone = "") {
+function validateCalendarDate(year, month, day, hour = 0, minute = 0) {
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return false;
+  }
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === (month - 1)
+    && parsed.getUTCDate() === day
+    && parsed.getUTCHours() === hour
+    && parsed.getUTCMinutes() === minute;
+}
+
+function parseEventDateInput(rawInput, language = "de", timeZone = EVENT_FALLBACK_TIME_ZONE, nowMs = Date.now()) {
   const raw = String(rawInput || "").trim();
   if (!raw) {
     return {
       ok: false,
-      message: languagePick(language, "Zeit fehlt.", "Time is missing."),
+      message: languagePick(language, "Datum fehlt.", "Date is missing."),
     };
   }
 
-  const normalized = raw.replace("T", " ");
-  const match = normalized.match(
-    /^(?:(\d{4})[-\/](\d{2})[-\/](\d{2})|(\d{2})\.(\d{2})\.(\d{4}))\s+(\d{2}):(\d{2})(?:\s+([A-Za-z0-9_+\-\/]+))?$/
-  );
+  const lowered = raw.toLowerCase();
+  if (["today", "heute"].includes(lowered)) {
+    const zoned = getZonedPartsFromUtcMs(nowMs, timeZone);
+    return { ok: true, year: zoned.year, month: zoned.month, day: zoned.day };
+  }
+  if (["tomorrow", "morgen"].includes(lowered)) {
+    const zoned = getZonedPartsFromUtcMs(nowMs, timeZone);
+    const next = addDaysCalendar(zoned.year, zoned.month, zoned.day, 1);
+    return { ok: true, year: next.year, month: next.month, day: next.day };
+  }
+
+  const normalized = raw.replace(/\//g, ".").replace(/-/g, ".");
+  let year = 0;
+  let month = 0;
+  let day = 0;
+
+  let match = normalized.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (match) {
+    day = Number.parseInt(match[1], 10);
+    month = Number.parseInt(match[2], 10);
+    year = Number.parseInt(match[3], 10);
+  } else {
+    match = normalized.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})$/);
+    if (!match) {
+      return {
+        ok: false,
+        message: languagePick(
+          language,
+          "Ungueltiges Datumsformat. Nutze `DD.MM.YYYY`, `YYYY-MM-DD`, `heute` oder `morgen`.",
+          "Invalid date format. Use `DD.MM.YYYY`, `YYYY-MM-DD`, `today`, or `tomorrow`."
+        ),
+      };
+    }
+
+    year = Number.parseInt(match[1], 10);
+    const first = Number.parseInt(match[2], 10);
+    const second = Number.parseInt(match[3], 10);
+
+    if (first > 12 && second <= 12) {
+      day = first;
+      month = second;
+    } else {
+      month = first;
+      day = second;
+    }
+  }
+
+  if (!validateCalendarDate(year, month, day)) {
+    return {
+      ok: false,
+      message: languagePick(language, "Datum ist ungueltig.", "Date is invalid."),
+    };
+  }
+
+  return { ok: true, year, month, day };
+}
+
+function parseEventTimeInput(rawInput, language = "de") {
+  const raw = String(rawInput || "").trim();
+  if (!raw) {
+    return {
+      ok: false,
+      message: languagePick(language, "Uhrzeit fehlt.", "Time is missing."),
+    };
+  }
+
+  const match = raw.match(/^(\d{1,2})[:.](\d{2})$/);
   if (!match) {
     return {
       ok: false,
-      message: languagePick(
-        language,
-        "Ungueltiges Format. Nutze `YYYY-MM-DD HH:MM` oder `DD.MM.YYYY HH:MM` (optional mit TZ, z.B. `2026-03-01 20:30 CET`).",
-        "Invalid format. Use `YYYY-MM-DD HH:MM` or `DD.MM.YYYY HH:MM` (optionally with TZ, e.g. `2026-03-01 20:30 CET`)."
-      ),
+      message: languagePick(language, "Ungueltige Uhrzeit. Nutze `HH:MM`.", "Invalid time. Use `HH:MM`."),
     };
   }
 
-  const year = Number.parseInt(match[1] || match[6], 10);
-  const month = Number.parseInt(match[2] || match[5], 10);
-  const day = Number.parseInt(match[3] || match[4], 10);
-  const hour = Number.parseInt(match[7], 10);
-  const minute = Number.parseInt(match[8], 10);
-  const inlineTimeZone = String(match[9] || "").trim();
-
-  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) {
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
     return {
       ok: false,
-      message: languagePick(language, "Datum/Uhrzeit ungueltig.", "Date/time is invalid."),
+      message: languagePick(language, "Uhrzeit ist ungueltig.", "Time is invalid."),
     };
   }
 
-  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
-  if (
-    parsed.getUTCFullYear() !== year
-    || parsed.getUTCMonth() !== (month - 1)
-    || parsed.getUTCDate() !== day
-    || parsed.getUTCHours() !== hour
-    || parsed.getUTCMinutes() !== minute
-  ) {
-    return {
-      ok: false,
-      message: languagePick(language, "Datum/Uhrzeit ungueltig.", "Date/time is invalid."),
-    };
-  }
+  return { ok: true, hour, minute };
+}
 
-  const rawTimeZone = String(preferredTimeZone || inlineTimeZone || EVENT_FALLBACK_TIME_ZONE).trim();
-  const timeZone = normalizeEventTimeZone(rawTimeZone, EVENT_FALLBACK_TIME_ZONE);
+function buildEventDateTimeFromParts({
+  rawDateTime = "",
+  rawDate = "",
+  rawTime = "",
+  language = "de",
+  preferredTimeZone = "",
+  fallbackRunAtMs = 0,
+  nowMs = Date.now(),
+} = {}) {
+  const timeZone = normalizeEventTimeZone(preferredTimeZone, EVENT_FALLBACK_TIME_ZONE);
   if (!timeZone) {
     return {
       ok: false,
@@ -263,31 +326,132 @@ function parseEventStartDateTime(rawInput, language = "de", preferredTimeZone = 
     };
   }
 
-  const runAtMs = zonedDateTimeToUtcMs({ year, month, day, hour, minute, second: 0 }, timeZone);
-  const roundTrip = getZonedPartsFromUtcMs(runAtMs, timeZone);
-  if (
-    roundTrip.year !== year
-    || roundTrip.month !== month
-    || roundTrip.day !== day
-    || roundTrip.hour !== hour
-    || roundTrip.minute !== minute
-  ) {
+  const combined = String(rawDateTime || "").trim();
+  if (combined) {
+    const normalized = combined.replace("T", " ");
+    const pieces = normalized.split(/\s+/).filter(Boolean);
+    if (pieces.length === 1) {
+      return buildEventDateTimeFromParts({
+        rawTime: pieces[0],
+        language,
+        preferredTimeZone: timeZone,
+        fallbackRunAtMs,
+        nowMs,
+      });
+    }
+    const tzCandidate = pieces.length >= 3 ? pieces[pieces.length - 1] : "";
+    const hasInlineTimeZone = Boolean(tzCandidate && /[A-Za-z/_+-]/.test(tzCandidate));
+    const timeToken = hasInlineTimeZone ? pieces[pieces.length - 2] : pieces[pieces.length - 1];
+    const dateToken = pieces.slice(0, hasInlineTimeZone ? -2 : -1).join(" ");
+    if (!dateToken || !timeToken) {
+      return {
+        ok: false,
+        message: languagePick(
+          language,
+          "Ungueltiges Format. Nutze `DD.MM.YYYY HH:MM` oder `YYYY-MM-DD HH:MM`.",
+          "Invalid format. Use `DD.MM.YYYY HH:MM` or `YYYY-MM-DD HH:MM`."
+        ),
+      };
+    }
+
+    const parsedDate = parseEventDateInput(dateToken, language, timeZone, nowMs);
+    if (!parsedDate.ok) return parsedDate;
+    const parsedTime = parseEventTimeInput(timeToken, language);
+    if (!parsedTime.ok) return parsedTime;
+    const inlineTimeZone = normalizeEventTimeZone(hasInlineTimeZone ? tzCandidate : "", timeZone) || timeZone;
+    const runAtMs = zonedDateTimeToUtcMs({
+      year: parsedDate.year,
+      month: parsedDate.month,
+      day: parsedDate.day,
+      hour: parsedTime.hour,
+      minute: parsedTime.minute,
+      second: 0,
+    }, inlineTimeZone);
+    const roundTrip = getZonedPartsFromUtcMs(runAtMs, inlineTimeZone);
+    if (
+      roundTrip.year !== parsedDate.year
+      || roundTrip.month !== parsedDate.month
+      || roundTrip.day !== parsedDate.day
+      || roundTrip.hour !== parsedTime.hour
+      || roundTrip.minute !== parsedTime.minute
+    ) {
+      return {
+        ok: false,
+        message: languagePick(
+          language,
+          "Die Uhrzeit ist in dieser Zeitzone ungueltig (z.B. DST-Umstellung). Bitte andere Uhrzeit waehlen.",
+          "That local time is invalid in this time zone (for example DST transition). Please choose another time."
+        ),
+      };
+    }
+
+    return { ok: true, runAtMs, timeZone: inlineTimeZone, parsed: new Date(runAtMs) };
+  }
+
+  const trimmedDate = String(rawDate || "").trim();
+  const trimmedTime = String(rawTime || "").trim();
+  if (!trimmedDate && !trimmedTime) {
     return {
       ok: false,
-      message: languagePick(
-        language,
-        "Die Uhrzeit ist in dieser Zeitzone ungueltig (z.B. DST-Umstellung). Bitte andere Uhrzeit waehlen.",
-        "That local time is invalid in this time zone (for example DST transition). Please choose another time."
-      ),
+      message: languagePick(language, "Startzeit fehlt oder ist ungueltig.", "Start time is missing or invalid."),
     };
   }
 
-  return {
-    ok: true,
-    runAtMs,
-    timeZone,
-    parsed: new Date(runAtMs),
-  };
+  let parsedDate;
+  if (trimmedDate) {
+    parsedDate = parseEventDateInput(trimmedDate, language, timeZone, nowMs);
+    if (!parsedDate.ok) return parsedDate;
+  } else if (trimmedTime) {
+    const fallbackBase = Number.isFinite(Number(fallbackRunAtMs)) && Number(fallbackRunAtMs) > 0 ? Number(fallbackRunAtMs) : nowMs;
+    const zoned = getZonedPartsFromUtcMs(fallbackBase, timeZone);
+    parsedDate = { ok: true, year: zoned.year, month: zoned.month, day: zoned.day };
+  }
+
+  const parsedTime = parseEventTimeInput(trimmedTime, language);
+  if (!parsedTime.ok) return parsedTime;
+
+  let runAtMs = zonedDateTimeToUtcMs({
+    year: parsedDate.year,
+    month: parsedDate.month,
+    day: parsedDate.day,
+    hour: parsedTime.hour,
+    minute: parsedTime.minute,
+    second: 0,
+  }, timeZone);
+
+  if (!trimmedDate) {
+    if (runAtMs < (nowMs - 60_000)) {
+      const nextDate = addDaysCalendar(parsedDate.year, parsedDate.month, parsedDate.day, 1);
+      runAtMs = zonedDateTimeToUtcMs({
+        year: nextDate.year,
+        month: nextDate.month,
+        day: nextDate.day,
+        hour: parsedTime.hour,
+        minute: parsedTime.minute,
+        second: 0,
+      }, timeZone);
+    } else if (Math.abs(runAtMs - nowMs) <= 60_000) {
+      runAtMs = nowMs;
+    }
+  }
+
+  return { ok: true, runAtMs, timeZone, parsed: new Date(runAtMs) };
+}
+
+function parseEventStartDateTime(rawInput, language = "de", preferredTimeZone = "") {
+  const raw = String(rawInput || "").trim();
+  if (!raw) {
+    return {
+      ok: false,
+      message: languagePick(language, "Zeit fehlt.", "Time is missing."),
+    };
+  }
+
+  return buildEventDateTimeFromParts({
+    rawDateTime: raw,
+    language,
+    preferredTimeZone,
+  });
 }
 
 function formatDateTime(ms, language = "de", timeZone = null) {
@@ -443,6 +607,9 @@ export {
   getDaysInMonth,
   nthWeekdayOfMonth,
   lastWeekdayOfMonth,
+  parseEventDateInput,
+  parseEventTimeInput,
+  buildEventDateTimeFromParts,
   parseEventStartDateTime,
   formatDateTime,
   normalizeRepeatMode,

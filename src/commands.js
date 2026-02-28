@@ -25,6 +25,7 @@ export function buildCommandBuilders() {
       .addBooleanOption((o) => o.setName("all").setDescription("Alle Worker stoppen (optional)").setRequired(false)),
     new SlashCommandBuilder().setName("stations").setDescription("Verfügbare Stationen für deinen Plan anzeigen"),
     new SlashCommandBuilder().setName("now").setDescription("Zeigt, was gerade läuft"),
+    new SlashCommandBuilder().setName("stats").setDescription("Zeigt Hoer- und Nutzungsstatistiken fuer diesen Server"),
     new SlashCommandBuilder()
       .setName("history")
       .setDescription("Zeigt die zuletzt erkannten Songs")
@@ -104,12 +105,32 @@ export function buildCommandBuilders() {
           )
           .addStringOption((o) =>
             o.setName("start")
-              .setDescription("Startzeit: YYYY-MM-DD HH:MM (z.B. 2026-03-01 20:30)")
-              .setRequired(true)
+              .setDescription("Start komplett: DD.MM.YYYY HH:MM, YYYY-MM-DD HH:MM oder nur HH:MM")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("startdate")
+              .setDescription("Optional: Startdatum (DD.MM.YYYY, YYYY-MM-DD, heute/morgen)")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("starttime")
+              .setDescription("Optional: Startzeit (HH:MM)")
+              .setRequired(false)
           )
           .addStringOption((o) =>
             o.setName("end")
               .setDescription("Optionales Ende: YYYY-MM-DD HH:MM oder DD.MM.YYYY HH:MM")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("enddate")
+              .setDescription("Optional: Enddatum (DD.MM.YYYY oder YYYY-MM-DD)")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("endtime")
+              .setDescription("Optional: Endzeit (HH:MM)")
               .setRequired(false)
           )
           .addStringOption((o) =>
@@ -188,12 +209,32 @@ export function buildCommandBuilders() {
           )
           .addStringOption((o) =>
             o.setName("start")
-              .setDescription("Neue Startzeit: YYYY-MM-DD HH:MM oder DD.MM.YYYY HH:MM")
+              .setDescription("Neue Startzeit: DD.MM.YYYY HH:MM, YYYY-MM-DD HH:MM oder nur HH:MM")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("startdate")
+              .setDescription("Neues Startdatum (DD.MM.YYYY, YYYY-MM-DD, heute/morgen)")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("starttime")
+              .setDescription("Neue Startzeit (HH:MM)")
               .setRequired(false)
           )
           .addStringOption((o) =>
             o.setName("end")
               .setDescription("Neue Endzeit oder `clear` zum Entfernen")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("enddate")
+              .setDescription("Neues Enddatum (DD.MM.YYYY oder YYYY-MM-DD)")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("endtime")
+              .setDescription("Neue Endzeit (HH:MM)")
               .setRequired(false)
           )
           .addStringOption((o) =>

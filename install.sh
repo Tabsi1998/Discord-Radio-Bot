@@ -508,7 +508,7 @@ echo "────────────────────────�
 info "Baue und starte Container..."
 # Sicherstellen dass gemountete JSON-Dateien VOR Docker-Start existieren
 # Docker bind-mount erstellt sonst ein VERZEICHNIS statt einer Datei!
-for jf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json scheduled-events.json coupons.json; do
+for jf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json; do
   if [[ -d "$jf" ]]; then rm -rf "$jf" 2>/dev/null || true; fi
 done
 [[ -f premium.json ]]         || echo '{"licenses":{}}' > premium.json
@@ -517,6 +517,7 @@ done
 [[ -f command-permissions.json ]] || echo '{"guilds":{}}' > command-permissions.json
 [[ -f guild-languages.json ]] || echo '{"version":1,"guilds":{}}' > guild-languages.json
 [[ -f song-history.json ]] || echo '{"guilds":{}}' > song-history.json
+[[ -f listening-stats.json ]] || echo '{"version":1,"guilds":{}}' > listening-stats.json
 [[ -f scheduled-events.json ]] || echo '{"version":1,"events":[]}' > scheduled-events.json
 [[ -f coupons.json ]] || echo '{"offers":{},"redemptions":{}}' > coupons.json
 

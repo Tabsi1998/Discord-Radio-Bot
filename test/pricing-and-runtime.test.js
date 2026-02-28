@@ -9,6 +9,7 @@ import {
 } from "../src/lib/helpers.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
+import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import { parseTrackFromStreamTitle } from "../src/services/now-playing.js";
 
 test("seat pricing stays aligned with documented bundle totals", () => {
@@ -108,10 +109,81 @@ test("worker manager reuses the worker already streaming in the requested channe
   assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-9"), null);
 });
 
+test("worker manager can reuse a bot that is still connected in the target channel", async () => {
+  const connectedWorker = {
+    config: { index: 2 },
+    guildState: new Map(),
+    client: {
+      isReady: () => true,
+      guilds: {
+        cache: new Map([
+          ["guild-1", {
+            members: {
+              me: {
+                voice: {
+                  channelId: "voice-7",
+                },
+              },
+              fetchMe: async () => ({
+                voice: {
+                  channelId: "voice-7",
+                },
+              }),
+            },
+          }],
+        ]),
+        fetch: async () => null,
+      },
+    },
+  };
+  const idleWorker = {
+    config: { index: 3 },
+    guildState: new Map(),
+    client: {
+      isReady: () => true,
+      guilds: {
+        cache: new Map(),
+        fetch: async () => null,
+      },
+    },
+  };
+
+  const manager = new WorkerManager([connectedWorker, idleWorker]);
+  const resolved = await manager.findConnectedWorkerByChannel("guild-1", "voice-7", "pro");
+
+  assert.equal(resolved, connectedWorker);
+});
+
 test("track parsing removes common prefixes and dash variants", () => {
   const parsed = parseTrackFromStreamTitle("Now Playing: Artist \u2013 Song Title");
 
   assert.equal(parsed.artist, "Artist");
   assert.equal(parsed.title, "Song Title");
   assert.equal(parsed.displayTitle, "Artist - Song Title");
+});
+
+test("event time parser accepts screenshot-style YYYY-DD-MM input", () => {
+  const parsed = buildEventDateTimeFromParts({
+    rawDateTime: "2026-28-02 20:15",
+    language: "de",
+    preferredTimeZone: "Europe/Berlin",
+    nowMs: Date.UTC(2026, 1, 20, 12, 0, 0, 0),
+  });
+
+  assert.equal(parsed.ok, true);
+  assert.equal(new Date(parsed.runAtMs).toISOString(), "2026-02-28T19:15:00.000Z");
+});
+
+test("event time parser accepts time-only input and starts immediately around now", () => {
+  const nowMs = Date.UTC(2026, 1, 28, 19, 0, 30, 0);
+  const parsed = buildEventDateTimeFromParts({
+    rawDateTime: "20:00",
+    language: "de",
+    preferredTimeZone: "Europe/Berlin",
+    nowMs,
+    fallbackRunAtMs: nowMs,
+  });
+
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.runAtMs, nowMs);
 });

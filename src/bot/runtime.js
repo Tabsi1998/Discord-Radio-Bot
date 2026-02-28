@@ -84,7 +84,7 @@ import {
   REPEAT_MODES,
   EVENT_TIME_ZONE_SUGGESTIONS,
   EVENT_FALLBACK_TIME_ZONE,
-  parseEventStartDateTime,
+  buildEventDateTimeFromParts,
   formatDateTime,
   normalizeRepeatMode,
   getRepeatLabel,
@@ -146,6 +146,13 @@ import {
   appendSongHistory,
   getSongHistory,
 } from "../song-history-store.js";
+import {
+  recordCommandUsage,
+  recordStationStart,
+  recordListenerSample,
+  getGuildListeningStats,
+  getTopGuildsByActivity,
+} from "../listening-stats-store.js";
 import {
   listAllEvents,
   addEvent,
@@ -734,20 +741,204 @@ class BotRuntime {
     const query = this.buildTrackSearchQuery(station, meta);
     if (!query) return [];
 
-    const language = this.resolveGuildLanguage(guildId);
-    const isDe = language === "de";
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "YouTube Suche" : "YouTube Search")
+        .setLabel("YouTube")
         .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`),
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "Spotify Suche" : "Spotify Search")
+        .setLabel("Spotify")
         .setURL(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
     );
 
     return [row];
+  }
+
+  getVoiceListenerCount(guildId, channelId) {
+    const guild = this.client.guilds.cache.get(guildId);
+    const normalizedChannelId = String(channelId || "").trim();
+    if (!guild || !normalizedChannelId) return 0;
+    const channel = guild.channels?.cache?.get(normalizedChannelId);
+    if (!channel?.isVoiceBased?.() || !channel.members) return 0;
+    let listeners = 0;
+    for (const member of channel.members.values()) {
+      if (!member?.user?.bot) listeners += 1;
+    }
+    return listeners;
+  }
+
+  getCurrentListenerCount(guildId, state) {
+    const channelId = String(state?.connection?.joinConfig?.channelId || state?.lastChannelId || "").trim();
+    return this.getVoiceListenerCount(guildId, channelId);
+  }
+
+  getLiveGuildPlaybackSnapshot(guildId) {
+    const normalizedGuildId = String(guildId || "").trim();
+    if (!normalizedGuildId) return [];
+
+    if (this.role === "commander" && this.workerManager) {
+      return this.workerManager.getStreamingWorkers(normalizedGuildId).map((runtime) => {
+        const state = runtime.getState(normalizedGuildId);
+        const info = runtime.getGuildInfo(normalizedGuildId) || {};
+        return {
+          runtime,
+          state,
+          stationKey: info.stationKey || state?.currentStationKey || null,
+          stationName: info.stationName || state?.currentStationName || null,
+          channelId: info.channelId || state?.lastChannelId || null,
+          listenerCount: runtime.getCurrentListenerCount(normalizedGuildId, state),
+        };
+      });
+    }
+
+    const state = this.getState(normalizedGuildId);
+    if (!state?.currentStationKey) return [];
+    const info = this.getGuildInfo(normalizedGuildId) || {};
+    return [{
+      runtime: this,
+      state,
+      stationKey: info.stationKey || state.currentStationKey || null,
+      stationName: info.stationName || state.currentStationName || null,
+      channelId: info.channelId || state.lastChannelId || null,
+      listenerCount: this.getCurrentListenerCount(normalizedGuildId, state),
+    }];
+  }
+
+  formatStatsHourBucket(hour, language = "de") {
+    const normalizedHour = Number.parseInt(String(hour || 0), 10);
+    const safeHour = Number.isFinite(normalizedHour) ? Math.max(0, Math.min(23, normalizedHour)) : 0;
+    const nextHour = (safeHour + 1) % 24;
+    if (language === "de") {
+      return `${String(safeHour).padStart(2, "0")}:00-${String(nextHour).padStart(2, "0")}:00`;
+    }
+    return `${String(safeHour).padStart(2, "0")}:00-${String(nextHour).padStart(2, "0")}:00`;
+  }
+
+  buildListeningStatsEmbed(guildId, language = "de") {
+    const t = (de, en) => languagePick(language, de, en);
+    const guild = this.client.guilds.cache.get(guildId) || null;
+    const stats = getGuildListeningStats(guildId);
+    const liveStreams = this.getLiveGuildPlaybackSnapshot(guildId);
+    const totalLiveListeners = liveStreams.reduce((sum, item) => sum + (Number(item.listenerCount) || 0), 0);
+    const topStationEntry = Object.entries(stats?.stationStarts || {})
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || null;
+    const topHourEntry = Object.entries(stats?.hours || {})
+      .sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0] || null;
+    const topChannels = Object.entries(stats?.voiceChannels || {})
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 3)
+      .map(([channelId, count]) => {
+        const name = guild?.channels?.cache?.get(channelId)?.name || channelId;
+        return `#${name}: ${count}`;
+      });
+    const topGuild = getTopGuildsByActivity(1)[0] || null;
+    const topGuildName = topGuild
+      ? (this.client.guilds.cache.get(topGuild.guildId)?.name || topGuild.guildId)
+      : null;
+    const liveStationsText = liveStreams.length
+      ? liveStreams.map((item) => {
+        const stationName = clipText(item.stationName || item.stationKey || "-", 80);
+        const voiceLabel = item.channelId ? `<#${item.channelId}>` : t("unbekannt", "unknown");
+        return `**${stationName}** - ${voiceLabel} - ${item.listenerCount} ${t("Zuhoerer", "listeners")}`;
+      }).join("\n")
+      : t("Aktuell laeuft auf diesem Server kein Stream.", "No stream is currently running on this server.");
+
+    const embed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(t("Listening-Stats", "Listening stats"))
+      .setDescription(
+        t(
+          `Server: **${guild?.name || guildId}**\nLive-Zuhoerer jetzt: **${totalLiveListeners}**`,
+          `Server: **${guild?.name || guildId}**\nLive listeners now: **${totalLiveListeners}**`
+        )
+      )
+      .addFields(
+        {
+          name: t("Live gerade", "Live now"),
+          value: clipText(liveStationsText, 900),
+          inline: false,
+        },
+        {
+          name: t("Meist gespielte Station", "Most played station"),
+          value: topStationEntry
+            ? `${clipText(topStationEntry[0], 100)} (${topStationEntry[1]})`
+            : t("Noch keine Daten", "No data yet"),
+          inline: true,
+        },
+        {
+          name: t("Peak-Zeit", "Peak time"),
+          value: topHourEntry && Number(topHourEntry[1]) > 0
+            ? `${this.formatStatsHourBucket(topHourEntry[0], language)} (${topHourEntry[1]})`
+            : t("Noch keine Daten", "No data yet"),
+          inline: true,
+        },
+        {
+          name: t("Peak-Zuhoerer", "Peak listeners"),
+          value: String(Number(stats?.peakListeners || 0)),
+          inline: true,
+        },
+        {
+          name: t("Aktivste Voice-Channels", "Most active voice channels"),
+          value: topChannels.length ? clipText(topChannels.join("\n"), 900) : t("Noch keine Daten", "No data yet"),
+          inline: false,
+        },
+        {
+          name: t("Server gesamt", "Server totals"),
+          value: t(
+            `Starts: **${Number(stats?.totalStarts || 0)}**\nLetzter Start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`,
+            `Starts: **${Number(stats?.totalStarts || 0)}**\nLast start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`
+          ),
+          inline: true,
+        },
+        {
+          name: t("Top-Server global", "Top server global"),
+          value: topGuild
+            ? `${clipText(topGuildName, 80)} (${topGuild.totalStarts} ${t("Starts", "starts")})`
+            : t("Noch keine Daten", "No data yet"),
+          inline: true,
+        }
+      )
+      .setFooter({
+        text: t("OmniFM Analytics | /stats", "OmniFM analytics | /stats"),
+      })
+      .setTimestamp(new Date());
+
+    return embed;
+  }
+
+  buildSongHistoryEmbed(history, guildId, playbackRuntime, language = "de") {
+    const t = (de, en) => languagePick(language, de, en);
+    const lines = history.map((entry, index) => {
+      const unix = Number.isFinite(entry.timestampMs) ? Math.floor(entry.timestampMs / 1000) : null;
+      const when = unix ? `<t:${unix}:R>` : "-";
+      const title = clipText(entry.displayTitle || entry.streamTitle || "-", 150);
+      const station = entry.stationName ? clipText(entry.stationName, 80) : null;
+      return `${index + 1}. ${when} - **${title}**${station ? `\n${t("Station", "Station")}: ${station}` : ""}`;
+    });
+
+    const latest = history[0] || null;
+    const embed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(t("Song-History", "Song history"))
+      .setDescription(clipText(lines.join("\n\n"), 3800))
+      .setFooter({
+        text: playbackRuntime
+          ? `${playbackRuntime.config?.name || BRAND.name} | ${t("letzte", "latest")} ${history.length}`
+          : `${BRAND.name} | ${t("letzte", "latest")} ${history.length}`,
+      })
+      .setTimestamp(new Date());
+
+    if (latest?.artworkUrl) {
+      embed.setThumbnail(latest.artworkUrl);
+    }
+
+    return {
+      embeds: [embed],
+      components: latest
+        ? this.buildTrackLinkComponents(guildId, { name: latest.stationName || latest.stationKey || "-" }, latest)
+        : [],
+    };
   }
 
   async resolveNowPlayingChannel(guildId, state) {
@@ -787,7 +978,7 @@ class BotRuntime {
     return fallbackChannels[0] || null;
   }
 
-  buildNowPlayingEmbed(guildId, station, meta) {
+  buildNowPlayingEmbed(guildId, station, meta, context = {}) {
     const language = this.resolveGuildLanguage(guildId);
     const isDe = language === "de";
     const tierConfig = getTierConfig(guildId);
@@ -801,6 +992,9 @@ class BotRuntime {
     );
     const streamInfo = this.normalizeNowPlayingValue(meta?.description, station, meta, 240);
     const hasTrack = Boolean(trackLabel);
+    const listenerCount = Math.max(0, Number.parseInt(String(context?.listenerCount || 0), 10) || 0);
+    const voiceChannelId = String(context?.channelId || "").trim();
+    const workerName = clipText(String(context?.workerName || this.config.name || BRAND.name), 60) || BRAND.name;
     const embed = new EmbedBuilder()
       .setColor(hasTrack ? 0x1DB954 : BRAND.color)
       .setTitle(isDe ? "Jetzt live" : "Live now")
@@ -821,12 +1015,22 @@ class BotRuntime {
           name: isDe ? "Qualitaet" : "Quality",
           value: tierConfig.bitrate || "-",
           inline: true,
+        },
+        {
+          name: isDe ? "Zuhoerer" : "Listeners",
+          value: String(listenerCount),
+          inline: true,
+        },
+        {
+          name: isDe ? "Voice" : "Voice",
+          value: voiceChannelId ? `<#${voiceChannelId}>` : (isDe ? "unbekannt" : "unknown"),
+          inline: true,
         }
       )
       .setFooter({
         text: isDe
-          ? `${this.config.name} | Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`
-          : `${this.config.name} | Auto update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`,
+          ? `${workerName} | Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`
+          : `${workerName} | Auto update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`,
       })
       .setTimestamp(new Date(meta?.updatedAt || Date.now()));
 
@@ -846,9 +1050,9 @@ class BotRuntime {
     return embed;
   }
 
-  buildNowPlayingMessagePayload(guildId, station, meta) {
+  buildNowPlayingMessagePayload(guildId, station, meta, context = {}) {
     return {
-      embeds: [this.buildNowPlayingEmbed(guildId, station, meta)],
+      embeds: [this.buildNowPlayingEmbed(guildId, station, meta, context)],
       components: this.buildTrackLinkComponents(guildId, station, meta),
       allowedMentions: { parse: [] },
     };
@@ -983,10 +1187,20 @@ class BotRuntime {
         return;
       }
 
-      const payload = this.buildNowPlayingMessagePayload(guildId, station, nextMeta);
+      const listenerCount = this.getCurrentListenerCount(guildId, state);
+      const payload = this.buildNowPlayingMessagePayload(guildId, station, nextMeta, {
+        channelId: state.connection?.joinConfig?.channelId || state.lastChannelId || null,
+        listenerCount,
+        workerName: this.config.name,
+      });
       const sent = await this.upsertNowPlayingMessage(guildId, state, payload, channel);
       if (sent) {
         state.nowPlayingSignature = signature;
+        const now = Date.now();
+        if (!state.lastListenerStatsSampleAt || (now - state.lastListenerStatsSampleAt) >= Math.max(60_000, NOW_PLAYING_POLL_MS)) {
+          recordListenerSample(guildId, listenerCount, now);
+          state.lastListenerStatsSampleAt = now;
+        }
       }
     } catch (err) {
       this.logNowPlayingIssue(guildId, state, clipText(err?.message || String(err), 200));
@@ -1207,6 +1421,13 @@ class BotRuntime {
     this.persistState();
     this.startNowPlayingLoop(guildId, state);
     this.syncVoiceChannelStatus(guildId, state.currentStationName || station.name || key).catch(() => null);
+    recordStationStart(guildId, {
+      stationKey: key,
+      stationName: state.currentStationName || station.name || key,
+      channelId: state.connection?.joinConfig?.channelId || state.lastChannelId || "",
+      listenerCount: this.getCurrentListenerCount(guildId, state),
+      timestampMs: state.lastStreamStartAt,
+    });
 
     fetchStreamInfo(station.url)
       .then((meta) => {
@@ -2294,47 +2515,110 @@ class BotRuntime {
       .setTitle(isDe ? `${BRAND.name} Hilfe` : `${BRAND.name} Help`)
       .setDescription(
         isDe
-          ? `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Max Bots: **${tierConfig.maxBots}**`
-          : `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Max bots: **${tierConfig.maxBots}**`
+          ? `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker-Slots: **${tierConfig.maxBots}**`
+          : `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker slots: **${tierConfig.maxBots}**`
       )
-      .addFields({
-        name: isDe ? "Schnellstart" : "Quick Start",
-        value: isDe
-          ? "1) `/play [station] [voice]` startet Musik im Voice/Stage-Channel.\n2) `/stations` zeigt passende Sender.\n3) `/stop` beendet den Stream."
-          : "1) `/play [station] [voice]` starts radio in your voice/stage channel.\n2) `/stations` shows available stations.\n3) `/stop` ends playback.",
-      });
-
-    const coreEmbed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(isDe ? "Basis-Commands" : "Core Commands")
-      .setDescription(
-        [
-          "`/help`",
-          "`/play [station] [voice]`",
-          "`/pause` `/resume` `/stop`",
-          "`/setvolume <0-100> [bot]`",
-          "`/stations` `/list [page]`",
-          "`/now` `/history [limit]`",
-          "`/status` `/health` `/diag`",
-          "`/premium`",
-          "`/invite [worker]` `/workers`",
-          "`/language show|set|reset`",
-          "`/license activate|info|remove`",
-        ].join("\n")
+      .addFields(
+        {
+          name: isDe ? "Schnellstart" : "Quick start",
+          value: isDe
+            ? "1. `/workers` oder `/invite` pruefen, welche Worker bereit sind.\n2. `/play station:<sender> voice:<kanal>` startet den Stream.\n3. `/now`, `/history` und `/stats` zeigen Live-Daten."
+            : "1. Use `/workers` or `/invite` to check which workers are available.\n2. `/play station:<station> voice:<channel>` starts the stream.\n3. `/now`, `/history`, and `/stats` show live data.",
+          inline: false,
+        },
+        {
+          name: isDe ? "Sprache" : "Language",
+          value: isDe
+            ? "OmniFM erkennt Server-/Discord-Sprache automatisch. Mit `/language set value:de|en` kannst du sie fest setzen."
+            : "OmniFM auto-detects the server/Discord language. Use `/language set value:de|en` to force it.",
+          inline: false,
+        }
       );
 
-    const premiumEmbed = new EmbedBuilder()
+    const playbackEmbed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(isDe ? "Wiedergabe & Live" : "Playback & Live")
+      .addFields(
+        {
+          name: "/play /pause /resume /stop",
+          value: isDe
+            ? "Startet, pausiert oder beendet Streams im Voice- oder Stage-Channel."
+            : "Start, pause, or stop streams in voice or stage channels.",
+          inline: false,
+        },
+        {
+          name: "/stations /list /now /history /stats",
+          value: isDe
+            ? "Zeigt verfuegbare Sender, aktuelle Songs, History und Server-Statistiken."
+            : "Shows available stations, current songs, history, and server statistics.",
+          inline: false,
+        },
+        {
+          name: "/setvolume /status /health /diag",
+          value: isDe
+            ? "Audio, Worker-Zustand und technische Checks fuer Admins."
+            : "Audio, worker status, and technical checks for admins.",
+          inline: false,
+        }
+      );
+
+    const automationEmbed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(isDe ? "Events & Automationen" : "Events & Automation")
+      .addFields(
+        {
+          name: "/event create|edit|list|delete",
+          value: isDe
+            ? "Flexible Event-Planung mit Voice-/Stage-Channel, Wiederholung, Server-Event und Ankuendigung."
+            : "Flexible event scheduling with voice/stage channel, recurrence, server event, and announcement.",
+          inline: false,
+        },
+        {
+          name: isDe ? "Datumsformate" : "Date formats",
+          value: isDe
+            ? "`DD.MM.YYYY HH:MM`, `YYYY-MM-DD HH:MM`, `20:00`, `heute`, `morgen` oder getrennt ueber `startdate` + `starttime`."
+            : "`DD.MM.YYYY HH:MM`, `YYYY-MM-DD HH:MM`, `20:00`, `today`, `tomorrow`, or split across `startdate` + `starttime`.",
+          inline: false,
+        },
+        {
+          name: isDe ? "Wichtig" : "Important",
+          value: isDe
+            ? "Ohne `serverevent` darf ein Event sofort starten. Mit `serverevent` muss der Start mindestens 60 Sekunden in der Zukunft liegen."
+            : "Without `serverevent`, an event may start immediately. With `serverevent`, start time must be at least 60 seconds in the future.",
+          inline: false,
+        }
+      );
+
+    const adminEmbed = new EmbedBuilder()
       .setColor(tierConfig.tier === "ultimate" ? BRAND.ultimateColor : BRAND.proColor)
-      .setTitle(isDe ? "Pro / Ultimate" : "Pro / Ultimate")
-      .setDescription(
-        isDe
-          ? "`/perm allow|deny|remove|list|reset`\n`/event create|list|delete` (Voice/Stage + Zeitzone + flexible Wiederholung)\n`/addstation` `/removestation` `/mystations` (Ultimate)"
-          : "`/perm allow|deny|remove|list|reset`\n`/event create|list|delete` (voice/stage + timezone + flexible recurrence)\n`/addstation` `/removestation` `/mystations` (Ultimate)"
+      .setTitle(isDe ? "Admin & Premium" : "Admin & Premium")
+      .addFields(
+        {
+          name: "/invite /workers /perm",
+          value: isDe
+            ? "Worker einladen, aktive Worker ansehen und Rollenrechte fuer Commands regeln."
+            : "Invite workers, inspect active workers, and manage role permissions for commands.",
+          inline: false,
+        },
+        {
+          name: "/premium /license",
+          value: isDe
+            ? "Lizenzstatus, Upgrades und Seat-Verwaltung fuer deinen Server."
+            : "License status, upgrades, and seat management for your server.",
+          inline: false,
+        },
+        {
+          name: "/addstation /removestation /mystations",
+          value: isDe
+            ? "Ultimate-only fuer eigene Sender und private Streams."
+            : "Ultimate-only for custom stations and private streams.",
+          inline: false,
+        }
       )
       .setFooter({
         text: isDe
-          ? "Commander nimmt Befehle entgegen, Worker streamen in Voice/Stage-Channels."
-          : "Commander handles commands, workers stream in voice/stage channels.",
+          ? "Commander nimmt Befehle entgegen, Worker halten die Voice-/Stage-Streams."
+          : "The commander handles commands, workers keep the voice/stage streams running.",
       });
 
     const linkRow = new ActionRowBuilder().addComponents(
@@ -2345,11 +2629,15 @@ class BotRuntime {
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
         .setLabel(isDe ? "Support" : "Support")
-        .setURL(SUPPORT_URL)
+        .setURL(SUPPORT_URL),
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "Premium" : "Premium")
+        .setURL(BRAND.upgradeUrl || WEBSITE_URL)
     );
 
     return {
-      embeds: [headerEmbed, coreEmbed, premiumEmbed],
+      embeds: [headerEmbed, playbackEmbed, automationEmbed, adminEmbed],
       components: [linkRow],
     };
   }
@@ -2799,6 +3087,222 @@ class BotRuntime {
     }
 
     return lines.join("\n");
+  }
+
+  buildScheduledEventEmbed(event, stationName, language = "de", { includeId = true, titlePrefix = "" } = {}) {
+    const timeZone = normalizeEventTimeZone(event?.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+    const effectiveEndAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10) > 0
+      ? Number.parseInt(String(event.activeUntilMs), 10)
+      : this.getScheduledEventEndAtMs(event, event?.runAtMs);
+    const now = Date.now();
+    const isActive = effectiveEndAtMs > now && Number(event?.lastStopAtMs || 0) < effectiveEndAtMs;
+    const statusLabel = !event?.enabled
+      ? languagePick(language, "Pausiert", "Paused")
+      : isActive
+        ? languagePick(language, "Aktiv", "Active")
+        : languagePick(language, "Geplant", "Scheduled");
+    const stationLabel = stationName && stationName !== event?.stationKey
+      ? `${stationName} (\`${event?.stationKey || "-"}\`)`
+      : `\`${event?.stationKey || "-"}\``;
+    const embed = new EmbedBuilder()
+      .setColor(!event?.enabled ? 0x80848e : (isActive ? 0x1DB954 : BRAND.color))
+      .setTitle(`${titlePrefix}${clipText(event?.name || "-", 120)}`)
+      .setDescription(includeId ? `${languagePick(language, "Event-ID", "Event ID")}: \`${event?.id || "-"}\`` : null)
+      .addFields(
+        { name: languagePick(language, "Status", "Status"), value: statusLabel, inline: true },
+        { name: languagePick(language, "Station", "Station"), value: stationLabel, inline: true },
+        { name: languagePick(language, "Voice", "Voice"), value: `<#${event?.voiceChannelId || "-"}>`, inline: true },
+        {
+          name: languagePick(language, "Start", "Start"),
+          value: `${this.formatDiscordTimestamp(event?.runAtMs, "F")}\n${formatDateTime(event?.runAtMs, language, timeZone)}`,
+          inline: true,
+        },
+        {
+          name: languagePick(language, "Ende", "End"),
+          value: effectiveEndAtMs > 0
+            ? `${this.formatDiscordTimestamp(effectiveEndAtMs, "F")}\n${formatDateTime(effectiveEndAtMs, language, timeZone)}`
+            : languagePick(language, "Offen", "Open"),
+          inline: true,
+        },
+        {
+          name: languagePick(language, "Wiederholung", "Repeat"),
+          value: getRepeatLabel(event?.repeat, language, { runAtMs: event?.runAtMs, timeZone }),
+          inline: true,
+        },
+        { name: languagePick(language, "Zeitzone", "Time zone"), value: `\`${timeZone}\``, inline: true },
+        {
+          name: languagePick(language, "Ankuendigung", "Announcement"),
+          value: event?.textChannelId ? `<#${event.textChannelId}>` : languagePick(language, "Aus", "Off"),
+          inline: true,
+        },
+        {
+          name: languagePick(language, "Server-Event", "Server event"),
+          value: event?.createDiscordEvent
+            ? (event?.discordScheduledEventId ? `On (\`${event.discordScheduledEventId}\`)` : "On")
+            : "Off",
+          inline: true,
+        }
+      )
+      .setFooter({
+        text: languagePick(language, "OmniFM Event Scheduler", "OmniFM Event Scheduler"),
+      })
+      .setTimestamp(new Date());
+
+    if (event?.stageTopic) {
+      embed.addFields({
+        name: languagePick(language, "Stage-Thema", "Stage topic"),
+        value: clipText(event.stageTopic, 120),
+        inline: false,
+      });
+    }
+    if (event?.description) {
+      embed.addFields({
+        name: languagePick(language, "Beschreibung", "Description"),
+        value: clipText(event.description, 400),
+        inline: false,
+      });
+    }
+    if (event?.announceMessage) {
+      embed.addFields({
+        name: languagePick(language, "Nachricht", "Message"),
+        value: clipText(event.announceMessage, 900),
+        inline: false,
+      });
+    }
+
+    return embed;
+  }
+
+  buildScheduledEventsListEmbed(events, guildId, language = "de") {
+    const embed = new EmbedBuilder()
+      .setColor(BRAND.color)
+      .setTitle(languagePick(language, "Geplante Events", "Scheduled events"))
+      .setDescription(`${events.length} ${languagePick(language, "Eintrag(e) auf diesem Server", "item(s) on this server")}`)
+      .setFooter({ text: `${this.config.name} | /event list` })
+      .setTimestamp(new Date());
+
+    const guild = this.client.guilds.cache.get(guildId) || null;
+    const fields = events.slice(0, 8).map((event) => {
+      const station = this.resolveStationForGuild(guildId, event.stationKey, language);
+      const voiceChannelName = guild?.channels?.cache?.get(event.voiceChannelId)?.name || event.voiceChannelId;
+      const status = !event.enabled
+        ? languagePick(language, "Pausiert", "Paused")
+        : languagePick(language, "Geplant", "Scheduled");
+      return {
+        name: clipText(`${event.name} (${event.id})`, 256),
+        value: [
+          `${languagePick(language, "Status", "Status")}: ${status}`,
+          `${languagePick(language, "Station", "Station")}: ${station.ok ? (station.station?.name || event.stationKey) : event.stationKey}`,
+          `${languagePick(language, "Start", "Start")}: ${this.formatDiscordTimestamp(event.runAtMs, "F")}`,
+          `${languagePick(language, "Voice", "Voice")}: ${voiceChannelName ? `#${voiceChannelName}` : `<#${event.voiceChannelId}>`}`,
+        ].join("\n"),
+        inline: false,
+      };
+    });
+
+    embed.addFields(fields);
+    if (events.length > fields.length) {
+      embed.addFields({
+        name: languagePick(language, "Weitere Events", "More events"),
+        value: languagePick(
+          language,
+          `${events.length - fields.length} weitere Events sind vorhanden. Nutze \`/event edit\` oder \`/event delete\` mit der Event-ID.`,
+          `${events.length - fields.length} more events exist. Use \`/event edit\` or \`/event delete\` with the event ID.`
+        ),
+        inline: false,
+      });
+    }
+    return embed;
+  }
+
+  parseEventWindowInput({
+    startRaw = undefined,
+    startDateRaw = undefined,
+    startTimeRaw = undefined,
+    endRaw = undefined,
+    endDateRaw = undefined,
+    endTimeRaw = undefined,
+    baseRunAtMs = 0,
+    baseDurationMs = 0,
+    requestedTimeZone = "",
+    allowImmediate = false,
+  } = {}, language = "de") {
+    const now = Date.now();
+    let runAtMs = Number.parseInt(String(baseRunAtMs || 0), 10);
+    let timeZone = normalizeEventTimeZone(requestedTimeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+
+    const hasStartInput = [startRaw, startDateRaw, startTimeRaw].some((value) => String(value || "").trim());
+    if (hasStartInput) {
+      const parsedStart = buildEventDateTimeFromParts({
+        rawDateTime: startRaw,
+        rawDate: startDateRaw,
+        rawTime: startTimeRaw,
+        language,
+        preferredTimeZone: timeZone,
+        fallbackRunAtMs: runAtMs || now,
+        nowMs: now,
+      });
+      if (!parsedStart.ok) return parsedStart;
+      runAtMs = parsedStart.runAtMs;
+      timeZone = parsedStart.timeZone || timeZone;
+    }
+
+    if (!Number.isFinite(runAtMs) || runAtMs <= 0) {
+      return { ok: false, message: languagePick(language, "Startzeit fehlt oder ist ungueltig.", "Start time is missing or invalid.") };
+    }
+
+    let durationMs = Math.max(0, Number.parseInt(String(baseDurationMs || 0), 10) || 0);
+    let endAtMs = durationMs > 0 ? runAtMs + durationMs : 0;
+
+    const hasEndInput = [endRaw, endDateRaw, endTimeRaw].some((value) => value !== undefined && value !== null && String(value || "").trim());
+    if (hasEndInput) {
+      const rawEndText = String(endRaw || "").trim().toLowerCase();
+      if (["-", "clear", "none", "off"].includes(rawEndText)) {
+        durationMs = 0;
+        endAtMs = 0;
+      } else {
+        const parsedEnd = buildEventDateTimeFromParts({
+          rawDateTime: endRaw,
+          rawDate: endDateRaw,
+          rawTime: endTimeRaw,
+          language,
+          preferredTimeZone: timeZone,
+          fallbackRunAtMs: runAtMs,
+          nowMs: now,
+        });
+        if (!parsedEnd.ok) return parsedEnd;
+        if (parsedEnd.runAtMs <= runAtMs) {
+          return {
+            ok: false,
+            message: languagePick(language, "Endzeit muss nach der Startzeit liegen.", "End time must be after the start time."),
+          };
+        }
+        durationMs = parsedEnd.runAtMs - runAtMs;
+        endAtMs = parsedEnd.runAtMs;
+      }
+    } else if (hasStartInput && durationMs > 0) {
+      endAtMs = runAtMs + durationMs;
+    }
+
+    if (allowImmediate && runAtMs <= (now + 60_000) && runAtMs >= (now - 60_000)) {
+      runAtMs = now;
+      if (durationMs > 0) {
+        endAtMs = runAtMs + durationMs;
+      }
+    }
+
+    return { ok: true, runAtMs, timeZone, durationMs, endAtMs };
+  }
+
+  queueImmediateScheduledEventTick(delayMs = 250) {
+    const timer = setTimeout(() => {
+      this.tickScheduledEvents().catch((err) => {
+        log("ERROR", `[${this.config.name}] Sofortiger Event-Start fehlgeschlagen: ${err?.message || err}`);
+      });
+    }, Math.max(0, delayMs));
+    if (typeof timer?.unref === "function") {
+      timer.unref();
+    }
   }
 
   async resolveGuildVoiceChannel(guildId, channelId) {
@@ -3372,67 +3876,19 @@ class BotRuntime {
       return null;
     };
 
-    const parseWindow = ({
-      startRaw = undefined,
-      endRaw = undefined,
-      baseRunAtMs = 0,
-      baseDurationMs = 0,
-      requestedTimeZone = "",
-    }) => {
-      let runAtMs = Number.parseInt(String(baseRunAtMs || 0), 10);
-      let timeZone = normalizeEventTimeZone(requestedTimeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
-
-      if (startRaw !== undefined && startRaw !== null && String(startRaw).trim()) {
-        const parsedStart = parseEventStartDateTime(startRaw, language, timeZone);
-        if (!parsedStart.ok) return parsedStart;
-        runAtMs = parsedStart.runAtMs;
-        timeZone = parsedStart.timeZone || timeZone;
-      }
-
-      if (!Number.isFinite(runAtMs) || runAtMs <= 0) {
-        return { ok: false, message: t("Startzeit fehlt oder ist ungueltig.", "Start time is missing or invalid.") };
-      }
-
-      let durationMs = Math.max(0, Number.parseInt(String(baseDurationMs || 0), 10) || 0);
-      let endAtMs = durationMs > 0 ? runAtMs + durationMs : 0;
-
-      if (endRaw !== undefined && endRaw !== null) {
-        const rawText = String(endRaw || "").trim();
-        if (rawText) {
-          const lowered = rawText.toLowerCase();
-          if (["-", "clear", "none", "off"].includes(lowered)) {
-            durationMs = 0;
-            endAtMs = 0;
-          } else {
-            const parsedEnd = parseEventStartDateTime(rawText, language, timeZone);
-            if (!parsedEnd.ok) return parsedEnd;
-            if (parsedEnd.runAtMs <= runAtMs) {
-              return {
-                ok: false,
-                message: t("Endzeit muss nach der Startzeit liegen.", "End time must be after the start time."),
-              };
-            }
-            durationMs = parsedEnd.runAtMs - runAtMs;
-            endAtMs = parsedEnd.runAtMs;
-          }
-        } else {
-          durationMs = 0;
-          endAtMs = 0;
-        }
-      } else if (startRaw !== undefined && startRaw !== null && durationMs > 0) {
-        endAtMs = runAtMs + durationMs;
-      }
-
-      return { ok: true, runAtMs, timeZone, durationMs, endAtMs };
-    };
+    const parseWindow = (input) => this.parseEventWindowInput(input, language);
 
     if (sub === "create") {
       const name = clipText(interaction.options.getString("name", true).trim(), 120);
       const stationRaw = interaction.options.getString("station", true);
       const voiceChannel = interaction.options.getChannel("voice", true);
       const textChannel = interaction.options.getChannel("text");
-      const startRaw = interaction.options.getString("start", true);
+      const startRaw = interaction.options.getString("start");
+      const startDateRaw = interaction.options.getString("startdate");
+      const startTimeRaw = interaction.options.getString("starttime");
       const endRaw = interaction.options.getString("end");
+      const endDateRaw = interaction.options.getString("enddate");
+      const endTimeRaw = interaction.options.getString("endtime");
       const requestedTimeZone = interaction.options.getString("timezone") || "";
       const repeat = normalizeRepeatMode(interaction.options.getString("repeat") || "none");
       const createDiscordEvent = interaction.options.getBoolean("serverevent") === true;
@@ -3460,20 +3916,29 @@ class BotRuntime {
         return;
       }
 
+      if (![startRaw, startDateRaw, startTimeRaw].some((value) => String(value || "").trim())) {
+        await interaction.reply({
+          content: t(
+            "Bitte gib eine Startzeit an. Nutze entweder `start` oder die Kombination aus `startdate` + `starttime`.",
+            "Please provide a start time. Use either `start` or the `startdate` + `starttime` combination."
+          ),
+          ephemeral: true,
+        });
+        return;
+      }
+
       const parsedWindow = parseWindow({
         startRaw,
+        startDateRaw,
+        startTimeRaw,
         endRaw,
+        endDateRaw,
+        endTimeRaw,
         requestedTimeZone,
+        allowImmediate: !createDiscordEvent,
       });
       if (!parsedWindow.ok) {
         await interaction.reply({ content: parsedWindow.message, ephemeral: true });
-        return;
-      }
-      if (parsedWindow.runAtMs < Date.now() + 30_000) {
-        await interaction.reply({
-          content: t("Startzeit muss mindestens 30 Sekunden in der Zukunft liegen.", "Start time must be at least 30 seconds in the future."),
-          ephemeral: true,
-        });
         return;
       }
       if (createDiscordEvent && parsedWindow.runAtMs < Date.now() + 60_000) {
@@ -3552,12 +4017,20 @@ class BotRuntime {
         }
       }
 
-      const contentParts = [
-        `${t("Event erstellt", "Event created")}:`,
-        this.buildScheduledEventSummary(replyEvent, station.station?.name || null, language),
-      ];
-      if (serverEventNote) contentParts.push(serverEventNote);
-      await this.respondLongInteraction(interaction, contentParts.join("\n"), { ephemeral: true });
+      const embed = this.buildScheduledEventEmbed(replyEvent, station.station?.name || null, language, {
+        titlePrefix: `${t("Event erstellt", "Event created")}: `,
+      });
+      if (serverEventNote) {
+        embed.addFields({
+          name: t("Hinweis", "Note"),
+          value: clipText(serverEventNote, 800),
+          inline: false,
+        });
+      }
+      await interaction.reply({ embeds: [embed], ephemeral: true });
+      if (replyEvent.runAtMs <= Date.now() + 5_000) {
+        this.queueImmediateScheduledEventTick(250);
+      }
       return;
     }
 
@@ -3573,7 +4046,11 @@ class BotRuntime {
       const stationRaw = interaction.options.getString("station");
       const voiceChannelOption = interaction.options.getChannel("voice");
       const startRaw = interaction.options.getString("start");
+      const startDateRaw = interaction.options.getString("startdate");
+      const startTimeRaw = interaction.options.getString("starttime");
       const endRaw = interaction.options.getString("end");
+      const endDateRaw = interaction.options.getString("enddate");
+      const endTimeRaw = interaction.options.getString("endtime");
       const timeZoneRaw = interaction.options.getString("timezone");
       const repeatRaw = interaction.options.getString("repeat");
       const textChannelOption = interaction.options.getChannel("text");
@@ -3624,25 +4101,24 @@ class BotRuntime {
       }
 
       const currentDurationMs = Math.max(0, Number.parseInt(String(existing.durationMs || 0), 10) || 0);
+      const hasStartChange = [startRaw, startDateRaw, startTimeRaw].some((value) => String(value || "").trim());
       const parsedWindow = parseWindow({
         startRaw,
+        startDateRaw,
+        startTimeRaw,
         endRaw,
+        endDateRaw,
+        endTimeRaw,
         baseRunAtMs: existing.runAtMs,
         baseDurationMs: currentDurationMs,
         requestedTimeZone: timeZoneRaw || existing.timeZone || "",
+        allowImmediate: !nextCreateDiscordEvent,
       });
       if (!parsedWindow.ok) {
         await interaction.reply({ content: parsedWindow.message, ephemeral: true });
         return;
       }
-      if (startRaw && parsedWindow.runAtMs < Date.now() + 30_000) {
-        await interaction.reply({
-          content: t("Startzeit muss mindestens 30 Sekunden in der Zukunft liegen.", "Start time must be at least 30 seconds in the future."),
-          ephemeral: true,
-        });
-        return;
-      }
-      if (nextCreateDiscordEvent && (startRaw || serverEventRaw === true) && parsedWindow.runAtMs < Date.now() + 60_000) {
+      if (nextCreateDiscordEvent && (hasStartChange || serverEventRaw === true) && parsedWindow.runAtMs < Date.now() + 60_000) {
         await interaction.reply({
           content: t(
             "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
@@ -3714,12 +4190,20 @@ class BotRuntime {
         }
       }
 
-      const contentParts = [
-        `${t("Event aktualisiert", "Event updated")}:`,
-        this.buildScheduledEventSummary(replyEvent, resolvedStation.station?.name || null, language),
-      ];
-      if (serverEventNote) contentParts.push(serverEventNote);
-      await this.respondLongInteraction(interaction, contentParts.join("\n"), { ephemeral: true });
+      const embed = this.buildScheduledEventEmbed(replyEvent, resolvedStation.station?.name || null, language, {
+        titlePrefix: `${t("Event aktualisiert", "Event updated")}: `,
+      });
+      if (serverEventNote) {
+        embed.addFields({
+          name: t("Hinweis", "Note"),
+          value: clipText(serverEventNote, 800),
+          inline: false,
+        });
+      }
+      await interaction.reply({ embeds: [embed], ephemeral: true });
+      if (replyEvent.enabled && replyEvent.runAtMs <= Date.now() + 5_000) {
+        this.queueImmediateScheduledEventTick(250);
+      }
       return;
     }
 
@@ -3735,20 +4219,10 @@ class BotRuntime {
         return;
       }
 
-      const blocks = events.map((event) => {
-        const station = this.resolveStationForGuild(guildId, event.stationKey, language);
-        return this.buildScheduledEventSummary(
-          event,
-          station.ok ? station.station?.name || null : null,
-          language
-        );
+      await interaction.reply({
+        embeds: [this.buildScheduledEventsListEmbed(events, guildId, language)],
+        ephemeral: true,
       });
-
-      await this.respondLongInteraction(
-        interaction,
-        `**${t("Geplante Events", "Scheduled events")} (${events.length})**\n\n${blocks.join("\n\n")}`,
-        { ephemeral: true }
-      );
       return;
     }
 
@@ -4346,17 +4820,20 @@ class BotRuntime {
     }
 
     if (interaction.commandName === "help") {
+      recordCommandUsage(interaction.guildId, interaction.commandName);
       const payload = this.buildHelpMessage(interaction);
       await this.respondInteraction(interaction, { ...payload, ephemeral: true });
       return;
     }
 
     if (interaction.commandName === "language") {
+      recordCommandUsage(interaction.guildId, interaction.commandName);
       await this.handleLanguageCommand(interaction);
       return;
     }
 
     if (interaction.commandName === "perm") {
+      recordCommandUsage(interaction.guildId, interaction.commandName);
       await this.handlePermissionCommand(interaction);
       return;
     }
@@ -4367,8 +4844,18 @@ class BotRuntime {
       return;
     }
 
+    recordCommandUsage(interaction.guildId, interaction.commandName);
+
     if (interaction.commandName === "event") {
       await this.handleEventCommand(interaction);
+      return;
+    }
+
+    if (interaction.commandName === "stats") {
+      await interaction.reply({
+        embeds: [this.buildListeningStatsEmbed(interaction.guildId, language)],
+        ephemeral: true,
+      });
       return;
     }
 
@@ -4582,6 +5069,10 @@ class BotRuntime {
       const embed = activeRuntime.buildNowPlayingEmbed(interaction.guildId, current.station, {
         ...meta,
         name: meta.name || current.station.name || null,
+      }, {
+        channelId,
+        listenerCount: activeRuntime.getCurrentListenerCount(interaction.guildId, activeState),
+        workerName: activeRuntime.config?.name || BRAND.name,
       });
       embed.addFields(
         {
@@ -4644,27 +5135,8 @@ class BotRuntime {
         return;
       }
 
-      const lines = history.map((entry, index) => {
-        const unix = Number.isFinite(entry.timestampMs) ? Math.floor(entry.timestampMs / 1000) : null;
-        const when = unix ? `<t:${unix}:R>` : "-";
-        const title = clipText(entry.displayTitle || entry.streamTitle || "-", 150);
-        const station = entry.stationName ? clipText(entry.stationName, 80) : null;
-        const stationSuffix = station ? ` | ${station}` : "";
-        return `${index + 1}. ${when} - **${title}**${stationSuffix}`;
-      });
-
-      const historyEmbed = new EmbedBuilder()
-        .setColor(BRAND.color)
-        .setTitle(t("Song-History", "Song history"))
-        .setDescription(clipText(lines.join("\n"), 3800))
-        .setFooter({
-          text: playback.runtime
-            ? `${playback.runtime.config?.name || BRAND.name} | ${t("letzte", "latest")} ${history.length}`
-            : `${BRAND.name} | ${t("letzte", "latest")} ${history.length}`,
-        })
-        .setTimestamp(new Date());
-
-      await interaction.reply({ embeds: [historyEmbed], ephemeral: true });
+      const payload = this.buildSongHistoryEmbed(history, interaction.guildId, playback.runtime, language);
+      await interaction.reply({ ...payload, ephemeral: true });
       return;
     }
 
@@ -5344,6 +5816,14 @@ class BotRuntime {
             worker = activeWorkerInChannel;
             reusingExistingWorker = true;
           } else {
+            const connectedWorkerInChannel = await this.workerManager.findConnectedWorkerByChannel(guildId, channelId, guildTier);
+            if (connectedWorkerInChannel) {
+              worker = connectedWorkerInChannel;
+              reusingExistingWorker = true;
+            }
+          }
+
+          if (!worker) {
             worker = this.workerManager.findFreeWorker(guildId, guildTier);
           }
         }
@@ -5567,6 +6047,7 @@ class BotRuntime {
       meta: state.currentMeta,
       volume: state.volume,
       channelId: state.lastChannelId,
+      listenerCount: this.getCurrentListenerCount(guildId, state),
       reconnectAttempts: state.reconnectAttempts || 0,
       shouldReconnect: state.shouldReconnect,
       streamErrorCount: state.streamErrorCount || 0,
@@ -5590,9 +6071,11 @@ class BotRuntime {
 
     let connections = 0;
     let listeners = 0;
-    for (const state of this.guildState.values()) {
+    for (const [guildId, state] of this.guildState.entries()) {
       if (state.connection) connections += 1;
-      if (state.connection && state.currentStationKey) listeners += 1;
+      if (state.connection && state.currentStationKey) {
+        listeners += this.getCurrentListenerCount(guildId, state);
+      }
     }
 
     return { servers, users, connections, listeners };
@@ -5621,6 +6104,7 @@ class BotRuntime {
         stationName: state.currentStationName || null,
         channelId: state.lastChannelId || null,
         channelName: state.lastChannelId ? guild.channels.cache.get(state.lastChannelId)?.name || null : null,
+        listenerCount: this.getCurrentListenerCount(guildId, state),
         volume: state.volume,
         playing: Boolean(state.connection && state.currentStationKey),
         meta: state.currentMeta || null,

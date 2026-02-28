@@ -145,6 +145,35 @@ class WorkerManager {
   }
 
   /**
+   * Find a worker whose bot account is currently connected to a specific voice/stage channel,
+   * even if the local runtime state is stale.
+   */
+  async findConnectedWorkerByChannel(guildId, channelId, tier = null) {
+    const normalizedGuildId = String(guildId || "").trim();
+    const normalizedChannelId = String(channelId || "").trim();
+    if (!normalizedGuildId || !normalizedChannelId) return null;
+
+    const maxIndex = tier ? this.getMaxWorkerIndex(tier) : Number.POSITIVE_INFINITY;
+    for (const worker of this.workers) {
+      const workerSlot = this.getWorkerSlot(worker);
+      if (!workerSlot || workerSlot > maxIndex) continue;
+      if (!worker.client?.isReady()) continue;
+
+      const guild = worker.client.guilds.cache.get(normalizedGuildId)
+        || await worker.client.guilds.fetch(normalizedGuildId).catch(() => null);
+      if (!guild) continue;
+
+      const me = guild.members.me || await guild.members.fetchMe().catch(() => null);
+      const activeChannelId = String(me?.voice?.channelId || "").trim();
+      if (activeChannelId && activeChannelId === normalizedChannelId) {
+        return worker;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Find the worker that currently owns a scheduled event playback in a guild.
    */
   findWorkerByScheduledEvent(guildId, eventId) {

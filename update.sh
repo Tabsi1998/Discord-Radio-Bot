@@ -335,6 +335,7 @@ ensure_all_json_files() {
   ensure_json_file "command-permissions.json" '{"guilds":{}}'
   ensure_json_file "guild-languages.json" '{"version":1,"guilds":{}}'
   ensure_json_file "song-history.json" '{"guilds":{}}'
+  ensure_json_file "listening-stats.json" '{"version":1,"guilds":{}}'
   ensure_json_file "scheduled-events.json" '{"version":1,"events":[]}'
   ensure_json_file "coupons.json" '{"offers":{},"redemptions":{}}'
   # stations.json nur erstellen wenn komplett fehlend
@@ -1360,7 +1361,7 @@ update_stamp="$(date +%Y%m%d%H%M%S)"
 licenses_before_update="$(count_license_entries premium.json)"
 
 # WICHTIG: Premium-Daten IMMER sichern vor Update!
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json scheduled-events.json coupons.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json; do
   if [[ -f "$pf" ]]; then
     cp "$pf" ".update-backups/${pf}.${update_stamp}" 2>/dev/null || true
   fi
@@ -1383,13 +1384,14 @@ git clean -fd \
   -e command-permissions.json \
   -e guild-languages.json \
   -e song-history.json \
+  -e listening-stats.json \
   -e scheduled-events.json \
   -e coupons.json \
   -e docker-compose.override.yml 2>/dev/null || true
 
 # Laufzeitdaten immer aus dem VOR-Update Snapshot wiederherstellen,
 # damit git reset keine produktiven JSON-Daten ueberschreibt.
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json scheduled-events.json coupons.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json; do
   snapshot=".update-backups/${pf}.${update_stamp}"
   if [[ -s "$snapshot" ]]; then
     if ! cmp -s "$snapshot" "$pf" 2>/dev/null; then
@@ -1400,7 +1402,7 @@ for pf in premium.json bot-state.json custom-stations.json command-permissions.j
 done
 
 # Sicherheitscheck: Premium-Daten duerfen NICHT leer sein nach Update
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json scheduled-events.json coupons.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json; do
   if [[ -f "$pf" ]] && [[ ! -s "$pf" ]]; then
     latest_backup=$(ls -t ".update-backups/${pf}."* 2>/dev/null | head -1)
     if [[ -n "$latest_backup" ]] && [[ -s "$latest_backup" ]]; then

@@ -118,7 +118,6 @@ async function fetchCoverArtFromItunes(query) {
 
 async function fetchCoverArtFromMusicBrainz(artist, title) {
   try {
-    // MusicBrainz Recording Search API
     const query = `artist:"${artist}" recording:"${title}"`;
     const endpoint = new URL("https://musicbrainz.org/ws/2/recording");
     endpoint.searchParams.set("query", query);
@@ -137,22 +136,36 @@ async function fetchCoverArtFromMusicBrainz(artist, title) {
     if (!data?.recordings || !Array.isArray(data.recordings) || data.recordings.length === 0) {
       return null;
     }
-    
-    // Try to find cover art from releases
+
     const recording = data.recordings[0];
     const releases = recording.releases || [];
-    
+
     for (const release of releases) {
-      if (release.images && Array.isArray(release.images) && release.images.length > 0) {
-        // Prefer front cover, fall back to any image
-        const frontImage = release.images.find(img => img.front);
-        const coverImage = frontImage || release.images[0];
-        if (coverImage?.image) {
-          return coverImage.image;
+      const releaseId = String(release?.id || "").trim();
+      if (!releaseId) continue;
+
+      const hasFrontCover = release?.["cover-art-archive"]?.front === true;
+      const candidateUrls = [
+        `https://coverartarchive.org/release/${releaseId}/front-500`,
+        `https://coverartarchive.org/release/${releaseId}/front`,
+      ];
+
+      if (hasFrontCover) {
+        return candidateUrls[0];
+      }
+
+      for (const candidateUrl of candidateUrls) {
+        const headResponse = await fetch(candidateUrl, {
+          method: "HEAD",
+          headers: { "User-Agent": "OmniFM/3.0 (+omnifm.radio)" },
+          signal: AbortSignal.timeout(2000),
+        }).catch(() => null);
+        if (headResponse?.ok) {
+          return candidateUrl;
         }
       }
     }
-    
+
     return null;
   } catch {
     return null;
