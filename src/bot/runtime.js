@@ -785,16 +785,13 @@ class BotRuntime {
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
         .setLabel(isDe ? "YouTube-Suche" : "YouTube search")
-        .setEmoji({ name: "▶" })
         .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`)
-        .setEmoji("\u25b6"),
+        .setEmoji("\u{1f4fa}"),
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel("Spotify")
         .setLabel(isDe ? "Spotify-Suche" : "Spotify search")
-        .setEmoji({ name: "♫" })
-        .setEmoji("\u266b")
-        .setURL(`https://open.spotify.com/search/${encodeURIComponent(query)}`),
+        .setURL(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
+        .setEmoji("\u{1f3b5}"),
     ];
 
     const musicBrainzUrl = meta?.musicBrainzReleaseId
@@ -808,9 +805,8 @@ class BotRuntime {
         new ButtonBuilder()
           .setStyle(ButtonStyle.Link)
           .setLabel("MusicBrainz")
-          .setEmoji({ name: "🧠" })
-          .setEmoji("\u{1f9e0}")
           .setURL(musicBrainzUrl)
+          .setEmoji("\u{1f9e0}")
       );
     }
 

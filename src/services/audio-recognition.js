@@ -307,7 +307,7 @@ async function captureFingerprintAttempt(url) {
       return await runFpcalc(samplePath, preferredFingerprintSeconds);
     } catch (error) {
       if (!isFpcalcDecodeEofError(error)) throw error;
-      return runFpcalc(samplePath, null);
+      return await runFpcalc(samplePath, null);
     }
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => null);
