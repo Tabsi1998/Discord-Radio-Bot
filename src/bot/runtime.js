@@ -41,6 +41,7 @@ import {
   clampVolume,
   waitMs,
   applyJitter,
+  isWithinWorkerPlanLimit,
   splitTextForDiscord,
   sanitizeUrlForLog,
   isLikelyNetworkFailureLine,
@@ -429,7 +430,7 @@ class BotRuntime {
     const reason = !access.tierAllowed ? "tier" : "maxBots";
     log(
       "INFO",
-      `[${this.config.name}] Verlasse Guild ${guild.name} (${guild.id}) - Zugriff verweigert (${reason}, source=${source}, guildTier=${access.guildTier}, required=${access.requiredTier}, botIndex=${access.botIndex}, maxBots=${access.maxBots})`
+      `[${this.config.name}] Verlasse Guild ${guild.name} (${guild.id}) - Zugriff verweigert (${reason}, source=${source}, guildTier=${access.guildTier}, required=${access.requiredTier}, botIndex=${access.botIndex}, workerSlot=${access.workerSlot || "-"}, maxBots=${access.maxBots})`
     );
     this.resetGuildRuntimeState(guild.id);
     try {
@@ -1193,6 +1194,14 @@ class BotRuntime {
 
     const channelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
     if (!/^\d{17,22}$/.test(channelId)) return;
+    const guild = this.client.guilds.cache.get(guildId) || null;
+    const channel = (guild?.channels?.cache?.get(channelId))
+      || await guild?.channels?.fetch?.(channelId).catch(() => null)
+      || null;
+    if (!channel || channel.type !== ChannelType.GuildVoice) {
+      state.voiceStatusText = "";
+      return;
+    }
     const desired = stationName ? this.renderVoiceStatusText(stationName) : "";
     if (desired === String(state.voiceStatusText || "")) return;
 
@@ -3212,7 +3221,15 @@ class BotRuntime {
     const tierAllowed = (TIER_RANK[guildTier] ?? 0) >= (TIER_RANK[requiredTier] ?? 0);
     const botIndex = Number(this.config.index || 1);
     const maxBots = Number(tierConfig.maxBots || 0);
-    const withinBotLimit = this.role === "commander" ? true : botIndex <= maxBots;
+    const workerSlot = this.role === "worker"
+      ? Number(this.workerSlot || 0)
+      : null;
+    const withinBotLimit = isWithinWorkerPlanLimit({
+      role: this.role,
+      workerSlot,
+      botIndex,
+      maxBots,
+    });
 
     return {
       allowed: tierAllowed && withinBotLimit,
@@ -3220,6 +3237,7 @@ class BotRuntime {
       requiredTier,
       tierAllowed,
       botIndex,
+      workerSlot,
       maxBots,
       withinBotLimit,
     };
@@ -3244,7 +3262,12 @@ class BotRuntime {
     }
 
     await interaction.reply(
-      botLimitEmbed(access.guildTier, access.maxBots, access.botIndex, this.resolveInteractionLanguage(interaction))
+      botLimitEmbed(
+        access.guildTier,
+        access.maxBots,
+        access.workerSlot || access.botIndex,
+        this.resolveInteractionLanguage(interaction)
+      )
     );
   }
 
@@ -4648,9 +4671,18 @@ class BotRuntime {
       });
     }
     const isPremiumBot = this.config.requiredTier && this.config.requiredTier !== "free";
+    const accentColor = this.config.requiredTier === "ultimate"
+      ? "#BD00FF"
+      : this.config.requiredTier === "pro"
+        ? "#FFB800"
+        : "#00F0FF";
     return {
       id: this.config.id,
+      botId: this.config.id,
+      index: Number(this.config.index || 0) || null,
       name: this.config.name,
+      role: this.role,
+      color: accentColor,
       clientId: isPremiumBot ? null : resolvedClientId,
       inviteUrl: isPremiumBot ? null : buildInviteUrl({ ...this.config, clientId: resolvedClientId }),
       requiredTier: this.config.requiredTier || "free",

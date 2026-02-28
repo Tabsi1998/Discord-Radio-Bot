@@ -1,50 +1,47 @@
 // ============================================================
-// OmniFM - Pricing Calculator (Laufzeit-basiert)
+// OmniFM - Pricing Calculator (Seat- und Laufzeit-basiert)
 // ============================================================
 
 import { PLANS, BRAND } from "../config/plans.js";
+import {
+  DURATION_OPTIONS,
+  SEAT_OPTIONS,
+  getPricePerMonthCents,
+  getSeatPricePerMonthCents,
+  calculatePrice as calculatePriceCents,
+  durationPricingInEuro,
+  seatPricingInEuro,
+  normalizeDuration,
+  normalizeSeats,
+} from "../lib/helpers.js";
 
-// Laufzeiten in Monaten
-export const DURATION_OPTIONS = [1, 2, 3, 6, 12];
+export { DURATION_OPTIONS, SEAT_OPTIONS };
 
-// Preise pro Monat nach Laufzeit (in EUR)
-const PRICING = {
-  pro: {
-    1:  2.99,
-    2:  2.79,
-    3:  2.49,
-    6:  2.29,
-    12: 1.99,
-  },
-  ultimate: {
-    1:  4.99,
-    2:  4.49,
-    3:  3.99,
-    6:  3.49,
-    12: 2.99,
-  },
-};
+export function calculatePrice(plan, months, seats = 1) {
+  const normalizedPlan = String(plan || "").toLowerCase();
+  if (!["pro", "ultimate"].includes(normalizedPlan)) return null;
 
-export function calculatePrice(plan, months) {
-  if (!PRICING[plan]) return null;
-  const perMonth = PRICING[plan][months];
-  if (!perMonth) return null;
+  const normalizedMonths = normalizeDuration(months);
+  const normalizedSeats = normalizeSeats(seats);
+  const totalCents = calculatePriceCents(normalizedPlan, normalizedMonths, normalizedSeats);
+  if (totalCents <= 0) return null;
 
-  const total = perMonth * months;
-  const regularTotal = PRICING[plan][1] * months;
-  const savings = regularTotal - total;
-
+  const baseMonthlyCents = getSeatPricePerMonthCents(normalizedPlan, normalizedSeats);
+  const discountedMonthlyCents = Math.round(totalCents / normalizedMonths);
+  const regularTotalCents = baseMonthlyCents * normalizedMonths;
+  const savingsCents = Math.max(0, regularTotalCents - totalCents);
   return {
-    plan,
-    months,
-    perMonth,
-    total,
+    plan: normalizedPlan,
+    months: normalizedMonths,
+    seats: normalizedSeats,
+    perMonthCents: discountedMonthlyCents,
+    totalCents,
     currency: "EUR",
-    perMonthFormatted: formatPriceEUR(perMonth),
-    totalFormatted: formatPriceEUR(total),
-    savings: savings > 0 ? savings : 0,
-    savingsFormatted: savings > 0 ? formatPriceEUR(savings) : null,
-    savingsPercent: savings > 0 ? Math.round((savings / regularTotal) * 100) : 0,
+    perMonthFormatted: formatPriceEUR(discountedMonthlyCents / 100),
+    totalFormatted: formatPriceEUR(totalCents / 100),
+    savingsCents,
+    savingsFormatted: savingsCents > 0 ? formatPriceEUR(savingsCents / 100) : null,
+    savingsPercent: regularTotalCents > 0 ? Math.round((savingsCents / regularTotalCents) * 100) : 0,
   };
 }
 
@@ -52,14 +49,16 @@ export function getAvailableProducts() {
   const products = [];
   for (const planId of ["pro", "ultimate"]) {
     const plan = PLANS[planId];
-    for (const months of DURATION_OPTIONS) {
-      const price = calculatePrice(planId, months);
-      if (price) {
-        products.push({
-          plan: planId,
-          planName: plan.name,
-          ...price,
-        });
+    for (const seats of SEAT_OPTIONS) {
+      for (const months of DURATION_OPTIONS) {
+        const price = calculatePrice(planId, months, seats);
+        if (price) {
+          products.push({
+            plan: planId,
+            planName: plan.name,
+            ...price,
+          });
+        }
       }
     }
   }
@@ -74,6 +73,7 @@ export function getPricingOverview() {
   return {
     brand: BRAND.name,
     durations: DURATION_OPTIONS,
+    seatOptions: SEAT_OPTIONS,
     plans: {
       free: {
         name: "Free",
@@ -89,7 +89,7 @@ export function getPricingOverview() {
       pro: {
         name: "Pro",
         recommended: true,
-        startingAt: formatPriceEUR(PRICING.pro[1]) + "/Monat",
+        startingAt: formatPriceEUR(getPricePerMonthCents("pro", 1) / 100) + "/Monat",
         tagline: "Fuer aktive Communities.",
         highlights: [
           "20 Free + 100 Pro-Stationen",
@@ -99,11 +99,12 @@ export function getPricingOverview() {
           "Rollenbasierte Berechtigungen",
           "Event-Scheduler",
         ],
-        pricing: PRICING.pro,
+        durationPricing: durationPricingInEuro("pro"),
+        seatPricing: seatPricingInEuro("pro"),
       },
       ultimate: {
         name: "Ultimate",
-        startingAt: formatPriceEUR(PRICING.ultimate[1]) + "/Monat",
+        startingAt: formatPriceEUR(getPricePerMonthCents("ultimate", 1) / 100) + "/Monat",
         tagline: "Fuer grosse Server und volle Kontrolle.",
         highlights: [
           "Alles aus Pro",
@@ -112,7 +113,8 @@ export function getPricingOverview() {
           "Custom Station URLs",
           "Bis zu 16 Bots",
         ],
-        pricing: PRICING.ultimate,
+        durationPricing: durationPricingInEuro("ultimate"),
+        seatPricing: seatPricingInEuro("ultimate"),
       },
     },
   };

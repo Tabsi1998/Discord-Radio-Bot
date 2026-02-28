@@ -138,6 +138,13 @@ function shouldLogFfmpegStderrLine(line) {
   if (mode === "off" || mode === "none") return false;
 
   const lc = text.toLowerCase();
+  const noisyDecodeLine = lc.includes("error while decoding stream")
+    || lc.includes("error decoding aac frame header")
+    || lc.includes("invalid band type")
+    || lc.includes("pulse data corrupt or invalid")
+    || lc.includes("not yet implemented in ffmpeg, patches welcome");
+  if (noisyDecodeLine) return false;
+
   return lc.includes("error")
     || lc.includes("failed")
     || lc.includes("invalid")

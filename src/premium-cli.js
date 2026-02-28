@@ -19,54 +19,32 @@ import {
   setOfferActive,
   upsertOffer,
 } from "./coupon-store.js";
+import {
+  SEAT_OPTIONS,
+  normalizeSeats as normalizeSeatsShared,
+  getSeatPricePerMonthCents as getSeatPricePerMonthCentsShared,
+  calculatePrice as calculatePriceShared,
+  calculateUpgradePrice as calculateUpgradePriceShared,
+} from "./lib/helpers.js";
 
 dotenv.config();
 
-const SEAT_OPTIONS = [1, 2, 3, 5];
-const SEAT_PRICING_CENTS = {
-  pro: { 1: 299, 2: 549, 3: 749, 5: 1149 },
-  ultimate: { 1: 499, 2: 799, 3: 1099, 5: 1699 },
-};
-const YEARLY_DISCOUNT_MONTHS = 10;
-
 function normalizeSeats(rawSeats) {
-  const seats = Number(rawSeats);
-  return SEAT_OPTIONS.includes(seats) ? seats : 1;
+  return normalizeSeatsShared(rawSeats);
 }
 
 function getSeatPricePerMonthCents(tier, seats = 1) {
-  if (tier === "free") return 0;
-  const pricing = SEAT_PRICING_CENTS[tier];
-  if (!pricing) return 0;
-  const normalizedSeats = normalizeSeats(seats);
-  return pricing[normalizedSeats] || pricing[1] || 0;
+  return getSeatPricePerMonthCentsShared(tier, seats);
 }
 
 function calculatePrice(tier, months, seats = 1) {
-  const ppm = getSeatPricePerMonthCents(tier, seats);
-  if (!ppm) return 0;
-  const durationMonths = Math.max(1, Number.parseInt(months, 10) || 1);
-  if (durationMonths >= 12) {
-    const fullYears = Math.floor(durationMonths / 12);
-    const remaining = durationMonths % 12;
-    return (fullYears * YEARLY_DISCOUNT_MONTHS * ppm) + (remaining * ppm);
-  }
-  return ppm * durationMonths;
+  return calculatePriceShared(tier, months, seats);
 }
 
 function calculateUpgradePrice(serverId, targetTier) {
   const lic = getServerLicense(serverId);
   if (!lic || lic.expired || !lic.active) return null;
-  const oldTier = lic.plan || "free";
-  if (oldTier === targetTier) return null;
-  const seats = normalizeSeats(lic.seats || 1);
-  const oldPpm = getSeatPricePerMonthCents(oldTier, seats);
-  const newPpm = getSeatPricePerMonthCents(targetTier, seats);
-  const diff = newPpm - oldPpm;
-  if (diff <= 0) return null;
-  const daysLeft = lic.remainingDays || 0;
-  if (daysLeft <= 0) return null;
-  return { oldTier, targetTier, daysLeft, seats, upgradeCost: Math.ceil(diff * daysLeft / 30) };
+  return calculateUpgradePriceShared(lic, targetTier);
 }
 
 const rl = createInterface({ input: stdin, output: stdout });

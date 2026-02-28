@@ -9,9 +9,14 @@ const PRO_TRIAL_MONTHS = 1;
 const PRO_TRIAL_SEATS = 1;
 const DEFAULT_EXPIRY_REMINDER_DAYS = [30, 14, 7, 1];
 const DURATION_OPTIONS = [1, 3, 6, 12];
+const SEAT_OPTIONS = [1, 2, 3, 5];
 const DURATION_PRICING_CENTS = {
   pro:      { 1: 299, 3: 249, 6: 229, 12: 199 },
   ultimate: { 1: 499, 3: 399, 6: 349, 12: 299 },
+};
+const SEAT_PRICING_CENTS = {
+  pro:      { 1: 299, 2: 549, 3: 749, 5: 1149 },
+  ultimate: { 1: 499, 2: 799, 3: 1099, 5: 1699 },
 };
 
 const TIERS = {
@@ -49,7 +54,7 @@ function normalizeDuration(rawMonths) {
 
 function normalizeSeats(rawSeats) {
   const value = Math.max(1, Math.floor(Number(rawSeats) || 1));
-  return value;
+  return SEAT_OPTIONS.includes(value) ? value : 1;
 }
 
 function isValidEmailAddress(email) {
@@ -78,20 +83,53 @@ function getPricePerMonthCents(tier, months = 1) {
   return tierPricing[normalizedMonths] || tierPricing[1] || 0;
 }
 
-function calculatePrice(tier, months) {
-  const perMonth = getPricePerMonthCents(tier, months);
-  return perMonth * months;
+function getSeatPricePerMonthCents(tier, seats = 1) {
+  const normalizedTier = String(tier || "").toLowerCase();
+  if (normalizedTier === "free") return 0;
+  const tierPricing = SEAT_PRICING_CENTS[normalizedTier];
+  if (!tierPricing) return 0;
+  const normalizedSeats = normalizeSeats(seats);
+  return tierPricing[normalizedSeats] || tierPricing[1] || 0;
 }
 
-function calculateUpgradePrice(serverId, currentLicense, targetTier) {
+function calculatePrice(tier, months, seats = 1) {
+  const normalizedTier = String(tier || "").toLowerCase();
+  if (normalizedTier === "free") return 0;
+
+  const normalizedMonths = normalizeDuration(months);
+  const baseMonthly = getPricePerMonthCents(normalizedTier, 1);
+  const discountedMonthly = getPricePerMonthCents(normalizedTier, normalizedMonths);
+  const seatMonthly = getSeatPricePerMonthCents(normalizedTier, seats);
+  if (baseMonthly <= 0 || discountedMonthly <= 0 || seatMonthly <= 0) return 0;
+
+  return Math.max(
+    0,
+    Math.round((seatMonthly * discountedMonthly * normalizedMonths) / baseMonthly)
+  );
+}
+
+function calculateUpgradePrice(currentLicense, targetTier) {
   if (!currentLicense || !currentLicense.expiresAt) return null;
+
+  const sourceTier = String(currentLicense.plan || currentLicense.tier || "free").toLowerCase();
+  const target = String(targetTier || "").toLowerCase();
+  if (!target || sourceTier === target) return null;
+
   const remaining = Math.max(0, Math.ceil((new Date(currentLicense.expiresAt) - new Date()) / 86400000));
   if (remaining <= 0) return null;
-  const oldMonthly = getPricePerMonthCents(currentLicense.plan, 1);
-  const newMonthly = getPricePerMonthCents(targetTier, 1);
+
+  const seats = normalizeSeats(currentLicense.seats || 1);
+  const oldMonthly = getSeatPricePerMonthCents(sourceTier, seats);
+  const newMonthly = getSeatPricePerMonthCents(target, seats);
   const diff = newMonthly - oldMonthly;
   if (diff <= 0) return null;
-  return Math.max(0, Math.round(diff * (remaining / 30)));
+  return {
+    oldTier: sourceTier,
+    targetTier: target,
+    daysLeft: remaining,
+    seats,
+    upgradeCost: Math.max(0, Math.round(diff * (remaining / 30))),
+  };
 }
 
 function durationPricingInEuro(tier) {
@@ -100,6 +138,15 @@ function durationPricingInEuro(tier) {
   if (!tierPricing) return {};
   return Object.fromEntries(
     Object.entries(tierPricing).map(([months, cents]) => [months, (cents / 100).toFixed(2)])
+  );
+}
+
+function seatPricingInEuro(tier) {
+  const normalizedTier = String(tier || "").toLowerCase();
+  const tierPricing = SEAT_PRICING_CENTS[normalizedTier];
+  if (!tierPricing) return {};
+  return Object.fromEntries(
+    Object.entries(tierPricing).map(([seats, cents]) => [seats, (cents / 100).toFixed(2)])
   );
 }
 
@@ -220,6 +267,20 @@ function applyJitter(baseMs, ratio = 0.2) {
   return Math.max(0, Math.round(ms * factor));
 }
 
+function isWithinWorkerPlanLimit({ role = "worker", workerSlot = null, botIndex = null, maxBots = 0 } = {}) {
+  const limit = Math.max(0, Number(maxBots) || 0);
+  if (String(role || "").toLowerCase() === "commander") return true;
+
+  const slot = Number(workerSlot);
+  if (Number.isFinite(slot) && slot > 0) {
+    return slot <= limit;
+  }
+
+  const index = Number(botIndex);
+  if (!Number.isFinite(index) || index <= 0) return false;
+  return index <= limit;
+}
+
 function isLikelyNetworkFailureLine(line) {
   const text = String(line || "").trim().toLowerCase();
   if (!text) return false;
@@ -312,7 +373,9 @@ export {
   PRO_TRIAL_SEATS,
   DEFAULT_EXPIRY_REMINDER_DAYS,
   DURATION_OPTIONS,
+  SEAT_OPTIONS,
   DURATION_PRICING_CENTS,
+  SEAT_PRICING_CENTS,
   TIERS,
   TIER_RANK,
   TRUST_PROXY_HEADERS,
@@ -325,9 +388,11 @@ export {
   parseExpiryReminderDays,
   // Pricing
   getPricePerMonthCents,
+  getSeatPricePerMonthCents,
   calculatePrice,
   calculateUpgradePrice,
   durationPricingInEuro,
+  seatPricingInEuro,
   formatEuroCentsDe,
   sanitizeOfferCode,
   translateOfferReason,
@@ -341,6 +406,7 @@ export {
   waitMs,
   parseEnvInt,
   applyJitter,
+  isWithinWorkerPlanLimit,
   isLikelyNetworkFailureLine,
   // Bitrate
   parseBitrateKbps,

@@ -111,18 +111,18 @@ export function botLimitEmbed(currentPlan, maxBots, requestedIndex, language = "
   return {
     embeds: [
       baseEmbed()
-        .setTitle(pick(language, "Bot-Limit erreicht", "Bot limit reached"))
+        .setTitle(pick(language, "Worker-Limit erreicht", "Worker limit reached"))
         .setDescription(
           pick(
             language,
-            `Dein **${PLANS[currentPlan]?.name || "Free"}** Plan erlaubt maximal **${maxBots}** Bots.\n`
-              + `Du hast Bot #${requestedIndex} angefragt.\n\n`
-              + "> **Pro** - bis zu 8 Bots\n"
-              + "> **Ultimate** - bis zu 16 Bots",
-            `Your **${PLANS[currentPlan]?.name || "Free"}** plan allows up to **${maxBots}** bots.\n`
-              + `You requested bot #${requestedIndex}.\n\n`
-              + "> **Pro** - up to 8 bots\n"
-              + "> **Ultimate** - up to 16 bots"
+            `Dein **${PLANS[currentPlan]?.name || "Free"}** Plan erlaubt maximal **${maxBots}** Worker.\n`
+              + `Du hast Worker #${requestedIndex} angefragt.\n\n`
+              + "> **Pro** - bis zu 8 Worker\n"
+              + "> **Ultimate** - bis zu 16 Worker",
+            `Your **${PLANS[currentPlan]?.name || "Free"}** plan allows up to **${maxBots}** workers.\n`
+              + `You requested worker #${requestedIndex}.\n\n`
+              + "> **Pro** - up to 8 workers\n"
+              + "> **Ultimate** - up to 16 workers"
           )
         )
         .setColor(BRAND.proColor)

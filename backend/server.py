@@ -104,7 +104,7 @@ DURATION_OPTIONS = [1, 3, 6, 12]
 SEAT_OPTIONS = [1, 2, 3, 5]
 SEAT_MONTHLY_TOTAL_CENTS = {
     "pro":      {1: 299, 2: 549, 3: 749, 5: 1149},
-    "ultimate": {1: 499, 2: 919, 3: 1249, 5: 1919},
+    "ultimate": {1: 499, 2: 799, 3: 1099, 5: 1699},
 }
 ADMIN_API_TOKEN = (os.environ.get("API_ADMIN_TOKEN") or os.environ.get("ADMIN_API_TOKEN") or "").strip()
 TRUST_PROXY_HEADERS = (os.environ.get("TRUST_PROXY_HEADERS") or "0").strip() == "1"
@@ -660,8 +660,9 @@ def calculate_upgrade_price(server_id, new_tier):
     if not lic or lic.get("expired"):
         return None
     old_tier = lic.get("tier", "free")
-    old_ppm = TIERS.get(old_tier, {}).get("pricePerMonth", 0)
-    new_ppm = TIERS.get(new_tier, {}).get("pricePerMonth", 0)
+    seats = max(1, int(lic.get("seats", 1) or 1))
+    old_ppm = get_seat_monthly_total(old_tier, seats)
+    new_ppm = get_seat_monthly_total(new_tier, seats)
     if new_ppm <= old_ppm:
         return None
     days_left = lic.get("remainingDays", 0)
@@ -673,6 +674,7 @@ def calculate_upgrade_price(server_id, new_tier):
         "oldTier": old_tier,
         "newTier": new_tier,
         "daysLeft": days_left,
+        "seats": seats,
         "upgradeCost": upgrade_cost,
     }
 
@@ -1239,7 +1241,7 @@ async def verify_premium(request: Request, body: dict):
             tier = str(metadata.get("tier", "")).strip().lower()
             months_str = metadata.get("months", "1")
             seats_str = metadata.get("seats", "1")
-            seats = 1
+            seats = max(1, min(5, parse_int(seats_str, 1)))
 
             if is_valid_email(email) and tier in ("pro", "ultimate"):
                 duration_months = normalize_months(months_str)

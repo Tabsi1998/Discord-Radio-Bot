@@ -11,16 +11,19 @@ import {
   TIER_RANK,
   clipText,
   normalizeDuration,
+  normalizeSeats,
   isValidEmailAddress,
   calculatePrice,
   calculateUpgradePrice,
   durationPricingInEuro,
+  seatPricingInEuro,
   formatEuroCentsDe,
   sanitizeOfferCode,
   translateOfferReason,
   isProTrialEnabled,
   PRO_TRIAL_MONTHS,
   DURATION_OPTIONS,
+  SEAT_OPTIONS,
   getPricePerMonthCents,
 } from "../lib/helpers.js";
 import { normalizeLanguage, getDefaultLanguage, resolveLanguageFromAcceptLanguage } from "../i18n.js";
@@ -212,10 +215,12 @@ function startWebServer(runtimes) {
 
         return {
           id: runtime?.config?.id || null,
+          botId: runtime?.config?.id || null,
           index,
           name: runtime?.config?.name || `Bot ${index || "?"}`,
           role: runtime?.role || "worker",
           requiredTier: runtime?.config?.requiredTier || "free",
+          color: status.color || (runtime?.role === "commander" ? "#00F0FF" : "#39FF14"),
           online: Boolean(runtime?.client?.isReady?.()),
           servers,
           activeStreams,
@@ -227,6 +232,7 @@ function startWebServer(runtimes) {
         .map((runtime, position) => toWorkerPayload(runtime, position + 1));
 
       sendJson(res, 200, {
+        architecture: "commander_worker",
         commander: commanderRuntime ? toWorkerPayload(commanderRuntime, 1) : null,
         workers,
         tiers: {
@@ -263,11 +269,18 @@ function startWebServer(runtimes) {
         },
         { servers: 0, users: 0, connections: 0, listeners: 0 }
       );
-      const stationCount = Object.keys(loadStations().stations).length;
+      const stationEntries = Object.values(loadStations().stations || {});
+      const stationCount = stationEntries.length;
+      const freeStations = stationEntries.filter((station) => String(station?.tier || "free").toLowerCase() === "free").length;
+      const proStations = stationEntries.filter((station) => String(station?.tier || "free").toLowerCase() === "pro").length;
+      const ultimateStations = stationEntries.filter((station) => String(station?.tier || "free").toLowerCase() === "ultimate").length;
       sendJson(res, 200, {
         ...totals,
         bots: runtimes.length,
         stations: stationCount,
+        freeStations,
+        proStations,
+        ultimateStations,
       });
       return;
     }
@@ -304,6 +317,9 @@ function startWebServer(runtimes) {
       const readyBots = runtimes.filter((runtime) => runtime.client.isReady()).length;
       sendJson(res, 200, {
         ok: true,
+        status: "online",
+        brand: BRAND.name,
+        timestamp: new Date().toISOString(),
         uptimeSec: Math.floor((Date.now() - appStartTime) / 1000),
         bots: runtimes.length,
         readyBots
@@ -480,9 +496,9 @@ function startWebServer(runtimes) {
           seats: rawSeats,
           returnUrl,
           language: rawLanguage,
-          couponCode: rawCouponCode,
-          referralCode: rawReferralCode,
         } = body;
+        const rawCouponCode = body?.couponCode ?? body?.coupon ?? "";
+        const rawReferralCode = body?.referralCode ?? body?.referral ?? "";
         const acceptLanguage = req.headers["accept-language"];
         const checkoutLanguage = normalizeLanguage(
           rawLanguage,
@@ -504,6 +520,19 @@ function startWebServer(runtimes) {
         }
 
         const durationMonths = normalizeDuration(months);
+        const seats = normalizeSeats(rawSeats);
+        const requestedSeats = rawSeats === undefined || rawSeats === null || rawSeats === ""
+          ? null
+          : Number.parseInt(String(rawSeats), 10);
+        if (requestedSeats !== null && !SEAT_OPTIONS.includes(requestedSeats)) {
+          sendJson(res, 400, {
+            error: t(
+              `seats muss einer der Werte ${SEAT_OPTIONS.join(", ")} sein.`,
+              `seats must be one of ${SEAT_OPTIONS.join(", ")}.`
+            ),
+          });
+          return;
+        }
 
         const stripeKey = getStripeSecretKey();
         if (!stripeKey) {
@@ -511,12 +540,11 @@ function startWebServer(runtimes) {
           return;
         }
 
-        const basePriceInCents = calculatePrice(tier, durationMonths);
+        const basePriceInCents = calculatePrice(tier, durationMonths, seats);
         if (basePriceInCents <= 0) {
           sendJson(res, 400, { error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination.") });
           return;
         }
-        const seats = 1;
         const offerResolution = resolveCheckoutOfferForRequest({
           tier,
           seats,
@@ -545,15 +573,18 @@ function startWebServer(runtimes) {
           return;
         }
         const tierName = TIERS[tier].name;
+        const seatsLabel = seats > 1
+          ? (isDe ? ` (${seats} Server)` : ` (${seats} servers)`)
+          : "";
         let description;
         if (durationMonths >= 12) {
           description = isDe
-            ? `${tierName} - ${durationMonths} Monate`
-            : `${tierName} - ${durationMonths} months`;
+            ? `${tierName}${seatsLabel} - ${durationMonths} Monate`
+            : `${tierName}${seatsLabel} - ${durationMonths} months`;
         } else {
           description = isDe
-            ? `${tierName} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`
-            : `${tierName} - ${durationMonths} month${durationMonths > 1 ? "s" : ""}`;
+            ? `${tierName}${seatsLabel} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`
+            : `${tierName}${seatsLabel} - ${durationMonths} month${durationMonths > 1 ? "s" : ""}`;
         }
 
         const stripe = await import("stripe");
@@ -643,10 +674,10 @@ function startWebServer(runtimes) {
           email,
           months,
           seats: rawSeats,
-          couponCode,
-          referralCode,
           language: rawLanguage,
         } = body || {};
+        const couponCode = body?.couponCode ?? body?.coupon ?? "";
+        const referralCode = body?.referralCode ?? body?.referral ?? "";
         const acceptLanguage = req.headers["accept-language"];
         const previewLanguage = normalizeLanguage(
           rawLanguage,
@@ -662,8 +693,21 @@ function startWebServer(runtimes) {
         }
 
         const durationMonths = normalizeDuration(months);
-        const seats = 1;
-        const baseAmountCents = calculatePrice(cleanTier, durationMonths);
+        const seats = normalizeSeats(rawSeats);
+        const requestedSeats = rawSeats === undefined || rawSeats === null || rawSeats === ""
+          ? null
+          : Number.parseInt(String(rawSeats), 10);
+        if (requestedSeats !== null && !SEAT_OPTIONS.includes(requestedSeats)) {
+          sendJson(res, 400, {
+            success: false,
+            error: t(
+              `seats muss einer der Werte ${SEAT_OPTIONS.join(", ")} sein.`,
+              `seats must be one of ${SEAT_OPTIONS.join(", ")}.`
+            ),
+          });
+          return;
+        }
+        const baseAmountCents = calculatePrice(cleanTier, durationMonths, seats);
         if (baseAmountCents <= 0) {
           sendJson(res, 400, {
             success: false,
@@ -1022,6 +1066,7 @@ function startWebServer(runtimes) {
             pricePerMonth: TIERS.pro.pricePerMonth,
             startingAt: formatEuroCentsDe(getPricePerMonthCents("pro", 1)),
             durationPricing: durationPricingInEuro("pro"),
+            seatPricing: seatPricingInEuro("pro"),
             features: [
               "128k Bitrate (HQ Opus)",
               "Bis zu 8 Bots",
@@ -1036,6 +1081,7 @@ function startWebServer(runtimes) {
             pricePerMonth: TIERS.ultimate.pricePerMonth,
             startingAt: formatEuroCentsDe(getPricePerMonthCents("ultimate", 1)),
             durationPricing: durationPricingInEuro("ultimate"),
+            seatPricing: seatPricingInEuro("ultimate"),
             features: [
               "320k Bitrate (Ultra HQ)",
               "Bis zu 16 Bots",
@@ -1046,6 +1092,7 @@ function startWebServer(runtimes) {
           },
         },
         durations: [...DURATION_OPTIONS],
+        seatOptions: [...SEAT_OPTIONS],
         trial: {
           enabled: isProTrialEnabled(),
           tier: "pro",
@@ -1059,14 +1106,16 @@ function startWebServer(runtimes) {
         if (license && !license.expired) {
           result.currentLicense = {
             tier: license.tier || license.plan,
+            seats: normalizeSeats(license.seats || 1),
             expiresAt: license.expiresAt,
             remainingDays: license.remainingDays,
           };
           if ((license.tier || license.plan) === "pro") {
-            const upgrade = calculateUpgradePrice(serverId, "ultimate");
+            const upgrade = calculateUpgradePrice(license, "ultimate");
             if (upgrade) {
               result.upgrade = {
                 to: "ultimate",
+                seats: upgrade.seats,
                 cost: upgrade.upgradeCost,
                 daysLeft: upgrade.daysLeft,
               };

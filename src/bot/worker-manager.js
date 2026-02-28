@@ -9,6 +9,11 @@ class WorkerManager {
    */
   constructor(workers = []) {
     this.workers = [...workers].sort((a, b) => Number(a?.config?.index || 0) - Number(b?.config?.index || 0));
+    this.workers.forEach((worker, idx) => {
+      if (worker) {
+        worker.workerSlot = idx + 1;
+      }
+    });
   }
 
   /**

@@ -28,7 +28,7 @@ const FALLBACK_PRICING = {
       name: 'Ultimate', pricePerMonth: 499, startingAt: '4,99',
       features: ['Bis zu 16 Bots', 'Alle Stationen + Custom URLs', 'Ultra HQ Audio (320k)', 'Instant Reconnect', 'Rollenbasierte Berechtigungen'],
       durationPricing: { 1: '4.99', 3: '3.99', 6: '3.49', 12: '2.99' },
-      seatPricing: { 1: '4.99', 2: '9.19', 3: '12.49', 5: '19.19' },
+      seatPricing: { 1: '4.99', 2: '7.99', 3: '10.99', 5: '16.99' },
     },
   },
 };
@@ -133,8 +133,8 @@ function CheckoutModal({ planId, tier, meta, durations, seatOptions, onClose }) 
         body: JSON.stringify({
           tier: planId, email: trimmedEmail,
           months: selectedDuration, seats: selectedSeats,
-          coupon: coupon.trim() || undefined,
-          referral: referral.trim() || undefined,
+          couponCode: coupon.trim() || undefined,
+          referralCode: referral.trim() || undefined,
           returnUrl: window.location.origin,
         }),
       });

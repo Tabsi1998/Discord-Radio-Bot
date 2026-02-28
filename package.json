@@ -12,8 +12,9 @@
     "stations:wizard": "node src/stations-cli.js wizard",
     "premium": "node src/premium-cli.js",
     "premium:wizard": "node src/premium-cli.js wizard",
-    "test": "npm run test:syntax",
-    "test:syntax": "node --check src/index.js && node --check src/deploy-commands.js && node --check src/stations-cli.js && node --check src/premium-cli.js && node --check src/bot-state.js && node --check src/premium-store.js && node --check src/song-history-store.js && node --check src/coupon-store.js && node --check src/guild-language-store.js && node --check src/email.js && node --check src/commands.js && node --check src/custom-stations.js && node --check src/stations-store.js && node --check src/scheduled-events-store.js && node --check src/bot-config.js && node --check src/i18n.js && node --check src/command-permissions-store.js && node --check src/config/plans.js && node --check src/config/command-permissions.js && node --check src/core/entitlements.js && node --check src/services/pricing.js && node --check src/services/stations.js && node --check src/ui/upgradeEmbeds.js && node --check src/discord/syncGuildCommandsSafe.js && node --check src/utils/commandSyncGuard.js"
+    "test": "npm run test:syntax && npm run test:unit",
+    "test:syntax": "node --check src/index.js && node --check src/deploy-commands.js && node --check src/stations-cli.js && node --check src/premium-cli.js && node --check src/bot-state.js && node --check src/premium-store.js && node --check src/song-history-store.js && node --check src/coupon-store.js && node --check src/guild-language-store.js && node --check src/email.js && node --check src/commands.js && node --check src/custom-stations.js && node --check src/stations-store.js && node --check src/scheduled-events-store.js && node --check src/bot-config.js && node --check src/i18n.js && node --check src/command-permissions-store.js && node --check src/config/plans.js && node --check src/config/command-permissions.js && node --check src/core/entitlements.js && node --check src/services/pricing.js && node --check src/services/stations.js && node --check src/ui/upgradeEmbeds.js && node --check src/discord/syncGuildCommandsSafe.js && node --check src/utils/commandSyncGuard.js",
+    "test:unit": "node --test test/*.test.js"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
