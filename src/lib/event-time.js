@@ -208,24 +208,26 @@ function parseEventStartDateTime(rawInput, language = "de", preferredTimeZone = 
   }
 
   const normalized = raw.replace("T", " ");
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?:\s+([A-Za-z0-9_+\-\/]+))?$/);
+  const match = normalized.match(
+    /^(?:(\d{4})[-\/](\d{2})[-\/](\d{2})|(\d{2})\.(\d{2})\.(\d{4}))\s+(\d{2}):(\d{2})(?:\s+([A-Za-z0-9_+\-\/]+))?$/
+  );
   if (!match) {
     return {
       ok: false,
       message: languagePick(
         language,
-        "Ungueltiges Format. Nutze `YYYY-MM-DD HH:MM` (optional mit TZ, z.B. `2026-03-01 20:30 CET`).",
-        "Invalid format. Use `YYYY-MM-DD HH:MM` (optionally with TZ, e.g. `2026-03-01 20:30 CET`)."
+        "Ungueltiges Format. Nutze `YYYY-MM-DD HH:MM` oder `DD.MM.YYYY HH:MM` (optional mit TZ, z.B. `2026-03-01 20:30 CET`).",
+        "Invalid format. Use `YYYY-MM-DD HH:MM` or `DD.MM.YYYY HH:MM` (optionally with TZ, e.g. `2026-03-01 20:30 CET`)."
       ),
     };
   }
 
-  const year = Number.parseInt(match[1], 10);
-  const month = Number.parseInt(match[2], 10);
-  const day = Number.parseInt(match[3], 10);
-  const hour = Number.parseInt(match[4], 10);
-  const minute = Number.parseInt(match[5], 10);
-  const inlineTimeZone = String(match[6] || "").trim();
+  const year = Number.parseInt(match[1] || match[6], 10);
+  const month = Number.parseInt(match[2] || match[5], 10);
+  const day = Number.parseInt(match[3] || match[4], 10);
+  const hour = Number.parseInt(match[7], 10);
+  const minute = Number.parseInt(match[8], 10);
+  const inlineTimeZone = String(match[9] || "").trim();
 
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) {
     return {
@@ -391,6 +393,8 @@ function renderEventAnnouncement(template, values, language = "de") {
     .replace(/\{station\}/gi, String(values?.station || "-"))
     .replace(/\{voice\}/gi, String(values?.voice || "-"))
     .replace(/\{time\}/gi, String(values?.time || "-"))
+    .replace(/\{end\}/gi, String(values?.end || "-"))
+    .replace(/\{timezone\}/gi, String(values?.timeZone || values?.timezone || "-"))
     .trim();
 }
 
@@ -400,6 +404,8 @@ function renderStageTopic(template, values) {
     .replace(/\{event\}/gi, String(values?.event || "-"))
     .replace(/\{station\}/gi, String(values?.station || "-"))
     .replace(/\{time\}/gi, String(values?.time || "-"))
+    .replace(/\{end\}/gi, String(values?.end || "-"))
+    .replace(/\{timezone\}/gi, String(values?.timeZone || values?.timezone || "-"))
     .trim();
 }
 

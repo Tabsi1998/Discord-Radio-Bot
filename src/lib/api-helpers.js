@@ -521,7 +521,7 @@ function getClientIp(req) {
 }
 
 function getApiRateLimitSpec(pathname) {
-  if (pathname === "/api/premium/webhook") {
+  if (pathname === "/api/premium/webhook" || pathname === "/api/discordbotlist/vote") {
     return {
       scope: "webhook",
       max: parseEnvInt("API_RATE_LIMIT_WEBHOOK_MAX", 60, 1, 10_000),

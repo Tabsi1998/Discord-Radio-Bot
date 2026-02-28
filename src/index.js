@@ -26,6 +26,13 @@ import {
   buildExpiryWarningEmail,
   buildExpiryEmail,
 } from "./email.js";
+import {
+  getDiscordBotListIntervals,
+  isDiscordBotListEnabled,
+  syncDiscordBotListCommands,
+  syncDiscordBotListStats,
+  syncDiscordBotListVotes,
+} from "./services/discordbotlist.js";
 
 const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
 
@@ -138,6 +145,79 @@ for (const runtime of startedRuntimes) {
 
 // ---- Web Server ----
 const webServer = startWebServer(runtimes);
+
+// ---- DiscordBotList Sync ----
+const discordBotListEnabled = isDiscordBotListEnabled(runtimes);
+if (discordBotListEnabled) {
+  const discordBotListIntervals = getDiscordBotListIntervals();
+  let discordBotListCommandsSyncRunning = false;
+  let discordBotListStatsSyncRunning = false;
+  let discordBotListVotesSyncRunning = false;
+
+  const runDiscordBotListCommandsSync = async (source = "periodic") => {
+    if (discordBotListCommandsSyncRunning) return;
+    discordBotListCommandsSyncRunning = true;
+    try {
+      await syncDiscordBotListCommands(runtimes);
+    } catch (err) {
+      log("ERROR", `[DiscordBotList] Command sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      discordBotListCommandsSyncRunning = false;
+    }
+  };
+
+  const runDiscordBotListStatsSync = async (source = "periodic") => {
+    if (discordBotListStatsSyncRunning) return;
+    discordBotListStatsSyncRunning = true;
+    try {
+      await syncDiscordBotListStats(runtimes);
+    } catch (err) {
+      log("ERROR", `[DiscordBotList] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      discordBotListStatsSyncRunning = false;
+    }
+  };
+
+  const runDiscordBotListVotesSync = async (source = "periodic") => {
+    if (discordBotListVotesSyncRunning) return;
+    discordBotListVotesSyncRunning = true;
+    try {
+      await syncDiscordBotListVotes(runtimes);
+    } catch (err) {
+      log("ERROR", `[DiscordBotList] Vote sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      discordBotListVotesSyncRunning = false;
+    }
+  };
+
+  const startupDelayMs = discordBotListIntervals.startupDelayMs;
+  log("INFO", `[DiscordBotList] Sync aktiviert (startupDelay=${startupDelayMs}ms).`);
+  setTimeout(() => {
+    runDiscordBotListCommandsSync("startup");
+    runDiscordBotListStatsSync("startup");
+    runDiscordBotListVotesSync("startup");
+  }, startupDelayMs);
+
+  if (discordBotListIntervals.commandsSyncMs > 0) {
+    setInterval(() => {
+      runDiscordBotListCommandsSync("periodic");
+    }, discordBotListIntervals.commandsSyncMs);
+  }
+
+  if (discordBotListIntervals.statsSyncMs > 0) {
+    setInterval(() => {
+      runDiscordBotListStatsSync("periodic");
+    }, discordBotListIntervals.statsSyncMs);
+  }
+
+  if (discordBotListIntervals.voteSyncMs > 0) {
+    setInterval(() => {
+      runDiscordBotListVotesSync("periodic");
+    }, discordBotListIntervals.voteSyncMs);
+  }
+} else {
+  log("INFO", "[DiscordBotList] Sync deaktiviert oder nicht konfiguriert.");
+}
 
 // ---- Periodic Tasks ----
 

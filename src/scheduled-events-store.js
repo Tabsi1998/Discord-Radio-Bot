@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildCustomStationReference, parseCustomStationReference } from "./custom-stations.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVENTS_FILE = path.resolve(__dirname, "..", "scheduled-events.json");
@@ -163,6 +164,10 @@ function sanitizeDiscordId(raw) {
 }
 
 function sanitizeStationKey(raw) {
+  const custom = parseCustomStationReference(raw);
+  if (custom.isCustom) {
+    return buildCustomStationReference(custom.key);
+  }
   return String(raw || "")
     .trim()
     .toLowerCase()
@@ -185,6 +190,13 @@ function sanitizeText(raw, maxLen = 300) {
   const text = String(raw || "").trim();
   if (!text) return null;
   return text.slice(0, maxLen);
+}
+
+function sanitizeDurationMs(raw) {
+  const value = Number.parseInt(String(raw || ""), 10);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  const maxDurationMs = 365 * 24 * 60 * 60 * 1000;
+  return Math.min(value, maxDurationMs);
 }
 
 function sanitizeRunAtMs(raw) {
@@ -224,10 +236,15 @@ function normalizeEvent(raw) {
   const createdByUserId = sanitizeDiscordId(raw.createdByUserId);
   const textChannelId = sanitizeDiscordId(raw.textChannelId);
   const announceMessage = sanitizeText(raw.announceMessage, 1200);
+  const description = sanitizeText(raw.description, 1000);
   const stageTopic = sanitizeText(raw.stageTopic, 120);
   const timeZone = sanitizeTimeZone(raw.timeZone);
   const createDiscordEvent = sanitizeBoolean(raw.createDiscordEvent, false);
   const discordScheduledEventId = sanitizeDiscordId(raw.discordScheduledEventId);
+  const durationMs = sanitizeDurationMs(raw.durationMs);
+  const activeUntilMs = sanitizeRunAtMs(raw.activeUntilMs) || 0;
+  const lastStopAtMs = sanitizeLastRunAtMs(raw.lastStopAtMs);
+  const deleteAfterStop = sanitizeBoolean(raw.deleteAfterStop, false);
 
   if (!id || !guildId || !voiceChannelId || !stationKey || !botId || !name || !runAtMs) {
     return null;
@@ -242,16 +259,21 @@ function normalizeEvent(raw) {
     voiceChannelId,
     textChannelId: textChannelId || null,
     announceMessage: announceMessage || null,
+    description: description || null,
     stageTopic: stageTopic || null,
     timeZone: timeZone || null,
     createDiscordEvent,
     discordScheduledEventId: discordScheduledEventId || null,
     repeat,
     runAtMs,
+    durationMs,
+    activeUntilMs,
     createdAt,
     createdByUserId: createdByUserId || null,
     enabled: raw.enabled !== false,
     lastRunAtMs: sanitizeLastRunAtMs(raw.lastRunAtMs),
+    lastStopAtMs,
+    deleteAfterStop,
   };
 }
 
@@ -452,6 +474,10 @@ function updateEventRunAtMs(eventId, runAtMs) {
   return Boolean(result?.ok);
 }
 
+function normalizeScheduledEventInput(eventData) {
+  return normalizeEvent(eventData);
+}
+
 export {
   listAllEvents,
   addEvent,
@@ -464,4 +490,5 @@ export {
   patchScheduledEvent,
   getScheduledEvent,
   deleteScheduledEventsByFilter,
+  normalizeScheduledEventInput,
 };

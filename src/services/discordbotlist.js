@@ -1,0 +1,326 @@
+import { buildCommandsJson } from "../commands.js";
+import { safeTokenEquals } from "../lib/api-helpers.js";
+import { clipText } from "../lib/helpers.js";
+import { log } from "../lib/logging.js";
+import {
+  getDiscordBotListState,
+  mergeDiscordBotListVotes,
+  recordDiscordBotListVote,
+  setDiscordBotListSyncStatus,
+} from "../discordbotlist-store.js";
+
+const DISCORD_BOT_LIST_API_BASE = "https://discordbotlist.com/api/v1";
+
+function parseEnvInt(name, fallback, min = 0) {
+  const parsed = Number.parseInt(String(process.env[name] ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, parsed);
+}
+
+function resolveCommanderRuntime(runtimes = []) {
+  return runtimes.find((runtime) => runtime?.role === "commander")
+    || runtimes[0]
+    || null;
+}
+
+function resolveDiscordBotListConfig(runtimes = []) {
+  const token = String(process.env.DISCORDBOTLIST_TOKEN || "").trim();
+  const explicitBotId = String(process.env.DISCORDBOTLIST_BOT_ID || "").trim();
+  const webhookSecret = String(process.env.DISCORDBOTLIST_WEBHOOK_SECRET || "").trim();
+  const commanderRuntime = resolveCommanderRuntime(runtimes);
+  const botId = explicitBotId
+    || String(commanderRuntime?.getApplicationId?.() || commanderRuntime?.config?.clientId || "").trim();
+  const enabled = String(process.env.DISCORDBOTLIST_ENABLED ?? (token ? "1" : "0")).trim() !== "0"
+    && Boolean(token)
+    && /^\d{17,22}$/.test(botId);
+  const statsScope = String(process.env.DISCORDBOTLIST_STATS_SCOPE || "commander").trim().toLowerCase() === "aggregate"
+    ? "aggregate"
+    : "commander";
+
+  return {
+    enabled,
+    token,
+    botId,
+    webhookSecret,
+    statsScope,
+    commanderRuntime,
+  };
+}
+
+function isDiscordBotListEnabled(runtimes = []) {
+  return resolveDiscordBotListConfig(runtimes).enabled;
+}
+
+function buildDiscordBotListCommandsPayload() {
+  return buildCommandsJson();
+}
+
+function collectAggregateStats(runtimes = []) {
+  const guildMembers = new Map();
+  let voiceConnections = 0;
+
+  for (const runtime of runtimes) {
+    if (!runtime?.client?.isReady?.()) continue;
+    const stats = runtime.collectStats?.() || {};
+    voiceConnections += Number(stats.connections || 0) || 0;
+    for (const guild of runtime.client.guilds.cache.values()) {
+      const guildId = String(guild?.id || "").trim();
+      if (!guildId) continue;
+      const currentCount = Number(guild.memberCount || 0) || 0;
+      guildMembers.set(guildId, Math.max(guildMembers.get(guildId) || 0, currentCount));
+    }
+  }
+
+  return {
+    guilds: guildMembers.size,
+    users: [...guildMembers.values()].reduce((sum, value) => sum + value, 0),
+    voiceConnections,
+    scope: "aggregate",
+  };
+}
+
+function collectCommanderStats(runtimes = []) {
+  const commanderRuntime = resolveCommanderRuntime(runtimes);
+  const stats = commanderRuntime?.collectStats?.() || {};
+  return {
+    guilds: Number(stats.servers || 0) || 0,
+    users: Number(stats.users || 0) || 0,
+    voiceConnections: Number(stats.connections || 0) || 0,
+    scope: "commander",
+  };
+}
+
+function collectDiscordBotListStats(runtimes = [], scope = null) {
+  const config = resolveDiscordBotListConfig(runtimes);
+  const resolvedScope = scope || config.statsScope;
+  return resolvedScope === "aggregate"
+    ? collectAggregateStats(runtimes)
+    : collectCommanderStats(runtimes);
+}
+
+async function discordBotListRequest(method, path, { token, body } = {}) {
+  const endpoint = `${DISCORD_BOT_LIST_API_BASE}${path}`;
+  const headers = {
+    Authorization: token,
+  };
+
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const response = await fetch(endpoint, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  const rawText = await response.text();
+  let parsed = null;
+  if (rawText.trim()) {
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      parsed = { raw: rawText };
+    }
+  }
+
+  if (!response.ok) {
+    const message = parsed?.error || parsed?.message || clipText(rawText, 240) || `HTTP ${response.status}`;
+    throw new Error(`${method} ${path} failed (${response.status}): ${message}`);
+  }
+
+  return parsed || { success: true };
+}
+
+async function syncDiscordBotListCommands(runtimes = []) {
+  const config = resolveDiscordBotListConfig(runtimes);
+  if (!config.enabled) {
+    return { ok: false, skipped: true, reason: "not_configured" };
+  }
+
+  const commands = buildDiscordBotListCommandsPayload();
+  try {
+    const response = await discordBotListRequest("POST", `/bots/${config.botId}/commands`, {
+      token: config.token,
+      body: commands,
+    });
+    setDiscordBotListSyncStatus("commands", {
+      ok: true,
+      botId: config.botId,
+      details: {
+        commandCount: commands.length,
+      },
+    });
+    log("INFO", `[DiscordBotList] Commands synced: bot=${config.botId} count=${commands.length}`);
+    return { ok: true, response, commandCount: commands.length, botId: config.botId };
+  } catch (err) {
+    setDiscordBotListSyncStatus("commands", {
+      ok: false,
+      botId: config.botId,
+      error: err?.message || String(err),
+    });
+    throw err;
+  }
+}
+
+async function syncDiscordBotListStats(runtimes = [], { scope = null } = {}) {
+  const config = resolveDiscordBotListConfig(runtimes);
+  if (!config.enabled) {
+    return { ok: false, skipped: true, reason: "not_configured" };
+  }
+
+  const stats = collectDiscordBotListStats(runtimes, scope);
+  const payload = {
+    guilds: stats.guilds,
+    users: stats.users,
+    voice_connections: stats.voiceConnections,
+  };
+
+  try {
+    const response = await discordBotListRequest("POST", `/bots/${config.botId}/stats`, {
+      token: config.token,
+      body: payload,
+    });
+    setDiscordBotListSyncStatus("stats", {
+      ok: true,
+      botId: config.botId,
+      details: {
+        scope: stats.scope,
+        ...payload,
+      },
+    });
+    log(
+      "INFO",
+      `[DiscordBotList] Stats synced: bot=${config.botId} scope=${stats.scope} guilds=${payload.guilds} users=${payload.users} voice=${payload.voice_connections}`
+    );
+    return { ok: true, response, botId: config.botId, ...payload, scope: stats.scope };
+  } catch (err) {
+    setDiscordBotListSyncStatus("stats", {
+      ok: false,
+      botId: config.botId,
+      error: err?.message || String(err),
+      details: {
+        scope: stats.scope,
+        ...payload,
+      },
+    });
+    throw err;
+  }
+}
+
+async function syncDiscordBotListVotes(runtimes = []) {
+  const config = resolveDiscordBotListConfig(runtimes);
+  if (!config.enabled) {
+    return { ok: false, skipped: true, reason: "not_configured" };
+  }
+
+  try {
+    const response = await discordBotListRequest("GET", `/bots/${config.botId}/upvotes`, {
+      token: config.token,
+    });
+    const entries = Array.isArray(response?.upvotes) ? response.upvotes : [];
+    const merged = mergeDiscordBotListVotes(entries, {
+      source: "api",
+      total: response?.total,
+    });
+    setDiscordBotListSyncStatus("votes", {
+      ok: true,
+      botId: config.botId,
+      source: "api",
+      details: {
+        received: entries.length,
+        added: merged.added,
+        totalVotes: merged.totalVotes,
+      },
+    });
+    log("INFO", `[DiscordBotList] Votes synced: bot=${config.botId} received=${entries.length} added=${merged.added}`);
+    return {
+      ok: true,
+      botId: config.botId,
+      received: entries.length,
+      added: merged.added,
+      totalVotes: merged.totalVotes,
+    };
+  } catch (err) {
+    setDiscordBotListSyncStatus("votes", {
+      ok: false,
+      botId: config.botId,
+      source: "api",
+      error: err?.message || String(err),
+    });
+    throw err;
+  }
+}
+
+function handleDiscordBotListVoteWebhook(headers = {}, rawBody = {}) {
+  const config = resolveDiscordBotListConfig([]);
+  if (!config.webhookSecret) {
+    return { ok: false, status: 503, error: "DiscordBotList Webhook ist nicht konfiguriert." };
+  }
+
+  const authHeader = Array.isArray(headers?.authorization)
+    ? headers.authorization[0]
+    : headers?.authorization;
+  if (!safeTokenEquals(String(authHeader || ""), config.webhookSecret)) {
+    return { ok: false, status: 401, error: "Unauthorized." };
+  }
+
+  const recorded = recordDiscordBotListVote(rawBody, { source: "webhook" });
+  if (!recorded.ok) {
+    return { ok: false, status: 400, error: "Ungueltiger Vote-Payload." };
+  }
+
+  setDiscordBotListSyncStatus("votes", {
+    ok: true,
+    botId: config.botId || null,
+    source: "webhook",
+    details: {
+      userId: recorded.vote.userId,
+      username: recorded.vote.username,
+      totalVotes: recorded.totalVotes,
+    },
+  });
+  log("INFO", `[DiscordBotList] Vote erhalten: user=${recorded.vote.userId} username=${recorded.vote.username}`);
+  return {
+    ok: true,
+    status: 200,
+    added: recorded.added,
+    vote: recorded.vote,
+    totalVotes: recorded.totalVotes,
+  };
+}
+
+function getDiscordBotListStatus(runtimes = [], { voteLimit = 20 } = {}) {
+  const config = resolveDiscordBotListConfig(runtimes);
+  const state = getDiscordBotListState({
+    voteLimit: Math.max(0, Number.parseInt(String(voteLimit || 0), 10) || 0),
+  });
+  return {
+    configured: config.enabled,
+    botId: config.botId || null,
+    statsScope: config.statsScope,
+    state,
+  };
+}
+
+function getDiscordBotListIntervals() {
+  return {
+    startupDelayMs: parseEnvInt("DISCORDBOTLIST_STARTUP_DELAY_MS", 15_000, 0),
+    commandsSyncMs: parseEnvInt("DISCORDBOTLIST_COMMANDS_SYNC_MS", 6 * 60 * 60_000, 0),
+    statsSyncMs: parseEnvInt("DISCORDBOTLIST_STATS_SYNC_MS", 30 * 60_000, 0),
+    voteSyncMs: parseEnvInt("DISCORDBOTLIST_VOTE_SYNC_MS", 30 * 60_000, 0),
+  };
+}
+
+export {
+  buildDiscordBotListCommandsPayload,
+  collectDiscordBotListStats,
+  getDiscordBotListIntervals,
+  getDiscordBotListStatus,
+  handleDiscordBotListVoteWebhook,
+  isDiscordBotListEnabled,
+  resolveDiscordBotListConfig,
+  syncDiscordBotListCommands,
+  syncDiscordBotListStats,
+  syncDiscordBotListVotes,
+};

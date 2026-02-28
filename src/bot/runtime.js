@@ -113,6 +113,8 @@ import {
   removeGuildStation,
   countGuildStations,
   MAX_STATIONS_PER_GUILD,
+  buildCustomStationReference,
+  parseCustomStationReference,
   validateCustomStationUrl,
 } from "../custom-stations.js";
 import { getTier, checkFeatureAccess, getMaxBots, requireFeature, getServerPlanConfig } from "../core/entitlements.js";
@@ -215,6 +217,8 @@ const VOICE_CHANNEL_STATUS_TEMPLATE =
   || "\uD83D\uDD0A | 24/7 {station}";
 const VOICE_CHANNEL_STATUS_MAX_LENGTH = Math.max(1, Math.min(100, toPositiveInt(process.env.VOICE_CHANNEL_STATUS_MAX_LENGTH, 80)));
 const ONBOARDING_MESSAGE_ENABLED = String(process.env.ONBOARDING_MESSAGE_ENABLED ?? "1") !== "0";
+const VOICE_STATE_RECONCILE_ENABLED = String(process.env.VOICE_STATE_RECONCILE_ENABLED ?? "1") !== "0";
+const VOICE_STATE_RECONCILE_MS = Math.max(15_000, toPositiveInt(process.env.VOICE_STATE_RECONCILE_MS, 30_000));
 
 
 class BotRuntime {
@@ -234,6 +238,7 @@ class BotRuntime {
     this.readyAt = null;
     this.startError = null;
     this.eventSchedulerTimer = null;
+    this.voiceHealthTimer = null;
     this.scheduledEventInFlight = new Set();
     this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered(() => {
       this.handleNetworkRecovered();
@@ -263,6 +268,7 @@ class BotRuntime {
           log("ERROR", `[${this.config.name}] Worker-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
         });
       }
+      this.startVoiceStateReconciler();
     });
 
     // Only commander handles interactions (slash commands)
@@ -354,6 +360,8 @@ class BotRuntime {
         nowPlayingLastErrorAt: 0,
         voiceStatusText: "",
         lastVoiceStatusErrorAt: 0,
+        activeScheduledEventId: null,
+        activeScheduledEventStopAtMs: 0,
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
@@ -802,8 +810,8 @@ class BotRuntime {
     if (!channel) return;
 
     const stationKey = state.currentStationKey;
-    const stations = loadStations();
-    const station = stations.stations[stationKey];
+    const resolvedStation = this.getResolvedCurrentStation(guildId, state);
+    const station = resolvedStation?.station || null;
     if (!station?.url) return;
 
     try {
@@ -957,6 +965,14 @@ class BotRuntime {
     if (!state.connection) return;
 
     const now = Date.now();
+    if (this.isScheduledEventStopDue(state.activeScheduledEventStopAtMs, now)) {
+      log(
+        "INFO",
+        `[${this.config.name}] Geplantes Event-Ende erreicht, Stream wird gestoppt (guild=${guildId}, event=${state.activeScheduledEventId || "-"})`
+      );
+      this.stopInGuild(guildId);
+      return;
+    }
     const streamLifetimeMs = state.lastStreamStartAt ? (now - state.lastStreamStartAt) : 0;
     const earlyIdle = reason === "idle" && streamLifetimeMs > 0 && streamLifetimeMs < 5000;
     const recentProcessFailure = (state.lastProcessExitCode ?? 0) !== 0
@@ -1077,15 +1093,20 @@ class BotRuntime {
 
   async restartCurrentStation(state, guildId) {
     if (!state.shouldReconnect || !state.currentStationKey) return;
+    if (this.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
+      this.stopInGuild(guildId);
+      return;
+    }
 
-    const stations = loadStations();
+    const resolvedStation = this.getResolvedCurrentStation(guildId, state);
     const key = state.currentStationKey;
-    if (!stations.stations[key]) {
+    if (!resolvedStation?.stations || !resolvedStation?.station) {
       this.clearNowPlayingTimer(state);
       state.currentStationKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
+      this.clearScheduledEventPlayback(state);
       this.updatePresence();
       return;
     }
@@ -1098,16 +1119,19 @@ class BotRuntime {
 
     try {
       this.clearCurrentProcess(state);
-      await this.playStation(state, stations, key, guildId);
-      log("INFO", `[${this.config.name}] Stream restarted: ${key}`);
+      state.currentStationKey = resolvedStation.key;
+      state.currentStationName = resolvedStation.station.name || resolvedStation.key;
+      await this.playStation(state, resolvedStation.stations, resolvedStation.key, guildId);
+      log("INFO", `[${this.config.name}] Stream restarted: ${resolvedStation.key}`);
     } catch (err) {
       state.lastStreamErrorAt = new Date().toISOString();
       log("ERROR", `[${this.config.name}] Auto-restart error for ${key}: ${err.message}`);
 
-      const fallbackKey = getFallbackKey(stations, key);
-      if (fallbackKey && stations.stations[fallbackKey]) {
+      const isCustomStation = this.normalizeStationReference(key).isCustom;
+      const fallbackKey = !isCustomStation ? getFallbackKey(resolvedStation.stations, resolvedStation.key) : null;
+      if (fallbackKey && resolvedStation.stations.stations[fallbackKey]) {
         try {
-          await this.playStation(state, stations, fallbackKey, guildId);
+          await this.playStation(state, resolvedStation.stations, fallbackKey, guildId);
           log("INFO", `[${this.config.name}] Fallback to ${fallbackKey} after restart failure`);
         } catch (fallbackErr) {
           log("ERROR", `[${this.config.name}] Fallback restart also failed: ${fallbackErr.message}`);
@@ -1306,24 +1330,21 @@ class BotRuntime {
     // Bot hat Channel gewechselt oder ist einem beigetreten
     if (newChannelId) {
       state.lastChannelId = newChannelId;
+      this.persistState();
       return;
     }
 
     // Bot hat Voice verlassen
     if (!oldChannelId) return;
 
-    // Destroy connection FIRST (so handleStreamEnd triggered by player.stop sees connection=null and skips)
-    if (state.connection) {
-      try { state.connection.destroy(); } catch {}
-      state.connection = null;
-    }
-    // Now safe to stop player - Idle event fires, handleStreamEnd checks connection (null) and returns
-    state.player.stop();
-    this.clearCurrentProcess(state);
+    const shouldAutoReconnect = Boolean(state.shouldReconnect && state.currentStationKey && state.lastChannelId);
+    this.resetVoiceSession(guildId, state, {
+      preservePlaybackTarget: shouldAutoReconnect,
+      clearLastChannel: !shouldAutoReconnect,
+    });
 
     // Auto-reconnect: schedule if we should reconnect and had an active station
-    if (state.shouldReconnect && state.currentStationKey && state.lastChannelId) {
-      this.clearNowPlayingTimer(state);
+    if (shouldAutoReconnect) {
       log("INFO",
         `[${this.config.name}] Voice lost (Guild ${guildId}, Channel ${oldChannelId}). Scheduling auto-reconnect...`
       );
@@ -1336,18 +1357,141 @@ class BotRuntime {
     log("INFO",
       `[${this.config.name}] Voice left (Guild ${guildId}, Channel ${oldChannelId}). No reconnect.`
     );
-    this.syncVoiceChannelStatus(guildId, "").catch(() => null);
+    this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+  }
+
+  resetVoiceSession(guildId, state, { preservePlaybackTarget = false, clearLastChannel = false } = {}) {
+    if (!state) return;
+
+    if (state.connection) {
+      try { state.connection.destroy(); } catch {}
+      state.connection = null;
+    }
+
+    state.player.stop();
+    this.clearCurrentProcess(state);
     this.clearReconnectTimer(state);
     this.clearNowPlayingTimer(state);
-    state.currentStationKey = null;
-    state.currentStationName = null;
-    state.currentMeta = null;
-    state.nowPlayingSignature = null;
-    state.lastChannelId = null;
-    state.reconnectAttempts = 0;
-    state.streamErrorCount = 0;
+    this.syncVoiceChannelStatus(guildId, "").catch(() => null);
+
+    if (!preservePlaybackTarget) {
+      state.currentStationKey = null;
+      state.currentStationName = null;
+      state.currentMeta = null;
+      state.nowPlayingSignature = null;
+      this.clearScheduledEventPlayback(state);
+    }
+
+    if (clearLastChannel) {
+      state.lastChannelId = null;
+    }
+
+    if (!preservePlaybackTarget) {
+      state.reconnectAttempts = 0;
+      state.streamErrorCount = 0;
+    }
+
     this.updatePresence();
     this.persistState();
+  }
+
+  async fetchBotVoiceState(guildId) {
+    const guild = this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return { guild: null, voiceState: null, channelId: null };
+
+    try {
+      const voiceState = await guild.voiceStates.fetch("@me", { force: true, cache: true });
+      return { guild, voiceState, channelId: voiceState?.channelId || null };
+    } catch {
+      return { guild, voiceState: null, channelId: null };
+    }
+  }
+
+  async reconcileGuildVoiceState(guildId, { reason = "periodic" } = {}) {
+    if (!this.client.isReady()) return;
+    const state = this.guildState.get(guildId);
+    if (!state) return;
+    if (!state.connection && !state.currentStationKey && !state.lastChannelId) return;
+
+    const { channelId: actualChannelId } = await this.fetchBotVoiceState(guildId);
+    const expectedChannelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
+
+    if (actualChannelId && state.lastChannelId !== actualChannelId) {
+      state.lastChannelId = actualChannelId;
+      this.persistState();
+    }
+
+    if (!actualChannelId) {
+      const shouldReconnect = Boolean(state.shouldReconnect && state.currentStationKey && state.lastChannelId);
+      if (!state.connection && !state.currentProcess && !shouldReconnect) return;
+
+      log(
+        "WARN",
+        `[${this.config.name}] Voice-State abweichend erkannt (guild=${guildId}, expected=${expectedChannelId || "-"}, reason=${reason}).`
+      );
+      this.resetVoiceSession(guildId, state, {
+        preservePlaybackTarget: shouldReconnect,
+        clearLastChannel: !shouldReconnect,
+      });
+      if (shouldReconnect) {
+        this.scheduleReconnect(guildId, { resetAttempts: true, reason: `voice-state-${reason}` });
+      }
+      return;
+    }
+
+    if (expectedChannelId && actualChannelId !== expectedChannelId) {
+      log(
+        "INFO",
+        `[${this.config.name}] Voice-Channel-Mismatch korrigiert (guild=${guildId}, expected=${expectedChannelId}, actual=${actualChannelId}, reason=${reason}).`
+      );
+      state.lastChannelId = actualChannelId;
+      if (state.connection?.joinConfig?.channelId && state.connection.joinConfig.channelId !== actualChannelId) {
+        this.resetVoiceSession(guildId, state, { preservePlaybackTarget: true, clearLastChannel: false });
+        this.scheduleReconnect(guildId, { resetAttempts: true, reason: "voice-channel-mismatch" });
+        return;
+      }
+      this.persistState();
+    }
+
+    if (!state.connection && state.currentStationKey && state.lastChannelId) {
+      this.scheduleReconnect(guildId, { resetAttempts: true, reason: `voice-no-local-connection-${reason}` });
+      return;
+    }
+
+    if (state.currentStationKey && state.player.state.status === AudioPlayerStatus.Idle && !state.streamRestartTimer) {
+      this.scheduleStreamRestart(guildId, state, 750, `voice-health-${reason}`);
+    }
+  }
+
+  async tickVoiceStateHealth() {
+    if (!VOICE_STATE_RECONCILE_ENABLED) return;
+    if (!this.client.isReady()) return;
+
+    for (const guildId of this.guildState.keys()) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.reconcileGuildVoiceState(guildId, { reason: "timer" });
+    }
+  }
+
+  startVoiceStateReconciler() {
+    if (!VOICE_STATE_RECONCILE_ENABLED) return;
+    if (this.voiceHealthTimer) return;
+
+    const run = () => {
+      this.tickVoiceStateHealth().catch((err) => {
+        log("ERROR", `[${this.config.name}] Voice-State-Reconcile Fehler: ${err?.message || err}`);
+      });
+    };
+
+    run();
+    this.voiceHealthTimer = setInterval(run, VOICE_STATE_RECONCILE_MS);
+  }
+
+  stopVoiceStateReconciler() {
+    if (this.voiceHealthTimer) {
+      clearInterval(this.voiceHealthTimer);
+      this.voiceHealthTimer = null;
+    }
   }
 
   attachConnectionHandlers(guildId, connection) {
@@ -1378,11 +1522,15 @@ class BotRuntime {
         log("INFO", `[${this.config.name}] Voice connection recovery failed for guild=${guildId}, destroying`);
         markDisconnected();
         try { connection.destroy(); } catch { /* ignore */ }
+        this.scheduleReconnect(guildId, { reason: "voice-disconnected" });
       }
     });
 
     connection.on(VoiceConnectionStatus.Destroyed, () => {
       markDisconnected();
+      if (state.shouldReconnect && state.currentStationKey && state.lastChannelId) {
+        this.scheduleReconnect(guildId, { reason: "voice-destroyed" });
+      }
     });
 
     connection.on("error", (err) => {
@@ -2215,24 +2363,42 @@ class BotRuntime {
     await interaction.reply({ content: t("Unbekannte /perm Aktion.", "Unknown /perm action."), ephemeral: true });
   }
 
+  normalizeStationReference(rawStationKey) {
+    const customRef = parseCustomStationReference(rawStationKey);
+    if (customRef.isCustom) {
+      return {
+        key: customRef.reference || "",
+        lookupKey: customRef.key || "",
+        isCustom: true,
+      };
+    }
+
+    const normalized = normalizeKey(rawStationKey);
+    return {
+      key: normalized,
+      lookupKey: normalized,
+      isCustom: false,
+    };
+  }
+
   resolveStationForGuild(guildId, rawStationKey, language = "de") {
     const t = (de, en) => languagePick(language, de, en);
-    const key = normalizeKey(rawStationKey);
-    if (!key) {
+    const stationRef = this.normalizeStationReference(rawStationKey);
+    if (!stationRef.key || !stationRef.lookupKey) {
       return { ok: false, message: t("Stations-Key ist ungueltig.", "Station key is invalid.") };
     }
 
     const stations = loadStations();
     const guildTier = getTier(guildId);
     const available = filterStationsByTier(stations.stations, guildTier);
-    if (available[key]) {
-      stations.stations[key] = available[key];
-      return { ok: true, key, station: available[key], stations };
+    if (!stationRef.isCustom && available[stationRef.key]) {
+      stations.stations[stationRef.key] = available[stationRef.key];
+      return { ok: true, key: stationRef.key, station: available[stationRef.key], stations, isCustom: false };
     }
 
     if (guildTier === "ultimate") {
       const customStations = getGuildStations(guildId);
-      const custom = customStations[key];
+      const custom = customStations[stationRef.lookupKey];
       if (custom) {
         const validation = validateCustomStationUrl(custom.url);
         if (!validation.ok) {
@@ -2240,15 +2406,191 @@ class BotRuntime {
           return { ok: false, message: t(`Custom-Station kann nicht genutzt werden: ${translated}`, `Custom station cannot be used: ${translated}`) };
         }
         const station = { name: custom.name, url: validation.url, tier: "ultimate" };
-        stations.stations[key] = station;
-        return { ok: true, key, station, stations };
+        const resolvedKey = buildCustomStationReference(stationRef.lookupKey) || stationRef.key;
+        stations.stations[resolvedKey] = station;
+        return { ok: true, key: resolvedKey, station, stations, isCustom: true };
       }
     }
 
-    if (stations.stations[key]) {
-      return { ok: false, message: t(`Station \`${key}\` ist in deinem Plan nicht verfuegbar.`, `Station \`${key}\` is not available in your plan.`) };
+    if (!stationRef.isCustom && stations.stations[stationRef.key]) {
+      return {
+        ok: false,
+        message: t(
+          `Station \`${stationRef.key}\` ist in deinem Plan nicht verfuegbar.`,
+          `Station \`${stationRef.key}\` is not available in your plan.`
+        )
+      };
     }
-    return { ok: false, message: t(`Station \`${key}\` wurde nicht gefunden.`, `Station \`${key}\` was not found.`) };
+    return {
+      ok: false,
+      message: t(
+        `Station \`${stationRef.key}\` wurde nicht gefunden.`,
+        `Station \`${stationRef.key}\` was not found.`
+      )
+    };
+  }
+
+  getResolvedCurrentStation(guildId, state, language = null) {
+    if (!state?.currentStationKey) return null;
+    const resolved = this.resolveStationForGuild(guildId, state.currentStationKey, language || this.resolveGuildLanguage(guildId));
+    return resolved.ok ? resolved : null;
+  }
+
+  clearScheduledEventPlayback(state) {
+    if (!state) return;
+    state.activeScheduledEventId = null;
+    state.activeScheduledEventStopAtMs = 0;
+  }
+
+  markScheduledEventPlayback(state, eventId, stopAtMs = 0) {
+    if (!state) return;
+    const normalizedId = String(eventId || "").trim();
+    state.activeScheduledEventId = normalizedId || null;
+    const normalizedStopAtMs = Number.parseInt(String(stopAtMs || 0), 10);
+    state.activeScheduledEventStopAtMs = Number.isFinite(normalizedStopAtMs) && normalizedStopAtMs > 0
+      ? normalizedStopAtMs
+      : 0;
+  }
+
+  setScheduledEventPlaybackInGuild(guildId, eventId, stopAtMs = 0) {
+    const state = this.getState(guildId);
+    this.markScheduledEventPlayback(state, eventId, stopAtMs);
+    this.persistState();
+    return { ok: true };
+  }
+
+  clearScheduledEventPlaybackInGuild(guildId) {
+    const state = this.guildState.get(guildId);
+    if (!state) return { ok: false, error: "Kein State fuer diesen Server." };
+    this.clearScheduledEventPlayback(state);
+    this.persistState();
+    return { ok: true };
+  }
+
+  getScheduledEventEndAtMs(event, runAtMs = null) {
+    const durationMs = Number.parseInt(String(event?.durationMs || 0), 10);
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return 0;
+    const baseRunAtMs = Number.parseInt(String(runAtMs ?? event?.runAtMs ?? 0), 10);
+    if (!Number.isFinite(baseRunAtMs) || baseRunAtMs <= 0) return 0;
+    return baseRunAtMs + durationMs;
+  }
+
+  formatDiscordTimestamp(ms, style = "F") {
+    const value = Number.parseInt(String(ms || 0), 10);
+    if (!Number.isFinite(value) || value <= 0) return "-";
+    return `<t:${Math.floor(value / 1000)}:${style}>`;
+  }
+
+  normalizeClearableText(rawValue, maxLen) {
+    if (rawValue === undefined || rawValue === null) return undefined;
+    const trimmed = clipText(String(rawValue || "").trim(), maxLen);
+    if (!trimmed) return null;
+    const lower = trimmed.toLowerCase();
+    if (["-", "clear", "none", "off"].includes(lower)) return null;
+    return trimmed;
+  }
+
+  isScheduledEventStopDue(stopAtMs, now = Date.now()) {
+    const normalizedStopAtMs = Number.parseInt(String(stopAtMs || 0), 10);
+    return Number.isFinite(normalizedStopAtMs) && normalizedStopAtMs > 0 && now >= normalizedStopAtMs;
+  }
+
+  buildScheduledEventServerDescription(event, stationName) {
+    const baseDescription = clipText(String(event?.description || "").trim(), 850);
+    const details = `OmniFM Auto-Event | Station: ${clipText(stationName || event?.stationKey || "-", 120)}`;
+    return clipText(baseDescription ? `${baseDescription}\n\n${details}` : details, 1000);
+  }
+
+  validateDiscordScheduledEventPermissions(guild, channel, language = "de") {
+    if (!guild || !channel) {
+      return languagePick(language, "Guild oder Channel fehlt.", "Guild or channel is missing.");
+    }
+
+    const me = guild.members.me;
+    if (!me) {
+      return languagePick(language, "Bot-Mitglied konnte nicht geladen werden.", "Could not resolve the bot member.");
+    }
+
+    const guildPerms = me.permissions;
+    const channelPerms = channel.permissionsFor(me);
+    const missing = [];
+
+    if (!guildPerms?.has(PermissionFlagsBits.CreateEvents)) {
+      missing.push("Create Events");
+    }
+    if (!channelPerms?.has(PermissionFlagsBits.ViewChannel)) {
+      missing.push("View Channel");
+    }
+    if (!channelPerms?.has(PermissionFlagsBits.Connect)) {
+      missing.push("Connect");
+    }
+
+    if (channel.type === ChannelType.GuildStageVoice) {
+      if (!guildPerms?.has(PermissionFlagsBits.ManageChannels)) {
+        missing.push("Manage Channels");
+      }
+      if (!guildPerms?.has(PermissionFlagsBits.MuteMembers)) {
+        missing.push("Mute Members");
+      }
+      if (!guildPerms?.has(PermissionFlagsBits.MoveMembers)) {
+        missing.push("Move Members");
+      }
+    }
+
+    if (!missing.length) return null;
+    return languagePick(
+      language,
+      `Discord-Server-Event nicht moeglich. Fehlende Rechte: ${missing.join(", ")}.`,
+      `Discord server event is not possible. Missing permissions: ${missing.join(", ")}.`
+    );
+  }
+
+  buildScheduledEventSummary(event, stationName, language = "de", { includeId = true } = {}) {
+    const now = Date.now();
+    const timeZone = normalizeEventTimeZone(event?.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+    const effectiveEndAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10) > 0
+      ? Number.parseInt(String(event.activeUntilMs), 10)
+      : this.getScheduledEventEndAtMs(event, event?.runAtMs);
+    const isActive = effectiveEndAtMs > now && Number(event?.lastStopAtMs || 0) < effectiveEndAtMs;
+    const status = !event?.enabled
+      ? languagePick(language, "pausiert", "paused")
+      : isActive
+        ? `${languagePick(language, "aktiv bis", "active until")} ${this.formatDiscordTimestamp(effectiveEndAtMs, "F")}`
+        : languagePick(language, "geplant", "scheduled");
+    const stationLine = stationName && stationName !== event?.stationKey
+      ? `\`${event?.stationKey || "-"}\` (${stationName})`
+      : `\`${event?.stationKey || "-"}\``;
+    const lines = [];
+
+    if (includeId) {
+      lines.push(`\`${event?.id || "-"}\` • **${clipText(event?.name || "-", 80)}**`);
+    } else {
+      lines.push(`**${clipText(event?.name || "-", 80)}**`);
+    }
+
+    lines.push(`${languagePick(language, "Status", "Status")}: ${status}`);
+    lines.push(`${languagePick(language, "Station", "Station")}: ${stationLine}`);
+    lines.push(`${languagePick(language, "Voice/Stage", "Voice/Stage")}: <#${event?.voiceChannelId || "-"}>`);
+    lines.push(`${languagePick(language, "Start", "Start")}: ${this.formatDiscordTimestamp(event?.runAtMs, "F")} (${formatDateTime(event?.runAtMs, language, timeZone)})`);
+    lines.push(
+      `${languagePick(language, "Ende", "End")}: ${
+        effectiveEndAtMs > 0
+          ? `${this.formatDiscordTimestamp(effectiveEndAtMs, "F")} (${formatDateTime(effectiveEndAtMs, language, timeZone)})`
+          : languagePick(language, "offen", "open")
+      }`
+    );
+    lines.push(`${languagePick(language, "Wiederholung", "Repeat")}: ${getRepeatLabel(event?.repeat, language, { runAtMs: event?.runAtMs, timeZone })}`);
+    lines.push(`${languagePick(language, "Zeitzone", "Time zone")}: \`${timeZone}\``);
+    lines.push(`${languagePick(language, "Ankuendigung", "Announcement")}: ${event?.textChannelId ? `<#${event.textChannelId}>` : languagePick(language, "aus", "off")}`);
+    lines.push(`${languagePick(language, "Server-Event", "Server event")}: ${event?.createDiscordEvent ? (event?.discordScheduledEventId ? `on (\`${event.discordScheduledEventId}\`)` : "on") : "off"}`);
+    if (event?.stageTopic) {
+      lines.push(`${languagePick(language, "Stage-Thema", "Stage topic")}: \`${event.stageTopic}\``);
+    }
+    if (event?.description) {
+      lines.push(`${languagePick(language, "Beschreibung", "Description")}: ${clipText(event.description, 180)}`);
+    }
+
+    return lines.join("\n");
   }
 
   async resolveGuildVoiceChannel(guildId, channelId) {
@@ -2353,6 +2695,7 @@ class BotRuntime {
       : minDiscordStartMs;
 
     const stationName = clipText(station?.name || event.stationKey || "-", 100) || "-";
+    const scheduledEndAtMs = this.getScheduledEventEndAtMs(event, scheduledRunAtMs);
     const payload = {
       name: clipText(event.name || stationName || `${BRAND.name} Event`, 100),
       scheduledStartTime: new Date(scheduledRunAtMs),
@@ -2361,16 +2704,17 @@ class BotRuntime {
         ? GuildScheduledEventEntityType.StageInstance
         : GuildScheduledEventEntityType.Voice,
       channel,
-      description: clipText(`OmniFM Auto-Event | Station: ${stationName}`, 1000),
+      description: this.buildScheduledEventServerDescription(event, stationName),
       reason: `OmniFM scheduled event ${event.id}`,
     };
+    if (scheduledEndAtMs > scheduledRunAtMs) {
+      payload.scheduledEndTime = new Date(scheduledEndAtMs);
+    }
 
     const existingId = String(event.discordScheduledEventId || "").trim();
     let scheduledEvent = null;
 
-    if (existingId && forceCreate) {
-      await this.deleteDiscordScheduledEventById(guild.id, existingId);
-    } else if (existingId) {
+    if (!forceCreate && existingId) {
       const existingEvent = await guild.scheduledEvents.fetch(existingId).catch(() => null);
       if (existingEvent) {
         scheduledEvent = await existingEvent.edit(payload).catch(() => null);
@@ -2472,11 +2816,16 @@ class BotRuntime {
     const perms = channel.permissionsFor?.(me);
     if (!perms?.has(PermissionFlagsBits.ViewChannel) || !perms?.has(PermissionFlagsBits.SendMessages)) return;
 
+    const endAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10) > 0
+      ? Number.parseInt(String(event.activeUntilMs), 10)
+      : this.getScheduledEventEndAtMs(event, event?.runAtMs);
     const rendered = renderEventAnnouncement(event.announceMessage, {
       event: event.name,
       station: station?.name || event.stationKey,
       voice: `<#${event.voiceChannelId}>`,
       time: formatDateTime(event.runAtMs, language, event.timeZone),
+      end: endAtMs > 0 ? formatDateTime(endAtMs, language, event.timeZone) : "-",
+      timeZone: normalizeEventTimeZone(event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE,
     }, language);
     if (!rendered) return;
 
@@ -2516,6 +2865,14 @@ class BotRuntime {
     }
 
     try {
+      const scheduledStopAtMs = this.getScheduledEventEndAtMs(event, event.runAtMs);
+      const activeOccurrenceEvent = scheduledStopAtMs > 0
+        ? { ...event, activeUntilMs: scheduledStopAtMs }
+        : event;
+      const eventEndLabel = scheduledStopAtMs > 0
+        ? formatDateTime(scheduledStopAtMs, eventLanguage, event.timeZone)
+        : "-";
+      const eventTimeZone = normalizeEventTimeZone(event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
       let startedBy = this.config.name;
       if (this.role === "commander" && this.workerManager) {
         const guildTier = getTier(event.guildId);
@@ -2533,6 +2890,8 @@ class BotRuntime {
           event: event.name,
           station: stationResult.station?.name || event.stationKey,
           time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
+          end: eventEndLabel,
+          timeZone: eventTimeZone,
         });
         const delegatedResult = await worker.playInGuild(
           event.guildId,
@@ -2544,6 +2903,8 @@ class BotRuntime {
             stageTopic,
             guildScheduledEventId: event.discordScheduledEventId || null,
             createStageInstance: true,
+            scheduledEventId: event.id,
+            scheduledEventStopAtMs,
           }
         );
         if (!delegatedResult.ok) {
@@ -2557,6 +2918,8 @@ class BotRuntime {
             event: event.name,
             station: stationResult.station?.name || event.stationKey,
             time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
+            end: eventEndLabel,
+            timeZone: eventTimeZone,
           });
           await this.ensureStageChannelReady(connectionInfo.guild, connectionInfo.channel, {
             topic: stageTopic,
@@ -2567,9 +2930,11 @@ class BotRuntime {
         }
 
         await this.playStation(state, stationResult.stations, stationResult.key, event.guildId);
+        this.markScheduledEventPlayback(state, event.id, scheduledStopAtMs);
+        this.persistState();
       }
 
-      await this.postScheduledEventAnnouncement(event, stationResult.station, eventLanguage);
+      await this.postScheduledEventAnnouncement(activeOccurrenceEvent, stationResult.station, eventLanguage);
 
       const nextRunAtMs = computeNextEventRunAtMs(event.runAtMs, event.repeat, now, event.timeZone);
       if (nextRunAtMs) {
@@ -2593,12 +2958,18 @@ class BotRuntime {
           runAtMs: nextRunAtMs,
           lastRunAtMs: now,
           enabled: true,
+          activeUntilMs: scheduledStopAtMs > 0 ? scheduledStopAtMs : 0,
+          deleteAfterStop: false,
           discordScheduledEventId: nextDiscordScheduledEventId,
         });
+      } else if (scheduledStopAtMs > 0) {
+        patchScheduledEvent(event.id, {
+          lastRunAtMs: now,
+          activeUntilMs: scheduledStopAtMs,
+          enabled: true,
+          deleteAfterStop: true,
+        });
       } else {
-        if (event.discordScheduledEventId) {
-          await this.deleteDiscordScheduledEventById(event.guildId, event.discordScheduledEventId);
-        }
         deleteScheduledEvent(event.id, { guildId: event.guildId, botId: this.config.id });
       }
 
@@ -2615,6 +2986,45 @@ class BotRuntime {
     }
   }
 
+  async executeScheduledEventStop(event) {
+    const stopAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10);
+    if (!Number.isFinite(stopAtMs) || stopAtMs <= 0) return;
+
+    let stoppedBy = null;
+    let stopped = false;
+
+    const localState = this.guildState.get(event.guildId);
+    if (localState?.activeScheduledEventId === event.id) {
+      const result = this.stopInGuild(event.guildId);
+      stopped = Boolean(result?.ok);
+      stoppedBy = this.config.name;
+    }
+
+    if (!stopped && this.workerManager) {
+      const worker = this.workerManager.findWorkerByScheduledEvent(event.guildId, event.id);
+      if (worker) {
+        const result = worker.stopInGuild(event.guildId);
+        stopped = Boolean(result?.ok);
+        stoppedBy = worker.config?.name || "Worker";
+      }
+    }
+
+    if (event.deleteAfterStop) {
+      deleteScheduledEvent(event.id, { guildId: event.guildId, botId: this.config.id });
+    } else {
+      patchScheduledEvent(event.id, {
+        activeUntilMs: 0,
+        lastStopAtMs: Date.now(),
+        deleteAfterStop: false,
+      });
+    }
+
+    log(
+      "INFO",
+      `[${this.config.name}] Event beendet: guild=${event.guildId} id=${event.id} stopped=${stopped ? "yes" : "no"} via=${stoppedBy || "state-cleanup"}`
+    );
+  }
+
   async tickScheduledEvents() {
     if (!EVENT_SCHEDULER_ENABLED) return;
     if (!this.client.isReady()) return;
@@ -2622,11 +3032,29 @@ class BotRuntime {
     const now = Date.now();
     const scheduled = listScheduledEvents({
       botId: this.config.id,
-      includeDisabled: false,
+      includeDisabled: true,
     });
     const events = Array.isArray(scheduled) ? scheduled : [];
 
     for (const event of events) {
+      const stopAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10);
+      const alreadyStoppedAt = Number.parseInt(String(event?.lastStopAtMs || 0), 10);
+      if (!Number.isFinite(stopAtMs) || stopAtMs <= 0) continue;
+      if (alreadyStoppedAt >= stopAtMs) continue;
+      if (stopAtMs > now + 1000) continue;
+      if (this.scheduledEventInFlight.has(`${event.id}:stop`)) continue;
+
+      this.scheduledEventInFlight.add(`${event.id}:stop`);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await this.executeScheduledEventStop(event);
+      } finally {
+        this.scheduledEventInFlight.delete(`${event.id}:stop`);
+      }
+    }
+
+    for (const event of events) {
+      if (!event.enabled) continue;
       if (event.runAtMs > now + 1000) continue;
       if (event.lastRunAtMs && event.lastRunAtMs >= event.runAtMs) continue;
       if (this.scheduledEventInFlight.has(event.id)) continue;
@@ -2687,64 +3115,160 @@ class BotRuntime {
     }
 
     const sub = interaction.options.getSubcommand();
+    const guild = interaction.guild || this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
+    const me = guild ? await this.resolveBotMember(guild) : null;
+
+    if (!guild || !me) {
+      await interaction.reply({
+        content: t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load the bot member in this server."),
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const validateTextChannel = (channel) => {
+      if (!channel) return null;
+      if (channel.guildId !== guildId) {
+        return t("Der gewaehlte Text-Channel ist nicht in diesem Server.", "The selected text channel is not in this server.");
+      }
+      const perms = channel.permissionsFor(me);
+      if (!perms?.has(PermissionFlagsBits.ViewChannel) || !perms?.has(PermissionFlagsBits.SendMessages)) {
+        return t(`Ich kann in ${channel.toString()} nicht schreiben.`, `I cannot send messages in ${channel.toString()}.`);
+      }
+      return null;
+    };
+
+    const validateVoiceChannel = (channel, { stageTopic = null, createDiscordEvent = false } = {}) => {
+      if (!channel) {
+        return t("Voice- oder Stage-Channel fehlt.", "Voice or stage channel is missing.");
+      }
+      if (channel.guildId !== guildId) {
+        return t("Der gewaehlte Voice/Stage-Channel ist nicht in diesem Server.", "The selected voice/stage channel is not in this server.");
+      }
+      if (!channel.isVoiceBased() || (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice)) {
+        return t("Bitte waehle einen Voice- oder Stage-Channel.", "Please choose a voice or stage channel.");
+      }
+      if (stageTopic && channel.type !== ChannelType.GuildStageVoice) {
+        return t("`stagetopic` funktioniert nur mit Stage-Channels.", "`stagetopic` only works with stage channels.");
+      }
+      const perms = channel.permissionsFor(me);
+      if (!perms?.has(PermissionFlagsBits.Connect)) {
+        return t(`Ich habe keine Connect-Berechtigung fuer ${channel.toString()}.`, `I do not have Connect permission for ${channel.toString()}.`);
+      }
+      if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
+        return t(`Ich habe keine Speak-Berechtigung fuer ${channel.toString()}.`, `I do not have Speak permission for ${channel.toString()}.`);
+      }
+      if (createDiscordEvent) {
+        return this.validateDiscordScheduledEventPermissions(guild, channel, language);
+      }
+      return null;
+    };
+
+    const parseWindow = ({
+      startRaw = undefined,
+      endRaw = undefined,
+      baseRunAtMs = 0,
+      baseDurationMs = 0,
+      requestedTimeZone = "",
+    }) => {
+      let runAtMs = Number.parseInt(String(baseRunAtMs || 0), 10);
+      let timeZone = normalizeEventTimeZone(requestedTimeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+
+      if (startRaw !== undefined && startRaw !== null && String(startRaw).trim()) {
+        const parsedStart = parseEventStartDateTime(startRaw, language, timeZone);
+        if (!parsedStart.ok) return parsedStart;
+        runAtMs = parsedStart.runAtMs;
+        timeZone = parsedStart.timeZone || timeZone;
+      }
+
+      if (!Number.isFinite(runAtMs) || runAtMs <= 0) {
+        return { ok: false, message: t("Startzeit fehlt oder ist ungueltig.", "Start time is missing or invalid.") };
+      }
+
+      let durationMs = Math.max(0, Number.parseInt(String(baseDurationMs || 0), 10) || 0);
+      let endAtMs = durationMs > 0 ? runAtMs + durationMs : 0;
+
+      if (endRaw !== undefined && endRaw !== null) {
+        const rawText = String(endRaw || "").trim();
+        if (rawText) {
+          const lowered = rawText.toLowerCase();
+          if (["-", "clear", "none", "off"].includes(lowered)) {
+            durationMs = 0;
+            endAtMs = 0;
+          } else {
+            const parsedEnd = parseEventStartDateTime(rawText, language, timeZone);
+            if (!parsedEnd.ok) return parsedEnd;
+            if (parsedEnd.runAtMs <= runAtMs) {
+              return {
+                ok: false,
+                message: t("Endzeit muss nach der Startzeit liegen.", "End time must be after the start time."),
+              };
+            }
+            durationMs = parsedEnd.runAtMs - runAtMs;
+            endAtMs = parsedEnd.runAtMs;
+          }
+        } else {
+          durationMs = 0;
+          endAtMs = 0;
+        }
+      } else if (startRaw !== undefined && startRaw !== null && durationMs > 0) {
+        endAtMs = runAtMs + durationMs;
+      }
+
+      return { ok: true, runAtMs, timeZone, durationMs, endAtMs };
+    };
 
     if (sub === "create") {
       const name = clipText(interaction.options.getString("name", true).trim(), 120);
+      const stationRaw = interaction.options.getString("station", true);
+      const voiceChannel = interaction.options.getChannel("voice", true);
+      const textChannel = interaction.options.getChannel("text");
+      const startRaw = interaction.options.getString("start", true);
+      const endRaw = interaction.options.getString("end");
+      const requestedTimeZone = interaction.options.getString("timezone") || "";
+      const repeat = normalizeRepeatMode(interaction.options.getString("repeat") || "none");
+      const createDiscordEvent = interaction.options.getBoolean("serverevent") === true;
+      const stageTopicTemplate = this.normalizeClearableText(interaction.options.getString("stagetopic"), 120);
+      const message = this.normalizeClearableText(interaction.options.getString("message"), 1200);
+      const description = this.normalizeClearableText(interaction.options.getString("description"), 800);
+
       if (!name) {
         await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), ephemeral: true });
         return;
       }
-      const stationRaw = interaction.options.getString("station", true);
-      const voiceChannel = interaction.options.getChannel("voice", true);
-      const startRaw = interaction.options.getString("start", true);
-      const requestedTimeZone = interaction.options.getString("timezone") || "";
-      const repeat = normalizeRepeatMode(interaction.options.getString("repeat") || "none");
-      const textChannel = interaction.options.getChannel("text");
-      const createDiscordEvent = interaction.options.getBoolean("serverevent") === true;
-      const stageTopicTemplate = clipText(interaction.options.getString("stagetopic") || "", 120);
-      const message = clipText(interaction.options.getString("message") || "", 1200);
 
-      if (voiceChannel.guildId !== guildId) {
-        await interaction.reply({ content: t("Der gewaehlte Voice/Stage-Channel ist nicht in diesem Server.", "The selected voice/stage channel is not in this server."), ephemeral: true });
-        return;
-      }
-      if (stageTopicTemplate && voiceChannel.type !== ChannelType.GuildStageVoice) {
-        await interaction.reply({
-          content: t("`stagetopic` funktioniert nur mit Stage-Channels.", "`stagetopic` only works with stage channels."),
-          ephemeral: true,
-        });
+      const voiceError = validateVoiceChannel(voiceChannel, {
+        stageTopic: stageTopicTemplate,
+        createDiscordEvent,
+      });
+      if (voiceError) {
+        await interaction.reply({ content: voiceError, ephemeral: true });
         return;
       }
 
-      const me = interaction.guild ? await this.resolveBotMember(interaction.guild) : null;
-      if (!me) {
-        await interaction.reply({ content: t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load bot member in this server."), ephemeral: true });
-        return;
-      }
-      const perms = voiceChannel.permissionsFor(me);
-      if (!perms?.has(PermissionFlagsBits.Connect)) {
-        await interaction.reply({ content: t(`Ich habe keine Connect-Berechtigung fuer ${voiceChannel.toString()}.`, `I do not have Connect permission for ${voiceChannel.toString()}.`), ephemeral: true });
-        return;
-      }
-      if (voiceChannel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
-        await interaction.reply({ content: t(`Ich habe keine Speak-Berechtigung fuer ${voiceChannel.toString()}.`, `I do not have Speak permission for ${voiceChannel.toString()}.`), ephemeral: true });
+      const textError = validateTextChannel(textChannel);
+      if (textError) {
+        await interaction.reply({ content: textError, ephemeral: true });
         return;
       }
 
-      const parsed = parseEventStartDateTime(startRaw, language, requestedTimeZone);
-      if (!parsed.ok) {
-        await interaction.reply({ content: parsed.message, ephemeral: true });
+      const parsedWindow = parseWindow({
+        startRaw,
+        endRaw,
+        requestedTimeZone,
+      });
+      if (!parsedWindow.ok) {
+        await interaction.reply({ content: parsedWindow.message, ephemeral: true });
         return;
       }
-      const minFutureMs = Date.now() + 30_000;
-      if (parsed.runAtMs < minFutureMs) {
+      if (parsedWindow.runAtMs < Date.now() + 30_000) {
         await interaction.reply({
           content: t("Startzeit muss mindestens 30 Sekunden in der Zukunft liegen.", "Start time must be at least 30 seconds in the future."),
           ephemeral: true,
         });
         return;
       }
-      if (createDiscordEvent && parsed.runAtMs < Date.now() + 60_000) {
+      if (createDiscordEvent && parsedWindow.runAtMs < Date.now() + 60_000) {
         await interaction.reply({
           content: t(
             "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
@@ -2784,12 +3308,16 @@ class BotRuntime {
         voiceChannelId: voiceChannel.id,
         textChannelId: textChannel?.id || null,
         announceMessage: message || null,
+        description: description || null,
         stageTopic: stageTopicTemplate || null,
-        timeZone: parsed.timeZone,
+        timeZone: parsedWindow.timeZone,
         createDiscordEvent,
         discordScheduledEventId: null,
         repeat,
-        runAtMs: parsed.runAtMs,
+        runAtMs: parsedWindow.runAtMs,
+        durationMs: parsedWindow.durationMs,
+        activeUntilMs: 0,
+        deleteAfterStop: false,
         createdByUserId: interaction.user?.id || null,
       });
 
@@ -2799,48 +3327,191 @@ class BotRuntime {
         return;
       }
 
-      let serverEventWarning = "";
-      let serverEventId = null;
+      let replyEvent = created.event;
+      let serverEventNote = "";
       if (createDiscordEvent) {
         try {
           const scheduledEvent = await this.syncDiscordScheduledEvent(created.event, station.station, {
             runAtMs: created.event.runAtMs,
-            forceCreate: false,
           });
-          serverEventId = scheduledEvent?.id || null;
+          if (scheduledEvent?.id) {
+            const patched = patchScheduledEvent(created.event.id, { discordScheduledEventId: scheduledEvent.id });
+            replyEvent = patched?.event || { ...created.event, discordScheduledEventId: scheduledEvent.id };
+          }
         } catch (err) {
-          serverEventWarning = `\n${t("Server-Event Hinweis", "Server event note")}: ${clipText(err?.message || err, 180)}`;
-          log(
-            "WARN",
-            `[${this.config.name}] Event ${created.event.id}: Discord-Server-Event konnte nicht erstellt werden: ${err?.message || err}`
-          );
+          serverEventNote = `${t("Server-Event Hinweis", "Server event note")}: ${clipText(err?.message || err, 180)}`;
+          log("WARN", `[${this.config.name}] Event ${created.event.id}: Discord-Server-Event konnte nicht erstellt werden: ${err?.message || err}`);
         }
       }
 
-      const channelLabel = voiceChannel.type === ChannelType.GuildStageVoice ? t("Stage", "Stage") : t("Voice", "Voice");
-      const stageTopicPreview = voiceChannel.type === ChannelType.GuildStageVoice
-        ? renderStageTopic(stageTopicTemplate, {
-          event: created.event.name,
-          station: station.station?.name || created.event.stationKey,
-          time: formatDateTime(created.event.runAtMs, language, created.event.timeZone),
-        })
-        : null;
-      const eventTimeZone = normalizeEventTimeZone(created.event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
-      await interaction.reply({
-        content:
-          `${t("Event erstellt", "Event created")}: **${created.event.name}**\n` +
-          `ID: \`${created.event.id}\`\n` +
-          `${t("Station", "Station")}: \`${created.event.stationKey}\` (${station.station?.name || "-"})\n` +
-          `${channelLabel}: <#${created.event.voiceChannelId}>\n` +
-          `${t("Start", "Start")}: ${formatDateTime(created.event.runAtMs, language, eventTimeZone)} (${eventTimeZone})\n` +
-          `${t("Wiederholung", "Repeat")}: ${getRepeatLabel(created.event.repeat, language, { runAtMs: created.event.runAtMs, timeZone: eventTimeZone })}\n` +
-          `${t("Ankuendigung", "Announcement")}: ${created.event.textChannelId ? `<#${created.event.textChannelId}>` : t("aus", "off")}\n` +
-          `${t("Server-Event", "Server event")}: ${createDiscordEvent ? (serverEventId ? `${t("aktiv", "active")} (\`${serverEventId}\`)` : t("aktiviert, Erstellung fehlgeschlagen", "enabled, creation failed")) : t("aus", "off")}\n` +
-          `${t("Stage-Thema", "Stage topic")}: ${stageTopicPreview ? `\`${stageTopicPreview}\`` : t("auto/aus", "auto/off")}\n` +
-          `${t("Zeitzone", "Time zone")}: \`${eventTimeZone}\`` +
-          serverEventWarning,
-        ephemeral: true,
+      const contentParts = [
+        `${t("Event erstellt", "Event created")}:`,
+        this.buildScheduledEventSummary(replyEvent, station.station?.name || null, language),
+      ];
+      if (serverEventNote) contentParts.push(serverEventNote);
+      await this.respondLongInteraction(interaction, contentParts.join("\n"), { ephemeral: true });
+      return;
+    }
+
+    if (sub === "edit") {
+      const id = interaction.options.getString("id", true);
+      const existing = getScheduledEvent(id);
+      if (!existing || existing.guildId !== guildId || existing.botId !== this.config.id) {
+        await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), ephemeral: true });
+        return;
+      }
+
+      const nameRaw = interaction.options.getString("name");
+      const stationRaw = interaction.options.getString("station");
+      const voiceChannelOption = interaction.options.getChannel("voice");
+      const startRaw = interaction.options.getString("start");
+      const endRaw = interaction.options.getString("end");
+      const timeZoneRaw = interaction.options.getString("timezone");
+      const repeatRaw = interaction.options.getString("repeat");
+      const textChannelOption = interaction.options.getChannel("text");
+      const clearText = interaction.options.getBoolean("cleartext") === true;
+      const serverEventRaw = interaction.options.getBoolean("serverevent");
+      const stageTopicRaw = interaction.options.getString("stagetopic");
+      const messageRaw = interaction.options.getString("message");
+      const descriptionRaw = interaction.options.getString("description");
+      const enabledRaw = interaction.options.getBoolean("enabled");
+
+      const existingVoiceChannel = await guild.channels.fetch(existing.voiceChannelId).catch(() => null);
+      const nextVoiceChannel = voiceChannelOption || existingVoiceChannel;
+      const nextStageTopic = stageTopicRaw !== null
+        ? this.normalizeClearableText(stageTopicRaw, 120)
+        : existing.stageTopic;
+      const nextCreateDiscordEvent = serverEventRaw !== null ? serverEventRaw === true : existing.createDiscordEvent;
+      const nextTextChannel = textChannelOption
+        ? textChannelOption
+        : clearText
+          ? null
+          : (existing.textChannelId ? await guild.channels.fetch(existing.textChannelId).catch(() => null) : null);
+      const nextName = nameRaw !== null ? clipText(nameRaw.trim(), 120) : existing.name;
+      const nextMessage = messageRaw !== null
+        ? this.normalizeClearableText(messageRaw, 1200)
+        : existing.announceMessage;
+      const nextDescription = descriptionRaw !== null
+        ? this.normalizeClearableText(descriptionRaw, 800)
+        : existing.description;
+
+      if (!nextName) {
+        await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), ephemeral: true });
+        return;
+      }
+
+      const voiceError = validateVoiceChannel(nextVoiceChannel, {
+        stageTopic: nextStageTopic,
+        createDiscordEvent: nextCreateDiscordEvent,
       });
+      if (voiceError) {
+        await interaction.reply({ content: voiceError, ephemeral: true });
+        return;
+      }
+
+      const textError = validateTextChannel(nextTextChannel);
+      if (textError) {
+        await interaction.reply({ content: textError, ephemeral: true });
+        return;
+      }
+
+      const currentDurationMs = Math.max(0, Number.parseInt(String(existing.durationMs || 0), 10) || 0);
+      const parsedWindow = parseWindow({
+        startRaw,
+        endRaw,
+        baseRunAtMs: existing.runAtMs,
+        baseDurationMs: currentDurationMs,
+        requestedTimeZone: timeZoneRaw || existing.timeZone || "",
+      });
+      if (!parsedWindow.ok) {
+        await interaction.reply({ content: parsedWindow.message, ephemeral: true });
+        return;
+      }
+      if (startRaw && parsedWindow.runAtMs < Date.now() + 30_000) {
+        await interaction.reply({
+          content: t("Startzeit muss mindestens 30 Sekunden in der Zukunft liegen.", "Start time must be at least 30 seconds in the future."),
+          ephemeral: true,
+        });
+        return;
+      }
+      if (nextCreateDiscordEvent && (startRaw || serverEventRaw === true) && parsedWindow.runAtMs < Date.now() + 60_000) {
+        await interaction.reply({
+          content: t(
+            "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
+            "With `serverevent`, start time must be at least 60 seconds in the future."
+          ),
+          ephemeral: true,
+        });
+        return;
+      }
+
+      let resolvedStation = this.resolveStationForGuild(guildId, existing.stationKey, language);
+      if (stationRaw) {
+        resolvedStation = this.resolveStationForGuild(guildId, stationRaw, language);
+        if (!resolvedStation.ok) {
+          await interaction.reply({ content: resolvedStation.message, ephemeral: true });
+          return;
+        }
+      } else if (!resolvedStation.ok) {
+        resolvedStation = { ok: true, key: existing.stationKey, station: null };
+      }
+
+      const eventIsActive = Number.parseInt(String(existing.activeUntilMs || 0), 10) > Date.now()
+        && Number.parseInt(String(existing.lastStopAtMs || 0), 10) < Number.parseInt(String(existing.activeUntilMs || 0), 10);
+
+      const patchPayload = {
+        name: nextName,
+        stationKey: resolvedStation.key,
+        voiceChannelId: nextVoiceChannel.id,
+        textChannelId: nextTextChannel?.id || null,
+        announceMessage: nextMessage || null,
+        description: nextDescription || null,
+        stageTopic: nextStageTopic || null,
+        timeZone: parsedWindow.timeZone,
+        createDiscordEvent: nextCreateDiscordEvent,
+        repeat: repeatRaw ? normalizeRepeatMode(repeatRaw) : existing.repeat,
+        runAtMs: parsedWindow.runAtMs,
+        durationMs: parsedWindow.durationMs,
+        activeUntilMs: eventIsActive ? parsedWindow.endAtMs : 0,
+        enabled: enabledRaw === null ? existing.enabled : enabledRaw === true,
+      };
+
+      const updated = patchScheduledEvent(existing.id, patchPayload);
+      if (!updated.ok) {
+        await interaction.reply({
+          content: translateScheduledEventStoreMessage(updated.message, language),
+          ephemeral: true,
+        });
+        return;
+      }
+
+      let replyEvent = updated.event;
+      let serverEventNote = "";
+      if (!nextCreateDiscordEvent && existing.discordScheduledEventId) {
+        await this.deleteDiscordScheduledEventById(guildId, existing.discordScheduledEventId).catch(() => null);
+        const cleared = patchScheduledEvent(existing.id, { discordScheduledEventId: null });
+        replyEvent = cleared?.event || { ...replyEvent, discordScheduledEventId: null };
+      } else if (nextCreateDiscordEvent) {
+        try {
+          const scheduledEvent = await this.syncDiscordScheduledEvent(replyEvent, resolvedStation.station || { name: replyEvent.stationKey }, {
+            runAtMs: replyEvent.runAtMs,
+          });
+          if (scheduledEvent?.id) {
+            const synced = patchScheduledEvent(existing.id, { discordScheduledEventId: scheduledEvent.id });
+            replyEvent = synced?.event || { ...replyEvent, discordScheduledEventId: scheduledEvent.id };
+          }
+        } catch (err) {
+          serverEventNote = `${t("Server-Event Hinweis", "Server event note")}: ${clipText(err?.message || err, 180)}`;
+          log("WARN", `[${this.config.name}] Event ${existing.id}: Discord-Server-Event Sync fehlgeschlagen: ${err?.message || err}`);
+        }
+      }
+
+      const contentParts = [
+        `${t("Event aktualisiert", "Event updated")}:`,
+        this.buildScheduledEventSummary(replyEvent, resolvedStation.station?.name || null, language),
+      ];
+      if (serverEventNote) contentParts.push(serverEventNote);
+      await this.respondLongInteraction(interaction, contentParts.join("\n"), { ephemeral: true });
       return;
     }
 
@@ -2848,7 +3519,7 @@ class BotRuntime {
       const events = listScheduledEvents({
         guildId,
         botId: this.config.id,
-        includeDisabled: false,
+        includeDisabled: true,
       });
 
       if (!events.length) {
@@ -2856,21 +3527,39 @@ class BotRuntime {
         return;
       }
 
-      const lines = events.map((event) =>
-        `\`${event.id}\` | **${clipText(event.name, 70)}** | \`${event.stationKey}\` | ` +
-        `${t("Voice/Stage", "Voice/Stage")} <#${event.voiceChannelId}> | ${formatDateTime(event.runAtMs, language, event.timeZone)} (${normalizeEventTimeZone(event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE}) | ${getRepeatLabel(event.repeat, language, { runAtMs: event.runAtMs, timeZone: event.timeZone })}` +
-        `${event.createDiscordEvent ? ` | ${t("Server-Event", "Server event")} ${event.discordScheduledEventId ? `\`${event.discordScheduledEventId}\`` : t("an", "on")}` : ""}` +
-        `${event.stageTopic ? ` | ${t("Stage-Thema", "Stage topic")}` : ""}`
+      const blocks = events.map((event) => {
+        const station = this.resolveStationForGuild(guildId, event.stationKey, language);
+        return this.buildScheduledEventSummary(
+          event,
+          station.ok ? station.station?.name || null : null,
+          language
+        );
+      });
+
+      await this.respondLongInteraction(
+        interaction,
+        `**${t("Geplante Events", "Scheduled events")} (${events.length})**\n\n${blocks.join("\n\n")}`,
+        { ephemeral: true }
       );
-      await this.respondLongInteraction(interaction, `**${t("Geplante Events", "Scheduled events")} (${events.length}):**\n${lines.join("\n")}`, { ephemeral: true });
       return;
     }
 
     if (sub === "delete") {
       const id = interaction.options.getString("id", true);
       const existing = getScheduledEvent(id);
+      if (!existing || existing.guildId !== guildId || existing.botId !== this.config.id) {
+        await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), ephemeral: true });
+        return;
+      }
+
+      if (Number.parseInt(String(existing.activeUntilMs || 0), 10) > Date.now()
+        && Number.parseInt(String(existing.lastStopAtMs || 0), 10) < Number.parseInt(String(existing.activeUntilMs || 0), 10)
+      ) {
+        await this.executeScheduledEventStop({ ...existing, deleteAfterStop: false });
+      }
+
       let removedDiscordEvent = false;
-      if (existing && existing.guildId === guildId && existing.botId === this.config.id && existing.discordScheduledEventId) {
+      if (existing.discordScheduledEventId) {
         removedDiscordEvent = await this.deleteDiscordScheduledEventById(guildId, existing.discordScheduledEventId);
       }
       const removed = deleteScheduledEvent(id, { guildId, botId: this.config.id });
@@ -3093,6 +3782,10 @@ class BotRuntime {
   async tryReconnect(guildId) {
     const state = this.getState(guildId);
     if (!state.shouldReconnect || !state.lastChannelId) return;
+    if (this.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
+      this.stopInGuild(guildId);
+      return;
+    }
 
     const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
     if (networkCooldownMs > 0) {
@@ -3175,6 +3868,10 @@ class BotRuntime {
   scheduleReconnect(guildId, options = {}) {
     const state = this.getState(guildId);
     if (!state.shouldReconnect || !state.lastChannelId) return;
+    if (this.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
+      this.stopInGuild(guildId);
+      return;
+    }
     if (options.resetAttempts) {
       state.reconnectAttempts = 0;
     }
@@ -3375,7 +4072,7 @@ class BotRuntime {
         const events = listScheduledEvents({
           guildId,
           botId: this.config.id,
-          includeDisabled: false,
+          includeDisabled: true,
         });
         const language = this.resolveInteractionLanguage(interaction);
 
@@ -3666,15 +4363,15 @@ class BotRuntime {
         return;
       }
 
-      const current = stations.stations[state.currentStationKey];
-      if (!current) {
+      const current = this.getResolvedCurrentStation(interaction.guildId, state, language);
+      if (!current?.station) {
         await interaction.reply({ content: t("Aktuelle Station wurde entfernt.", "Current station was removed."), ephemeral: true });
         return;
       }
 
       const channelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
       const lines = [
-        `${t("Jetzt auf diesem Server", "Now playing in this server")}: ${current.name}`,
+        `${t("Jetzt auf diesem Server", "Now playing in this server")}: ${current.station.name}`,
         `${t("Channel", "Channel")}: ${channelId ? `<#${channelId}>` : t("unbekannt", "unknown")}`,
         `${t("Aktiv auf", "Active in")} ${playingGuilds} ${t(`Server${playingGuilds === 1 ? "" : "n"}.`, `server${playingGuilds === 1 ? "" : "s"}.`)}`,
       ];
@@ -3865,6 +4562,7 @@ class BotRuntime {
       // Worker/Legacy Mode: lokaler Stop
       this.syncVoiceChannelStatus(interaction.guildId, "").catch(() => null);
       state.shouldReconnect = false;
+      this.clearScheduledEventPlayback(state);
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
       state.player.stop();
@@ -3882,6 +4580,7 @@ class BotRuntime {
       state.reconnectAttempts = 0;
       state.streamErrorCount = 0;
       this.updatePresence();
+      this.persistState();
 
       await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), ephemeral: true });
       return;
@@ -4338,7 +5037,7 @@ class BotRuntime {
         const customStations = getGuildStations(guildId);
         const customKey = Object.keys(customStations).find(k => k === requested || customStations[k].name.toLowerCase() === (requested || "").toLowerCase());
         if (customKey && guildTier === "ultimate") {
-          key = `custom:${customKey}`;
+          key = buildCustomStationReference(customKey);
           isCustom = true;
           customUrl = customStations[customKey].url;
           const customUrlValidation = validateCustomStationUrl(customUrl);
@@ -4423,6 +5122,7 @@ class BotRuntime {
 
         const selectedStation = stations.stations[key];
         log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} -> delegating to ${worker.config.name}`);
+        worker.clearScheduledEventPlaybackInGuild(guildId);
         const result = await worker.playInGuild(guildId, channelId, key, stations, state.volume || 100);
         if (!result.ok) {
           await interaction.editReply(t(`Fehler: ${result.error}`, `Error: ${result.error}`));
@@ -4448,6 +5148,7 @@ class BotRuntime {
         return;
       }
       state.shouldReconnect = true;
+      this.clearScheduledEventPlayback(state);
 
       try {
         await this.playStation(state, stations, key, guildId);
@@ -4509,6 +5210,11 @@ class BotRuntime {
       state.volume = volume;
       state.shouldReconnect = true;
       state.lastChannelId = channelId;
+      if (options?.scheduledEventId) {
+        this.markScheduledEventPlayback(state, options.scheduledEventId, options?.scheduledEventStopAtMs || 0);
+      } else {
+        this.clearScheduledEventPlayback(state);
+      }
 
       const connectionInfo = await this.ensureVoiceConnectionForChannel(guildId, channelId, state);
       const { channel } = connectionInfo;
@@ -4543,6 +5249,7 @@ class BotRuntime {
 
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     state.shouldReconnect = false;
+    this.clearScheduledEventPlayback(state);
     this.clearReconnectTimer(state);
     this.clearNowPlayingTimer(state);
     state.player.stop();
@@ -4560,6 +5267,7 @@ class BotRuntime {
     state.reconnectAttempts = 0;
     state.streamErrorCount = 0;
     this.updatePresence();
+    this.persistState();
 
     return { ok: true };
   }
@@ -4745,48 +5453,38 @@ class BotRuntime {
           continue;
         }
 
-        const stationKey = resolveStation(stations, data.stationKey);
-        if (!stationKey) {
-          log("INFO", `[${this.config.name}] Station ${data.stationKey} nicht mehr vorhanden.`);
+        const restoredStation = this.resolveStationForGuild(guildId, data.stationKey, this.resolveGuildLanguage(guildId));
+        if (!restoredStation.ok) {
+          log("INFO", `[${this.config.name}] Station ${data.stationKey} nicht mehr vorhanden: ${restoredStation.message}`);
           clearBotGuild(this.config.id, guildId);
           continue;
         }
 
-        log("INFO", `[${this.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${stations.stations[stationKey].name}`);
+        log("INFO", `[${this.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${restoredStation.station.name}`);
 
         const state = this.getState(guildId);
         state.volume = data.volume ?? 100;
         state.shouldReconnect = true;
         state.lastChannelId = data.channelId;
-        state.currentStationKey = stationKey;
-        state.currentStationName = stations.stations[stationKey].name || stationKey;
-
-        const connection = joinVoiceChannel({
-          channelId: channel.id,
-          guildId,
-          adapterCreator: guild.voiceAdapterCreator,
-          selfDeaf: true,
-          selfMute: false,
-          group: this.voiceGroup,
-        });
+        state.currentStationKey = restoredStation.key;
+        state.currentStationName = restoredStation.station.name || restoredStation.key;
+        this.markScheduledEventPlayback(
+          state,
+          data.scheduledEventId || null,
+          data.scheduledEventStopAtMs || 0
+        );
 
         try {
-          await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
-        } catch {
-          log("ERROR", `[${this.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen (Timeout).`);
+          await this.ensureVoiceConnectionForChannel(guildId, channel.id, state);
+        } catch (err) {
+          log("ERROR", `[${this.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen: ${err?.message || err}`);
           networkRecoveryCoordinator.noteFailure(`${this.config.name} restore-voice-timeout`, `guild=${guildId}`);
-          try { connection.destroy(); } catch {}
           this.scheduleReconnect(guildId, { reason: "restore-ready-timeout" });
           continue;
         }
 
-        state.connection = connection;
-        connection.subscribe(state.player);
-        this.attachConnectionHandlers(guildId, connection);
-        networkRecoveryCoordinator.noteSuccess(`${this.config.name} restore-ready guild=${guildId}`);
-
-        await this.playStation(state, stations, stationKey, guildId);
-        log("INFO", `[${this.config.name}] Wiederhergestellt: ${guild.name} -> ${stations.stations[stationKey].name}`);
+        await this.playStation(state, restoredStation.stations, restoredStation.key, guildId);
+        log("INFO", `[${this.config.name}] Wiederhergestellt: ${guild.name} -> ${restoredStation.station.name}`);
 
         // Kurze Pause zwischen Reconnects um Rate-Limits zu vermeiden
         await new Promise(r => setTimeout(r, 2000));
@@ -4806,6 +5504,7 @@ class BotRuntime {
       this.unsubscribeNetworkRecovery = null;
     }
     this.stopEventScheduler();
+    this.stopVoiceStateReconciler();
 
     for (const [guildId, state] of this.guildState.entries()) {
       this.syncVoiceChannelStatus(guildId, "").catch(() => null);

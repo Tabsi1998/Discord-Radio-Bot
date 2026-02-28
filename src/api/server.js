@@ -75,6 +75,13 @@ import {
   getOffer,
 } from "../coupon-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
+import {
+  getDiscordBotListStatus,
+  handleDiscordBotListVoteWebhook,
+  syncDiscordBotListCommands,
+  syncDiscordBotListStats,
+  syncDiscordBotListVotes,
+} from "../services/discordbotlist.js";
 
 const appStartTime = Date.now();
 const webhookEventsInFlight = new Set();
@@ -324,6 +331,136 @@ function startWebServer(runtimes) {
         bots: runtimes.length,
         readyBots
       });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/discordbotlist/status") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      if (!isAdminApiRequest(req)) {
+        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+        return;
+      }
+      const voteLimit = Number.parseInt(String(requestUrl.searchParams.get("limit") || "20"), 10);
+      sendJson(res, 200, getDiscordBotListStatus(runtimes, { voteLimit }));
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/discordbotlist/votes") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      if (!isAdminApiRequest(req)) {
+        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+        return;
+      }
+      const voteLimit = Number.parseInt(String(requestUrl.searchParams.get("limit") || "50"), 10);
+      const status = getDiscordBotListStatus(runtimes, { voteLimit });
+      sendJson(res, 200, {
+        totalVotes: status?.state?.totalVotes || 0,
+        votes: status?.state?.votes || [],
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/discordbotlist/vote") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      try {
+        const body = await readJsonBody();
+        const result = handleDiscordBotListVoteWebhook(req.headers || {}, body || {});
+        sendJson(
+          res,
+          result.status || (result.ok ? 200 : 400),
+          result.ok
+            ? {
+              success: true,
+              added: result.added,
+              totalVotes: result.totalVotes,
+            }
+            : {
+              success: false,
+              error: result.error,
+            }
+        );
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, {
+            success: false,
+            error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body.",
+          });
+          return;
+        }
+        log("ERROR", `DiscordBotList webhook error: ${err?.message || err}`);
+        sendJson(res, 500, { success: false, error: "DiscordBotList Webhook fehlgeschlagen." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/discordbotlist/sync") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      if (!isAdminApiRequest(req)) {
+        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+        return;
+      }
+      try {
+        const body = await readJsonBody();
+        const runCommands = body?.commands !== false;
+        const runStats = body?.stats !== false;
+        const runVotes = body?.votes !== false;
+        const results = {};
+        let hadFailure = false;
+
+        if (runCommands) {
+          try {
+            results.commands = await syncDiscordBotListCommands(runtimes);
+          } catch (err) {
+            hadFailure = true;
+            results.commands = { ok: false, error: err?.message || String(err) };
+          }
+        }
+        if (runStats) {
+          try {
+            results.stats = await syncDiscordBotListStats(runtimes);
+          } catch (err) {
+            hadFailure = true;
+            results.stats = { ok: false, error: err?.message || String(err) };
+          }
+        }
+        if (runVotes) {
+          try {
+            results.votes = await syncDiscordBotListVotes(runtimes);
+          } catch (err) {
+            hadFailure = true;
+            results.votes = { ok: false, error: err?.message || String(err) };
+          }
+        }
+
+        sendJson(res, hadFailure ? 500 : 200, {
+          success: !hadFailure,
+          results,
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, {
+            success: false,
+            error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body.",
+          });
+          return;
+        }
+        log("ERROR", `DiscordBotList sync API error: ${err?.message || err}`);
+        sendJson(res, 500, { success: false, error: "DiscordBotList Sync fehlgeschlagen." });
+      }
       return;
     }
 

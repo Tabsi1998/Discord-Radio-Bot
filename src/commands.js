@@ -108,6 +108,11 @@ export function buildCommandBuilders() {
               .setRequired(true)
           )
           .addStringOption((o) =>
+            o.setName("end")
+              .setDescription("Optionales Ende: YYYY-MM-DD HH:MM oder DD.MM.YYYY HH:MM")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
             o.setName("timezone")
               .setDescription("Zeitzone (z.B. Europe/Berlin, CET, MEZ)")
               .setRequired(false)
@@ -147,6 +152,105 @@ export function buildCommandBuilders() {
           .addStringOption((o) =>
             o.setName("message")
               .setDescription("Optionale Nachricht ({event},{station},{voice},{time})")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("description")
+              .setDescription("Optionale Event-Beschreibung fuer Discord-Server-Events")
+              .setRequired(false)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("edit")
+          .setDescription("Geplantes Event bearbeiten")
+          .addStringOption((o) =>
+            o.setName("id")
+              .setDescription("Event-ID")
+              .setRequired(true)
+              .setAutocomplete(true)
+          )
+          .addStringOption((o) =>
+            o.setName("name")
+              .setDescription("Neuer Eventname")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("station")
+              .setDescription("Neuer Stations-Key")
+              .setRequired(false)
+              .setAutocomplete(true)
+          )
+          .addChannelOption((o) =>
+            o.setName("voice")
+              .setDescription("Neuer Voice- oder Stage-Channel")
+              .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("start")
+              .setDescription("Neue Startzeit: YYYY-MM-DD HH:MM oder DD.MM.YYYY HH:MM")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("end")
+              .setDescription("Neue Endzeit oder `clear` zum Entfernen")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("timezone")
+              .setDescription("Neue Zeitzone")
+              .setRequired(false)
+              .setAutocomplete(true)
+          )
+          .addStringOption((o) =>
+            o.setName("repeat")
+              .setDescription("Neue Wiederholung")
+              .setRequired(false)
+              .addChoices(
+                { name: "Einmalig", value: "none" },
+                { name: "Täglich", value: "daily" },
+                { name: "Wöchentlich (gleicher Wochentag)", value: "weekly" },
+                { name: "Monatlich: 1. Wochentag", value: "monthly_first_weekday" },
+                { name: "Monatlich: 2. Wochentag", value: "monthly_second_weekday" },
+                { name: "Monatlich: 3. Wochentag", value: "monthly_third_weekday" },
+                { name: "Monatlich: 4. Wochentag", value: "monthly_fourth_weekday" },
+                { name: "Monatlich: letzter Wochentag", value: "monthly_last_weekday" }
+              )
+          )
+          .addChannelOption((o) =>
+            o.setName("text")
+              .setDescription("Neuer Text-Channel fuer Ankündigung")
+              .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+              .setRequired(false)
+          )
+          .addBooleanOption((o) =>
+            o.setName("cleartext")
+              .setDescription("Ankündigungs-Channel entfernen")
+              .setRequired(false)
+          )
+          .addBooleanOption((o) =>
+            o.setName("serverevent")
+              .setDescription("Discord-Server-Event an/aus")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("stagetopic")
+              .setDescription("Neues Stage-Thema oder `clear` zum Entfernen")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("message")
+              .setDescription("Neue Nachricht oder `clear` zum Entfernen")
+              .setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("description")
+              .setDescription("Neue Event-Beschreibung oder `clear` zum Entfernen")
+              .setRequired(false)
+          )
+          .addBooleanOption((o) =>
+            o.setName("enabled")
+              .setDescription("Event aktivieren/deaktivieren")
               .setRequired(false)
           )
       )

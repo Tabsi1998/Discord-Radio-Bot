@@ -131,6 +131,18 @@ class WorkerManager {
   }
 
   /**
+   * Find the worker that currently owns a scheduled event playback in a guild.
+   */
+  findWorkerByScheduledEvent(guildId, eventId) {
+    const normalizedEventId = String(eventId || "").trim();
+    if (!normalizedEventId) return null;
+    return this.workers.find((worker) => {
+      const state = worker.guildState.get(guildId);
+      return String(state?.activeScheduledEventId || "").trim() === normalizedEventId;
+    }) || null;
+  }
+
+  /**
    * Get all worker statuses for the API / web display.
    */
   getAllStatuses() {

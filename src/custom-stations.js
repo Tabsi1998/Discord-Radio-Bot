@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json");
 const CUSTOM_BACKUP_FILE = path.resolve(__dirname, "..", "custom-stations.json.bak");
 const MAX_STATIONS_PER_GUILD = 50;
+const CUSTOM_STATION_PREFIX = "custom:";
 
 function readStationsFile(filePath) {
   if (!fs.existsSync(filePath)) return null;
@@ -104,6 +105,33 @@ function save(data) {
 
 function sanitizeKey(raw) {
   return String(raw || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").substring(0, 40);
+}
+
+function normalizeCustomStationKey(raw) {
+  return sanitizeKey(raw);
+}
+
+function buildCustomStationReference(rawKey) {
+  const key = normalizeCustomStationKey(rawKey);
+  return key ? `${CUSTOM_STATION_PREFIX}${key}` : null;
+}
+
+function parseCustomStationReference(rawReference) {
+  const raw = String(rawReference || "").trim().toLowerCase();
+  if (!raw.startsWith(CUSTOM_STATION_PREFIX)) {
+    return { isCustom: false, key: null, reference: null };
+  }
+
+  const key = normalizeCustomStationKey(raw.slice(CUSTOM_STATION_PREFIX.length));
+  if (!key) {
+    return { isCustom: true, key: null, reference: null };
+  }
+
+  return {
+    isCustom: true,
+    key,
+    reference: `${CUSTOM_STATION_PREFIX}${key}`,
+  };
 }
 
 function isPrivateIpv4(hostname) {
@@ -252,7 +280,11 @@ const removeCustomStation = removeGuildStation;
 const listCustomStations = listGuildStations;
 
 export {
+  CUSTOM_STATION_PREFIX,
   MAX_STATIONS_PER_GUILD,
+  normalizeCustomStationKey,
+  buildCustomStationReference,
+  parseCustomStationReference,
   validateCustomStationUrl,
   getGuildStations, addGuildStation, removeGuildStation,
   listGuildStations, countGuildStations, clearGuildStations,

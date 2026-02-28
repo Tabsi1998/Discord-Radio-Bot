@@ -45,11 +45,16 @@ function saveBotState(botId, guildStates) {
 
   for (const [guildId, state] of guildStates.entries()) {
     if (!state.currentStationKey || !state.lastChannelId) continue;
+    const scheduledEventStopAtMs = Number.parseInt(String(state.activeScheduledEventStopAtMs || 0), 10);
     botData[guildId] = {
       channelId: state.lastChannelId,
       stationKey: state.currentStationKey,
       stationName: state.currentStationName || null,
       volume: state.volume ?? 100,
+      scheduledEventId: state.activeScheduledEventId || null,
+      scheduledEventStopAtMs: Number.isFinite(scheduledEventStopAtMs) && scheduledEventStopAtMs > 0
+        ? scheduledEventStopAtMs
+        : 0,
       savedAt: new Date().toISOString(),
     };
   }
