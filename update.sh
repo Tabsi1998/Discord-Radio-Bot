@@ -533,6 +533,7 @@ ensure_env_default "DOCKER_BUILDER_PRUNE_UNTIL" "168h"
 ensure_env_default "DEFAULT_LANGUAGE" "en"
 ensure_env_default "NOW_PLAYING_RECOGNITION_ENABLED" "0"
 ensure_env_default "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18"
+ensure_env_default "NOW_PLAYING_RECOGNITION_MIN_SECONDS" "10"
 ensure_env_default "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000"
 ensure_env_default "NOW_PLAYING_RECOGNITION_CACHE_TTL_MS" "90000"
 ensure_env_default "NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS" "180000"
@@ -899,6 +900,7 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_recognition_enabled=$(read_env "NOW_PLAYING_RECOGNITION_ENABLED" "0")
   cur_acoustid_key=$(read_env "ACOUSTID_API_KEY" "")
   cur_recognition_sample=$(read_env "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18")
+  cur_recognition_min=$(read_env "NOW_PLAYING_RECOGNITION_MIN_SECONDS" "10")
   cur_recognition_timeout=$(read_env "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000")
   cur_default_language=$(read_env "DEFAULT_LANGUAGE" "en")
   cur_fpcalc_status="Container gestoppt"
@@ -951,7 +953,7 @@ if [[ "$MODE" == "--settings" ]]; then
     echo -e "  DBL Webhook:           ${DIM}${cur_public_url}/api/discordbotlist/vote${NC}"
   fi
   if [[ "$cur_recognition_enabled" == "1" && -n "$cur_acoustid_key" ]]; then
-    echo -e "  Track-Erkennung:       ${GREEN}aktiv${NC} (${cur_recognition_sample}s Sample, ${cur_recognition_timeout}ms Timeout)"
+    echo -e "  Track-Erkennung:       ${GREEN}aktiv${NC} (${cur_recognition_sample}s Sample, min. ${cur_recognition_min}s Audio, ${cur_recognition_timeout}ms Timeout)"
   elif [[ "$cur_recognition_enabled" == "1" ]]; then
     echo -e "  Track-Erkennung:       ${YELLOW}aktiv ohne API-Key${NC}"
   else
@@ -1071,10 +1073,12 @@ if [[ "$MODE" == "--settings" ]]; then
           exit 1
         fi
         new_sample="$(prompt_default "Fingerprint Sample in Sekunden" "$cur_recognition_sample")"
+        new_min="$(prompt_default "Minimale brauchbare Audio-Dauer in Sekunden" "$cur_recognition_min")"
         new_timeout="$(prompt_default "Timeout in Millisekunden" "$cur_recognition_timeout")"
         write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "1"
         write_env_line "ACOUSTID_API_KEY" "$new_acoustid_key"
         write_env_line "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "$new_sample"
+        write_env_line "NOW_PLAYING_RECOGNITION_MIN_SECONDS" "$new_min"
         write_env_line "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "$new_timeout"
         write_env_line "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
         ok "Track-Erkennung gespeichert."

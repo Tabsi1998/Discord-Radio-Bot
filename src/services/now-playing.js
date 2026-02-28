@@ -27,6 +27,7 @@ const TRACK_PREFIX_PATTERNS = [
 const METADATA_TRACK_FIELDS = ["streamtitle", "title", "song", "track", "trackname"];
 const METADATA_ARTIST_FIELDS = ["artist", "streamartist", "creator"];
 const METADATA_TITLE_FIELDS = ["title", "song", "track", "trackname", "streamtitle"];
+const METADATA_ALBUM_FIELDS = ["album", "streamalbum", "songalbum", "release"];
 const SEARCH_NOISE_PATTERNS = [
   /\((?:played by|mix(?:ed)? by|live (?:at|from)|freedom tml|radio edit|clean edit|explicit edit).*?\)/gi,
   /\[(?:played by|mix(?:ed)? by|live (?:at|from)|radio edit|clean edit|explicit edit).*?\]/gi,
@@ -108,12 +109,12 @@ function normalizeTrackSearchText(raw) {
 
 function extractMetadataEntries(metadataText) {
   const entries = new Map();
-  const regex = /([A-Za-z0-9_-]+)\s*=\s*'([^']*)'/g;
+  const regex = /([A-Za-z0-9_-]+)\s*=\s*(?:'([^']*)'|"([^"]*)"|([^;]*))/g;
   const text = String(metadataText || "");
   let match;
   while ((match = regex.exec(text)) !== null) {
     const key = String(match[1] || "").trim().toLowerCase();
-    const value = String(match[2] || "").trim();
+    const value = String(match[2] || match[3] || match[4] || "").trim();
     if (!key || !value || entries.has(key)) continue;
     entries.set(key, value);
   }
@@ -135,6 +136,7 @@ function extractTrackFromMetadataText(metadataText) {
   const parsedStreamTitle = parseTrackFromStreamTitle(streamTitleRaw);
   const artist = parsedStreamTitle.artist || pickMetadataValue(entries, METADATA_ARTIST_FIELDS);
   const title = parsedStreamTitle.title || pickMetadataValue(entries, METADATA_TITLE_FIELDS);
+  const album = pickMetadataValue(entries, METADATA_ALBUM_FIELDS);
   const combinedDisplayTitle = normalizeTrackText([artist, title].filter(Boolean).join(" - "));
   const displayTitle = (artist && title && !parsedStreamTitle.artist)
     ? combinedDisplayTitle
@@ -148,6 +150,7 @@ function extractTrackFromMetadataText(metadataText) {
     raw: parsedStreamTitle.raw || streamTitleRaw || displayTitle || null,
     artist: artist || null,
     title: title || null,
+    album: album || null,
     displayTitle: displayTitle || null,
   };
 }
@@ -475,9 +478,10 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
         raw: recognizedTrack.raw || track?.raw || recognizedTrack.displayTitle || null,
         artist: recognizedTrack.artist || track?.artist || null,
         title: recognizedTrack.title || track?.title || null,
+        album: recognizedTrack.album || track?.album || null,
         displayTitle: recognizedTrack.displayTitle || track?.displayTitle || recognizedTrack.raw || null,
       };
-      snapshot.album = recognizedTrack.album || recognizedTrack.releaseTitle || null;
+      snapshot.album = recognizedTrack.album || recognizedTrack.releaseTitle || track?.album || null;
       snapshot.artworkUrl = recognizedTrack.artworkUrl || null;
       snapshot.recognitionProvider = recognizedTrack.recognitionProvider || null;
       snapshot.recognitionConfidence = recognizedTrack.recognitionConfidence || null;
@@ -493,6 +497,7 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
     snapshot.streamTitle = track?.raw || null;
     snapshot.artist = track?.artist || null;
     snapshot.title = track?.title || null;
+    snapshot.album = snapshot.album || track?.album || null;
     snapshot.displayTitle = track?.displayTitle || null;
 
     if (!snapshot.artworkUrl && includeCover && (track?.displayTitle || track?.title)) {

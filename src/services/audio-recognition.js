@@ -10,9 +10,11 @@ const RECOGNITION_ENABLED = String(process.env.NOW_PLAYING_RECOGNITION_ENABLED ?
 const ACOUSTID_API_KEY = String(process.env.ACOUSTID_API_KEY || "").trim();
 const MUSICBRAINZ_ENABLED = String(process.env.NOW_PLAYING_MUSICBRAINZ_ENABLED ?? "1").trim() !== "0";
 const RECOGNITION_SAMPLE_SECONDS = parseEnvInt("NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS", 18, 8, 30);
+const RECOGNITION_MIN_SECONDS = parseEnvInt("NOW_PLAYING_RECOGNITION_MIN_SECONDS", 10, 4, 20);
 const RECOGNITION_TIMEOUT_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_TIMEOUT_MS", 28_000, 8_000, 60_000);
 const RECOGNITION_CACHE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_CACHE_TTL_MS", 90_000, 30_000, 10 * 60_000);
 const RECOGNITION_FAILURE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS", 180_000, 30_000, 30 * 60_000);
+const RECOGNITION_SOFT_LOG_COOLDOWN_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_SOFT_LOG_COOLDOWN_MS", 10 * 60_000, 60_000, 60 * 60_000);
 const MUSICBRAINZ_MIN_DELAY_MS = parseEnvInt("NOW_PLAYING_MUSICBRAINZ_MIN_DELAY_MS", 1100, 1000, 10_000);
 const ACOUSTID_MIN_DELAY_MS = parseEnvInt("NOW_PLAYING_ACOUSTID_MIN_DELAY_MS", 350, 150, 5_000);
 const RECOGNITION_SCORE_THRESHOLD = Math.max(
@@ -25,6 +27,7 @@ const MBID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 const recognitionCache = new Map();
 const recognitionInFlight = new Map();
+const recognitionSoftFailureLogCache = new Map();
 let fpcalcAvailabilityPromise = null;
 let nextAcoustIdRequestAt = 0;
 let nextMusicBrainzRequestAt = 0;
@@ -128,9 +131,77 @@ function runProcess(command, args, { timeoutMs = 15_000 } = {}) {
         resolve({ stdout, stderr });
         return;
       }
-      reject(new Error(`${command} exited with code ${code}: ${clipText(stderr || stdout, 300)}`));
+      const error = new Error(`${command} exited with code ${code}: ${clipText(stderr || stdout, 300)}`);
+      error.code = code;
+      error.stdout = stdout;
+      error.stderr = stderr;
+      error.command = command;
+      reject(error);
     });
   });
+}
+
+function parseFpcalcOutput(stdout) {
+  const text = String(stdout || "");
+  const durationMatch = text.match(/^DURATION=(.+)$/m);
+  const fingerprintMatch = text.match(/^FINGERPRINT=(.+)$/m);
+  const duration = Number.parseFloat(String(durationMatch?.[1] || "").trim());
+  const fingerprint = String(fingerprintMatch?.[1] || "").trim();
+
+  if (!Number.isFinite(duration) || duration <= 0 || !fingerprint) {
+    return null;
+  }
+
+  return {
+    duration: Math.round(duration),
+    fingerprint,
+  };
+}
+
+function estimatePcmWavDurationSeconds(fileSizeBytes) {
+  const payloadBytes = Math.max(0, Number(fileSizeBytes || 0) - 44);
+  if (payloadBytes <= 0) return 0;
+  return payloadBytes / (11025 * 2);
+}
+
+function isFpcalcDecodeEofError(error) {
+  const text = String(error?.message || error?.stderr || error || "").toLowerCase();
+  return text.includes("error decoding audio frame")
+    || text.includes("end of file");
+}
+
+function isSoftRecognitionFailure(error) {
+  if (!error) return false;
+  const text = String(error?.message || error?.stderr || error || "").toLowerCase();
+  return isFpcalcDecodeEofError(error)
+    || text.includes("captured sample too short")
+    || text.includes("sample file is empty")
+    || text.includes("invalid data found when processing input")
+    || text.includes("connection timed out")
+    || text.includes("io error")
+    || text.includes("timed out")
+    || text.includes("no usable fingerprint");
+}
+
+function shouldLogRecognitionFailure(cacheKey, error, message) {
+  if (!isSoftRecognitionFailure(error)) return true;
+
+  const normalizedKey = `${String(cacheKey || "-").toLowerCase()}|${String(message || "").toLowerCase()}`;
+  const now = Date.now();
+  const nextAllowedAt = recognitionSoftFailureLogCache.get(normalizedKey) || 0;
+  if (nextAllowedAt > now) {
+    return false;
+  }
+
+  recognitionSoftFailureLogCache.set(normalizedKey, now + RECOGNITION_SOFT_LOG_COOLDOWN_MS);
+  if (recognitionSoftFailureLogCache.size > 500) {
+    for (const [key, expiresAt] of recognitionSoftFailureLogCache.entries()) {
+      if (expiresAt <= now) {
+        recognitionSoftFailureLogCache.delete(key);
+      }
+    }
+  }
+  return true;
 }
 
 async function hasFpcalcSupport() {
@@ -139,6 +210,35 @@ async function hasFpcalcSupport() {
     .then(() => true)
     .catch(() => false);
   return fpcalcAvailabilityPromise;
+}
+
+async function probeAudioDurationSeconds(filePath) {
+  const output = await runProcess("ffprobe", [
+    "-v", "error",
+    "-show_entries", "format=duration",
+    "-of", "default=noprint_wrappers=1:nokey=1",
+    filePath,
+  ], { timeoutMs: 4000 });
+
+  const duration = Number.parseFloat(String(output.stdout || "").trim());
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
+}
+
+async function runFpcalc(samplePath, fingerprintSeconds = null) {
+  const args = [];
+  if (Number.isFinite(fingerprintSeconds) && fingerprintSeconds > 0) {
+    args.push("-length", String(Math.max(1, Math.floor(fingerprintSeconds))));
+  }
+  args.push(samplePath);
+
+  const output = await runProcess("fpcalc", args, {
+    timeoutMs: Math.min(RECOGNITION_TIMEOUT_MS, 12_000),
+  });
+  const parsed = parseFpcalcOutput(output.stdout);
+  if (!parsed) {
+    throw new Error("fpcalc returned no usable fingerprint");
+  }
+  return parsed;
 }
 
 async function captureFingerprintFromStream(url) {
@@ -167,25 +267,34 @@ async function captureFingerprintFromStream(url) {
       samplePath,
     ], { timeoutMs: RECOGNITION_TIMEOUT_MS });
 
-    const output = await runProcess("fpcalc", [
-      "-length",
-      String(RECOGNITION_SAMPLE_SECONDS),
-      samplePath,
-    ], { timeoutMs: Math.min(RECOGNITION_TIMEOUT_MS, 12_000) });
-
-    const durationMatch = output.stdout.match(/^DURATION=(.+)$/m);
-    const fingerprintMatch = output.stdout.match(/^FINGERPRINT=(.+)$/m);
-    const duration = Number.parseFloat(String(durationMatch?.[1] || "").trim());
-    const fingerprint = String(fingerprintMatch?.[1] || "").trim();
-
-    if (!Number.isFinite(duration) || duration <= 0 || !fingerprint) {
-      throw new Error("fpcalc returned no usable fingerprint");
+    const sampleStat = await fs.stat(samplePath).catch(() => null);
+    if (!sampleStat || sampleStat.size <= 44) {
+      throw new Error("sample file is empty");
     }
 
-    return {
-      duration: Math.round(duration),
-      fingerprint,
-    };
+    let capturedSeconds = 0;
+    try {
+      capturedSeconds = await probeAudioDurationSeconds(samplePath);
+    } catch {
+      capturedSeconds = estimatePcmWavDurationSeconds(sampleStat.size);
+    }
+
+    if (!Number.isFinite(capturedSeconds) || capturedSeconds <= 0) {
+      capturedSeconds = estimatePcmWavDurationSeconds(sampleStat.size);
+    }
+
+    if (capturedSeconds < RECOGNITION_MIN_SECONDS) {
+      throw new Error(`captured sample too short (${capturedSeconds.toFixed(1)}s < ${RECOGNITION_MIN_SECONDS}s)`);
+    }
+
+    const preferredFingerprintSeconds = Math.min(RECOGNITION_SAMPLE_SECONDS, Math.max(1, Math.floor(capturedSeconds)));
+
+    try {
+      return await runFpcalc(samplePath, preferredFingerprintSeconds);
+    } catch (error) {
+      if (!isFpcalcDecodeEofError(error)) throw error;
+      return runFpcalc(samplePath, null);
+    }
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => null);
   }
@@ -427,7 +536,11 @@ async function recognizeTrackFromStream(url, { existingTrack = null } = {}) {
       });
       return resolved;
     } catch (error) {
-      log("WARN", `[NowPlaying] Audio recognition failed: ${clipText(error?.message || String(error), 220)}`);
+      const message = clipText(error?.message || String(error), 220);
+      const level = isSoftRecognitionFailure(error) ? "INFO" : "WARN";
+      if (shouldLogRecognitionFailure(cacheKey, error, message)) {
+        log(level, `[NowPlaying] Audio recognition failed: ${message}`);
+      }
       recognitionCache.set(cacheKey, { value: null, expiresAt: Date.now() + RECOGNITION_FAILURE_TTL_MS });
       return null;
     }
@@ -440,7 +553,10 @@ async function recognizeTrackFromStream(url, { existingTrack = null } = {}) {
 }
 
 export {
+  estimatePcmWavDurationSeconds,
   extractAcoustIdCandidate,
+  isSoftRecognitionFailure,
+  parseFpcalcOutput,
   selectBestAcoustIdMatch,
   recognizeTrackFromStream,
 };

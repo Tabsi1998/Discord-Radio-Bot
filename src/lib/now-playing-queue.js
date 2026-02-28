@@ -9,6 +9,7 @@ class NowPlayingQueue {
   constructor(maxConcurrent = 5, cacheMaxSize = 1000) {
     this.queue = [];
     this.active = new Set();
+    this.queuedById = new Map();
     this.sharedCoverCache = new Map();
     this.maxConcurrent = maxConcurrent;
     this.cacheMaxSize = cacheMaxSize;
@@ -26,18 +27,35 @@ class NowPlayingQueue {
    * @param {Function} updateFn - Async function to execute
    * @returns {Promise} Resolves when task completes
    */
-  async enqueue(taskId, updateFn) {
-    return new Promise((resolve, reject) => {
-      this.queue.push({
-        id: taskId,
-        fn: updateFn,
-        resolve,
-        reject,
-        enqueuedAt: Date.now(),
-      });
-      this.stats.totalEnqueued++;
-      this.process();
+  enqueue(taskId, updateFn) {
+    const normalizedTaskId = String(taskId || "").trim();
+    const existingQueued = normalizedTaskId ? this.queuedById.get(normalizedTaskId) : null;
+    if (existingQueued) {
+      existingQueued.fn = updateFn;
+      return existingQueued.promise;
+    }
+
+    const task = {
+      id: normalizedTaskId || taskId,
+      fn: updateFn,
+      resolve: null,
+      reject: null,
+      enqueuedAt: Date.now(),
+      promise: null,
+    };
+
+    task.promise = new Promise((resolve, reject) => {
+      task.resolve = resolve;
+      task.reject = reject;
     });
+
+    this.queue.push(task);
+    if (normalizedTaskId) {
+      this.queuedById.set(normalizedTaskId, task);
+    }
+    this.stats.totalEnqueued++;
+    this.process();
+    return task.promise;
   }
 
   /**
@@ -46,6 +64,9 @@ class NowPlayingQueue {
   async process() {
     while (this.active.size < this.maxConcurrent && this.queue.length > 0) {
       const task = this.queue.shift();
+      if (task?.id) {
+        this.queuedById.delete(String(task.id));
+      }
       
       const promise = (async () => {
         try {
@@ -115,6 +136,7 @@ class NowPlayingQueue {
   clear() {
     this.queue = [];
     this.active.clear();
+    this.queuedById.clear();
     this.sharedCoverCache.clear();
   }
 

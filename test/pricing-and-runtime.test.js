@@ -10,6 +10,7 @@ import {
 import { buildCommandsJson } from "../src/commands.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
+import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import {
   parseTrackFromStreamTitle,
@@ -17,7 +18,10 @@ import {
   normalizeTrackSearchText,
 } from "../src/services/now-playing.js";
 import {
+  estimatePcmWavDurationSeconds,
   extractAcoustIdCandidate,
+  isSoftRecognitionFailure,
+  parseFpcalcOutput,
   selectBestAcoustIdMatch,
 } from "../src/services/audio-recognition.js";
 import { getDefaultLanguage } from "../src/i18n.js";
@@ -180,6 +184,15 @@ test("metadata parser falls back to artist/title fields when StreamTitle is miss
   assert.equal(parsed.displayTitle, "Don Diablo - The Rhythm Of The Night");
 });
 
+test("metadata parser accepts double-quoted artist/title/album fields", () => {
+  const parsed = extractTrackFromMetadataText('artist="Martin Ikin";title="Out of my Head";album="Out of my Head";');
+
+  assert.equal(parsed.artist, "Martin Ikin");
+  assert.equal(parsed.title, "Out of my Head");
+  assert.equal(parsed.album, "Out of my Head");
+  assert.equal(parsed.displayTitle, "Martin Ikin - Out of my Head");
+});
+
 test("track search text removes broadcast noise for better cover lookup", () => {
   const cleaned = normalizeTrackSearchText("Metro (Played by Mau P Freedom TML 24)");
 
@@ -201,6 +214,51 @@ test("AcoustID candidate extraction keeps artist, title, album, and score", () =
   assert.equal(candidate.title, "The Rhythm Of The Night");
   assert.equal(candidate.album, "The Rhythm Of The Night");
   assert.equal(candidate.score, 0.91);
+});
+
+test("fpcalc output parser extracts duration and fingerprint", () => {
+  const parsed = parseFpcalcOutput("FILE=sample.wav\nDURATION=17.8\nFINGERPRINT=abc123\n");
+
+  assert.deepEqual(parsed, {
+    duration: 18,
+    fingerprint: "abc123",
+  });
+});
+
+test("wav duration estimate matches mono 11025 Hz PCM sizing", () => {
+  const bytesForTwelveSeconds = 44 + (12 * 11025 * 2);
+  assert.equal(estimatePcmWavDurationSeconds(bytesForTwelveSeconds), 12);
+});
+
+test("recognition decode EOF errors are treated as soft failures", () => {
+  const error = new Error("fpcalc exited with code 3: ERROR: Error decoding audio frame (End of file)");
+  assert.equal(isSoftRecognitionFailure(error), true);
+});
+
+test("now playing queue coalesces duplicate queued task ids", async () => {
+  const queue = new NowPlayingQueue(1);
+  let releaseFirstTask;
+  let secondTaskRuns = 0;
+
+  const firstTask = queue.enqueue("guild-1", async () => new Promise((resolve) => {
+    releaseFirstTask = resolve;
+  }));
+  const secondTaskA = queue.enqueue("guild-2", async () => {
+    secondTaskRuns += 1;
+    return "first";
+  });
+  const secondTaskB = queue.enqueue("guild-2", async () => {
+    secondTaskRuns += 1;
+    return "second";
+  });
+
+  assert.equal(secondTaskA, secondTaskB);
+  releaseFirstTask();
+  await firstTask;
+  const result = await secondTaskB;
+
+  assert.equal(result, "second");
+  assert.equal(secondTaskRuns, 1);
 });
 
 test("AcoustID best-match selection rejects weak matches and prefers the richest strong match", () => {

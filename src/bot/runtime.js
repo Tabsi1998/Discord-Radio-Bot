@@ -738,7 +738,7 @@ class BotRuntime {
     return clipText(query || "", 180) || null;
   }
 
-  buildTrackLinkComponents(guildId, station, meta) {
+  buildTrackLinkComponentsLegacy(guildId, station, meta) {
     const query = this.buildTrackSearchQuery(station, meta);
     if (!query) return [];
 
@@ -746,7 +746,10 @@ class BotRuntime {
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
         .setLabel("▶ YouTube")
-        .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`),
+        .setEmoji("\u25b6")
+        .setEmoji("\u25b6")
+        .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`)
+        .setEmoji("\u25b6"),
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
         .setLabel("♫ Spotify")
@@ -759,17 +762,23 @@ class BotRuntime {
   buildTrackLinkComponents(guildId, station, meta) {
     const query = this.buildTrackSearchQuery(station, meta);
     if (!query) return [];
+    const language = this.resolveGuildLanguage(guildId);
+    const isDe = language === "de";
 
     const buttons = [
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
         .setLabel("YouTube")
+        .setLabel(isDe ? "YouTube-Suche" : "YouTube search")
         .setEmoji({ name: "▶" })
-        .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`),
+        .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`)
+        .setEmoji("\u25b6"),
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
         .setLabel("Spotify")
+        .setLabel(isDe ? "Spotify-Suche" : "Spotify search")
         .setEmoji({ name: "♫" })
+        .setEmoji("\u266b")
         .setURL(`https://open.spotify.com/search/${encodeURIComponent(query)}`),
     ];
 
@@ -785,12 +794,64 @@ class BotRuntime {
           .setStyle(ButtonStyle.Link)
           .setLabel("MusicBrainz")
           .setEmoji({ name: "🧠" })
+          .setEmoji("\u{1f9e0}")
           .setURL(musicBrainzUrl)
       );
     }
 
     const row = new ActionRowBuilder().addComponents(...buttons);
     return [row];
+  }
+
+  buildNowPlayingSourceSummary(language, meta, hasTrack) {
+    const isDe = language === "de";
+    const metadataSource = String(meta?.metadataSource || "").trim().toLowerCase();
+    const metadataStatus = String(meta?.metadataStatus || (hasTrack ? "ok" : "empty")).trim().toLowerCase();
+    const recognitionConfidence = Number.parseFloat(String(meta?.recognitionConfidence ?? ""));
+
+    let sourceLabel = isDe ? "Unbekannt" : "Unknown";
+    let sourceDetail = sourceLabel;
+    let sourceNote = null;
+
+    if (metadataSource === "icy") {
+      sourceLabel = isDe ? "Sender-Metadaten" : "Station metadata";
+      sourceDetail = sourceLabel;
+    } else if (metadataSource === "recognition") {
+      sourceLabel = isDe ? "Audio-Fingerprint" : "Audio fingerprint";
+      sourceDetail = [
+        meta?.recognitionProvider || "AcoustID",
+        Number.isFinite(recognitionConfidence) ? `${Math.round(recognitionConfidence * 100)}%` : "",
+      ].filter(Boolean).join(" | ") || sourceLabel;
+      sourceNote = isDe
+        ? "Per Audio-Fingerprint erkannt."
+        : "Matched via audio fingerprint.";
+    } else if (metadataSource === "icy+recognition") {
+      sourceLabel = isDe ? "Metadaten + Fingerprint" : "Metadata + fingerprint";
+      sourceDetail = [
+        isDe ? "Sender-Metadaten ergänzt" : "Station metadata enriched",
+        meta?.recognitionProvider || "AcoustID",
+        Number.isFinite(recognitionConfidence) ? `${Math.round(recognitionConfidence * 100)}%` : "",
+      ].filter(Boolean).join(" | ");
+      sourceNote = isDe
+        ? "Senderdaten wurden per Audio-Fingerprint ergänzt."
+        : "Station data was enriched via audio fingerprint.";
+    } else if (metadataSource === "stream") {
+      sourceLabel = isDe ? "Stream-Info" : "Stream info";
+      sourceDetail = sourceLabel;
+    }
+
+    let metadataHint = null;
+    if (!hasTrack) {
+      metadataHint = metadataStatus === "unsupported"
+        ? (isDe
+          ? "Dieser Stream sendet aktuell keine lesbaren Songdaten."
+          : "This stream is not sending readable track data right now.")
+        : (isDe
+          ? "Dieser Sender liefert aktuell keine verwertbaren Songdaten."
+          : "This station is not providing usable track data right now.");
+    }
+
+    return { metadataSource, sourceLabel, sourceDetail, sourceNote, metadataHint };
   }
 
   getVoiceListenerCount(guildId, channelId) {
@@ -1016,7 +1077,7 @@ class BotRuntime {
     return fallbackChannels[0] || null;
   }
 
-  buildNowPlayingEmbed(guildId, station, meta, context = {}) {
+  buildNowPlayingEmbedLegacy(guildId, station, meta, context = {}) {
     const language = this.resolveGuildLanguage(guildId);
     const isDe = language === "de";
     const tierConfig = getTierConfig(guildId);
@@ -1104,6 +1165,115 @@ class BotRuntime {
     }
     if (meta?.artworkUrl) {
       embed.setThumbnail(meta.artworkUrl);
+    }
+
+    const sourceSummary = this.buildNowPlayingSourceSummary(language, meta, hasTrack);
+    const visibleListenerCount = listenerCount >= 2 ? String(listenerCount) : null;
+    const descriptionLines = [];
+    if (hasTrack) {
+      descriptionLines.push(`**${headline}**`);
+      if (sourceSummary.sourceNote) {
+        descriptionLines.push(`_${sourceSummary.sourceNote}_`);
+      }
+    } else {
+      descriptionLines.push(`\u26a0\ufe0f ${sourceSummary.metadataHint}`);
+    }
+
+    const stableFields = [
+      {
+        name: isDe ? "\u{1f4fb} Sender" : "\u{1f4fb} Station",
+        value: stationName,
+        inline: true,
+      },
+      {
+        name: isDe ? "\u{1f50a} Qualit\u00e4t" : "\u{1f50a} Quality",
+        value: tierConfig.bitrate || "-",
+        inline: true,
+      },
+      {
+        name: isDe ? "\u{1f9e0} Quelle" : "\u{1f9e0} Source",
+        value: sourceSummary.sourceDetail || sourceSummary.sourceLabel,
+        inline: true,
+      },
+    ];
+
+    if (voiceChannelId) {
+      stableFields.push({
+        name: isDe ? "\u{1f39b} L\u00e4uft in" : "\u{1f39b} Running in",
+        value: `<#${voiceChannelId}>`,
+        inline: true,
+      });
+    }
+    if (visibleListenerCount) {
+      stableFields.push({
+        name: isDe ? "\u{1f465} H\u00f6ren gerade" : "\u{1f465} Listening now",
+        value: visibleListenerCount,
+        inline: true,
+      });
+    }
+    if (artist) {
+      stableFields.push({
+        name: isDe ? "\u{1f3a4} K\u00fcnstler" : "\u{1f3a4} Artist",
+        value: artist,
+        inline: true,
+      });
+    }
+    if (title) {
+      stableFields.push({
+        name: isDe ? "\u{1f4dd} Titel" : "\u{1f4dd} Title",
+        value: title,
+        inline: true,
+      });
+    }
+    if (album) {
+      stableFields.push({
+        name: "\u{1f4bf} Album",
+        value: album,
+        inline: true,
+      });
+    }
+    if (streamInfo) {
+      stableFields.push({
+        name: isDe ? "\u2139\ufe0f Stream-Info" : "\u2139\ufe0f Stream info",
+        value: streamInfo,
+        inline: false,
+      });
+    }
+    if (!hasTrack) {
+      stableFields.push({
+        name: isDe ? "\u{1f9ed} Hinweis" : "\u{1f9ed} Note",
+        value: isDe
+          ? "Der Stream l\u00e4uft normal weiter. OmniFM versucht weiterhin zuerst Sender-Metadaten und danach den Fingerprint-Fallback."
+          : "The stream continues normally. OmniFM keeps trying station metadata first and then the fingerprint fallback.",
+        inline: false,
+      });
+    }
+
+    const stableFooterParts = [
+      workerName,
+      isDe ? `Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s` : `Auto update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`,
+    ];
+    if (sourceSummary.metadataSource.includes("recognition")) {
+      stableFooterParts.push(isDe ? "Fingerprint-Fallback" : "Fingerprint fallback");
+    }
+
+    embed
+      .setColor(!hasTrack ? 0xF1C40F : (sourceSummary.metadataSource.includes("recognition") ? 0x5865F2 : 0x1DB954))
+      .setTitle(isDe ? "\u{1f3b5} Jetzt live" : "\u{1f3b5} Live now")
+      .setDescription(descriptionLines.join("\n"))
+      .setAuthor({
+        name: workerName,
+        iconURL: this.client.user?.displayAvatarURL?.({ extension: "png", size: 128 }) || undefined,
+      })
+      .setFooter({
+        text: stableFooterParts.join(" | "),
+      });
+
+    const existingFieldCount = Array.isArray(embed.data?.fields) ? embed.data.fields.length : 0;
+    if (existingFieldCount > 0) {
+      embed.spliceFields(0, existingFieldCount, ...stableFields);
+    } else if (stableFields.length > 0) {
+      embed.addFields(...stableFields);
     }
 
     return embed;
@@ -1228,6 +1398,115 @@ class BotRuntime {
     }
     if (meta?.artworkUrl) {
       embed.setThumbnail(meta.artworkUrl);
+    }
+
+    const sourceSummary = this.buildNowPlayingSourceSummary(language, meta, hasTrack);
+    const visibleListenerCount = listenerCount >= 2 ? String(listenerCount) : null;
+    const descriptionLines = [];
+    if (hasTrack) {
+      descriptionLines.push(`**${headline}**`);
+      if (sourceSummary.sourceNote) {
+        descriptionLines.push(`_${sourceSummary.sourceNote}_`);
+      }
+    } else {
+      descriptionLines.push(`\u26a0\ufe0f ${sourceSummary.metadataHint}`);
+    }
+
+    const stableFields = [
+      {
+        name: isDe ? "\u{1f4fb} Sender" : "\u{1f4fb} Station",
+        value: stationName,
+        inline: true,
+      },
+      {
+        name: isDe ? "\u{1f50a} Qualit\u00e4t" : "\u{1f50a} Quality",
+        value: tierConfig.bitrate || "-",
+        inline: true,
+      },
+      {
+        name: isDe ? "\u{1f9e0} Quelle" : "\u{1f9e0} Source",
+        value: sourceSummary.sourceDetail || sourceSummary.sourceLabel,
+        inline: true,
+      },
+    ];
+
+    if (voiceChannelId) {
+      stableFields.push({
+        name: isDe ? "\u{1f39b} L\u00e4uft in" : "\u{1f39b} Running in",
+        value: `<#${voiceChannelId}>`,
+        inline: true,
+      });
+    }
+    if (visibleListenerCount) {
+      stableFields.push({
+        name: isDe ? "\u{1f465} H\u00f6ren gerade" : "\u{1f465} Listening now",
+        value: visibleListenerCount,
+        inline: true,
+      });
+    }
+    if (artist) {
+      stableFields.push({
+        name: isDe ? "\u{1f3a4} K\u00fcnstler" : "\u{1f3a4} Artist",
+        value: artist,
+        inline: true,
+      });
+    }
+    if (title) {
+      stableFields.push({
+        name: isDe ? "\u{1f4dd} Titel" : "\u{1f4dd} Title",
+        value: title,
+        inline: true,
+      });
+    }
+    if (album) {
+      stableFields.push({
+        name: "\u{1f4bf} Album",
+        value: album,
+        inline: true,
+      });
+    }
+    if (streamInfo) {
+      stableFields.push({
+        name: isDe ? "\u2139\ufe0f Stream-Info" : "\u2139\ufe0f Stream info",
+        value: streamInfo,
+        inline: false,
+      });
+    }
+    if (!hasTrack) {
+      stableFields.push({
+        name: isDe ? "\u{1f9ed} Hinweis" : "\u{1f9ed} Note",
+        value: isDe
+          ? "Der Stream l\u00e4uft normal weiter. OmniFM versucht weiterhin zuerst Sender-Metadaten und danach den Fingerprint-Fallback."
+          : "The stream continues normally. OmniFM keeps trying station metadata first and then the fingerprint fallback.",
+        inline: false,
+      });
+    }
+
+    const stableFooterParts = [
+      workerName,
+      isDe ? `Auto-Update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s` : `Auto update ${Math.round(NOW_PLAYING_POLL_MS / 1000)}s`,
+    ];
+    if (sourceSummary.metadataSource.includes("recognition")) {
+      stableFooterParts.push(isDe ? "Fingerprint-Fallback" : "Fingerprint fallback");
+    }
+
+    embed
+      .setColor(!hasTrack ? 0xF1C40F : (sourceSummary.metadataSource.includes("recognition") ? 0x5865F2 : 0x1DB954))
+      .setTitle(isDe ? "\u{1f3b5} Jetzt live" : "\u{1f3b5} Live now")
+      .setDescription(descriptionLines.join("\n"))
+      .setAuthor({
+        name: workerName,
+        iconURL: this.client.user?.displayAvatarURL?.({ extension: "png", size: 128 }) || undefined,
+      })
+      .setFooter({
+        text: stableFooterParts.join(" | "),
+      });
+
+    const existingFieldCount = Array.isArray(embed.data?.fields) ? embed.data.fields.length : 0;
+    if (existingFieldCount > 0) {
+      embed.spliceFields(0, existingFieldCount, ...stableFields);
+    } else if (stableFields.length > 0) {
+      embed.addFields(...stableFields);
     }
 
     return embed;
@@ -1383,7 +1662,6 @@ class BotRuntime {
         nextMeta.musicBrainzRecordingId || "",
         nextMeta.musicBrainzReleaseId || "",
         state.connection?.joinConfig?.channelId || state.lastChannelId || "",
-        this.getCurrentListenerCount(guildId, state),
       ].join("|").toLowerCase();
 
       if (!force && signature === state.nowPlayingSignature) {
@@ -5381,11 +5659,6 @@ class BotRuntime {
         workerName: activeRuntime.config?.name || BRAND.name,
       });
       embed.addFields(
-        {
-          name: t("Voice-Channel", "Voice channel"),
-          value: channelId ? `<#${channelId}>` : t("unbekannt", "unknown"),
-          inline: true,
-        },
         {
           name: t("Aktiv auf", "Active on"),
           value: `${playingGuilds} ${t(`Server${playingGuilds === 1 ? "" : "n"}`, `server${playingGuilds === 1 ? "" : "s"}`)}`,

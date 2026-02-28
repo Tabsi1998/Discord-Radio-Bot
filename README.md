@@ -136,6 +136,12 @@ If recognition does not work reliably, check these points in order:
 3. The station itself is reachable and sends enough clean audio for a short fingerprint sample.
 4. Your usage matches the AcoustID terms for the free API.
 
+If you see `fpcalc exited with code 3: ERROR: Error decoding audio frame (End of file)`, OmniFM most likely captured too little usable audio from the stream. The current fallback now retries more defensively and treats this as a soft failure, but you should still increase the capture window in `./update.sh --settings`:
+
+- `Fingerprint Sample in Sekunden`: start with `22`
+- `Minimale brauchbare Audio-Dauer in Sekunden`: start with `10`
+- `Timeout in Millisekunden`: keep `28000` to `35000`
+
 If the Docker build fails while installing Chromaprint, inspect the build log directly. The management scripts now stop on build failures instead of reporting a false success.
 
 ## Important environment variables
@@ -191,6 +197,7 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | `NOW_PLAYING_RECOGNITION_ENABLED` | Enables fingerprint fallback |
 | `ACOUSTID_API_KEY` | AcoustID client key |
 | `NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS` | FFmpeg sample duration |
+| `NOW_PLAYING_RECOGNITION_MIN_SECONDS` | Minimum usable captured audio before fingerprinting |
 | `NOW_PLAYING_RECOGNITION_TIMEOUT_MS` | End-to-end recognition timeout |
 | `NOW_PLAYING_RECOGNITION_CACHE_TTL_MS` | Positive recognition cache TTL |
 | `NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS` | Negative cache TTL |
