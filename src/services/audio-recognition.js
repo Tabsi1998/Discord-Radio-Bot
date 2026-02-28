@@ -255,6 +255,51 @@ async function runFpcalc(samplePath, fingerprintSeconds = null) {
   return parsed;
 }
 
+async function repairCapturedSample(samplePath, targetPath) {
+  await runProcess("ffmpeg", [
+    "-hide_banner",
+    "-loglevel", "error",
+    "-nostdin",
+    "-y",
+    "-fflags", "+discardcorrupt",
+    "-i", samplePath,
+    "-vn",
+    "-ac", "1",
+    "-ar", "11025",
+    "-c:a", "pcm_s16le",
+    "-f", "wav",
+    targetPath,
+  ], { timeoutMs: Math.min(RECOGNITION_TIMEOUT_MS, 12_000) });
+
+  const repairedStat = await fs.stat(targetPath).catch(() => null);
+  if (!repairedStat || repairedStat.size <= 44) {
+    throw new Error("repaired sample file is empty");
+  }
+  return targetPath;
+}
+
+async function fingerprintCapturedSample(samplePath, tempDir, preferredFingerprintSeconds) {
+  try {
+    return await runFpcalc(samplePath, preferredFingerprintSeconds);
+  } catch (error) {
+    if (!isFpcalcDecodeEofError(error)) throw error;
+  }
+
+  const repairedSamplePath = path.join(tempDir, "sample-repaired.wav");
+  try {
+    await repairCapturedSample(samplePath, repairedSamplePath);
+  } catch {
+    return await runFpcalc(samplePath, null);
+  }
+
+  try {
+    return await runFpcalc(repairedSamplePath, preferredFingerprintSeconds);
+  } catch (error) {
+    if (!isFpcalcDecodeEofError(error)) throw error;
+    return await runFpcalc(repairedSamplePath, null);
+  }
+}
+
 async function captureFingerprintAttempt(url) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omnifm-fingerprint-"));
   const samplePath = path.join(tempDir, "sample.wav");
@@ -302,13 +347,7 @@ async function captureFingerprintAttempt(url) {
     }
 
     const preferredFingerprintSeconds = Math.min(RECOGNITION_SAMPLE_SECONDS, Math.max(1, Math.floor(capturedSeconds)));
-
-    try {
-      return await runFpcalc(samplePath, preferredFingerprintSeconds);
-    } catch (error) {
-      if (!isFpcalcDecodeEofError(error)) throw error;
-      return await runFpcalc(samplePath, null);
-    }
+    return await fingerprintCapturedSample(samplePath, tempDir, preferredFingerprintSeconds);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => null);
   }
@@ -322,7 +361,10 @@ async function captureFingerprintFromStream(url) {
       return await captureFingerprintAttempt(url);
     } catch (error) {
       lastError = error;
-      if (attempt >= RECOGNITION_CAPTURE_RETRIES || !isFpcalcMissingInputError(error)) {
+      if (
+        attempt >= RECOGNITION_CAPTURE_RETRIES
+        || (!isFpcalcMissingInputError(error) && !isFpcalcDecodeEofError(error))
+      ) {
         throw error;
       }
       await waitMs(150 * attempt);

@@ -1184,59 +1184,52 @@ class BotRuntime {
       descriptionLines.push(`\u26a0\ufe0f ${sourceSummary.metadataHint}`);
     }
 
+    const summaryLines = [
+      `**${isDe ? "\u{1f4fb} Sender" : "\u{1f4fb} Station"}**: ${stationName}`,
+      `**${isDe ? "\u{1f50a} Qualit\u00e4t" : "\u{1f50a} Quality"}**: ${tierConfig.bitrate || "-"}`,
+      `**${isDe ? "\u{1f9e0} Quelle" : "\u{1f9e0} Source"}**: ${sourceSummary.sourceDetail || sourceSummary.sourceLabel}`,
+    ];
     const stableFields = [
       {
-        name: isDe ? "\u{1f4fb} Sender" : "\u{1f4fb} Station",
-        value: stationName,
-        inline: true,
-      },
-      {
-        name: isDe ? "\u{1f50a} Qualit\u00e4t" : "\u{1f50a} Quality",
-        value: tierConfig.bitrate || "-",
-        inline: true,
-      },
-      {
-        name: isDe ? "\u{1f9e0} Quelle" : "\u{1f9e0} Source",
-        value: sourceSummary.sourceDetail || sourceSummary.sourceLabel,
-        inline: true,
+        name: isDe ? "\u{1f4ca} Stream" : "\u{1f4ca} Stream",
+        value: summaryLines.join("\n"),
+        inline: false,
       },
     ];
 
-    if (voiceChannelId) {
-      stableFields.push({
-        name: isDe ? "\u{1f39b} L\u00e4uft in" : "\u{1f39b} Running in",
-        value: `<#${voiceChannelId}>`,
-        inline: true,
-      });
-    }
-    if (visibleListenerCount) {
-      stableFields.push({
-        name: isDe ? "\u{1f465} H\u00f6ren gerade" : "\u{1f465} Listening now",
-        value: visibleListenerCount,
-        inline: true,
-      });
-    }
+    const trackLines = [];
     if (artist) {
-      stableFields.push({
-        name: isDe ? "\u{1f3a4} K\u00fcnstler" : "\u{1f3a4} Artist",
-        value: artist,
-        inline: true,
-      });
+      trackLines.push(`**${isDe ? "\u{1f3a4} K\u00fcnstler" : "\u{1f3a4} Artist"}**: ${artist}`);
     }
     if (title) {
-      stableFields.push({
-        name: isDe ? "\u{1f4dd} Titel" : "\u{1f4dd} Title",
-        value: title,
-        inline: true,
-      });
+      trackLines.push(`**${isDe ? "\u{1f4dd} Titel" : "\u{1f4dd} Title"}**: ${title}`);
     }
     if (album) {
+      trackLines.push(`**\u{1f4bf} Album**: ${album}`);
+    }
+    if (trackLines.length) {
       stableFields.push({
-        name: "\u{1f4bf} Album",
-        value: album,
-        inline: true,
+        name: hasTrack ? (isDe ? "\u{1f3b6} Track-Infos" : "\u{1f3b6} Track details") : (isDe ? "\u{1f3b6} Erkannt" : "\u{1f3b6} Recognized"),
+        value: trackLines.join("\n"),
+        inline: false,
       });
     }
+
+    const voiceLines = [];
+    if (voiceChannelId) {
+      voiceLines.push(`**${isDe ? "\u{1f39b} L\u00e4uft in" : "\u{1f39b} Running in"}**: <#${voiceChannelId}>`);
+    }
+    if (visibleListenerCount) {
+      voiceLines.push(`**${isDe ? "\u{1f465} H\u00f6ren gerade" : "\u{1f465} Listening now"}**: ${visibleListenerCount}`);
+    }
+    if (voiceLines.length) {
+      stableFields.push({
+        name: isDe ? "\u{1f50a} Wiedergabe" : "\u{1f50a} Playback",
+        value: voiceLines.join("\n"),
+        inline: false,
+      });
+    }
+
     if (streamInfo) {
       stableFields.push({
         name: isDe ? "\u2139\ufe0f Stream-Info" : "\u2139\ufe0f Stream info",

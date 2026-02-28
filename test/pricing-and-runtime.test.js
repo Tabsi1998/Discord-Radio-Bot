@@ -275,6 +275,11 @@ test("recognition decode EOF errors are treated as soft failures", () => {
   assert.equal(isSoftRecognitionFailure(error), true);
 });
 
+test("recognition EOF errors remain soft failures for retryable sample repair", () => {
+  const error = new Error("fpcalc exited with code 3: ERROR: Error decoding audio frame (End of file)");
+  assert.equal(isSoftRecognitionFailure(error), true);
+});
+
 test("recognition missing-input errors are treated as soft failures", () => {
   const error = new Error("fpcalc exited with code 2: ERROR: Could not open the input file (No such file or directory)");
   assert.equal(isFpcalcMissingInputError(error), true);
