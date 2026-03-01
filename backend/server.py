@@ -5,13 +5,14 @@ import hmac
 import time
 import string
 import secrets
+import requests
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pymongo import MongoClient
 
 load_dotenv()
@@ -19,16 +20,29 @@ load_dotenv()
 app = FastAPI(title="OmniFM API")
 
 MONGO_URL = os.environ.get("MONGO_URL")
-DB_NAME = os.environ.get("DB_NAME", "radio_bot")
+DB_NAME = os.environ.get("DB_NAME")
 
 STATIONS_FILE = Path(__file__).parent.parent / "stations.json"
 PREMIUM_FILE = Path(__file__).parent.parent / "premium.json"
+DASHBOARD_FILE = Path(__file__).parent.parent / "dashboard.json"
 
 BOT_IMAGES = ["/img/bot-1.png", "/img/bot-2.png", "/img/bot-3.png", "/img/bot-4.png"]
 BOT_COLORS = ["cyan", "green", "pink", "amber", "purple", "red"]
 
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 SERVER_ID_REGEX = re.compile(r"^\d{17,22}$")
+
+DISCORD_CLIENT_ID = (os.environ.get("DISCORD_CLIENT_ID") or "").strip()
+DISCORD_CLIENT_SECRET = (os.environ.get("DISCORD_CLIENT_SECRET") or "").strip()
+DISCORD_REDIRECT_URI = (os.environ.get("DISCORD_REDIRECT_URI") or "").strip()
+DISCORD_OAUTH_SCOPES = (os.environ.get("DISCORD_OAUTH_SCOPES") or "identify guilds").strip()
+SESSION_COOKIE_NAME = (os.environ.get("DASHBOARD_SESSION_COOKIE") or "omnifm_session").strip() or "omnifm_session"
+DASHBOARD_SESSION_TTL_SECONDS = parse_int(os.environ.get("DASHBOARD_SESSION_TTL_SECONDS"), 60 * 60 * 24)
+DISCORD_OAUTH_STATE_TTL_SECONDS = parse_int(os.environ.get("DISCORD_OAUTH_STATE_TTL_SECONDS"), 600)
+TIER_RANK = {"free": 0, "pro": 1, "ultimate": 2}
+
+DASHBOARD_SESSION_STORE = {}
+DISCORD_OAUTH_STATE_STORE = {}
 
 
 def build_allowed_origins():
