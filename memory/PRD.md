@@ -1,41 +1,33 @@
-# PRD – Repo Vollanalyse: Discord-Radio-Bot
+# PRD – Discord-Radio-Bot (P0 Umsetzung)
 
 ## Original Problem Statement
-"Hol dir bitte das angegebene Github Repossitory KOMPLETT sauber runter und ANALYSIERE es komplett udn nimme s im preview in betrieb und alles! dass wir usn gemeinsam anschauen was man noch verbessern udn obtimieren kann oder wo es noch punkte giebt oder geben könnte! Analysiere ob wie eo was fehlt usw usw. also alles einmal! https://github.com/Tabsi1998/Discord-Radio-Bot"
+- Repo komplett sauber klonen, vollständig analysieren, im Preview starten und konkrete Optimierungen umsetzen.
+- Follow-up User Choice: **erst P0 umsetzen**, danach Review.
+- API-Referenzentscheidung: **Node-API ist Source of Truth**, FastAPI wurde angeglichen.
 
-## Architecture Decisions
-- Analyse auf `main`-Branch durchgeführt.
-- Vollscan über Node-Core (`src/`), React-Frontend (`frontend/`), FastAPI (`backend/`), Docker + Skripte.
-- Preview-Betrieb über laufende Frontend/Backend-Services aktiviert.
-- Qualitätssignale aus Tests, Lint, Build, API-Smoke, Browser-Konsole zusammengeführt.
+## Architektur-Entscheidung
+- Bestehende Dual-Architektur (Node + FastAPI) bleibt vorerst bestehen.
+- Für P0 wurde FastAPI-Contract an Node angeglichen, damit Frontend- und API-Flows konsistent sind.
 
-## Was umgesetzt wurde
-- Repo geklont und lauffähig geprüft.
-- Preview-URL erfolgreich gestartet und visuell verifiziert.
-- Node-Tests ausgeführt (31/31 passed).
-- FastAPI-Tests gegen laufende API ausgeführt (11 passed, 2 failed).
-- API-Endpunkt-Matrix Node vs FastAPI erstellt (Drift identifiziert).
-- Sicherheits-/Dependenz-Check (`npm audit`) durchgeführt.
-- Vollständiger Analysebericht erstellt: `/app/Discord-Radio-Bot/ANALYSE_REPORT.md`.
+## Umgesetzt (P0)
+- FastAPI ergänzt: `/api/legal`, `/api/privacy`, `/api/premium/trial`, `/api/premium/offer`, `/api/premium/offer/preview`, `/api/premium/offers`, `/api/premium/offers/active`, `/api/premium/redemptions`, `/api/discordbotlist/status`.
+- Contract-Fixes: `/api/workers` enthält jetzt `botId`; `/api/premium/pricing` enthält `trial` und vollständigen Lizenz-Upgrade-Kontext.
+- Premium-Flow: Trial-Claim-Logik (einmal pro E-Mail), Offer-Preview/Offer-CRUD (admin-geschützt), Admin-Guard-Responses harmonisiert.
+- Frontend robust gemacht: Preisparser unterstützt Komma/ Punkt (`startingAt`), Hero-Animation-Warnung bereinigt, Abort-Fehlerlogging in App entschärft.
+- Verifikation: Backend-Tests grün (**19 passed** im Repo-Backend), Node-Tests grün (**31 passed**), Frontend Build grün, Imprint/Privacy/Trial im Preview geprüft.
 
 ## Priorisierter Backlog
-### P0
-- API-Contract zwischen Node und FastAPI harmonisieren.
-- Fehlende FastAPI-Endpunkte ergänzen (`/api/legal`, `/api/privacy`, Trial/Offers/DBL-Status).
-- Pricing-Datenformat robust machen (locale-safe numerische Verarbeitung).
-- Test-Fails beheben (`workers.botId`, `pricing.trial`).
+### P1 (kurzfristig)
+- `.gitignore` ergänzen
+- CI-Pipeline (lint + tests + smoke)
+- `backend/server.py` und große Frontend-Komponenten modular aufteilen
 
-### P1
-- `.gitignore` hinzufügen.
-- CI-Workflow für lint/test/smoke einführen.
-- Große Dateien modulweise aufsplitten (runtime/api/premium/frontend premium).
+### P2 (mittelfristig)
+- Legacy `web/` Pfad strategisch vereinheitlichen/abbauen
+- Security-Dependency-Updates mit Regressionstest
+- Weitere API-Parität für seltene Admin/Sync-Routen vollständig abschließen
 
-### P2
-- Legacy-Webpfad (`web/`) mit React vereinheitlichen oder entfernen.
-- Dependency-Audit-Fixes mit Regressionstests.
-- Frontend-Konsole-Warnungen (Animation-Styles) bereinigen.
-
-## Next Tasks
-1. P0 API-Drift-Fixes umsetzen und E2E erneut testen.
-2. Danach CI + `.gitignore` einführen.
-3. Anschließend Refactoring-Paket für große Dateien planen.
+## Nächste Tasks
+1. P1: CI + `.gitignore` sofort nachziehen.
+2. P1: Server in Router/Services aufteilen (Legal, Privacy, Premium, Offers, DBL).
+3. P2: Node/FastAPI Drift dauerhaft minimieren (gemeinsame Contracts/Schemas).
