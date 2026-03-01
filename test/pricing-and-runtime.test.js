@@ -284,6 +284,11 @@ test("wav duration estimate matches mono 11025 Hz PCM sizing", () => {
   assert.equal(estimatePcmWavDurationSeconds(bytesForTwelveSeconds), 12);
 });
 
+test("wav duration estimate respects configured sample rate and channels", () => {
+  const bytesForEightSecondsStereo = 44 + (8 * 44100 * 2 * 2);
+  assert.equal(estimatePcmWavDurationSeconds(bytesForEightSecondsStereo, 44100, 2), 8);
+});
+
 test("recognition decode EOF errors are treated as soft failures", () => {
   const error = new Error("fpcalc exited with code 3: ERROR: Error decoding audio frame (End of file)");
   assert.equal(isSoftRecognitionFailure(error), true);

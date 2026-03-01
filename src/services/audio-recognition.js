@@ -12,6 +12,8 @@ const MUSICBRAINZ_ENABLED = String(process.env.NOW_PLAYING_MUSICBRAINZ_ENABLED ?
 const RECOGNITION_SAMPLE_SECONDS = parseEnvInt("NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS", 18, 8, 30);
 const RECOGNITION_MIN_SECONDS = parseEnvInt("NOW_PLAYING_RECOGNITION_MIN_SECONDS", 10, 4, 20);
 const RECOGNITION_CAPTURE_RETRIES = parseEnvInt("NOW_PLAYING_RECOGNITION_CAPTURE_RETRIES", 2, 1, 4);
+const RECOGNITION_CAPTURE_SAMPLE_RATE = parseEnvInt("NOW_PLAYING_RECOGNITION_CAPTURE_SAMPLE_RATE", 44100, 11025, 48000);
+const RECOGNITION_CAPTURE_CHANNELS = parseEnvInt("NOW_PLAYING_RECOGNITION_CAPTURE_CHANNELS", 2, 1, 2);
 const RECOGNITION_TIMEOUT_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_TIMEOUT_MS", 28_000, 8_000, 60_000);
 const RECOGNITION_CACHE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_CACHE_TTL_MS", 90_000, 30_000, 10 * 60_000);
 const RECOGNITION_FAILURE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS", 180_000, 30_000, 30 * 60_000);
@@ -172,10 +174,12 @@ function extractFpcalcResultFromError(error) {
   return parseFpcalcOutput(error.stdout);
 }
 
-function estimatePcmWavDurationSeconds(fileSizeBytes) {
+function estimatePcmWavDurationSeconds(fileSizeBytes, sampleRate = 11025, channels = 1) {
   const payloadBytes = Math.max(0, Number(fileSizeBytes || 0) - 44);
   if (payloadBytes <= 0) return 0;
-  return payloadBytes / (11025 * 2);
+  const normalizedSampleRate = Math.max(1, Number(sampleRate) || 11025);
+  const normalizedChannels = Math.max(1, Number(channels) || 1);
+  return payloadBytes / (normalizedSampleRate * normalizedChannels * 2);
 }
 
 function isFpcalcDecodeEofError(error) {
@@ -286,8 +290,8 @@ async function repairCapturedSample(samplePath, targetPath) {
     "-fflags", "+discardcorrupt",
     "-i", samplePath,
     "-vn",
-    "-ac", "1",
-    "-ar", "11025",
+    "-ac", String(RECOGNITION_CAPTURE_CHANNELS),
+    "-ar", String(RECOGNITION_CAPTURE_SAMPLE_RATE),
     "-c:a", "pcm_s16le",
     "-f", "wav",
     targetPath,
@@ -341,8 +345,8 @@ async function captureFingerprintAttempt(url) {
       "-t", String(RECOGNITION_SAMPLE_SECONDS),
       "-i", String(url || ""),
       "-vn",
-      "-ac", "1",
-      "-ar", "11025",
+      "-ac", String(RECOGNITION_CAPTURE_CHANNELS),
+      "-ar", String(RECOGNITION_CAPTURE_SAMPLE_RATE),
       "-c:a", "pcm_s16le",
       "-f", "wav",
       samplePath,
@@ -357,11 +361,19 @@ async function captureFingerprintAttempt(url) {
     try {
       capturedSeconds = await probeAudioDurationSeconds(samplePath);
     } catch {
-      capturedSeconds = estimatePcmWavDurationSeconds(sampleStat.size);
+      capturedSeconds = estimatePcmWavDurationSeconds(
+        sampleStat.size,
+        RECOGNITION_CAPTURE_SAMPLE_RATE,
+        RECOGNITION_CAPTURE_CHANNELS
+      );
     }
 
     if (!Number.isFinite(capturedSeconds) || capturedSeconds <= 0) {
-      capturedSeconds = estimatePcmWavDurationSeconds(sampleStat.size);
+      capturedSeconds = estimatePcmWavDurationSeconds(
+        sampleStat.size,
+        RECOGNITION_CAPTURE_SAMPLE_RATE,
+        RECOGNITION_CAPTURE_CHANNELS
+      );
     }
 
     if (capturedSeconds < RECOGNITION_MIN_SECONDS) {
@@ -613,6 +625,9 @@ async function recognizeTrackFromStream(url, { existingTrack = null } = {}) {
       const sample = await captureFingerprintFromStream(url);
       const acoustIdCandidate = await lookupAcoustIdFingerprint(sample.fingerprint, sample.duration);
       if (!acoustIdCandidate) {
+        if (shouldLogRecognitionFailure(streamKey || cacheKey, new Error("AcoustID returned no matches"), "acoustid-no-match")) {
+          log("INFO", `[NowPlaying] Audio recognition found no AcoustID matches for ${clipText(String(url || ""), 120)}`);
+        }
         recognitionCache.set(cacheKey, { value: null, expiresAt: Date.now() + RECOGNITION_FAILURE_TTL_MS });
         return null;
       }
