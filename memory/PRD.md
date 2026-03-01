@@ -98,3 +98,12 @@
 - `--settings` erweitert um Punkt **Dashboard & Discord OAuth** (Client ID/Secret/Redirect/Scopes/TTL/Cookie, Auto-Fix CORS/Public URL).
 - Fehlerpfade entschärft: bei ungültigen Eingaben (`Public URL`, `DBL`, `AcoustID`, OAuth) bricht das Script nicht mehr hart mit `exit 1` ab, sondern warnt und läuft sauber weiter.
 - Wartbarkeit verbessert: `dashboard.json` wird automatisch erzeugt/gesichert und in Backup-Pruning berücksichtigt.
+
+
+## Incremental Update – update.sh UX Loop (Batch Settings)
+- `--settings` ist jetzt als **intuitiver Mehrfach-Loop** umgesetzt: mehrere Punkte nacheinander aenderbar ohne rauszufliegen.
+- Neuer Abschlussfluss:
+  - `10) Fertig -> einmal neu starten`
+  - `11) Fertig ohne Neustart`
+- Aenderungen werden gesammelt und als **einmaliger Neustart am Ende** ausgefuehrt (statt nach jeder Einzelaktion).
+- Ungueltige Eingaben fuehren nicht mehr zum harten Abbruch, sondern geben Warnung aus und bleiben im Setup-Menue.
