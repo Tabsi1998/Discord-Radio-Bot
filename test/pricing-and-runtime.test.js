@@ -24,6 +24,7 @@ import {
 import {
   estimatePcmWavDurationSeconds,
   extractAcoustIdCandidate,
+  extractFpcalcResultFromError,
   isFpcalcMissingInputError,
   isSoftRecognitionFailure,
   parseFpcalcOutput,
@@ -261,6 +262,19 @@ test("fpcalc output parser extracts duration and fingerprint", () => {
 
   assert.deepEqual(parsed, {
     duration: 18,
+    fingerprint: "abc123",
+  });
+});
+
+test("fpcalc code 3 with usable stdout still yields a fingerprint result", () => {
+  const error = Object.assign(new Error("fpcalc exited with code 3"), {
+    code: 3,
+    command: "fpcalc",
+    stdout: "ERROR: Error decoding audio frame (End of file)\nDURATION=22\nFINGERPRINT=abc123\n",
+  });
+
+  assert.deepEqual(extractFpcalcResultFromError(error), {
+    duration: 22,
     fingerprint: "abc123",
   });
 });

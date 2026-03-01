@@ -164,6 +164,14 @@ function parseFpcalcOutput(stdout) {
   };
 }
 
+function extractFpcalcResultFromError(error) {
+  if (!error || String(error.command || "").toLowerCase() !== "fpcalc") {
+    return null;
+  }
+
+  return parseFpcalcOutput(error.stdout);
+}
+
 function estimatePcmWavDurationSeconds(fileSizeBytes) {
   const payloadBytes = Math.max(0, Number(fileSizeBytes || 0) - 44);
   if (payloadBytes <= 0) return 0;
@@ -250,9 +258,18 @@ async function runFpcalc(samplePath, fingerprintSeconds = null) {
   }
   args.push(samplePath);
 
-  const output = await runProcess("fpcalc", args, {
-    timeoutMs: Math.min(RECOGNITION_TIMEOUT_MS, 12_000),
-  });
+  let output;
+  try {
+    output = await runProcess("fpcalc", args, {
+      timeoutMs: Math.min(RECOGNITION_TIMEOUT_MS, 12_000),
+    });
+  } catch (error) {
+    const parsedFromError = extractFpcalcResultFromError(error);
+    if (parsedFromError) {
+      return parsedFromError;
+    }
+    throw error;
+  }
   const parsed = parseFpcalcOutput(output.stdout);
   if (!parsed) {
     throw new Error("fpcalc returned no usable fingerprint");
@@ -646,6 +663,7 @@ async function recognizeTrackFromStream(url, { existingTrack = null } = {}) {
 export {
   estimatePcmWavDurationSeconds,
   extractAcoustIdCandidate,
+  extractFpcalcResultFromError,
   isFpcalcMissingInputError,
   isSoftRecognitionFailure,
   parseFpcalcOutput,
