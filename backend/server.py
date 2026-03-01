@@ -1832,6 +1832,347 @@ async def get_commands():
     }
 
 
+@app.get("/api/auth/discord/login")
+async def auth_discord_login(request: Request, nextPage: str = "dashboard"):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+
+    if not is_discord_oauth_configured():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Discord OAuth ist noch nicht konfiguriert.",
+                "oauthConfigured": False,
+            },
+        )
+
+    clean_expired_oauth_states()
+    state_token = secrets.token_urlsafe(24)
+    DISCORD_OAUTH_STATE_STORE[state_token] = {
+        "nextPage": clip_text(nextPage or "dashboard", 40),
+        "createdAt": int(time.time()),
+        "expiresAt": int(time.time()) + DISCORD_OAUTH_STATE_TTL_SECONDS,
+        "origin": get_frontend_base_url(request),
+    }
+    return {
+        "oauthConfigured": True,
+        "authUrl": build_discord_authorize_url(state_token),
+        "state": state_token,
+    }
+
+
+@app.get("/api/auth/discord/callback")
+async def auth_discord_callback(request: Request, code: str = "", state: str = ""):
+    frontend_base = get_frontend_base_url(request)
+
+    def build_error_redirect(error_code):
+        target = f"{frontend_base}/?page=dashboard&authError={error_code}"
+        return RedirectResponse(url=target, status_code=302)
+
+    if not is_discord_oauth_configured():
+        return build_error_redirect("oauth_not_configured")
+
+    clean_expired_oauth_states()
+    state_payload = DISCORD_OAUTH_STATE_STORE.pop(str(state or "").strip(), None)
+    if not state_payload:
+        return build_error_redirect("invalid_state")
+    if not str(code or "").strip():
+        return build_error_redirect("missing_code")
+
+    try:
+        access_token = exchange_discord_code_for_token(code)
+        user_profile = fetch_discord_user_profile(access_token)
+        guilds = fetch_discord_user_guilds(access_token)
+    except Exception:
+        return build_error_redirect("oauth_exchange_failed")
+
+    clean_expired_dashboard_sessions()
+    session_token = secrets.token_urlsafe(32)
+    DASHBOARD_SESSION_STORE[session_token] = {
+        "user": user_profile,
+        "guilds": guilds,
+        "createdAt": int(time.time()),
+        "expiresAt": int(time.time()) + DASHBOARD_SESSION_TTL_SECONDS,
+    }
+
+    next_page = str(state_payload.get("nextPage") or "dashboard").strip().lower()
+    if next_page not in ("dashboard", "home"):
+        next_page = "dashboard"
+    target = f"{frontend_base}/?page={next_page}"
+    response = RedirectResponse(url=target, status_code=302)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        max_age=DASHBOARD_SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.get("/api/auth/session")
+async def auth_session(request: Request):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return {
+            "authenticated": False,
+            "oauthConfigured": is_discord_oauth_configured(),
+            "user": None,
+            "guilds": [],
+        }
+
+    guilds = resolve_dashboard_guilds_for_session(session)
+    return {
+        "authenticated": True,
+        "oauthConfigured": is_discord_oauth_configured(),
+        "user": session.get("user", {}),
+        "guilds": guilds,
+        "expiresAt": session.get("expiresAt"),
+    }
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+
+    _, token = get_dashboard_session(request)
+    if token:
+        DASHBOARD_SESSION_STORE.pop(token, None)
+
+    response = JSONResponse(status_code=200, content={"success": True})
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    return response
+
+
+@app.get("/api/dashboard/guilds")
+async def dashboard_guilds(request: Request):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    return {"guilds": resolve_dashboard_guilds_for_session(session)}
+
+
+@app.get("/api/dashboard/stats")
+async def dashboard_stats(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+
+    tier = guild.get("tier", "free")
+    if TIER_RANK.get(tier, 0) < TIER_RANK.get("pro", 1):
+        return json_error(403, "Dashboard ist erst ab Pro verfuegbar.")
+
+    stats_payload = get_dashboard_guild_stats(guild.get("id"), tier)
+    return {
+        "serverId": guild.get("id"),
+        "tier": tier,
+        "basic": stats_payload.get("basic", {}),
+        "advanced": stats_payload.get("advanced") if tier == "ultimate" else None,
+    }
+
+
+@app.post("/api/dashboard/telemetry")
+async def dashboard_upsert_telemetry(request: Request, body: dict, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    if not is_admin_request(request):
+        return json_error(401, "Unauthorized. API admin token required.")
+    if not is_valid_server_id(serverId):
+        return json_error(400, "ungueltige serverId")
+
+    data = load_dashboard_data()
+    telemetry_map = data.setdefault("telemetry", {})
+    telemetry_map[serverId] = normalize_dashboard_telemetry(body)
+    save_dashboard_data(data)
+    return {"success": True, "serverId": serverId, "telemetry": telemetry_map[serverId]}
+
+
+@app.get("/api/dashboard/events")
+async def dashboard_events_list(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    if TIER_RANK.get(guild.get("tier", "free"), 0) < TIER_RANK.get("pro", 1):
+        return json_error(403, "Events sind erst ab Pro verfuegbar.")
+
+    data = load_dashboard_data()
+    events_map = data.get("events", {}) if isinstance(data.get("events"), dict) else {}
+    rows = events_map.get(guild.get("id"), []) if isinstance(events_map.get(guild.get("id")), list) else []
+    return {"serverId": guild.get("id"), "events": rows}
+
+
+@app.post("/api/dashboard/events")
+async def dashboard_events_create(request: Request, body: dict, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    if TIER_RANK.get(guild.get("tier", "free"), 0) < TIER_RANK.get("pro", 1):
+        return json_error(403, "Events sind erst ab Pro verfuegbar.")
+
+    event_payload = normalize_dashboard_event(body)
+    data = load_dashboard_data()
+    events_map = data.setdefault("events", {})
+    rows = events_map.setdefault(guild.get("id"), [])
+    rows.insert(0, event_payload)
+    events_map[guild.get("id")] = rows[:200]
+    save_dashboard_data(data)
+    return {"success": True, "event": event_payload}
+
+
+@app.patch("/api/dashboard/events/{event_id}")
+async def dashboard_events_update(request: Request, event_id: str, body: dict, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    if TIER_RANK.get(guild.get("tier", "free"), 0) < TIER_RANK.get("pro", 1):
+        return json_error(403, "Events sind erst ab Pro verfuegbar.")
+
+    data = load_dashboard_data()
+    events_map = data.setdefault("events", {})
+    rows = events_map.setdefault(guild.get("id"), [])
+    updated = None
+    for index, row in enumerate(rows):
+        if str(row.get("id")) != str(event_id):
+            continue
+        merged = {**row, **(body if isinstance(body, dict) else {})}
+        merged["id"] = str(row.get("id"))
+        merged["createdAt"] = row.get("createdAt")
+        updated = normalize_dashboard_event(merged)
+        updated["id"] = str(row.get("id"))
+        updated["createdAt"] = row.get("createdAt")
+        rows[index] = updated
+        break
+    if not updated:
+        return json_error(404, "Event nicht gefunden.")
+    events_map[guild.get("id")] = rows
+    save_dashboard_data(data)
+    return {"success": True, "event": updated}
+
+
+@app.delete("/api/dashboard/events/{event_id}")
+async def dashboard_events_delete(request: Request, event_id: str, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    if TIER_RANK.get(guild.get("tier", "free"), 0) < TIER_RANK.get("pro", 1):
+        return json_error(403, "Events sind erst ab Pro verfuegbar.")
+
+    data = load_dashboard_data()
+    events_map = data.setdefault("events", {})
+    rows = events_map.setdefault(guild.get("id"), [])
+    next_rows = [row for row in rows if str(row.get("id")) != str(event_id)]
+    if len(next_rows) == len(rows):
+        return json_error(404, "Event nicht gefunden.")
+    events_map[guild.get("id")] = next_rows
+    save_dashboard_data(data)
+    return {"success": True, "eventId": str(event_id)}
+
+
+@app.get("/api/dashboard/perms")
+async def dashboard_perms_get(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    if TIER_RANK.get(guild.get("tier", "free"), 0) < TIER_RANK.get("pro", 1):
+        return json_error(403, "Berechtigungen sind erst ab Pro verfuegbar.")
+
+    data = load_dashboard_data()
+    perms_map = data.get("perms", {}) if isinstance(data.get("perms"), dict) else {}
+    payload = perms_map.get(guild.get("id"), {"commandRoleMap": {}, "updatedAt": None})
+    if not isinstance(payload, dict):
+        payload = {"commandRoleMap": {}, "updatedAt": None}
+    return {
+        "serverId": guild.get("id"),
+        "tier": guild.get("tier"),
+        "commandRoleMap": payload.get("commandRoleMap", {}),
+        "updatedAt": payload.get("updatedAt"),
+    }
+
+
+@app.put("/api/dashboard/perms")
+async def dashboard_perms_put(request: Request, body: dict, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    if TIER_RANK.get(guild.get("tier", "free"), 0) < TIER_RANK.get("pro", 1):
+        return json_error(403, "Berechtigungen sind erst ab Pro verfuegbar.")
+
+    normalized = normalize_dashboard_perms(body)
+    data = load_dashboard_data()
+    perms_map = data.setdefault("perms", {})
+    perms_map[guild.get("id")] = normalized
+    save_dashboard_data(data)
+    return {
+        "success": True,
+        "serverId": guild.get("id"),
+        "commandRoleMap": normalized.get("commandRoleMap", {}),
+        "updatedAt": normalized.get("updatedAt"),
+    }
+
+
 # === Premium API ===
 
 @app.get("/api/premium/check")
