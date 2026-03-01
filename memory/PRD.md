@@ -90,3 +90,11 @@
 - Tier-Filter bereinigt: `Ultimate`-Tab im Station-Browser entfernt.
 - Summary/Filter-Texte bereinigt: kein `0 ultimate` mehr in der Anzeige.
 - Verifiziert im Preview: Suchfeld passt optisch, Filter zeigt nur All/Free/Pro.
+
+
+## Incremental Update – update.sh Hardening & Dashboard Settings
+- `update.sh` um Dashboard-spezifische Defaults erweitert (`DISCORD_*`, Session TTL/Cookie, State TTL).
+- Neue Health-Checks eingebaut: Dashboard OAuth-Status wird beim Start und in `--settings` sichtbar geprüft.
+- `--settings` erweitert um Punkt **Dashboard & Discord OAuth** (Client ID/Secret/Redirect/Scopes/TTL/Cookie, Auto-Fix CORS/Public URL).
+- Fehlerpfade entschärft: bei ungültigen Eingaben (`Public URL`, `DBL`, `AcoustID`, OAuth) bricht das Script nicht mehr hart mit `exit 1` ab, sondern warnt und läuft sauber weiter.
+- Wartbarkeit verbessert: `dashboard.json` wird automatisch erzeugt/gesichert und in Backup-Pruning berücksichtigt.
