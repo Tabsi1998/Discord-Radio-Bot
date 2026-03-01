@@ -453,6 +453,153 @@ report_runtime_tools_status() {
   fi
 }
 
+run_recognition_test() {
+  local target_url="${1:-}"
+
+  if [[ -z "$target_url" ]]; then
+    fail "Bitte eine Stream-URL angeben."
+    echo -e "  ${DIM}Beispiel: ./update.sh --recognition-test https://tomorrowland.my105.ch/oneworldradio.mp3${NC}"
+    return 1
+  fi
+
+  if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
+    fail "Container 'omnifm' laeuft nicht."
+    echo -e "  ${DIM}Starte zuerst: docker compose up -d --build${NC}"
+    return 1
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Recognition-Test${NC}"
+  echo "  ------------------------------------"
+  echo -e "  URL: ${CYAN}${target_url}${NC}"
+  echo ""
+
+  RECOGNITION_TEST_URL="$target_url" docker compose exec -T omnifm sh -lc 'cd /app && node --input-type=module - <<'\''EOF'\''
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { recognizeTrackFromStream } from "./src/services/audio-recognition.js";
+
+const execFileAsync = promisify(execFile);
+const url = String(process.env.RECOGNITION_TEST_URL || "").trim();
+const sampleSeconds = Math.max(8, Math.min(30, Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS || "22", 10) || 22));
+const sampleRate = Math.max(11025, Math.min(48000, Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_CAPTURE_SAMPLE_RATE || "44100", 10) || 44100));
+const channels = Math.max(1, Math.min(2, Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_CAPTURE_CHANNELS || "2", 10) || 2));
+const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "omnifm-diag-"));
+const wav = path.join(tmp, "sample.wav");
+
+const out = {
+  url,
+  env: {
+    keyPresent: Boolean(process.env.ACOUSTID_API_KEY),
+    sampleSeconds,
+    sampleRate,
+    channels,
+    timeoutMs: Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_TIMEOUT_MS || "28000", 10) || 28000,
+  },
+  sample: {
+    ok: false,
+    duration: null,
+    fileSizeBytes: 0,
+  },
+  fingerprint: {
+    ok: false,
+    present: false,
+    duration: null,
+    length: 0,
+  },
+  acoustid: {
+    statusCode: null,
+    status: null,
+    error: null,
+    resultsCount: 0,
+    firstResult: null,
+  },
+  app: {
+    ok: false,
+    result: null,
+  },
+};
+
+try {
+  await execFileAsync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+    "-t", String(sampleSeconds),
+    "-i", url,
+    "-vn", "-ac", String(channels), "-ar", String(sampleRate), "-c:a", "pcm_s16le", "-f", "wav",
+    wav,
+  ]);
+
+  const stat = await fs.stat(wav);
+  out.sample.ok = stat.size > 44;
+  out.sample.fileSizeBytes = stat.size;
+
+  try {
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      wav,
+    ]);
+    const probed = Number.parseFloat(String(stdout || "").trim());
+    out.sample.duration = Number.isFinite(probed) ? probed : null;
+  } catch {
+    out.sample.duration = null;
+  }
+
+  const fpcalcResult = await execFileAsync("fpcalc", [wav]).catch((error) => ({
+    stdout: error?.stdout || "",
+    stderr: error?.stderr || "",
+    code: error?.code ?? null,
+  }));
+
+  const fpStdout = String(fpcalcResult?.stdout || "");
+  const duration = fpStdout.match(/^DURATION=(.+)$/m)?.[1]?.trim() || null;
+  const fingerprint = fpStdout.match(/^FINGERPRINT=(.+)$/m)?.[1]?.trim() || null;
+
+  out.fingerprint.ok = Boolean(duration && fingerprint);
+  out.fingerprint.present = Boolean(fingerprint);
+  out.fingerprint.duration = duration;
+  out.fingerprint.length = fingerprint ? fingerprint.length : 0;
+
+  if (fingerprint && duration && process.env.ACOUSTID_API_KEY) {
+    const body = new URLSearchParams({
+      client: process.env.ACOUSTID_API_KEY,
+      duration,
+      fingerprint,
+      meta: "recordings+releasegroups+releases+tracks+compress",
+      format: "json",
+    });
+
+    const response = await fetch("https://api.acoustid.org/v2/lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+
+    const json = await response.json().catch(() => null);
+    out.acoustid.statusCode = response.status;
+    out.acoustid.status = json?.status || null;
+    out.acoustid.error = json?.error || null;
+    out.acoustid.resultsCount = Array.isArray(json?.results) ? json.results.length : 0;
+    out.acoustid.firstResult = json?.results?.[0] || null;
+  }
+
+  const appResult = await recognizeTrackFromStream(url, { existingTrack: null });
+  out.app.ok = Boolean(appResult);
+  out.app.result = appResult || null;
+} catch (error) {
+  out.sample.error = String(error?.message || error);
+} finally {
+  await fs.rm(tmp, { recursive: true, force: true });
+}
+
+console.log(JSON.stringify(out, null, 2));
+EOF'
+}
+
 compose_build() {
   if docker compose build "$@"; then
     return 0
@@ -555,6 +702,7 @@ fi
 # ============================================================
 
 MODE="${1:-}"
+MODE_ARG="${2:-}"
 
 if [[ -z "$MODE" ]]; then
   while true; do
@@ -592,14 +740,19 @@ if [[ -z "$MODE" ]]; then
 fi
 
 case "$MODE" in
-  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--set-commander|--show-roles|--stripe|--premium|--offers|--email|--settings|--status|--cleanup)
+  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--set-commander|--show-roles|--stripe|--premium|--offers|--email|--settings|--status|--cleanup|--recognition-test)
     ;;
   *)
     fail "Unbekannter Modus: ${MODE}"
-    echo -e "  ${DIM}Erlaubt: --update, --bots, --stripe, --premium, --offers, --email, --settings, --status, --cleanup${NC}"
+    echo -e "  ${DIM}Erlaubt: --update, --bots, --stripe, --premium, --offers, --email, --settings, --status, --cleanup, --recognition-test${NC}"
     exit 1
     ;;
 esac
+
+if [[ "$MODE" == "--recognition-test" ]]; then
+  run_recognition_test "$MODE_ARG"
+  exit $?
+fi
 
 # ============================================================
 # MODE: Status & Logs
@@ -1599,5 +1752,6 @@ echo -e "    E-Mail Setup:     ${GREEN}./update.sh --email${NC}"
 echo -e "    Einstellungen:    ${GREEN}./update.sh --settings${NC}"
 echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
 echo -e "    Speicher cleanup: ${GREEN}./update.sh --cleanup${NC}"
+echo -e "    Recognition-Test:${GREEN} ./update.sh --recognition-test <URL>${NC}"
 echo -e "    Dieses Menue:     ${GREEN}./update.sh${NC}"
 echo ""
