@@ -2,8 +2,17 @@ import React from 'react';
 import { Heart, Radio } from 'lucide-react';
 import { useI18n } from '../i18n';
 
+function buildLegalHref(locale, page) {
+  const params = new URLSearchParams();
+  params.set('page', page);
+  if (locale) {
+    params.set('lang', locale);
+  }
+  return `/?${params.toString()}`;
+}
+
 function StatsFooter({ stats }) {
-  const { copy, formatNumber } = useI18n();
+  const { copy, locale, formatNumber } = useI18n();
 
   const footerStats = [
     { label: copy.footer.stats.servers, value: stats.servers || 0, color: '#00F0FF' },
@@ -109,7 +118,7 @@ function StatsFooter({ stats }) {
             }}
           >
             <a
-              href="#impressum"
+              href={buildLegalHref(locale, 'imprint')}
               data-testid="footer-impressum"
               style={footerTextLinkStyle}
               onMouseEnter={(event) => {
@@ -120,6 +129,19 @@ function StatsFooter({ stats }) {
               }}
             >
               {copy.footer.links.imprint}
+            </a>
+            <a
+              href={buildLegalHref(locale, 'privacy')}
+              data-testid="footer-privacy"
+              style={footerTextLinkStyle}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.color = '#F4F4F5';
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.color = '#71717A';
+              }}
+            >
+              {copy.footer.links.privacy}
             </a>
             <a
               href="https://discord.gg/UeRkfGS43R"

@@ -306,12 +306,14 @@ const LOCALE_MESSAGES = {
       },
       links: {
         imprint: 'Impressum',
+        privacy: 'Datenschutzerklärung',
       },
       builtWith: 'Gebaut mit',
       forDiscord: 'für Discord',
       discord: 'Discord Community',
     },
     legal: {
+      pageTitle: 'OmniFM | Impressum',
       eyebrow: 'Impressum',
       title: 'Impressum & Offenlegung',
       subtitle: 'Pflichtangaben für den Webauftritt von OmniFM. Die Inhalte werden aus der Server-Konfiguration geladen und können direkt über das Setup-Menü gepflegt werden.',
@@ -352,6 +354,83 @@ const LOCALE_MESSAGES = {
       noteTitle: 'Rechtlicher Hinweis',
       note: 'Die Seite bildet die üblichen Informations- und Offenlegungspflichten für österreichische Webseiten ab. Je nach Rechtsform, Gewerbe oder redaktioneller Ausrichtung können zusätzliche Angaben erforderlich sein.',
       basis: 'Rechtsgrundlagen: § 5 ECG, § 14 UGB, § 63 GewO und § 25 MedienG.',
+    },
+    privacy: {
+      pageTitle: 'OmniFM | Datenschutzerklärung',
+      eyebrow: 'Datenschutzerklärung',
+      title: 'Datenschutzerklärung',
+      subtitle: 'Diese Erklärung beschreibt, welche personenbezogenen Daten OmniFM im Webauftritt, im Discord-Bot-Betrieb und in Premium-, E-Mail- und Supportprozessen verarbeitet.',
+      cards: {
+        controller: 'Verantwortlicher',
+        contact: 'Kontakt & Datenschutz',
+        hosting: 'Hosting & Infrastruktur',
+        authority: 'Beschwerdebehörde',
+      },
+      fields: {
+        controllerName: 'Verantwortlicher',
+        controllerStreetAddress: 'Straße / Hausnummer',
+        controllerPostalCode: 'PLZ',
+        controllerCity: 'Ort',
+        representative: 'Vertretungsbefugte Person',
+        address: 'Anschrift',
+        website: 'Webseite',
+        email: 'E-Mail',
+        phone: 'Telefon',
+        dpoName: 'Datenschutzkontakt / DSB',
+        dpoEmail: 'Datenschutz-E-Mail',
+        hostingProvider: 'Hosting-Anbieter',
+        hostingLocation: 'Hosting-Standort',
+        authorityName: 'Beschwerdebehörde',
+        authorityWebsite: 'Behörden-Website',
+        additionalRecipients: 'Weitere Empfänger',
+        customNote: 'Zusätzlicher Hinweis',
+        logDays: 'Log-Aufbewahrung',
+        songHistory: 'Song-Historie',
+      },
+      defaultCountry: 'Österreich',
+      defaultAuthorityName: 'Österreichische Datenschutzbehörde',
+      defaultAuthorityWebsite: 'https://www.dsb.gv.at/',
+      notProvided: 'Nicht angegeben',
+      booleanEnabled: 'Aktiv',
+      booleanDisabled: 'Nicht aktiv',
+      logDaysValue: ({ days }) => `${days} Tage`,
+      songHistoryValue: ({ maxEntries }) => `bis zu ${maxEntries} Einträge pro Server`,
+      warningTitle: 'Basisangaben ergänzen',
+      warningFallback: 'Datenschutz-Kontaktdaten',
+      warning: ({ fields }) => `Diese Angaben fehlen aktuell noch oder sind unvollständig: ${fields}. Ergänze sie, bevor du die Datenschutzerklärung produktiv verwendest.`,
+      sections: {
+        overviewTitle: 'Kurzüberblick',
+        overviewBody: 'OmniFM verwendet keine Werbe- oder Tracking-Cookies. Verarbeitet werden nur die Daten, die für den Webauftritt, den Discord-Bot-Betrieb, Premium-Funktionen, E-Mail-Zustellung, Sicherheit und Missbrauchsschutz erforderlich sind.',
+        websiteTitle: 'Webseite, Sicherheit und Spracheinstellung',
+        websiteBody: ({ localeStorageKey }) => `Beim Aufruf der Webseite verarbeitet OmniFM technische Verbindungsdaten, soweit das für die Auslieferung der Inhalte, CORS-Prüfungen, Rate-Limits und den Schutz vor Missbrauch erforderlich ist. Die Weboberfläche speichert die gewählte Sprache lokal im Browser unter "${localeStorageKey}". Es werden keine Analyseprofile für Werbezwecke aufgebaut.`,
+        previewTitle: 'Station-Vorschau und externe Streams',
+        previewBody: 'Wenn du auf der Webseite eine Station vorhörst, verbindet sich dein Browser direkt mit dem ausgewählten Stream-Anbieter. Dabei können insbesondere IP-Adresse, Uhrzeit und weitere technische Verbindungsdaten beim jeweiligen Radio- oder CDN-Betreiber anfallen.',
+        botTitle: 'Discord-Bot-Betrieb',
+        botBody: 'Bei der Nutzung des Bots verarbeitet OmniFM server- und funktionsbezogene Daten wie Guild-/Server-IDs, Channel-IDs, Sprach- und Berechtigungseinstellungen, benutzerdefinierte Stationen, geplante Events, Song-Historien und Listening-Statistiken, soweit die jeweilige Funktion aktiviert ist.',
+        premiumTitle: 'Premium, Testmonat und Zahlungen',
+        premiumBody: ({ stripeEnabled, smtpEnabled }) => `Für Premium-Checkout, Testmonat und Lizenzverwaltung verarbeitet OmniFM insbesondere E-Mail-Adresse, Server-ID, gewählten Plan, Laufzeit, Seats sowie Rabatt- oder Referral-Codes. ${stripeEnabled ? 'Wenn Stripe aktiviert ist, werden Zahlungs- und Checkout-Daten zusätzlich an Stripe übermittelt.' : 'Stripe ist aktuell nicht aktiviert.'} ${smtpEnabled ? 'Wenn SMTP aktiviert ist, werden Lizenz-, Rechnungs- und Support-E-Mails über den konfigurierten Mail-Anbieter zugestellt.' : 'Ein Mailversand ist aktuell nicht aktiviert.'}`,
+        integrationsTitle: 'Empfänger und externe Dienste',
+        integrationsBody: ({ stripeEnabled, smtpEnabled, discordBotListEnabled, recognitionEnabled }) => `Je nach aktivierten Modulen können Daten an Discord, den Hosting-Anbieter, ausgewählte Radio-Stream-Betreiber${stripeEnabled ? ', Stripe' : ''}${smtpEnabled ? ', den konfigurierten SMTP-Anbieter' : ''}${discordBotListEnabled ? ', DiscordBotList' : ''}${recognitionEnabled ? ' sowie Metadaten-/Musikerkennungsdienste' : ''} übermittelt werden.`,
+        retentionTitle: 'Speicherdauer',
+        retentionBody: ({ logDays, songHistoryMaxPerGuild }) => `Technische Rotationslogs werden standardmäßig bis zu ${logDays} Tage vorgehalten. Song-Historien werden pro Server bis zur konfigurierten Maximalanzahl von ${songHistoryMaxPerGuild} Einträgen gespeichert. Lizenz-, Einstellungs-, Statistik- und Eventdaten bleiben gespeichert, bis sie gelöscht, ersetzt oder aus gesetzlichen Gründen nicht mehr benötigt werden.`,
+        basisTitle: 'Rechtsgrundlagen',
+        basisBody: 'Je nach Vorgang verarbeitet OmniFM Daten insbesondere auf Basis von Art. 6 Abs. 1 lit. b DSGVO (Vertrag/Service), lit. c DSGVO (rechtliche Pflichten) und lit. f DSGVO (berechtigte Interessen an Sicherheit, Stabilität und Missbrauchsschutz).',
+        rightsTitle: 'Deine Rechte',
+        rightsBody: 'Du kannst die folgenden Betroffenenrechte geltend machen, soweit die gesetzlichen Voraussetzungen erfüllt sind:',
+        rightsItems: [
+          'Auskunft über verarbeitete personenbezogene Daten',
+          'Berichtigung unrichtiger oder unvollständiger Daten',
+          'Löschung oder Einschränkung der Verarbeitung',
+          'Datenübertragbarkeit bei passenden Verarbeitungsvorgängen',
+          'Widerspruch gegen Verarbeitungen auf Basis berechtigter Interessen',
+          'Beschwerde bei der zuständigen Datenschutzbehörde',
+        ],
+        contactTitle: 'Kontakt und Beschwerden',
+        contactBody: ({ authorityName }) => `Für Datenschutzanfragen solltest du zuerst den oben genannten Kontakt verwenden. Wenn du der Meinung bist, dass eine Verarbeitung gegen Datenschutzrecht verstößt, kannst du dich zudem an ${authorityName} oder eine andere zuständige Aufsichtsbehörde wenden.`,
+      },
+      noteTitle: 'Wichtiger Hinweis',
+      note: 'Diese Datenschutzerklärung bildet die typischen Datenflüsse von OmniFM nach aktuellem Code- und Konfigurationsstand ab. Je nach Hosting, Reverse Proxy, Zahlungsabwicklung oder Supportprozess können zusätzliche Angaben notwendig sein.',
+      basis: 'Rechtsgrundlagen: Art. 13 DSGVO sowie Art. 15 bis 22 DSGVO. Zuständige österreichische Beschwerdestelle: Österreichische Datenschutzbehörde.',
     },
   },
   en: {
@@ -633,12 +712,14 @@ const LOCALE_MESSAGES = {
       },
       links: {
         imprint: 'Imprint',
+        privacy: 'Privacy policy',
       },
       builtWith: 'Built with',
       forDiscord: 'for Discord',
       discord: 'Discord Community',
     },
     legal: {
+      pageTitle: 'OmniFM | Imprint',
       eyebrow: 'Imprint',
       title: 'Imprint & disclosure',
       subtitle: 'Required provider details for the OmniFM website. The content is loaded from the server configuration and can be maintained from the setup menu.',
@@ -680,6 +761,83 @@ const LOCALE_MESSAGES = {
       note: 'This page covers the common provider and disclosure requirements for Austrian websites. Depending on your legal form, trade license, or editorial setup, you may need additional information.',
       basis: 'Legal basis: Section 5 ECG, Section 14 UGB, Section 63 GewO, and Section 25 MedienG.',
     },
+    privacy: {
+      pageTitle: 'OmniFM | Privacy policy',
+      eyebrow: 'Privacy policy',
+      title: 'Privacy policy',
+      subtitle: 'This notice explains which personal data OmniFM processes across the website, Discord bot runtime, and Premium, email, and support workflows.',
+      cards: {
+        controller: 'Controller',
+        contact: 'Contact & privacy',
+        hosting: 'Hosting & infrastructure',
+        authority: 'Supervisory authority',
+      },
+      fields: {
+        controllerName: 'Controller',
+        controllerStreetAddress: 'Street / number',
+        controllerPostalCode: 'Postal code',
+        controllerCity: 'City',
+        representative: 'Authorized representative',
+        address: 'Address',
+        website: 'Website',
+        email: 'Email',
+        phone: 'Phone',
+        dpoName: 'Privacy contact / DPO',
+        dpoEmail: 'Privacy email',
+        hostingProvider: 'Hosting provider',
+        hostingLocation: 'Hosting location',
+        authorityName: 'Supervisory authority',
+        authorityWebsite: 'Authority website',
+        additionalRecipients: 'Additional recipients',
+        customNote: 'Additional note',
+        logDays: 'Log retention',
+        songHistory: 'Song history',
+      },
+      defaultCountry: 'Austria',
+      defaultAuthorityName: 'Austrian Data Protection Authority',
+      defaultAuthorityWebsite: 'https://www.dsb.gv.at/',
+      notProvided: 'Not provided',
+      booleanEnabled: 'Enabled',
+      booleanDisabled: 'Not enabled',
+      logDaysValue: ({ days }) => `${days} days`,
+      songHistoryValue: ({ maxEntries }) => `up to ${maxEntries} entries per server`,
+      warningTitle: 'Complete the privacy basics',
+      warningFallback: 'privacy contact details',
+      warning: ({ fields }) => `These details are still missing or incomplete: ${fields}. Complete them before relying on this privacy policy in production.`,
+      sections: {
+        overviewTitle: 'Overview',
+        overviewBody: 'OmniFM does not use advertising or analytics cookies. It only processes the data required to operate the website, the Discord bot, Premium features, email delivery, security, and abuse protection.',
+        websiteTitle: 'Website, security, and language preference',
+        websiteBody: ({ localeStorageKey }) => `When the website is opened, OmniFM processes technical connection data to deliver content, enforce CORS checks, apply rate limiting, and protect the service from abuse. The web frontend stores the selected language locally in the browser under "${localeStorageKey}". OmniFM does not build advertising-oriented tracking profiles.`,
+        previewTitle: 'Station previews and external streams',
+        previewBody: 'When you preview a station on the website, your browser connects directly to the selected stream provider. That provider may receive your IP address, request time, and other technical connection data.',
+        botTitle: 'Discord bot runtime',
+        botBody: 'When the bot is used, OmniFM processes server- and feature-related data such as guild/server IDs, channel IDs, language and permission settings, custom stations, scheduled events, song history, and listening statistics to the extent required by the enabled feature set.',
+        premiumTitle: 'Premium, trial month, and payments',
+        premiumBody: ({ stripeEnabled, smtpEnabled }) => `For Premium checkout, the trial month, and license management, OmniFM processes data such as email address, server ID, selected plan, duration, seats, and coupon or referral codes. ${stripeEnabled ? 'If Stripe is enabled, checkout and payment data are additionally transmitted to Stripe.' : 'Stripe is currently not enabled.'} ${smtpEnabled ? 'If SMTP is enabled, license, invoice, and support emails are delivered through the configured mail provider.' : 'Email delivery is currently not enabled.'}`,
+        integrationsTitle: 'Recipients and external services',
+        integrationsBody: ({ stripeEnabled, smtpEnabled, discordBotListEnabled, recognitionEnabled }) => `Depending on which modules are enabled, data may be shared with Discord, the hosting provider, selected radio stream operators${stripeEnabled ? ', Stripe' : ''}${smtpEnabled ? ', the configured SMTP provider' : ''}${discordBotListEnabled ? ', DiscordBotList' : ''}${recognitionEnabled ? ', and metadata or audio-recognition services' : ''}.`,
+        retentionTitle: 'Retention',
+        retentionBody: ({ logDays, songHistoryMaxPerGuild }) => `Technical rotated logs are typically retained for up to ${logDays} days. Song history is retained per server up to the configured maximum of ${songHistoryMaxPerGuild} entries. License, settings, statistics, and event data remain stored until they are deleted, replaced, or no longer required for legal reasons.`,
+        basisTitle: 'Legal bases',
+        basisBody: 'Depending on the processing activity, OmniFM primarily relies on Article 6(1)(b) GDPR (contract/service), Article 6(1)(c) GDPR (legal obligations), and Article 6(1)(f) GDPR (legitimate interests in security, service stability, and abuse prevention).',
+        rightsTitle: 'Your rights',
+        rightsBody: 'You may exercise the following rights where the legal requirements are met:',
+        rightsItems: [
+          'Access to the personal data being processed',
+          'Rectification of inaccurate or incomplete data',
+          'Erasure or restriction of processing',
+          'Data portability where applicable',
+          'Objection to processing based on legitimate interests',
+          'Complaint to the competent supervisory authority',
+        ],
+        contactTitle: 'Contact and complaints',
+        contactBody: ({ authorityName }) => `For privacy-related questions, use the contact details above first. If you believe processing infringes data-protection law, you can also lodge a complaint with ${authorityName} or another competent supervisory authority.`,
+      },
+      noteTitle: 'Important note',
+      note: 'This privacy policy reflects the typical OmniFM data flows based on the current code and configuration. Additional details may be required depending on your hosting, reverse proxy, payment setup, or support workflow.',
+      basis: 'Legal basis: GDPR Article 13 and Articles 15 to 22. Austrian complaint authority: Austrian Data Protection Authority.',
+    },
   },
 };
 
@@ -709,10 +867,29 @@ function writeStoredLocale(locale) {
   }
 }
 
+function syncLocaleToUrl(locale) {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('lang', locale);
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // ignore URL update failures
+  }
+}
+
 function readQueryLocale() {
   try {
     const url = new URL(window.location.href);
     return url.searchParams.get('lang') || '';
+  } catch {
+    return '';
+  }
+}
+
+function readQueryPage() {
+  try {
+    const url = new URL(window.location.href);
+    return String(url.searchParams.get('page') || '').trim().toLowerCase();
   } catch {
     return '';
   }
@@ -757,6 +934,7 @@ export function I18nProvider({ children }) {
   const setLocale = useCallback((nextLocale) => {
     const normalized = normalizeLocale(nextLocale);
     writeStoredLocale(normalized);
+    syncLocaleToUrl(normalized);
     setLocaleState(normalized);
   }, []);
 
@@ -793,9 +971,20 @@ export function I18nProvider({ children }) {
   useEffect(() => {
     if (typeof document === 'undefined') return;
     document.documentElement.lang = locale;
+    const page = readQueryPage();
+    if (page === 'imprint' || page === 'impressum') {
+      document.title = copy.legal.pageTitle;
+      updateMetaTag('description', copy.legal.subtitle);
+      return;
+    }
+    if (page === 'privacy' || page === 'datenschutz' || page === 'privacy-policy') {
+      document.title = copy.privacy.pageTitle;
+      updateMetaTag('description', copy.privacy.subtitle);
+      return;
+    }
     document.title = copy.meta.title;
     updateMetaTag('description', copy.meta.description);
-  }, [copy.meta.description, copy.meta.title, locale]);
+  }, [copy, locale]);
 
   const contextValue = useMemo(() => ({
     locale,

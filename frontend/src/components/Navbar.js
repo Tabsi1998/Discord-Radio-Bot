@@ -4,10 +4,19 @@ import { useI18n } from '../i18n';
 
 const DISCORD_URL = 'https://discord.gg/UeRkfGS43R';
 
-function Navbar() {
+function buildHomeHref(locale, hash = '') {
+  const params = new URLSearchParams();
+  if (locale) {
+    params.set('lang', locale);
+  }
+  const query = params.toString();
+  return `/${query ? `?${query}` : ''}${hash}`;
+}
+
+function Navbar({ page = 'home' }) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
-  const { copy, localeMeta, toggleLocale } = useI18n();
+  const { copy, locale, localeMeta, toggleLocale } = useI18n();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -16,6 +25,7 @@ function Navbar() {
   }, []);
 
   const navLinks = copy.navbar.links;
+  const homeHref = buildHomeHref(locale, '#top');
 
   return (
     <nav
@@ -39,7 +49,7 @@ function Navbar() {
       }}
     >
       <a
-        href="#top"
+        href={page === 'home' ? '#top' : homeHref}
         data-testid="nav-logo"
         style={{
           display: 'flex',
@@ -73,7 +83,7 @@ function Navbar() {
         {navLinks.map((link) => (
           <a
             key={link.href}
-            href={link.href}
+            href={page === 'home' ? link.href : buildHomeHref(locale, link.href)}
             data-testid={`nav-link-${link.key}`}
             style={{
               color: '#A1A1AA',
@@ -193,7 +203,7 @@ function Navbar() {
           {navLinks.map((link) => (
             <a
               key={link.href}
-              href={link.href}
+              href={page === 'home' ? link.href : buildHomeHref(locale, link.href)}
               onClick={() => setOpen(false)}
               style={{
                 color: '#A1A1AA',

@@ -7,6 +7,7 @@ import StationBrowser from './components/StationBrowser';
 import Commands from './components/Commands';
 import Premium from './components/Premium';
 import ImpressumSection from './components/ImpressumSection';
+import PrivacySection from './components/PrivacySection';
 import StatsFooter from './components/StatsFooter';
 import Navbar from './components/Navbar';
 import { I18nProvider } from './i18n';
@@ -40,15 +41,32 @@ async function fetchJson(path, signal) {
   return data || {};
 }
 
+function resolvePageFromLocation() {
+  if (typeof window === 'undefined') return 'home';
+
+  try {
+    const url = new URL(window.location.href);
+    const rawPage = String(url.searchParams.get('page') || '').trim().toLowerCase();
+    if (rawPage === 'imprint' || rawPage === 'impressum') return 'imprint';
+    if (rawPage === 'privacy' || rawPage === 'datenschutz' || rawPage === 'privacy-policy') return 'privacy';
+  } catch {
+    return 'home';
+  }
+
+  return 'home';
+}
+
 function AppContent() {
   const [bots, setBots] = useState([]);
   const [stations, setStations] = useState([]);
   const [stats, setStats] = useState({});
   const [commands, setCommands] = useState([]);
   const [legal, setLegal] = useState(null);
+  const [privacy, setPrivacy] = useState(null);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
+  const currentPage = resolvePageFromLocation();
 
   const fetchData = useCallback(async (signal) => {
     const endpoints = [
@@ -57,6 +75,7 @@ function AppContent() {
       '/api/stats',
       '/api/commands',
       '/api/legal',
+      '/api/privacy',
     ];
 
     const results = await Promise.allSettled(endpoints.map((path) => fetchJson(path, signal)));
@@ -97,6 +116,13 @@ function AppContent() {
       anyUpdate = true;
     } else if (results[4].reason?.name !== 'AbortError') {
       console.error('Legal API error:', results[4].reason);
+    }
+
+    if (results[5].status === 'fulfilled') {
+      setPrivacy(results[5].value || null);
+      anyUpdate = true;
+    } else if (results[5].reason?.name !== 'AbortError') {
+      console.error('Privacy API error:', results[5].reason);
     }
 
     if (!anyUpdate) {
@@ -145,10 +171,32 @@ function AppContent() {
     };
   }, [fetchData]);
 
+  if (currentPage === 'imprint') {
+    return (
+      <div data-testid="app-root" style={{ position: 'relative', minHeight: '100vh' }}>
+        <div className="noise-overlay" />
+        <Navbar page={currentPage} />
+        <ImpressumSection legal={legal} standalone />
+        <StatsFooter stats={stats} />
+      </div>
+    );
+  }
+
+  if (currentPage === 'privacy') {
+    return (
+      <div data-testid="app-root" style={{ position: 'relative', minHeight: '100vh' }}>
+        <div className="noise-overlay" />
+        <Navbar page={currentPage} />
+        <PrivacySection legal={legal} privacy={privacy} standalone />
+        <StatsFooter stats={stats} />
+      </div>
+    );
+  }
+
   return (
     <div data-testid="app-root" style={{ position: 'relative', minHeight: '100vh' }}>
       <div className="noise-overlay" />
-      <Navbar />
+      <Navbar page={currentPage} />
       <Hero stats={stats} />
       <Features />
       <WorkerDashboard />
@@ -156,7 +204,6 @@ function AppContent() {
       <StationBrowser stations={stations} loading={loading} />
       <Commands commands={commands} loading={loading} />
       <Premium />
-      <ImpressumSection legal={legal} />
       <StatsFooter stats={stats} />
     </div>
   );

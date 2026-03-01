@@ -86,6 +86,18 @@ prompt_default() {
   printf "%s" "${val:-$def}"
 }
 
+prompt_required_default() {
+  local label="$1" def="$2" val=""
+  while [[ -z "$val" ]]; do
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${label} [${def}]: ")" val
+    val="$(echo "${val:-$def}" | xargs)"
+    if [[ -z "$val" ]]; then
+      echo -e "  ${RED}Pflichtfeld!${NC}"
+    fi
+  done
+  printf "%s" "$val"
+}
+
 prompt_optional() {
   local label="$1" val
   read -rp "$(echo -e "  ${CYAN}?${NC} ${label}: ")" val
@@ -1087,6 +1099,14 @@ if [[ "$MODE" == "--settings" ]]; then
   if [[ -n "$cur_legal_provider_name" && -n "$cur_legal_street" && -n "$cur_legal_postal" && -n "$cur_legal_city" && -n "$cur_legal_email" ]]; then
     cur_legal_status="konfiguriert"
   fi
+  cur_privacy_contact_email=$(read_env "PRIVACY_CONTACT_EMAIL" "$cur_legal_email")
+  cur_privacy_hosting_provider=$(read_env "PRIVACY_HOSTING_PROVIDER" "")
+  cur_privacy_status="unvollstaendig"
+  if [[ "$cur_legal_status" == "konfiguriert" && -n "$cur_privacy_contact_email" && -n "$cur_privacy_hosting_provider" ]]; then
+    cur_privacy_status="konfiguriert"
+  elif [[ "$cur_legal_status" == "konfiguriert" && -n "$cur_privacy_contact_email" ]]; then
+    cur_privacy_status="Basis vorhanden"
+  fi
   cur_fpcalc_status="Container gestoppt"
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
     if docker compose exec -T omnifm sh -lc 'command -v fpcalc >/dev/null 2>&1' >/dev/null 2>&1; then
@@ -1149,6 +1169,11 @@ if [[ "$MODE" == "--settings" ]]; then
   else
     echo -e "  Impressum:             ${YELLOW}${cur_legal_status}${NC}"
   fi
+  if [[ "$cur_privacy_status" == "konfiguriert" ]]; then
+    echo -e "  Datenschutz:           ${GREEN}${cur_privacy_status}${NC}"
+  else
+    echo -e "  Datenschutz:           ${YELLOW}${cur_privacy_status}${NC}"
+  fi
   echo ""
 
   echo -e "  ${BOLD}Was aendern?${NC}"
@@ -1159,7 +1184,7 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${CYAN}5${NC}) Pro-Testmonat ein/aus"
   echo -e "    ${YELLOW}6${NC}) DiscordBotList konfigurieren"
   echo -e "    ${GREEN}7${NC}) Track-Erkennung (AcoustID/MusicBrainz)"
-  echo -e "    ${CYAN}8${NC}) Impressum / Rechtliches"
+  echo -e "    ${CYAN}8${NC}) Impressum & Datenschutz"
   echo -e "    ${DIM}9${NC}) Zurueck"
   echo ""
   read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-9]${NC}: ")" SET_CHOICE
@@ -1285,14 +1310,18 @@ if [[ "$MODE" == "--settings" ]]; then
       echo -e "    ${DIM}WKO: https://www.wko.at/medien/internet-homepage-rechtliche-vorgaben${NC}"
       echo -e "    ${DIM}RIS ECG §5: https://www.ris.bka.gv.at/eli/bgbl/2001/152/P5/NOR40032355${NC}"
       echo -e "    ${DIM}RIS MedienG §25: https://www.ris.bka.gv.at/eli/bgbl/1981/314/P25/NOR40120862${NC}"
-      legal_provider_name="$(prompt_default "Diensteanbieter / Name" "$cur_legal_provider_name")"
+      echo ""
+      info "Pflichtfelder Impressum:"
+      echo -e "    ${DIM}Name, Strasse / Hausnummer, PLZ, Ort und Kontakt-E-Mail${NC}"
+      echo -e "    ${DIM}Alle weiteren Felder sind optional oder nur je nach Rechtsform / Gewerbe / Medienbetrieb noetig.${NC}"
+      legal_provider_name="$(prompt_required_default "Pflichtfeld: Diensteanbieter / Name" "$cur_legal_provider_name")"
       legal_form="$(prompt_default "Rechtsform (optional)" "$(read_env "LEGAL_LEGAL_FORM" "")")"
       legal_representative="$(prompt_default "Vertretungsbefugte Person" "$(read_env "LEGAL_REPRESENTATIVE" "")")"
-      legal_street="$(prompt_default "Strasse / Hausnummer" "$cur_legal_street")"
-      legal_postal="$(prompt_default "PLZ" "$cur_legal_postal")"
-      legal_city="$(prompt_default "Ort" "$cur_legal_city")"
+      legal_street="$(prompt_required_default "Pflichtfeld: Strasse / Hausnummer" "$cur_legal_street")"
+      legal_postal="$(prompt_required_default "Pflichtfeld: PLZ" "$cur_legal_postal")"
+      legal_city="$(prompt_required_default "Pflichtfeld: Ort" "$cur_legal_city")"
       legal_country="$(prompt_default "Land" "${cur_legal_country:-Oesterreich}")"
-      legal_email="$(prompt_default "Kontakt-E-Mail" "$cur_legal_email")"
+      legal_email="$(prompt_required_default "Pflichtfeld: Kontakt-E-Mail" "$cur_legal_email")"
       legal_phone="$(prompt_default "Telefon (optional)" "$(read_env "LEGAL_PHONE" "")")"
       legal_website="$(prompt_default "Webseite" "$(read_env "LEGAL_WEBSITE" "${cur_public_url:-}")")"
       legal_business_purpose="$(prompt_default "Unternehmensgegenstand / Taetigkeitsbereich" "$(read_env "LEGAL_BUSINESS_PURPOSE" "")")"
@@ -1327,7 +1356,31 @@ if [[ "$MODE" == "--settings" ]]; then
       write_env_line "LEGAL_EDITORIAL_RESPONSIBLE" "$legal_editor"
       write_env_line "LEGAL_MEDIA_OWNER" "$legal_media_owner"
       write_env_line "LEGAL_MEDIA_LINE" "$legal_media_line"
-      ok "Impressumsdaten gespeichert."
+      echo ""
+      info "Datenschutzerklaerung:"
+      echo -e "    ${DIM}Verantwortlicher und Anschrift werden automatisch aus dem Impressum uebernommen.${NC}"
+      echo -e "    ${DIM}Empfohlen: Datenschutz-Kontakt, Hosting-Anbieter / -Standort und weitere Empfaenger.${NC}"
+      privacy_contact_email="$(prompt_default "Datenschutz-Kontakt E-Mail (empfohlen, Standard = Kontakt-E-Mail)" "$(read_env "PRIVACY_CONTACT_EMAIL" "$legal_email")")"
+      privacy_contact_phone="$(prompt_default "Datenschutz-Kontakt Telefon (optional)" "$(read_env "PRIVACY_CONTACT_PHONE" "$legal_phone")")"
+      privacy_dpo_name="$(prompt_default "Datenschutzbeauftragte/r oder Datenschutzkontakt (optional)" "$(read_env "PRIVACY_DPO_NAME" "")")"
+      privacy_dpo_email="$(prompt_default "Datenschutz-E-Mail (optional)" "$(read_env "PRIVACY_DPO_EMAIL" "")")"
+      privacy_hosting_provider="$(prompt_default "Hosting-Anbieter / Infrastruktur (empfohlen)" "$(read_env "PRIVACY_HOSTING_PROVIDER" "")")"
+      privacy_hosting_location="$(prompt_default "Hosting-Standort / Region (empfohlen)" "$(read_env "PRIVACY_HOSTING_LOCATION" "EU / Oesterreich")")"
+      privacy_additional_recipients="$(prompt_default "Weitere Empfaenger / Auftragsverarbeiter (optional)" "$(read_env "PRIVACY_ADDITIONAL_RECIPIENTS" "")")"
+      privacy_custom_note="$(prompt_default "Zusaetzlicher Datenschutzhinweis (optional)" "$(read_env "PRIVACY_CUSTOM_NOTE" "")")"
+      privacy_authority_name="$(prompt_default "Beschwerdebehoerde" "$(read_env "PRIVACY_AUTHORITY_NAME" "Oesterreichische Datenschutzbehoerde")")"
+      privacy_authority_website="$(prompt_default "Website der Beschwerdebehoerde" "$(read_env "PRIVACY_AUTHORITY_WEBSITE" "https://www.dsb.gv.at/")")"
+      write_env_line "PRIVACY_CONTACT_EMAIL" "$privacy_contact_email"
+      write_env_line "PRIVACY_CONTACT_PHONE" "$privacy_contact_phone"
+      write_env_line "PRIVACY_DPO_NAME" "$privacy_dpo_name"
+      write_env_line "PRIVACY_DPO_EMAIL" "$privacy_dpo_email"
+      write_env_line "PRIVACY_HOSTING_PROVIDER" "$privacy_hosting_provider"
+      write_env_line "PRIVACY_HOSTING_LOCATION" "$privacy_hosting_location"
+      write_env_line "PRIVACY_ADDITIONAL_RECIPIENTS" "$privacy_additional_recipients"
+      write_env_line "PRIVACY_CUSTOM_NOTE" "$privacy_custom_note"
+      write_env_line "PRIVACY_AUTHORITY_NAME" "$privacy_authority_name"
+      write_env_line "PRIVACY_AUTHORITY_WEBSITE" "$privacy_authority_website"
+      ok "Impressums- und Datenschutzdaten gespeichert."
       restart_container
       ;;
     *)

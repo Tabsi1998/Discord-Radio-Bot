@@ -11,6 +11,7 @@ OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium 
 - Publishes cleaner now-playing embeds with cover art and search buttons
 - Falls back to audio fingerprint recognition when stations provide bad or missing metadata
 - Syncs bot stats, commands, and vote webhooks with DiscordBotList
+- Serves bilingual imprint and privacy pages for the website footer
 
 ## Requirements
 
@@ -44,6 +45,7 @@ The interactive scripts now also cover:
 - SMTP credentials
 - AcoustID recognition settings
 - Default language fallback via `DEFAULT_LANGUAGE` (`en` recommended)
+- Imprint and privacy details for Austrian legal pages
 
 After installation:
 
@@ -65,6 +67,82 @@ docker compose logs -f omnifm
 ./update.sh --status
 ./update.sh --cleanup
 ```
+
+## Website legal pages
+
+OmniFM now exposes two footer-linked legal pages on the production website:
+
+- `Impressum / Imprint`
+- `Datenschutzerklärung / Privacy policy`
+
+Both pages are bilingual and use the same locale handling as the rest of the React frontend.
+
+### Configure them
+
+Open:
+
+```bash
+./update.sh --settings
+```
+
+Then choose:
+
+```text
+8) Impressum & Datenschutz
+```
+
+### Required imprint details
+
+These fields should be filled before using the website in production:
+
+- `LEGAL_PROVIDER_NAME`
+- `LEGAL_STREET_ADDRESS`
+- `LEGAL_POSTAL_CODE`
+- `LEGAL_CITY`
+- `LEGAL_EMAIL`
+
+### Optional or case-dependent imprint details
+
+These depend on your legal form, company structure, trade license, or media-law setup:
+
+- `LEGAL_LEGAL_FORM`
+- `LEGAL_REPRESENTATIVE`
+- `LEGAL_PHONE`
+- `LEGAL_WEBSITE`
+- `LEGAL_BUSINESS_PURPOSE`
+- `LEGAL_COMMERCIAL_REGISTER_NUMBER`
+- `LEGAL_COMMERCIAL_REGISTER_COURT`
+- `LEGAL_VAT_ID`
+- `LEGAL_SUPERVISORY_AUTHORITY`
+- `LEGAL_CHAMBER`
+- `LEGAL_PROFESSION`
+- `LEGAL_PROFESSION_RULES`
+- `LEGAL_EDITORIAL_RESPONSIBLE`
+- `LEGAL_MEDIA_OWNER`
+- `LEGAL_MEDIA_LINE`
+
+### Privacy details
+
+The privacy page automatically reuses the controller name, address, and primary contact data from the imprint. These privacy-specific fields are additionally available in the same menu:
+
+- `PRIVACY_CONTACT_EMAIL`
+- `PRIVACY_CONTACT_PHONE`
+- `PRIVACY_DPO_NAME`
+- `PRIVACY_DPO_EMAIL`
+- `PRIVACY_HOSTING_PROVIDER`
+- `PRIVACY_HOSTING_LOCATION`
+- `PRIVACY_ADDITIONAL_RECIPIENTS`
+- `PRIVACY_CUSTOM_NOTE`
+- `PRIVACY_AUTHORITY_NAME`
+- `PRIVACY_AUTHORITY_WEBSITE`
+
+Recommended minimum for the privacy page:
+
+- a valid privacy contact email
+- the hosting provider or infrastructure label
+- the hosting location or region
+
+If privacy-specific fields are omitted, OmniFM falls back to the imprint data where possible and visibly marks missing details on the legal pages.
 
 ## Architecture
 
@@ -247,6 +325,8 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 - `GET /api/stats`
 - `GET /api/stations`
 - `GET /api/workers`
+- `GET /api/legal`
+- `GET /api/privacy`
 
 ### Premium
 

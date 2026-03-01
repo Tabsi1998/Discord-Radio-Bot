@@ -147,6 +147,86 @@ function buildPublicLegalNotice() {
   };
 }
 
+function buildPublicPrivacyNotice() {
+  const legalNotice = buildPublicLegalNotice();
+  const legal = legalNotice.legal || {};
+  const hasStripe = Boolean(getStripeSecretKey());
+  const hasSmtp = Boolean(String(process.env.SMTP_HOST || "").trim());
+  const hasDiscordBotList = String(process.env.DISCORDBOTLIST_ENABLED || "1").trim() !== "0"
+    && Boolean(String(process.env.DISCORDBOTLIST_TOKEN || "").trim());
+  const hasRecognition = String(process.env.NOW_PLAYING_RECOGNITION_ENABLED || "0").trim() === "1"
+    && Boolean(String(process.env.ACOUSTID_API_KEY || "").trim());
+
+  const controller = {
+    name: String(process.env.PRIVACY_CONTROLLER_NAME || "").trim() || legal.providerName,
+    representative: String(process.env.PRIVACY_CONTROLLER_REPRESENTATIVE || "").trim() || legal.representative,
+    streetAddress: String(process.env.PRIVACY_CONTROLLER_STREET_ADDRESS || "").trim() || legal.streetAddress,
+    postalCode: String(process.env.PRIVACY_CONTROLLER_POSTAL_CODE || "").trim() || legal.postalCode,
+    city: String(process.env.PRIVACY_CONTROLLER_CITY || "").trim() || legal.city,
+    country: String(process.env.PRIVACY_CONTROLLER_COUNTRY || "").trim() || legal.country || "Österreich",
+    website: String(process.env.PRIVACY_CONTROLLER_WEBSITE || "").trim() || legal.website,
+  };
+
+  const contact = {
+    email: String(process.env.PRIVACY_CONTACT_EMAIL || "").trim() || legal.email,
+    phone: String(process.env.PRIVACY_CONTACT_PHONE || "").trim() || legal.phone,
+  };
+
+  const dpo = {
+    name: String(process.env.PRIVACY_DPO_NAME || "").trim(),
+    email: String(process.env.PRIVACY_DPO_EMAIL || "").trim(),
+  };
+
+  const hosting = {
+    provider: String(process.env.PRIVACY_HOSTING_PROVIDER || "").trim(),
+    location: String(process.env.PRIVACY_HOSTING_LOCATION || "").trim(),
+  };
+
+  const authority = {
+    name: String(process.env.PRIVACY_AUTHORITY_NAME || "").trim() || "Österreichische Datenschutzbehörde",
+    website: String(process.env.PRIVACY_AUTHORITY_WEBSITE || "").trim() || "https://www.dsb.gv.at/",
+  };
+
+  const additionalRecipients = String(process.env.PRIVACY_ADDITIONAL_RECIPIENTS || "").trim();
+  const customNote = String(process.env.PRIVACY_CUSTOM_NOTE || "").trim();
+  const missingCoreFields = [];
+
+  if (!controller.name) missingCoreFields.push("controllerName");
+  if (!controller.streetAddress) missingCoreFields.push("controllerStreetAddress");
+  if (!controller.postalCode) missingCoreFields.push("controllerPostalCode");
+  if (!controller.city) missingCoreFields.push("controllerCity");
+  if (!contact.email) missingCoreFields.push("contactEmail");
+
+  return {
+    controller,
+    contact,
+    dpo,
+    hosting,
+    authority,
+    additionalRecipients,
+    customNote,
+    features: {
+      stripeEnabled: hasStripe,
+      smtpEnabled: hasSmtp,
+      discordBotListEnabled: hasDiscordBotList,
+      recognitionEnabled: hasRecognition,
+      stationPreviewEnabled: true,
+      localeStorageKey: "omnifm.web.locale",
+    },
+    retention: {
+      logDays: Number.parseInt(String(process.env.LOG_MAX_DAYS || "14"), 10) || 14,
+      songHistoryEnabled: String(process.env.SONG_HISTORY_ENABLED || "1").trim() !== "0",
+      songHistoryMaxPerGuild: Number.parseInt(String(process.env.SONG_HISTORY_MAX_PER_GUILD || "100"), 10) || 100,
+      listeningStatsEnabled: true,
+      scheduledEventsEnabled: true,
+    },
+    missingCoreFields,
+    isConfigured: missingCoreFields.length === 0,
+    basis: ["GDPR_ART_13", "GDPR_ART_15_22", "DSB_AT"],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function startWebServer(runtimes) {
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
   const webPort = Number(process.env.WEB_PORT || "8081");
@@ -374,6 +454,15 @@ function startWebServer(runtimes) {
         return;
       }
       sendJson(res, 200, buildPublicLegalNotice());
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/privacy") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      sendJson(res, 200, buildPublicPrivacyNotice());
       return;
     }
 
