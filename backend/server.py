@@ -1440,6 +1440,41 @@ def get_tier(server_id):
     return tier if tier in TIERS else "free"
 
 
+def get_dashboard_guild_stats(server_id, tier):
+    dashboard_data = load_dashboard_data()
+    events_map = dashboard_data.get("events", {}) if isinstance(dashboard_data.get("events"), dict) else {}
+    perms_map = dashboard_data.get("perms", {}) if isinstance(dashboard_data.get("perms"), dict) else {}
+    telemetry_map = dashboard_data.get("telemetry", {}) if isinstance(dashboard_data.get("telemetry"), dict) else {}
+
+    guild_events = events_map.get(server_id, []) if isinstance(events_map.get(server_id), list) else []
+    guild_perms = perms_map.get(server_id, {}) if isinstance(perms_map.get(server_id), dict) else {}
+    telemetry_raw = telemetry_map.get(server_id, {}) if isinstance(telemetry_map.get(server_id), dict) else {}
+    telemetry = normalize_dashboard_telemetry(telemetry_raw)
+
+    active_events = len([item for item in guild_events if isinstance(item, dict) and item.get("enabled") is not False])
+    basic = {
+        "listenersNow": telemetry.get("listenersNow", 0),
+        "activeStreams": telemetry.get("activeStreams", 0),
+        "peakListeners": telemetry.get("peakListeners", 0),
+        "peakTime": telemetry.get("peakTime"),
+        "topStation": telemetry.get("topStation", {"name": "-", "listeners": 0}),
+        "eventsConfigured": len(guild_events),
+        "eventsActive": active_events,
+        "permRules": len((guild_perms.get("commandRoleMap") or {}).keys()) if isinstance(guild_perms.get("commandRoleMap"), dict) else 0,
+        "updatedAt": telemetry.get("updatedAt") or datetime.now(timezone.utc).isoformat(),
+    }
+
+    if tier != "ultimate":
+        return {"basic": basic, "advanced": None}
+
+    advanced = {
+        "listenersByChannel": telemetry.get("listenersByChannel", []),
+        "dailyReport": telemetry.get("dailyReport", []),
+        "stationBreakdown": telemetry.get("stationBreakdown", []),
+    }
+    return {"basic": basic, "advanced": advanced}
+
+
 def get_license(server_id):
     return get_server_license(server_id)
 
