@@ -127,3 +127,13 @@
   - `12) Doctor Check` direkt aus Settings
 - Fehlertoleranz verbessert: ungueltige Eingaben erzeugen Warnungen statt harter Abbrueche.
 - Dashboard-relevante Defaults/Checks integriert (OAuth vars, session TTL/cookie, dashboard.json backups).
+
+
+## Incremental Update – Fix Discord Login API route not found (Production Node API)
+- Ursache identifiziert: Produktivdomain `omnifm.xyz` nutzt Node-API (`src/api/server.js`), dort fehlten Dashboard/Auth-Routen.
+- Node-API erweitert um:
+  - `/api/auth/session`, `/api/auth/discord/login`, `/api/auth/discord/callback`, `/api/auth/logout`
+  - `/api/dashboard/guilds`, `/api/dashboard/stats`, `/api/dashboard/events` (GET/POST/PATCH/DELETE), `/api/dashboard/perms` (GET/PUT), `/api/dashboard/telemetry` (POST admin)
+- CORS im Node-Helper erweitert (PUT/PATCH/DELETE + Credentials), damit Dashboard-Requests inkl. Session sauber funktionieren.
+- Dashboard-Datenpersistenz via `dashboard.json` integriert (events/perms/telemetry).
+- Verifikation lokal: Lint grün, Node-Tests 31/31 grün.
