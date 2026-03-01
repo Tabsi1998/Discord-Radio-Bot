@@ -867,7 +867,7 @@
   {
     "id": "pro_urban_07",
     "name": "Reggaeton",
-    "streamURL": "http://latinareggaeton.ice.infomaniak.ch/latinareggaeton.mp3",
+    "streamURL": "https://reggaeton-fm.stream.laut.fm/reggaeton-fm",
     "requiredPlan": "pro",
     "bitrate": 128,
     "tags": [
