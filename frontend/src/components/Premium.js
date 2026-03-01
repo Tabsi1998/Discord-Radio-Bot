@@ -37,6 +37,15 @@ function buildApiUrl(path) {
   return `${API_BASE}${path}`;
 }
 
+function parsePriceNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const text = String(value ?? '').trim();
+  if (!text) return NaN;
+  const normalized = text.replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
 function normalizeTier(rawTier, fallbackTier, fallbackFeatures) {
   const tier = rawTier && typeof rawTier === 'object' ? rawTier : {};
   const fallback = fallbackTier || {};
@@ -91,7 +100,8 @@ function mapTierToColor(tier) {
 
 function buildPriceLabel(planId, tier, copy, formatDecimal) {
   if (planId === 'free') return copy.premium.freePrice;
-  if (tier.startingAt) return `${copy.premium.priceFrom} ${formatDecimal(tier.startingAt)} EUR`;
+  const startPrice = parsePriceNumber(tier.startingAt);
+  if (Number.isFinite(startPrice)) return `${copy.premium.priceFrom} ${formatDecimal(startPrice)} EUR`;
   return `${copy.premium.priceFrom} ${formatDecimal(tier.pricePerMonth / 100)} EUR`;
 }
 
@@ -123,12 +133,12 @@ function CheckoutModal(props) {
   const Icon = meta.icon;
   const trialEnabled = planId === 'pro' && trialConfig?.enabled !== false;
   const seatEntries = Object.entries(tier.seatPricing || {})
-    .map(([seats, value]) => [Number(seats), Number(value)])
-    .filter(([seats]) => seatOptions.includes(seats))
+    .map(([seats, value]) => [Number(seats), parsePriceNumber(value)])
+    .filter(([seats, value]) => seatOptions.includes(seats) && Number.isFinite(value))
     .sort((a, b) => a[0] - b[0]);
   const durationEntries = Object.entries(tier.durationPricing || {})
-    .map(([months, value]) => [Number(months), Number(value)])
-    .filter(([months]) => durations.includes(months))
+    .map(([months, value]) => [Number(months), parsePriceNumber(value)])
+    .filter(([months, value]) => durations.includes(months) && Number.isFinite(value))
     .sort((a, b) => a[0] - b[0]);
 
   const baseMonthly = durationEntries.find(([months]) => months === 1)?.[1] || 0;

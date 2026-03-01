@@ -106,6 +106,8 @@ SEAT_MONTHLY_TOTAL_CENTS = {
     "pro":      {1: 299, 2: 549, 3: 749, 5: 1149},
     "ultimate": {1: 499, 2: 799, 3: 1099, 5: 1699},
 }
+PRO_TRIAL_MONTHS = 1
+PRO_TRIAL_SEATS = 1
 ADMIN_API_TOKEN = (os.environ.get("API_ADMIN_TOKEN") or os.environ.get("ADMIN_API_TOKEN") or "").strip()
 TRUST_PROXY_HEADERS = (os.environ.get("TRUST_PROXY_HEADERS") or "0").strip() == "1"
 API_RATE_LIMIT_STATE = {}
@@ -167,6 +169,171 @@ def clip_text(value, max_len=300):
     if len(text) <= max_len:
         return text
     return text[: max_len - 3] + "..."
+
+
+def extract_mailbox(raw_value):
+    text = str(raw_value or "").strip()
+    if not text:
+        return ""
+    bracket_match = re.search(r"<([^>]+)>", text)
+    if bracket_match and bracket_match.group(1):
+        return bracket_match.group(1).strip()
+    plain_match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.IGNORECASE)
+    return plain_match.group(0) if plain_match else ""
+
+
+def normalize_language(language, fallback="de"):
+    value = str(language or "").strip().lower()
+    if value.startswith("de"):
+        return "de"
+    if value.startswith("en"):
+        return "en"
+    fb = str(fallback or "de").strip().lower()
+    return "en" if fb.startswith("en") else "de"
+
+
+def resolve_language_from_accept_language(accept_language, fallback="de"):
+    raw = str(accept_language or "").strip()
+    if not raw:
+        return normalize_language(None, fallback)
+    for part in raw.split(","):
+        token = part.split(";")[0].strip()
+        if token:
+            return normalize_language(token, fallback)
+    return normalize_language(None, fallback)
+
+
+def is_pro_trial_enabled():
+    return (os.environ.get("PRO_TRIAL_ENABLED") or "1").strip() != "0"
+
+
+def sanitize_offer_code(raw_code):
+    return re.sub(r"[^A-Z0-9_-]", "", str(raw_code or "").strip().upper())[:50]
+
+
+def build_public_legal_notice():
+    public_url = (os.environ.get("PUBLIC_WEB_URL") or "").strip()
+    fallback_email = extract_mailbox(os.environ.get("SMTP_FROM") or "")
+    legal = {
+        "providerName": (os.environ.get("LEGAL_PROVIDER_NAME") or "").strip(),
+        "legalForm": (os.environ.get("LEGAL_LEGAL_FORM") or "").strip(),
+        "representative": (os.environ.get("LEGAL_REPRESENTATIVE") or "").strip(),
+        "streetAddress": (os.environ.get("LEGAL_STREET_ADDRESS") or "").strip(),
+        "postalCode": (os.environ.get("LEGAL_POSTAL_CODE") or "").strip(),
+        "city": (os.environ.get("LEGAL_CITY") or "").strip(),
+        "country": (os.environ.get("LEGAL_COUNTRY") or "").strip(),
+        "email": (os.environ.get("LEGAL_EMAIL") or "").strip() or fallback_email,
+        "phone": (os.environ.get("LEGAL_PHONE") or "").strip(),
+        "website": (os.environ.get("LEGAL_WEBSITE") or "").strip() or public_url,
+        "businessPurpose": (os.environ.get("LEGAL_BUSINESS_PURPOSE") or "").strip(),
+        "commercialRegisterNumber": (os.environ.get("LEGAL_COMMERCIAL_REGISTER_NUMBER") or "").strip(),
+        "commercialRegisterCourt": (os.environ.get("LEGAL_COMMERCIAL_REGISTER_COURT") or "").strip(),
+        "vatId": (os.environ.get("LEGAL_VAT_ID") or "").strip(),
+        "supervisoryAuthority": (os.environ.get("LEGAL_SUPERVISORY_AUTHORITY") or "").strip(),
+        "chamber": (os.environ.get("LEGAL_CHAMBER") or "").strip(),
+        "profession": (os.environ.get("LEGAL_PROFESSION") or "").strip(),
+        "professionRules": (os.environ.get("LEGAL_PROFESSION_RULES") or "").strip(),
+        "editorialResponsible": (os.environ.get("LEGAL_EDITORIAL_RESPONSIBLE") or "").strip(),
+        "mediaOwner": (os.environ.get("LEGAL_MEDIA_OWNER") or "").strip(),
+        "mediaLine": (os.environ.get("LEGAL_MEDIA_LINE") or "").strip(),
+    }
+
+    missing_core_fields = []
+    if not legal["providerName"]:
+        missing_core_fields.append("providerName")
+    if not legal["streetAddress"]:
+        missing_core_fields.append("streetAddress")
+    if not legal["postalCode"]:
+        missing_core_fields.append("postalCode")
+    if not legal["city"]:
+        missing_core_fields.append("city")
+    if not legal["email"]:
+        missing_core_fields.append("email")
+
+    return {
+        "legal": legal,
+        "missingCoreFields": missing_core_fields,
+        "isConfigured": len(missing_core_fields) == 0,
+        "basis": ["ECG_5", "UGB_14", "GewO_63", "MedienG_25"],
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def build_public_privacy_notice():
+    legal_notice = build_public_legal_notice()
+    legal = legal_notice.get("legal", {})
+    has_stripe = bool(get_stripe_secret_key())
+    has_smtp = bool((os.environ.get("SMTP_HOST") or "").strip())
+    bot_id_candidate = (os.environ.get("DISCORDBOTLIST_BOT_ID") or os.environ.get("BOT_1_CLIENT_ID") or "").strip()
+    has_discordbotlist = (os.environ.get("DISCORDBOTLIST_ENABLED") or "1").strip() != "0" and bool((os.environ.get("DISCORDBOTLIST_TOKEN") or "").strip()) and bool(re.match(r"^\d{17,22}$", bot_id_candidate))
+    has_recognition = (os.environ.get("NOW_PLAYING_RECOGNITION_ENABLED") or "0").strip() == "1" and bool((os.environ.get("ACOUSTID_API_KEY") or "").strip())
+
+    controller = {
+        "name": (os.environ.get("PRIVACY_CONTROLLER_NAME") or "").strip() or legal.get("providerName", ""),
+        "representative": (os.environ.get("PRIVACY_CONTROLLER_REPRESENTATIVE") or "").strip() or legal.get("representative", ""),
+        "streetAddress": (os.environ.get("PRIVACY_CONTROLLER_STREET_ADDRESS") or "").strip() or legal.get("streetAddress", ""),
+        "postalCode": (os.environ.get("PRIVACY_CONTROLLER_POSTAL_CODE") or "").strip() or legal.get("postalCode", ""),
+        "city": (os.environ.get("PRIVACY_CONTROLLER_CITY") or "").strip() or legal.get("city", ""),
+        "country": (os.environ.get("PRIVACY_CONTROLLER_COUNTRY") or "").strip() or legal.get("country", "") or "Österreich",
+        "website": (os.environ.get("PRIVACY_CONTROLLER_WEBSITE") or "").strip() or legal.get("website", ""),
+    }
+    contact = {
+        "email": (os.environ.get("PRIVACY_CONTACT_EMAIL") or "").strip() or legal.get("email", ""),
+        "phone": (os.environ.get("PRIVACY_CONTACT_PHONE") or "").strip() or legal.get("phone", ""),
+    }
+    dpo = {
+        "name": (os.environ.get("PRIVACY_DPO_NAME") or "").strip(),
+        "email": (os.environ.get("PRIVACY_DPO_EMAIL") or "").strip(),
+    }
+    hosting = {
+        "provider": (os.environ.get("PRIVACY_HOSTING_PROVIDER") or "").strip(),
+        "location": (os.environ.get("PRIVACY_HOSTING_LOCATION") or "").strip(),
+    }
+    authority = {
+        "name": (os.environ.get("PRIVACY_AUTHORITY_NAME") or "").strip() or "Österreichische Datenschutzbehörde",
+        "website": (os.environ.get("PRIVACY_AUTHORITY_WEBSITE") or "").strip() or "https://www.dsb.gv.at/",
+    }
+
+    missing_core_fields = []
+    if not controller["name"]:
+        missing_core_fields.append("controllerName")
+    if not controller["streetAddress"]:
+        missing_core_fields.append("controllerStreetAddress")
+    if not controller["postalCode"]:
+        missing_core_fields.append("controllerPostalCode")
+    if not controller["city"]:
+        missing_core_fields.append("controllerCity")
+    if not contact["email"]:
+        missing_core_fields.append("contactEmail")
+
+    return {
+        "controller": controller,
+        "contact": contact,
+        "dpo": dpo,
+        "hosting": hosting,
+        "authority": authority,
+        "additionalRecipients": (os.environ.get("PRIVACY_ADDITIONAL_RECIPIENTS") or "").strip(),
+        "customNote": (os.environ.get("PRIVACY_CUSTOM_NOTE") or "").strip(),
+        "features": {
+            "stripeEnabled": has_stripe,
+            "smtpEnabled": has_smtp,
+            "discordBotListEnabled": has_discordbotlist,
+            "recognitionEnabled": has_recognition,
+            "stationPreviewEnabled": True,
+            "localeStorageKey": "omnifm.web.locale",
+        },
+        "retention": {
+            "logDays": parse_int(os.environ.get("LOG_MAX_DAYS"), 14),
+            "songHistoryEnabled": (os.environ.get("SONG_HISTORY_ENABLED") or "1").strip() != "0",
+            "songHistoryMaxPerGuild": parse_int(os.environ.get("SONG_HISTORY_MAX_PER_GUILD"), 100),
+            "listeningStatsEnabled": True,
+            "scheduledEventsEnabled": True,
+        },
+        "missingCoreFields": missing_core_fields,
+        "isConfigured": len(missing_core_fields) == 0,
+        "basis": ["GDPR_ART_13", "GDPR_ART_15_22", "DSB_AT"],
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def first_header_value(raw_value):
@@ -503,6 +670,283 @@ def save_premium(data):
             return
         except Exception:
             pass
+
+
+def list_licenses_by_contact_email(email):
+    needle = str(email or "").strip().lower()
+    if not needle:
+        return []
+    data = load_premium()
+    matches = []
+    for key, lic in data.get("licenses", {}).items():
+        if not isinstance(lic, dict):
+            continue
+        lic_email = str(lic.get("email") or lic.get("contactEmail") or "").strip().lower()
+        if lic_email == needle:
+            matches.append({"licenseKey": key, **lic})
+    return matches
+
+
+def reserve_trial_claim(email, payload=None):
+    normalized_email = str(email or "").strip().lower()
+    if not normalized_email:
+        return {"ok": False}
+
+    data = load_premium()
+    claims = data.setdefault("trialClaims", {})
+    if normalized_email in claims:
+        return {"ok": False}
+
+    claims[normalized_email] = {
+        "email": normalized_email,
+        "requestedAt": datetime.now(timezone.utc).isoformat(),
+        **(payload or {}),
+    }
+    save_premium(data)
+    return {"ok": True}
+
+
+def release_trial_claim(email):
+    normalized_email = str(email or "").strip().lower()
+    if not normalized_email:
+        return
+    data = load_premium()
+    claims = data.setdefault("trialClaims", {})
+    if normalized_email in claims:
+        claims.pop(normalized_email, None)
+        save_premium(data)
+
+
+def finalize_trial_claim(email, payload=None):
+    normalized_email = str(email or "").strip().lower()
+    if not normalized_email:
+        return
+    data = load_premium()
+    claims = data.setdefault("trialClaims", {})
+    current = claims.get(normalized_email, {})
+    claims[normalized_email] = {
+        **current,
+        **(payload or {}),
+        "finalizedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    save_premium(data)
+
+
+def list_offers(include_inactive=True):
+    data = load_premium()
+    offers = data.get("offers", {})
+    rows = []
+    for code, offer in offers.items():
+        if not isinstance(offer, dict):
+            continue
+        row = {"code": code, **offer}
+        if not include_inactive and not row.get("active", True):
+            continue
+        rows.append(row)
+    rows.sort(key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
+    return rows
+
+
+def get_offer(code):
+    normalized = sanitize_offer_code(code)
+    if not normalized:
+        return None
+    data = load_premium()
+    offer = data.get("offers", {}).get(normalized)
+    if not isinstance(offer, dict):
+        return None
+    return {"code": normalized, **offer}
+
+
+def upsert_offer(payload, partial=False):
+    body = payload if isinstance(payload, dict) else {}
+    code = sanitize_offer_code(body.get("code"))
+    if not code:
+        raise ValueError("code ist erforderlich.")
+
+    data = load_premium()
+    offers = data.setdefault("offers", {})
+    existing = offers.get(code, {}) if isinstance(offers.get(code), dict) else {}
+
+    if partial and not existing:
+        raise ValueError("Code nicht gefunden.")
+
+    discount_percent = parse_int(body.get("discountPercent"), existing.get("discountPercent", 0))
+    discount_percent = max(0, min(100, discount_percent))
+    discount_cents = parse_int(body.get("discountCents"), existing.get("discountCents", 0))
+    discount_cents = max(0, discount_cents)
+    max_uses = parse_int(body.get("maxUses"), existing.get("maxUses", 0))
+    max_uses = max(0, max_uses)
+    uses = parse_int(existing.get("uses", 0), 0)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    next_offer = {
+        **existing,
+        "label": clip_text(body.get("label", existing.get("label", "")), 120),
+        "description": clip_text(body.get("description", existing.get("description", "")), 400),
+        "active": bool(body.get("active", existing.get("active", True))),
+        "tier": str(body.get("tier", existing.get("tier", ""))).strip().lower(),
+        "discountPercent": discount_percent,
+        "discountCents": discount_cents,
+        "maxUses": max_uses,
+        "uses": uses,
+        "startsAt": str(body.get("startsAt", existing.get("startsAt", ""))).strip() or None,
+        "endsAt": str(body.get("endsAt", existing.get("endsAt", ""))).strip() or None,
+        "createdAt": existing.get("createdAt", now_iso),
+        "createdBy": str(body.get("createdBy", existing.get("createdBy", "api-admin"))).strip() or "api-admin",
+        "updatedAt": now_iso,
+        "updatedBy": str(body.get("updatedBy", existing.get("updatedBy", "api-admin"))).strip() or "api-admin",
+    }
+
+    if next_offer.get("tier") not in ("", "pro", "ultimate"):
+        raise ValueError("tier muss leer, 'pro' oder 'ultimate' sein.")
+    if next_offer.get("discountPercent", 0) <= 0 and next_offer.get("discountCents", 0) <= 0:
+        raise ValueError("discountPercent oder discountCents muss gesetzt sein.")
+
+    offers[code] = next_offer
+    save_premium(data)
+    return {"code": code, **next_offer}
+
+
+def delete_offer(code):
+    normalized = sanitize_offer_code(code)
+    if not normalized:
+        return False
+    data = load_premium()
+    offers = data.setdefault("offers", {})
+    if normalized not in offers:
+        return False
+    offers.pop(normalized, None)
+    save_premium(data)
+    return True
+
+
+def set_offer_active(code, active=True):
+    normalized = sanitize_offer_code(code)
+    if not normalized:
+        return None
+    data = load_premium()
+    offers = data.setdefault("offers", {})
+    existing = offers.get(normalized)
+    if not isinstance(existing, dict):
+        return None
+    existing["active"] = bool(active)
+    existing["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    existing["updatedBy"] = str(existing.get("updatedBy") or "api-admin")
+    offers[normalized] = existing
+    save_premium(data)
+    return {"code": normalized, **existing}
+
+
+def parse_iso_datetime(raw_value):
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def resolve_discount_preview(tier, seats, months, email, coupon_code, language="de"):
+    lang = normalize_language(language, "de")
+    def tmsg(de, en):
+        return de if lang == "de" else en
+
+    normalized_tier = str(tier or "").strip().lower()
+    if normalized_tier not in ("pro", "ultimate"):
+        return {"ok": False, "status": 400, "error": tmsg("tier muss 'pro' oder 'ultimate' sein.", "tier must be 'pro' or 'ultimate'.")}
+
+    if not is_valid_email(email):
+        return {"ok": False, "status": 400, "error": tmsg("Bitte eine gueltige E-Mail-Adresse eingeben.", "Please enter a valid email address.")}
+
+    duration_months = normalize_duration(months)
+    normalized_seats = max(1, min(5, parse_int(seats, 1)))
+    base_amount_cents = calculate_price(normalized_tier, duration_months, normalized_seats)
+    if base_amount_cents <= 0:
+        return {"ok": False, "status": 400, "error": tmsg("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination.")}
+
+    code = sanitize_offer_code(coupon_code)
+    if not code:
+        return {
+            "ok": True,
+            "preview": {
+                "code": None,
+                "discountCents": 0,
+                "finalAmountCents": base_amount_cents,
+                "baseAmountCents": base_amount_cents,
+            },
+        }
+
+    offer = get_offer(code)
+    if not offer:
+        return {"ok": False, "status": 404, "error": tmsg("Gutscheincode nicht gefunden.", "Coupon code not found.")}
+    if not offer.get("active", True):
+        return {"ok": False, "status": 400, "error": tmsg("Gutscheincode ist nicht aktiv.", "Coupon code is not active.")}
+
+    offer_tier = str(offer.get("tier") or "").strip().lower()
+    if offer_tier and offer_tier != normalized_tier:
+        return {"ok": False, "status": 400, "error": tmsg("Gutscheincode gilt nicht fuer diesen Plan.", "Coupon code is not valid for this plan.")}
+
+    starts_at = parse_iso_datetime(offer.get("startsAt"))
+    ends_at = parse_iso_datetime(offer.get("endsAt"))
+    now = datetime.now(timezone.utc)
+    if starts_at and starts_at > now:
+        return {"ok": False, "status": 400, "error": tmsg("Gutscheincode ist noch nicht aktiv.", "Coupon code is not active yet.")}
+    if ends_at and ends_at < now:
+        return {"ok": False, "status": 400, "error": tmsg("Gutscheincode ist abgelaufen.", "Coupon code has expired.")}
+
+    max_uses = max(0, parse_int(offer.get("maxUses"), 0))
+    used = max(0, parse_int(offer.get("uses"), 0))
+    if max_uses > 0 and used >= max_uses:
+        return {"ok": False, "status": 400, "error": tmsg("Gutscheincode wurde bereits zu oft eingeloest.", "Coupon code has already been redeemed too many times.")}
+
+    discount_percent = max(0, min(100, parse_int(offer.get("discountPercent"), 0)))
+    discount_fixed = max(0, parse_int(offer.get("discountCents"), 0))
+    percent_cents = round(base_amount_cents * (discount_percent / 100)) if discount_percent > 0 else 0
+    discount_cents = max(percent_cents, discount_fixed)
+    discount_cents = max(0, min(base_amount_cents, discount_cents))
+    final_amount_cents = max(0, base_amount_cents - discount_cents)
+
+    return {
+        "ok": True,
+        "preview": {
+            "code": code,
+            "label": offer.get("label") or code,
+            "discountCents": discount_cents,
+            "finalAmountCents": final_amount_cents,
+            "baseAmountCents": base_amount_cents,
+        },
+    }
+
+
+def get_discordbotlist_status(vote_limit=20):
+    token = (os.environ.get("DISCORDBOTLIST_TOKEN") or "").strip()
+    explicit_bot_id = (os.environ.get("DISCORDBOTLIST_BOT_ID") or "").strip()
+    commander_bot_id = (os.environ.get("BOT_1_CLIENT_ID") or "").strip()
+    bot_id = explicit_bot_id or commander_bot_id
+    configured = (os.environ.get("DISCORDBOTLIST_ENABLED") or ("1" if token else "0")).strip() != "0" and bool(token) and bool(re.match(r"^\d{17,22}$", bot_id))
+    stats_scope = "aggregate" if (os.environ.get("DISCORDBOTLIST_STATS_SCOPE") or "commander").strip().lower() == "aggregate" else "commander"
+
+    data = load_premium()
+    state = data.get("discordBotListState", {}) if isinstance(data.get("discordBotListState"), dict) else {}
+    recent_votes = state.get("votes", {}).get("recent", []) if isinstance(state.get("votes"), dict) else []
+    if not isinstance(recent_votes, list):
+        recent_votes = []
+
+    return {
+        "configured": configured,
+        "botId": bot_id or None,
+        "statsScope": stats_scope,
+        "state": {
+            "commands": state.get("commands", {}),
+            "stats": state.get("stats", {}),
+            "votes": {
+                "totalVotes": parse_int(state.get("votes", {}).get("totalVotes"), 0) if isinstance(state.get("votes"), dict) else 0,
+                "recent": recent_votes[: max(0, int(vote_limit))],
+            },
+        },
+    }
     tmp_file = PREMIUM_FILE.with_suffix(PREMIUM_FILE.suffix + ".tmp")
     payload = json.dumps(data, indent=2) + "\n"
     try:
@@ -790,7 +1234,6 @@ async def get_bots():
 async def get_workers():
     """Worker-Status Dashboard API. Returns commander + worker bot statuses."""
     bots_data = load_bots_from_env()
-    tier_rank = {"free": 0, "pro": 1, "ultimate": 2}
 
     commander = None
     workers = []
@@ -804,6 +1247,8 @@ async def get_workers():
             invite_url = f"https://discord.com/oauth2/authorize?client_id={cid}&permissions=35186522836032&integration_type=0&scope=bot%20applications.commands"
 
         entry = {
+            "id": bot.get("botId"),
+            "botId": bot.get("botId"),
             "index": idx,
             "name": bot.get("name", f"OmniFM Bot {idx}"),
             "role": "commander" if idx == 1 else "worker",
@@ -828,6 +1273,8 @@ async def get_workers():
     if not commander and bots_data:
         first = bots_data[0]
         commander = {
+            "id": first.get("botId", "bot-1"),
+            "botId": first.get("botId", "bot-1"),
             "index": 1, "name": first.get("name", "OmniFM DJ"),
             "role": "commander", "requiredTier": "free",
             "online": first.get("ready", False),
@@ -890,6 +1337,32 @@ async def get_stations():
         "total": len(stations_list),
         "stations": stations_list
     }
+
+
+@app.get("/api/legal")
+async def get_legal_notice(request: Request):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    return build_public_legal_notice()
+
+
+@app.get("/api/privacy")
+async def get_privacy_notice(request: Request):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    return build_public_privacy_notice()
+
+
+@app.get("/api/discordbotlist/status")
+async def discordbotlist_status(request: Request, limit: int = 20):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    if not is_admin_request(request):
+        return json_error(401, "Unauthorized. API admin token required.")
+    return get_discordbotlist_status(vote_limit=max(0, min(200, int(limit))))
 
 
 @app.get("/api/stats")
@@ -1009,6 +1482,286 @@ async def get_tiers(request: Request):
     return {"tiers": TIERS}
 
 
+@app.post("/api/premium/trial")
+async def activate_trial(request: Request, body: dict):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+
+    payload = body if isinstance(body, dict) else {}
+    language = normalize_language(
+        payload.get("language"),
+        resolve_language_from_accept_language(request.headers.get("accept-language"), "de"),
+    )
+    def tmsg(de, en):
+        return de if language == "de" else en
+    email = str(payload.get("email", "")).strip().lower()
+
+    if not is_pro_trial_enabled():
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "message": tmsg(
+                    "Der Pro-Testmonat ist aktuell deaktiviert.",
+                    "The Pro trial month is currently disabled.",
+                ),
+            },
+        )
+
+    if not is_valid_email(email):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": tmsg(
+                    "Bitte eine gueltige E-Mail-Adresse eingeben.",
+                    "Please enter a valid email address.",
+                ),
+            },
+        )
+
+    if list_licenses_by_contact_email(email):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "message": tmsg(
+                    "Für diese E-Mail existiert bereits eine Lizenz. Der Testmonat ist nur einmalig für Neukunden verfügbar.",
+                    "A license already exists for this email. The trial month is only available once for new customers.",
+                ),
+            },
+        )
+
+    reserved = reserve_trial_claim(
+        email,
+        {
+            "source": "api:trial",
+            "preferredLanguage": language,
+            "requestedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    if not reserved.get("ok"):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "message": tmsg(
+                    "Der Pro-Testmonat wurde fuer diese E-Mail bereits genutzt.",
+                    "The Pro trial month has already been used for this email.",
+                ),
+            },
+        )
+
+    try:
+        license_data = add_license(
+            email,
+            "pro",
+            PRO_TRIAL_MONTHS,
+            PRO_TRIAL_SEATS,
+            "trial",
+            "Trial via api:trial",
+        )
+    except Exception as exc:
+        release_trial_claim(email)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": tmsg(
+                    "Der Pro-Testmonat konnte nicht erstellt werden. Bitte spaeter erneut versuchen.",
+                    "Could not create the Pro trial month. Please try again later.",
+                ),
+                "detail": clip_text(exc),
+            },
+        )
+
+    finalize_trial_claim(
+        email,
+        {
+            "source": "api:trial",
+            "licenseId": license_data.get("licenseKey"),
+            "tier": "pro",
+            "seats": PRO_TRIAL_SEATS,
+            "months": PRO_TRIAL_MONTHS,
+            "expiresAt": license_data.get("expiresAt"),
+            "activatedBy": "trial",
+        },
+    )
+
+    smtp_configured = bool((os.environ.get("SMTP_HOST") or "").strip())
+    email_status = {
+        "smtpConfigured": smtp_configured,
+        "purchaseSent": False,
+        "invoiceSent": False,
+        "adminSent": False,
+        "errors": [] if smtp_configured else ["smtp_not_configured"],
+    }
+
+    message = tmsg(
+        f"Pro-Testmonat aktiviert! Lizenz-Key: {license_data.get('licenseKey')} - Pruefe deine E-Mail ({email}).",
+        f"Pro trial month activated! License key: {license_data.get('licenseKey')} - Check your email ({email}).",
+    )
+    if not smtp_configured:
+        message = tmsg(
+            f"Pro-Testmonat aktiviert! Lizenz-Key: {license_data.get('licenseKey')}. Hinweis: SMTP ist nicht konfiguriert, daher wurde keine E-Mail versendet.",
+            f"Pro trial month activated! License key: {license_data.get('licenseKey')}. Note: SMTP is not configured, so no email was sent.",
+        )
+
+    return {
+        "success": True,
+        "email": email,
+        "tier": "pro",
+        "licenseKey": license_data.get("licenseKey"),
+        "expiresAt": license_data.get("expiresAt"),
+        "seats": PRO_TRIAL_SEATS,
+        "months": PRO_TRIAL_MONTHS,
+        "message": message,
+        "emailStatus": email_status,
+    }
+
+
+@app.post("/api/premium/offer/preview")
+async def premium_offer_preview(request: Request, body: dict):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+
+    payload = body if isinstance(body, dict) else {}
+    language = normalize_language(
+        payload.get("language"),
+        resolve_language_from_accept_language(request.headers.get("accept-language"), "de"),
+    )
+    result = resolve_discount_preview(
+        tier=payload.get("tier"),
+        seats=payload.get("seats", 1),
+        months=payload.get("months", 1),
+        email=payload.get("email"),
+        coupon_code=payload.get("couponCode") or payload.get("coupon") or "",
+        language=language,
+    )
+    if not result.get("ok"):
+        return JSONResponse(
+            status_code=int(result.get("status", 400)),
+            content={
+                "success": False,
+                "error": result.get("error", "Offer-Vorschau fehlgeschlagen."),
+                "discount": result.get("preview"),
+            },
+        )
+
+    preview = result.get("preview", {})
+    return {
+        "success": True,
+        "discount": preview,
+        "pricing": {
+            "baseAmountCents": preview.get("baseAmountCents", 0),
+            "discountCents": preview.get("discountCents", 0),
+            "finalAmountCents": preview.get("finalAmountCents", preview.get("baseAmountCents", 0)),
+        },
+    }
+
+
+@app.get("/api/premium/offer")
+async def premium_offer(request: Request, code: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    normalized_code = sanitize_offer_code(code)
+    if not normalized_code:
+        return json_error(400, "code ist erforderlich.")
+    offer = get_offer(normalized_code)
+    if not offer:
+        return json_error(404, "Code nicht gefunden.")
+    return {"offer": offer}
+
+
+@app.api_route("/api/premium/offers", methods=["GET", "POST", "PATCH", "DELETE"])
+async def premium_offers(request: Request):
+    rate_scope = "read" if request.method == "GET" else "write"
+    rate_limited = enforce_api_rate_limit(request, rate_scope)
+    if rate_limited is not None:
+        return rate_limited
+
+    if not is_admin_request(request):
+        return json_error(401, "Unauthorized. API admin token required.")
+
+    if request.method == "GET":
+        include_inactive = request.query_params.get("includeInactive", "1") != "0"
+        offers = list_offers(include_inactive=include_inactive)
+        return {"offers": offers}
+
+    if request.method in ("POST", "PATCH"):
+        try:
+            body = await request.json()
+            if not isinstance(body, dict):
+                body = {}
+        except Exception:
+            body = {}
+        actor = clip_text(
+            request.headers.get("x-admin-user") or body.get("updatedBy") or "api-admin",
+            120,
+        )
+        try:
+            offer = upsert_offer(
+                {
+                    **body,
+                    "updatedBy": actor,
+                    "createdBy": body.get("createdBy") or actor,
+                },
+                partial=request.method == "PATCH",
+            )
+            return {"success": True, "offer": offer}
+        except Exception as exc:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": clip_text(exc)},
+            )
+
+    if request.method == "DELETE":
+        code = sanitize_offer_code(request.query_params.get("code", ""))
+        if not code:
+            return JSONResponse(status_code=400, content={"success": False, "error": "code ist erforderlich."})
+        deleted = delete_offer(code)
+        return JSONResponse(status_code=200 if deleted else 404, content={"success": deleted, "code": code})
+
+    return json_error(405, "Methode nicht erlaubt.")
+
+
+@app.post("/api/premium/offers/active")
+async def premium_offer_active(request: Request, body: dict):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+
+    if not is_admin_request(request):
+        return json_error(401, "Unauthorized. API admin token required.")
+
+    payload = body if isinstance(body, dict) else {}
+    code = sanitize_offer_code(payload.get("code"))
+    if not code:
+        return JSONResponse(status_code=400, content={"success": False, "error": "code ist erforderlich."})
+    offer = set_offer_active(code, payload.get("active", True))
+    if not offer:
+        return JSONResponse(status_code=404, content={"success": False, "error": "Code nicht gefunden."})
+    return {"success": True, "offer": offer}
+
+
+@app.get("/api/premium/redemptions")
+async def premium_redemptions(request: Request, limit: int = 100):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    if not is_admin_request(request):
+        return json_error(401, "Unauthorized. API admin token required.")
+    safe_limit = max(1, min(500, int(limit)))
+    data = load_premium()
+    rows = data.get("recentRedemptions", [])
+    if not isinstance(rows, list):
+        rows = []
+    return {"redemptions": rows[:safe_limit]}
+
+
 @app.get("/api/premium/pricing")
 async def get_pricing(request: Request, serverId: str = ""):
     rate_limited = enforce_api_rate_limit(request, "read")
@@ -1042,6 +1795,12 @@ async def get_pricing(request: Request, serverId: str = ""):
         },
         "durations": DURATION_OPTIONS,
         "seatOptions": SEAT_OPTIONS,
+        "trial": {
+            "enabled": is_pro_trial_enabled(),
+            "tier": "pro",
+            "months": PRO_TRIAL_MONTHS,
+            "oneTimePerEmail": True,
+        },
     }
     if is_valid_server_id(serverId):
         server_id = str(serverId).strip()
@@ -1049,6 +1808,7 @@ async def get_pricing(request: Request, serverId: str = ""):
         if license_info and not license_info.get("expired"):
             result["currentLicense"] = {
                 "tier": license_info.get("tier", license_info.get("plan", "free")),
+                "seats": max(1, int(license_info.get("seats", 1) or 1)),
                 "expiresAt": license_info.get("expiresAt"),
                 "remainingDays": license_info.get("remainingDays", 0),
             }
@@ -1057,6 +1817,7 @@ async def get_pricing(request: Request, serverId: str = ""):
                 if upgrade:
                     result["upgrade"] = {
                         "to": "ultimate",
+                        "seats": upgrade["seats"],
                         "cost": upgrade["upgradeCost"],
                         "daysLeft": upgrade["daysLeft"],
                     }
