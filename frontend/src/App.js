@@ -10,6 +10,9 @@ import ImpressumSection from './components/ImpressumSection';
 import PrivacySection from './components/PrivacySection';
 import StatsFooter from './components/StatsFooter';
 import Navbar from './components/Navbar';
+import PlanMatrix from './components/PlanMatrix';
+import CommandMatrix from './components/CommandMatrix';
+import DashboardPortal from './components/DashboardPortal';
 import { I18nProvider } from './i18n';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
@@ -49,6 +52,8 @@ function resolvePageFromLocation() {
     const rawPage = String(url.searchParams.get('page') || '').trim().toLowerCase();
     if (rawPage === 'imprint' || rawPage === 'impressum') return 'imprint';
     if (rawPage === 'privacy' || rawPage === 'datenschutz' || rawPage === 'privacy-policy') return 'privacy';
+    if (rawPage === 'dashboard') return 'dashboard';
+    if (rawPage === 'home') return 'home';
   } catch {
     return 'home';
   }
@@ -139,6 +144,11 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    if (currentPage === 'dashboard') {
+      setLoading(false);
+      return () => {};
+    }
+
     mountedRef.current = true;
     let activeController = null;
 
@@ -197,6 +207,14 @@ function AppContent() {
     );
   }
 
+  if (currentPage === 'dashboard') {
+    return (
+      <div data-testid="app-dashboard-root" style={{ position: 'relative', minHeight: '100vh' }}>
+        <DashboardPortal />
+      </div>
+    );
+  }
+
   return (
     <div data-testid="app-root" style={{ position: 'relative', minHeight: '100vh' }}>
       <div className="noise-overlay" />
@@ -208,6 +226,8 @@ function AppContent() {
       <StationBrowser stations={stations} loading={loading} />
       <Commands commands={commands} loading={loading} />
       <Premium />
+      <PlanMatrix />
+      <CommandMatrix />
       <StatsFooter stats={stats} />
     </div>
   );
