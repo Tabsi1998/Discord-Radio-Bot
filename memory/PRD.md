@@ -83,3 +83,10 @@
 1. Produktionsumstellung für `omnifm.xyz` OAuth Redirect + DNS/SSL validieren.
 2. Discord Rollen-/Channel-Daten in Dashboard automatisch laden.
 3. Event-Builder + Analytics Visuals (Charts) ausbauen.
+
+
+## Incremental Update – Station Browser Polish
+- Search input im Station-Verzeichnis visuell an Dark-Theme angepasst (kein weißes Feld mehr, klare Focus-State).
+- Tier-Filter bereinigt: `Ultimate`-Tab im Station-Browser entfernt.
+- Summary/Filter-Texte bereinigt: kein `0 ultimate` mehr in der Anzeige.
+- Verifiziert im Preview: Suchfeld passt optisch, Filter zeigt nur All/Free/Pro.
