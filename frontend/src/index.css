@@ -72,6 +72,31 @@ a {
   color: #00F0FF;
 }
 
+/* Station search */
+.station-search {
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  padding: 0 14px 0 42px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.station-search::placeholder {
+  color: #71717A;
+}
+
+.station-search:focus {
+  border-color: rgba(0, 240, 255, 0.45);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.12);
+}
+
 /* Selection */
 ::selection {
   background: rgba(0, 240, 255, 0.3);
