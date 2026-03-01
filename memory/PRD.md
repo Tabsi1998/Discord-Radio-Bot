@@ -107,3 +107,10 @@
   - `11) Fertig ohne Neustart`
 - Aenderungen werden gesammelt und als **einmaliger Neustart am Ende** ausgefuehrt (statt nach jeder Einzelaktion).
 - Ungueltige Eingaben fuehren nicht mehr zum harten Abbruch, sondern geben Warnung aus und bleiben im Setup-Menue.
+
+
+## Incremental Update – Main Menu Dashboard Entry
+- Hauptmenue zeigt jetzt explizit `d) Dashboard OAuth`.
+- Direktmodus eingebaut: Auswahl `d` springt sofort in Settings-Punkt 9 (OAuth Dashboard).
+- Neuer CLI-Shortcut: `./update.sh --dashboard-settings`.
+- Zusammenfassung am Ende zeigt den neuen Dashboard-Befehl ebenfalls an.
