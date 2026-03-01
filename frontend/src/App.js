@@ -125,7 +125,11 @@ function AppContent() {
       console.error('Privacy API error:', results[5].reason);
     }
 
-    if (!anyUpdate) {
+    const nonAbortFailures = results.filter(
+      (result) => result.status === 'rejected' && result.reason?.name !== 'AbortError',
+    ).length;
+
+    if (!anyUpdate && nonAbortFailures > 0) {
       console.error('API error: all endpoint requests failed.');
     }
 
