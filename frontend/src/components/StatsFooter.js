@@ -14,6 +14,16 @@ function StatsFooter({ stats }) {
     { label: copy.footer.stats.stations, value: stats.stations || 0, color: '#00F0FF' },
   ];
 
+  const footerTextLinkStyle = {
+    color: '#71717A',
+    fontSize: 12,
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    textDecoration: 'none',
+    transition: 'color 0.2s',
+  };
+
   return (
     <footer
       data-testid="stats-footer"
@@ -98,6 +108,19 @@ function StatsFooter({ stats }) {
               gap: 20,
             }}
           >
+            <a
+              href="#impressum"
+              data-testid="footer-impressum"
+              style={footerTextLinkStyle}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.color = '#F4F4F5';
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.color = '#71717A';
+              }}
+            >
+              {copy.footer.links.imprint}
+            </a>
             <a
               href="https://discord.gg/UeRkfGS43R"
               target="_blank"

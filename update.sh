@@ -482,11 +482,12 @@ import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fetchStreamSnapshot, hasUsableStreamTrack } from "./src/services/now-playing.js";
 import { recognizeTrackFromStream } from "./src/services/audio-recognition.js";
 
 const execFileAsync = promisify(execFile);
 const url = String(process.env.RECOGNITION_TEST_URL || "").trim();
-const sampleSeconds = Math.max(8, Math.min(30, Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS || "22", 10) || 22));
+const sampleSeconds = Math.max(8, Math.min(40, Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS || "22", 10) || 22));
 const sampleRate = Math.max(11025, Math.min(48000, Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_CAPTURE_SAMPLE_RATE || "44100", 10) || 44100));
 const channels = Math.max(1, Math.min(2, Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_CAPTURE_CHANNELS || "2", 10) || 2));
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "omnifm-diag-"));
@@ -500,6 +501,15 @@ const out = {
     sampleRate,
     channels,
     timeoutMs: Number.parseInt(process.env.NOW_PLAYING_RECOGNITION_TIMEOUT_MS || "28000", 10) || 28000,
+  },
+  stream: {
+    metadataSource: null,
+    metadataStatus: null,
+    displayTitle: null,
+    artist: null,
+    title: null,
+    album: null,
+    willSkipRecognition: false,
   },
   sample: {
     ok: false,
@@ -526,6 +536,15 @@ const out = {
 };
 
 try {
+  const streamSnapshot = await fetchStreamSnapshot(url, { includeCover: false, allowRecognition: false });
+  out.stream.metadataSource = streamSnapshot?.metadataSource || null;
+  out.stream.metadataStatus = streamSnapshot?.metadataStatus || null;
+  out.stream.displayTitle = streamSnapshot?.displayTitle || null;
+  out.stream.artist = streamSnapshot?.artist || null;
+  out.stream.title = streamSnapshot?.title || null;
+  out.stream.album = streamSnapshot?.album || null;
+  out.stream.willSkipRecognition = hasUsableStreamTrack(streamSnapshot);
+
   await execFileAsync("ffmpeg", [
     "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
     "-t", String(sampleSeconds),
@@ -1058,6 +1077,16 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_recognition_min=$(read_env "NOW_PLAYING_RECOGNITION_MIN_SECONDS" "10")
   cur_recognition_timeout=$(read_env "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000")
   cur_default_language=$(read_env "DEFAULT_LANGUAGE" "en")
+  cur_legal_provider_name=$(read_env "LEGAL_PROVIDER_NAME" "")
+  cur_legal_street=$(read_env "LEGAL_STREET_ADDRESS" "")
+  cur_legal_postal=$(read_env "LEGAL_POSTAL_CODE" "")
+  cur_legal_city=$(read_env "LEGAL_CITY" "")
+  cur_legal_country=$(read_env "LEGAL_COUNTRY" "")
+  cur_legal_email=$(read_env "LEGAL_EMAIL" "")
+  cur_legal_status="unvollstaendig"
+  if [[ -n "$cur_legal_provider_name" && -n "$cur_legal_street" && -n "$cur_legal_postal" && -n "$cur_legal_city" && -n "$cur_legal_email" ]]; then
+    cur_legal_status="konfiguriert"
+  fi
   cur_fpcalc_status="Container gestoppt"
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
     if docker compose exec -T omnifm sh -lc 'command -v fpcalc >/dev/null 2>&1' >/dev/null 2>&1; then
@@ -1115,6 +1144,11 @@ if [[ "$MODE" == "--settings" ]]; then
     echo -e "  Track-Erkennung:       ${DIM}deaktiviert${NC}"
   fi
   echo -e "  fpcalc/Chromaprint:    ${DIM}${cur_fpcalc_status}${NC}"
+  if [[ "$cur_legal_status" == "konfiguriert" ]]; then
+    echo -e "  Impressum:             ${GREEN}${cur_legal_status}${NC}"
+  else
+    echo -e "  Impressum:             ${YELLOW}${cur_legal_status}${NC}"
+  fi
   echo ""
 
   echo -e "  ${BOLD}Was aendern?${NC}"
@@ -1125,9 +1159,10 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${CYAN}5${NC}) Pro-Testmonat ein/aus"
   echo -e "    ${YELLOW}6${NC}) DiscordBotList konfigurieren"
   echo -e "    ${GREEN}7${NC}) Track-Erkennung (AcoustID/MusicBrainz)"
-  echo -e "    ${DIM}8${NC}) Zurueck"
+  echo -e "    ${CYAN}8${NC}) Impressum / Rechtliches"
+  echo -e "    ${DIM}9${NC}) Zurueck"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-8]${NC}: ")" SET_CHOICE
+  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-9]${NC}: ")" SET_CHOICE
 
   case "${SET_CHOICE:-}" in
     1)
@@ -1217,6 +1252,7 @@ if [[ "$MODE" == "--settings" ]]; then
     7)
       echo ""
       warn "Hinweis: Die freie AcoustID-Web-API ist laut offizieller Doku nur fuer nicht-kommerzielle Nutzung gedacht."
+      info "Brauchbare Stream-Metadaten werden bevorzugt. AcoustID wird nur als Fallback genutzt."
       info "Chromaprint/fpcalc wird beim Docker-Build automatisch im Container installiert."
       echo -e "    ${DIM}Chromaprint: https://github.com/acoustid/chromaprint${NC}"
       echo -e "    ${DIM}AcoustID: https://acoustid.org/webservice${NC}"
@@ -1241,6 +1277,57 @@ if [[ "$MODE" == "--settings" ]]; then
         write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "0"
         ok "Track-Erkennung deaktiviert."
       fi
+      restart_container
+      ;;
+    8)
+      echo ""
+      info "Pflichtangaben fuer Webseiten in Oesterreich haengen u.a. von ECG, UGB, GewO und MedienG ab."
+      echo -e "    ${DIM}WKO: https://www.wko.at/medien/internet-homepage-rechtliche-vorgaben${NC}"
+      echo -e "    ${DIM}RIS ECG §5: https://www.ris.bka.gv.at/eli/bgbl/2001/152/P5/NOR40032355${NC}"
+      echo -e "    ${DIM}RIS MedienG §25: https://www.ris.bka.gv.at/eli/bgbl/1981/314/P25/NOR40120862${NC}"
+      legal_provider_name="$(prompt_default "Diensteanbieter / Name" "$cur_legal_provider_name")"
+      legal_form="$(prompt_default "Rechtsform (optional)" "$(read_env "LEGAL_LEGAL_FORM" "")")"
+      legal_representative="$(prompt_default "Vertretungsbefugte Person" "$(read_env "LEGAL_REPRESENTATIVE" "")")"
+      legal_street="$(prompt_default "Strasse / Hausnummer" "$cur_legal_street")"
+      legal_postal="$(prompt_default "PLZ" "$cur_legal_postal")"
+      legal_city="$(prompt_default "Ort" "$cur_legal_city")"
+      legal_country="$(prompt_default "Land" "${cur_legal_country:-Oesterreich}")"
+      legal_email="$(prompt_default "Kontakt-E-Mail" "$cur_legal_email")"
+      legal_phone="$(prompt_default "Telefon (optional)" "$(read_env "LEGAL_PHONE" "")")"
+      legal_website="$(prompt_default "Webseite" "$(read_env "LEGAL_WEBSITE" "${cur_public_url:-}")")"
+      legal_business_purpose="$(prompt_default "Unternehmensgegenstand / Taetigkeitsbereich" "$(read_env "LEGAL_BUSINESS_PURPOSE" "")")"
+      legal_register_number="$(prompt_default "Firmenbuchnummer (optional)" "$(read_env "LEGAL_COMMERCIAL_REGISTER_NUMBER" "")")"
+      legal_register_court="$(prompt_default "Firmenbuchgericht (optional)" "$(read_env "LEGAL_COMMERCIAL_REGISTER_COURT" "")")"
+      legal_vat_id="$(prompt_default "UID-Nummer (optional)" "$(read_env "LEGAL_VAT_ID" "")")"
+      legal_authority="$(prompt_default "Aufsichtsbehoerde (optional)" "$(read_env "LEGAL_SUPERVISORY_AUTHORITY" "")")"
+      legal_chamber="$(prompt_default "Kammer / Berufsverband (optional)" "$(read_env "LEGAL_CHAMBER" "")")"
+      legal_profession="$(prompt_default "Berufsbezeichnung (optional)" "$(read_env "LEGAL_PROFESSION" "")")"
+      legal_rules="$(prompt_default "Berufsrecht / Regelwerk (optional)" "$(read_env "LEGAL_PROFESSION_RULES" "")")"
+      legal_editor="$(prompt_default "Redaktionell verantwortlich" "$(read_env "LEGAL_EDITORIAL_RESPONSIBLE" "$legal_representative")")"
+      legal_media_owner="$(prompt_default "Medieninhaber" "$(read_env "LEGAL_MEDIA_OWNER" "$legal_provider_name")")"
+      legal_media_line="$(prompt_default "Grundlegende Richtung / Blattlinie" "$(read_env "LEGAL_MEDIA_LINE" "Informationen ueber OmniFM, den Discord-Bot und zugehoerige Dienste.")")"
+      write_env_line "LEGAL_PROVIDER_NAME" "$legal_provider_name"
+      write_env_line "LEGAL_LEGAL_FORM" "$legal_form"
+      write_env_line "LEGAL_REPRESENTATIVE" "$legal_representative"
+      write_env_line "LEGAL_STREET_ADDRESS" "$legal_street"
+      write_env_line "LEGAL_POSTAL_CODE" "$legal_postal"
+      write_env_line "LEGAL_CITY" "$legal_city"
+      write_env_line "LEGAL_COUNTRY" "$legal_country"
+      write_env_line "LEGAL_EMAIL" "$legal_email"
+      write_env_line "LEGAL_PHONE" "$legal_phone"
+      write_env_line "LEGAL_WEBSITE" "$legal_website"
+      write_env_line "LEGAL_BUSINESS_PURPOSE" "$legal_business_purpose"
+      write_env_line "LEGAL_COMMERCIAL_REGISTER_NUMBER" "$legal_register_number"
+      write_env_line "LEGAL_COMMERCIAL_REGISTER_COURT" "$legal_register_court"
+      write_env_line "LEGAL_VAT_ID" "$legal_vat_id"
+      write_env_line "LEGAL_SUPERVISORY_AUTHORITY" "$legal_authority"
+      write_env_line "LEGAL_CHAMBER" "$legal_chamber"
+      write_env_line "LEGAL_PROFESSION" "$legal_profession"
+      write_env_line "LEGAL_PROFESSION_RULES" "$legal_rules"
+      write_env_line "LEGAL_EDITORIAL_RESPONSIBLE" "$legal_editor"
+      write_env_line "LEGAL_MEDIA_OWNER" "$legal_media_owner"
+      write_env_line "LEGAL_MEDIA_LINE" "$legal_media_line"
+      ok "Impressumsdaten gespeichert."
       restart_container
       ;;
     *)

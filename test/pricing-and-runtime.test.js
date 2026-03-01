@@ -19,6 +19,7 @@ import {
 import {
   parseTrackFromStreamTitle,
   extractTrackFromMetadataText,
+  hasUsableStreamTrack,
   normalizeTrackSearchText,
 } from "../src/services/now-playing.js";
 import {
@@ -232,6 +233,12 @@ test("metadata parser accepts double-quoted artist/title/album fields", () => {
   assert.equal(parsed.title, "Out of my Head");
   assert.equal(parsed.album, "Out of my Head");
   assert.equal(parsed.displayTitle, "Martin Ikin - Out of my Head");
+});
+
+test("usable stream metadata is enough to skip audio recognition fallback", () => {
+  assert.equal(hasUsableStreamTrack({ displayTitle: "Artist - Title" }), true);
+  assert.equal(hasUsableStreamTrack({ raw: "Station Artist - Song" }), true);
+  assert.equal(hasUsableStreamTrack({ artist: "", title: "" }), false);
 });
 
 test("track search text removes broadcast noise for better cover lookup", () => {

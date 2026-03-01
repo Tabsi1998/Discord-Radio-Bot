@@ -6,6 +6,7 @@ import Features from './components/Features';
 import StationBrowser from './components/StationBrowser';
 import Commands from './components/Commands';
 import Premium from './components/Premium';
+import ImpressumSection from './components/ImpressumSection';
 import StatsFooter from './components/StatsFooter';
 import Navbar from './components/Navbar';
 import { I18nProvider } from './i18n';
@@ -44,6 +45,7 @@ function AppContent() {
   const [stations, setStations] = useState([]);
   const [stats, setStats] = useState({});
   const [commands, setCommands] = useState([]);
+  const [legal, setLegal] = useState(null);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
@@ -54,6 +56,7 @@ function AppContent() {
       '/api/stations',
       '/api/stats',
       '/api/commands',
+      '/api/legal',
     ];
 
     const results = await Promise.allSettled(endpoints.map((path) => fetchJson(path, signal)));
@@ -87,6 +90,13 @@ function AppContent() {
       anyUpdate = true;
     } else if (results[3].reason?.name !== 'AbortError') {
       console.error('Commands API error:', results[3].reason);
+    }
+
+    if (results[4].status === 'fulfilled') {
+      setLegal(results[4].value || null);
+      anyUpdate = true;
+    } else if (results[4].reason?.name !== 'AbortError') {
+      console.error('Legal API error:', results[4].reason);
     }
 
     if (!anyUpdate) {
@@ -146,6 +156,7 @@ function AppContent() {
       <StationBrowser stations={stations} loading={loading} />
       <Commands commands={commands} loading={loading} />
       <Premium />
+      <ImpressumSection legal={legal} />
       <StatsFooter stats={stats} />
     </div>
   );

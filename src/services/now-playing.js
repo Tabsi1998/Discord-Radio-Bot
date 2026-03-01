@@ -155,11 +155,17 @@ function extractTrackFromMetadataText(metadataText) {
   };
 }
 
+function hasUsableStreamTrack(track) {
+  return Boolean(
+    normalizeTrackText(track?.displayTitle || "")
+    || normalizeTrackText(track?.artist || "")
+    || normalizeTrackText(track?.title || "")
+    || normalizeTrackText(track?.raw || "")
+  );
+}
+
 function shouldAttemptRecognition(track) {
-  const displayTitle = normalizeTrackText(track?.displayTitle || track?.raw || "");
-  const artist = normalizeTrackText(track?.artist || "");
-  const title = normalizeTrackText(track?.title || "");
-  return !displayTitle || !artist || !title || displayTitle.length > 140;
+  return !hasUsableStreamTrack(track);
 }
 
 async function fetchCoverArtFromItunes(query) {
@@ -378,7 +384,7 @@ async function fetchCoverArtForTrack(artist, title) {
   return request;
 }
 
-async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
+async function fetchStreamSnapshot(url, { includeCover = false, allowRecognition = true } = {}) {
   const empty = {
     name: null,
     description: null,
@@ -468,8 +474,8 @@ async function fetchStreamSnapshot(url, { includeCover = false } = {}) {
     }
 
     let recognizedTrack = null;
-    const hadStreamTrack = Boolean(track?.displayTitle || track?.artist || track?.title);
-    if (shouldAttemptRecognition(track)) {
+    const hadStreamTrack = hasUsableStreamTrack(track);
+    if (allowRecognition && shouldAttemptRecognition(track)) {
       recognizedTrack = await recognizeTrackFromStream(url, { existingTrack: track });
     }
 
@@ -546,6 +552,7 @@ export {
   extractIcyField,
   extractMetadataEntries,
   extractTrackFromMetadataText,
+  hasUsableStreamTrack,
   normalizeTrackText,
   normalizeTrackSearchText,
   parseTrackFromStreamTitle,

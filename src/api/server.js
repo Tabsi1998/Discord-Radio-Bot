@@ -95,6 +95,58 @@ function getLicense(guildId) {
   return getServerLicense(guildId);
 }
 
+function extractMailbox(rawValue) {
+  const text = String(rawValue || "").trim();
+  if (!text) return "";
+  const bracketMatch = text.match(/<([^>]+)>/);
+  if (bracketMatch?.[1]) return bracketMatch[1].trim();
+  const plainMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return plainMatch?.[0] || "";
+}
+
+function buildPublicLegalNotice() {
+  const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
+  const fallbackEmail = extractMailbox(process.env.SMTP_FROM || "");
+  const legal = {
+    providerName: String(process.env.LEGAL_PROVIDER_NAME || "").trim(),
+    legalForm: String(process.env.LEGAL_LEGAL_FORM || "").trim(),
+    representative: String(process.env.LEGAL_REPRESENTATIVE || "").trim(),
+    streetAddress: String(process.env.LEGAL_STREET_ADDRESS || "").trim(),
+    postalCode: String(process.env.LEGAL_POSTAL_CODE || "").trim(),
+    city: String(process.env.LEGAL_CITY || "").trim(),
+    country: String(process.env.LEGAL_COUNTRY || "").trim(),
+    email: String(process.env.LEGAL_EMAIL || "").trim() || fallbackEmail,
+    phone: String(process.env.LEGAL_PHONE || "").trim(),
+    website: String(process.env.LEGAL_WEBSITE || "").trim() || publicUrl,
+    businessPurpose: String(process.env.LEGAL_BUSINESS_PURPOSE || "").trim(),
+    commercialRegisterNumber: String(process.env.LEGAL_COMMERCIAL_REGISTER_NUMBER || "").trim(),
+    commercialRegisterCourt: String(process.env.LEGAL_COMMERCIAL_REGISTER_COURT || "").trim(),
+    vatId: String(process.env.LEGAL_VAT_ID || "").trim(),
+    supervisoryAuthority: String(process.env.LEGAL_SUPERVISORY_AUTHORITY || "").trim(),
+    chamber: String(process.env.LEGAL_CHAMBER || "").trim(),
+    profession: String(process.env.LEGAL_PROFESSION || "").trim(),
+    professionRules: String(process.env.LEGAL_PROFESSION_RULES || "").trim(),
+    editorialResponsible: String(process.env.LEGAL_EDITORIAL_RESPONSIBLE || "").trim(),
+    mediaOwner: String(process.env.LEGAL_MEDIA_OWNER || "").trim(),
+    mediaLine: String(process.env.LEGAL_MEDIA_LINE || "").trim(),
+  };
+
+  const missingCoreFields = [];
+  if (!legal.providerName) missingCoreFields.push("providerName");
+  if (!legal.streetAddress) missingCoreFields.push("streetAddress");
+  if (!legal.postalCode) missingCoreFields.push("postalCode");
+  if (!legal.city) missingCoreFields.push("city");
+  if (!legal.email) missingCoreFields.push("email");
+
+  return {
+    legal,
+    missingCoreFields,
+    isConfigured: missingCoreFields.length === 0,
+    basis: ["ECG_5", "UGB_14", "GewO_63", "MedienG_25"],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function startWebServer(runtimes) {
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
   const webPort = Number(process.env.WEB_PORT || "8081");
@@ -313,6 +365,15 @@ function startWebServer(runtimes) {
         total: stationArr.length,
         stations: stationArr,
       });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/legal") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      sendJson(res, 200, buildPublicLegalNotice());
       return;
     }
 
