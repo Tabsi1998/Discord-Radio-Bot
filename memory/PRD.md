@@ -114,3 +114,16 @@
 - Direktmodus eingebaut: Auswahl `d` springt sofort in Settings-Punkt 9 (OAuth Dashboard).
 - Neuer CLI-Shortcut: `./update.sh --dashboard-settings`.
 - Zusammenfassung am Ende zeigt den neuen Dashboard-Befehl ebenfalls an.
+
+
+## Incremental Update – update.sh Owner Menu Complete
+- update.sh als Owner-Workflow weiter verbessert:
+  - Hauptmenue mit `d) Dashboard OAuth` und `0) Doctor Check`
+  - neuer CLI-Modus `--dashboard-settings` (Direkteinstieg Dashboard/OAuth)
+  - neuer CLI-Modus `--doctor` (System, OAuth, JSON, Runtime Pruefung)
+- Settings-Menue auf Batch-Interaktion erweitert:
+  - mehrere Aenderungen nacheinander ohne rauszufliegen
+  - Abschluss mit `10) einmal neu starten` oder `11) ohne Neustart`
+  - `12) Doctor Check` direkt aus Settings
+- Fehlertoleranz verbessert: ungueltige Eingaben erzeugen Warnungen statt harter Abbrueche.
+- Dashboard-relevante Defaults/Checks integriert (OAuth vars, session TTL/cookie, dashboard.json backups).
