@@ -13,6 +13,14 @@ function buildHomeHref(locale, hash = '') {
   return `/${query ? `?${query}` : ''}${hash}`;
 }
 
+function buildPageHref(locale, page) {
+  const params = new URLSearchParams();
+  if (locale) params.set('lang', locale);
+  if (page) params.set('page', page);
+  const query = params.toString();
+  return `/${query ? `?${query}` : ''}`;
+}
+
 function Navbar({ page = 'home' }) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
@@ -26,6 +34,7 @@ function Navbar({ page = 'home' }) {
 
   const navLinks = copy.navbar.links;
   const homeHref = buildHomeHref(locale, '#top');
+  const dashboardHref = buildPageHref(locale, 'dashboard');
 
   return (
     <nav
@@ -103,6 +112,23 @@ function Navbar({ page = 'home' }) {
             {link.label}
           </a>
         ))}
+
+        <a
+          href={dashboardHref}
+          data-testid="nav-dashboard-link"
+          style={{
+            color: '#fff',
+            textDecoration: 'none',
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            border: '1px solid rgba(88, 101, 242, 0.45)',
+            background: 'rgba(88, 101, 242, 0.16)',
+            padding: '8px 12px',
+          }}
+        >
+          DASHBOARD
+        </a>
 
         <button
           type="button"
@@ -215,6 +241,23 @@ function Navbar({ page = 'home' }) {
               {link.label}
             </a>
           ))}
+
+          <a
+            href={dashboardHref}
+            data-testid="nav-mobile-dashboard-link"
+            onClick={() => setOpen(false)}
+            style={{
+              color: '#fff',
+              textDecoration: 'none',
+              fontSize: 16,
+              fontWeight: 700,
+              border: '1px solid rgba(88, 101, 242, 0.45)',
+              background: 'rgba(88, 101, 242, 0.16)',
+              padding: '10px 12px',
+            }}
+          >
+            Dashboard
+          </a>
 
           <button
             type="button"
