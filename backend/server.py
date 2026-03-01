@@ -37,8 +37,14 @@ DISCORD_CLIENT_SECRET = (os.environ.get("DISCORD_CLIENT_SECRET") or "").strip()
 DISCORD_REDIRECT_URI = (os.environ.get("DISCORD_REDIRECT_URI") or "").strip()
 DISCORD_OAUTH_SCOPES = (os.environ.get("DISCORD_OAUTH_SCOPES") or "identify guilds").strip()
 SESSION_COOKIE_NAME = (os.environ.get("DASHBOARD_SESSION_COOKIE") or "omnifm_session").strip() or "omnifm_session"
-DASHBOARD_SESSION_TTL_SECONDS = parse_int(os.environ.get("DASHBOARD_SESSION_TTL_SECONDS"), 60 * 60 * 24)
-DISCORD_OAUTH_STATE_TTL_SECONDS = parse_int(os.environ.get("DISCORD_OAUTH_STATE_TTL_SECONDS"), 600)
+try:
+    DASHBOARD_SESSION_TTL_SECONDS = max(300, int((os.environ.get("DASHBOARD_SESSION_TTL_SECONDS") or "86400").strip() or "86400"))
+except Exception:
+    DASHBOARD_SESSION_TTL_SECONDS = 86400
+try:
+    DISCORD_OAUTH_STATE_TTL_SECONDS = max(60, int((os.environ.get("DISCORD_OAUTH_STATE_TTL_SECONDS") or "600").strip() or "600"))
+except Exception:
+    DISCORD_OAUTH_STATE_TTL_SECONDS = 600
 TIER_RANK = {"free": 0, "pro": 1, "ultimate": 2}
 
 DASHBOARD_SESSION_STORE = {}
