@@ -797,8 +797,7 @@ function Premium() {
                       style={{
                         fontSize: 11,
                         color: '#A1A1AA',
-                        letterSpacing: '0.1em',
-                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
                         marginBottom: 6,
                         fontFamily: "'Outfit', sans-serif",
                         fontWeight: 600,
