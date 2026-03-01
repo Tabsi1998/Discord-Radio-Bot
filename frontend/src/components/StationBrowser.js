@@ -217,7 +217,7 @@ function StationBrowser({ stations, loading }) {
             {copy.stations.title}
           </h2>
           <p style={{ color: '#A1A1AA', fontSize: 16, maxWidth: 620 }}>
-            {summaryText}
+            {finalSummaryText}
           </p>
         </div>
 
