@@ -300,6 +300,49 @@ ensure_env_default() {
   fi
 }
 
+is_valid_http_url() {
+  local value="$1"
+  [[ "$value" =~ ^https?://[^/[:space:]]+(/.*)?$ ]]
+}
+
+dashboard_oauth_health_report() {
+  local cid secret redir scope ttl cookie
+  cid="$(read_env "DISCORD_CLIENT_ID" "")"
+  secret="$(read_env "DISCORD_CLIENT_SECRET" "")"
+  redir="$(read_env "DISCORD_REDIRECT_URI" "")"
+  scope="$(read_env "DISCORD_OAUTH_SCOPES" "identify guilds")"
+  ttl="$(read_env "DASHBOARD_SESSION_TTL_SECONDS" "86400")"
+  cookie="$(read_env "DASHBOARD_SESSION_COOKIE" "omnifm_session")"
+
+  local state="ok"
+  local details=()
+
+  if [[ -z "$cid" ]]; then
+    state="warn"
+    details+=("Client ID fehlt")
+  fi
+  if [[ -z "$secret" ]]; then
+    state="warn"
+    details+=("Client Secret fehlt")
+  fi
+  if [[ -z "$redir" ]]; then
+    state="warn"
+    details+=("Redirect URI fehlt")
+  elif ! is_valid_http_url "$redir"; then
+    state="warn"
+    details+=("Redirect URI ungueltig")
+  elif [[ "$redir" != *"/api/auth/discord/callback"* ]]; then
+    state="warn"
+    details+=("Redirect URI ohne /api/auth/discord/callback")
+  fi
+
+  if [[ "$state" == "ok" ]]; then
+    ok "Dashboard OAuth: konfiguriert (${scope}, cookie=${cookie}, ttl=${ttl}s)."
+  else
+    warn "Dashboard OAuth: unvollstaendig (${details[*]})."
+  fi
+}
+
 count_bots() {
   local c=0
   while grep -q "^BOT_$((c+1))_TOKEN=" .env 2>/dev/null; do
@@ -352,6 +395,7 @@ ensure_all_json_files() {
   ensure_json_file "listening-stats.json" '{"version":1,"guilds":{}}'
   ensure_json_file "scheduled-events.json" '{"version":1,"events":[]}'
   ensure_json_file "coupons.json" '{"offers":{},"redemptions":{}}'
+  ensure_json_file "dashboard.json" '{"events":{},"perms":{},"telemetry":{}}'
   # stations.json nur erstellen wenn komplett fehlend
   if [[ -d "stations.json" ]]; then
     rm -rf "stations.json" 2>/dev/null || true
@@ -379,7 +423,7 @@ prune_update_backups() {
   fi
 
   local prefix
-  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json" "command-permissions.json" "guild-languages.json" "song-history.json" "scheduled-events.json" "coupons.json"; do
+  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json" "command-permissions.json" "guild-languages.json" "song-history.json" "scheduled-events.json" "coupons.json" "dashboard.json"; do
     mapfile -t files < <(ls -1t ".update-backups/${prefix}."* 2>/dev/null || true)
     if (( ${#files[@]} <= keep )); then
       continue
@@ -463,6 +507,124 @@ report_runtime_tools_status() {
   else
     warn "Container-Tooling: fpcalc/Chromaprint fehlt."
   fi
+}
+
+run_system_doctor() {
+  local ok_count=0 warn_count=0 fail_count=0
+
+  doctor_ok() {
+    ok_count=$((ok_count + 1))
+    ok "$1"
+  }
+  doctor_warn() {
+    warn_count=$((warn_count + 1))
+    warn "$1"
+  }
+  doctor_fail() {
+    fail_count=$((fail_count + 1))
+    fail "$1"
+  }
+
+  echo ""
+  echo -e "  ${BOLD}OmniFM Doctor Check${NC}"
+  echo "  ────────────────────────────────────"
+
+  # 1) Docker/Compose
+  if command -v docker >/dev/null 2>&1; then
+    doctor_ok "docker gefunden."
+  else
+    doctor_fail "docker fehlt."
+  fi
+  if docker compose version >/dev/null 2>&1; then
+    doctor_ok "docker compose verfuegbar."
+  else
+    doctor_fail "docker compose fehlt."
+  fi
+
+  # 2) Core env
+  local public_url web_port stripe bot_count
+  public_url="$(read_env "PUBLIC_WEB_URL" "")"
+  web_port="$(read_env "WEB_PORT" "8081")"
+  stripe="$(read_env "STRIPE_SECRET_KEY" "$(read_env "STRIPE_API_KEY" "")")"
+  bot_count="$(count_bots)"
+
+  if [[ -n "$public_url" ]] && is_valid_http_url "$public_url"; then
+    doctor_ok "PUBLIC_WEB_URL gesetzt: ${public_url}"
+  else
+    doctor_warn "PUBLIC_WEB_URL fehlt oder ungueltig."
+  fi
+
+  if [[ "$web_port" =~ ^[0-9]+$ ]]; then
+    doctor_ok "WEB_PORT gesetzt: ${web_port}"
+  else
+    doctor_warn "WEB_PORT ungueltig: ${web_port}"
+  fi
+
+  if [[ -n "$stripe" ]]; then
+    doctor_ok "Stripe Key gesetzt."
+  else
+    doctor_warn "Stripe Key fehlt (STRIPE_SECRET_KEY/STRIPE_API_KEY)."
+  fi
+
+  if [[ "$bot_count" =~ ^[0-9]+$ ]] && (( bot_count > 0 )); then
+    doctor_ok "Bots konfiguriert: ${bot_count}"
+  else
+    doctor_fail "Keine Bots konfiguriert."
+  fi
+
+  # 3) Dashboard OAuth
+  local cid secret redir
+  cid="$(read_env "DISCORD_CLIENT_ID" "")"
+  secret="$(read_env "DISCORD_CLIENT_SECRET" "")"
+  redir="$(read_env "DISCORD_REDIRECT_URI" "")"
+
+  if [[ -n "$cid" && -n "$secret" && "$redir" == *"/api/auth/discord/callback"* ]]; then
+    doctor_ok "Dashboard OAuth konfiguriert."
+  else
+    doctor_warn "Dashboard OAuth unvollstaendig (Client ID/Secret/Redirect)."
+  fi
+
+  # 4) JSON Files
+  ensure_all_json_files
+  local json_file
+  for json_file in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json stations.json; do
+    if [[ ! -f "$json_file" ]]; then
+      doctor_fail "Datei fehlt: ${json_file}"
+      continue
+    fi
+    if python3 - <<PY >/dev/null 2>&1
+import json
+with open("$json_file", "r", encoding="utf-8") as f:
+    json.load(f)
+PY
+    then
+      doctor_ok "JSON ok: ${json_file}"
+    else
+      doctor_fail "JSON fehlerhaft: ${json_file}"
+    fi
+  done
+
+  # 5) Runtime status
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then
+    doctor_ok "Container omnifm laeuft."
+  else
+    doctor_warn "Container omnifm laeuft aktuell nicht."
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Doctor Ergebnis:${NC}"
+  echo -e "    ${GREEN}OK:${NC} ${ok_count}"
+  echo -e "    ${YELLOW}WARN:${NC} ${warn_count}"
+  echo -e "    ${RED}FAIL:${NC} ${fail_count}"
+  echo ""
+
+  if (( fail_count > 0 )); then
+    return 2
+  fi
+  if (( warn_count > 0 )); then
+    return 1
+  fi
+  return 0
 }
 
 run_recognition_test() {
@@ -719,6 +881,13 @@ ensure_env_default "NOW_PLAYING_RECOGNITION_CACHE_TTL_MS" "90000"
 ensure_env_default "NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS" "180000"
 ensure_env_default "NOW_PLAYING_RECOGNITION_SCORE_THRESHOLD" "0.55"
 ensure_env_default "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
+ensure_env_default "DISCORD_OAUTH_SCOPES" "identify guilds"
+ensure_env_default "DASHBOARD_SESSION_COOKIE" "omnifm_session"
+ensure_env_default "DASHBOARD_SESSION_TTL_SECONDS" "86400"
+ensure_env_default "DISCORD_OAUTH_STATE_TTL_SECONDS" "600"
+ensure_env_default "DISCORD_CLIENT_ID" ""
+ensure_env_default "DISCORD_CLIENT_SECRET" ""
+ensure_env_default "DISCORD_REDIRECT_URI" ""
 
 # Einmalige Migration: fruehere Defaults hatten CLEAN_GUILD_COMMANDS_ON_BOOT=1.
 # Das kann bei transienten API-Fehlern Commands entfernen.
@@ -729,6 +898,8 @@ if [[ "$(read_env "CLEAN_GUILD_COMMANDS_ON_BOOT_MIGRATED" "0")" != "1" ]]; then
   fi
   write_env_line "CLEAN_GUILD_COMMANDS_ON_BOOT_MIGRATED" "1"
 fi
+
+dashboard_oauth_health_report
 
 # ============================================================
 # Mode selection
@@ -750,10 +921,13 @@ if [[ -z "$MODE" ]]; then
     echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"
     echo -e "    ${DIM}8${NC})  Speicher cleanup  - Logs/Backups/Docker-Cache aufraeumen"
     echo -e "    ${BOLD}9${NC})  Codes verwalten  - Coupon/Referral (Pro/Ultimate Setup)"
+    echo -e "    ${CYAN}0${NC})  Doctor Check     - System, OAuth, JSON, Runtime pruefen"
+    echo -e "    ${MAGENTA}d${NC})  Dashboard OAuth - Pro-Dashboard Login/SSO konfigurieren"
     echo -e "    ${DIM}q${NC})  Beenden"
     echo ""
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-9/q]${NC}: ")" MODE_CHOICE
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [0-9/d/q]${NC}: ")" MODE_CHOICE
     case "${MODE_CHOICE:-}" in
+      0) MODE="--doctor"; break ;;
       1) MODE="--update"; break ;;
       2) MODE="--bots"; break ;;
       3) MODE="--stripe"; break ;;
@@ -763,27 +937,38 @@ if [[ -z "$MODE" ]]; then
       7) MODE="--status"; break ;;
       8) MODE="--cleanup"; break ;;
       9) MODE="--offers"; break ;;
+      d|D) MODE="--settings"; MODE_ARG="dashboard"; break ;;
       q|Q|exit|quit) info "Abbruch."; exit 0 ;;
       *)
-        warn "Ungueltige Auswahl '${MODE_CHOICE}'. Bitte 1-9 oder q eingeben."
+        warn "Ungueltige Auswahl '${MODE_CHOICE}'. Bitte 0-9, d oder q eingeben."
         echo ""
         ;;
     esac
   done
 fi
 
+if [[ "$MODE" == "--dashboard-settings" ]]; then
+  MODE="--settings"
+  MODE_ARG="dashboard"
+fi
+
 case "$MODE" in
-  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--set-commander|--show-roles|--stripe|--premium|--offers|--email|--settings|--status|--cleanup|--recognition-test)
+  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--set-commander|--show-roles|--stripe|--premium|--offers|--email|--settings|--dashboard-settings|--status|--cleanup|--doctor|--recognition-test)
     ;;
   *)
     fail "Unbekannter Modus: ${MODE}"
-    echo -e "  ${DIM}Erlaubt: --update, --bots, --stripe, --premium, --offers, --email, --settings, --status, --cleanup, --recognition-test${NC}"
+    echo -e "  ${DIM}Erlaubt: --update, --bots, --stripe, --premium, --offers, --email, --settings, --dashboard-settings, --status, --cleanup, --doctor, --recognition-test${NC}"
     exit 1
     ;;
 esac
 
 if [[ "$MODE" == "--recognition-test" ]]; then
   run_recognition_test "$MODE_ARG"
+  exit $?
+fi
+
+if [[ "$MODE" == "--doctor" ]]; then
+  run_system_doctor
   exit $?
 fi
 
@@ -1065,6 +1250,16 @@ fi
 # MODE: Einstellungen
 # ============================================================
 if [[ "$MODE" == "--settings" ]]; then
+  settings_changed=0
+  settings_restart_needed=0
+
+  mark_settings_dirty() {
+    settings_changed=1
+    settings_restart_needed=1
+    ok "Einstellung gespeichert. Neustart ist vorgemerkt (wird am Ende einmal ausgefuehrt)."
+  }
+
+  while true; do
   echo ""
   echo -e "  ${BOLD}Aktuelle Einstellungen${NC}"
   echo "  ────────────────────────────────────"
@@ -1089,6 +1284,17 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_recognition_min=$(read_env "NOW_PLAYING_RECOGNITION_MIN_SECONDS" "10")
   cur_recognition_timeout=$(read_env "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "28000")
   cur_default_language=$(read_env "DEFAULT_LANGUAGE" "en")
+  cur_discord_client_id=$(read_env "DISCORD_CLIENT_ID" "")
+  cur_discord_client_secret=$(read_env "DISCORD_CLIENT_SECRET" "")
+  cur_discord_redirect_uri=$(read_env "DISCORD_REDIRECT_URI" "")
+  cur_discord_oauth_scopes=$(read_env "DISCORD_OAUTH_SCOPES" "identify guilds")
+  cur_dash_cookie=$(read_env "DASHBOARD_SESSION_COOKIE" "omnifm_session")
+  cur_dash_ttl=$(read_env "DASHBOARD_SESSION_TTL_SECONDS" "86400")
+  cur_dash_state_ttl=$(read_env "DISCORD_OAUTH_STATE_TTL_SECONDS" "600")
+  cur_dash_status="unvollstaendig"
+  if [[ -n "$cur_discord_client_id" && -n "$cur_discord_client_secret" && "$cur_discord_redirect_uri" == *"/api/auth/discord/callback"* ]]; then
+    cur_dash_status="konfiguriert"
+  fi
   cur_legal_provider_name=$(read_env "LEGAL_PROVIDER_NAME" "")
   cur_legal_street=$(read_env "LEGAL_STREET_ADDRESS" "")
   cur_legal_postal=$(read_env "LEGAL_POSTAL_CODE" "")
@@ -1174,6 +1380,17 @@ if [[ "$MODE" == "--settings" ]]; then
   else
     echo -e "  Datenschutz:           ${YELLOW}${cur_privacy_status}${NC}"
   fi
+  if [[ "$cur_dash_status" == "konfiguriert" ]]; then
+    echo -e "  Dashboard OAuth:       ${GREEN}${cur_dash_status}${NC}"
+  else
+    echo -e "  Dashboard OAuth:       ${YELLOW}${cur_dash_status}${NC}"
+  fi
+  if [[ -n "$cur_discord_redirect_uri" ]]; then
+    echo -e "  OAuth Redirect URI:    ${DIM}${cur_discord_redirect_uri}${NC}"
+  else
+    echo -e "  OAuth Redirect URI:    ${RED}nicht gesetzt${NC}"
+  fi
+  echo -e "  Dashboard Session:     ${DIM}cookie=${cur_dash_cookie}, ttl=${cur_dash_ttl}s, state-ttl=${cur_dash_state_ttl}s${NC}"
   echo ""
 
   echo -e "  ${BOLD}Was aendern?${NC}"
@@ -1185,9 +1402,18 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${YELLOW}6${NC}) DiscordBotList konfigurieren"
   echo -e "    ${GREEN}7${NC}) Track-Erkennung (AcoustID/MusicBrainz)"
   echo -e "    ${CYAN}8${NC}) Impressum & Datenschutz"
-  echo -e "    ${DIM}9${NC}) Zurueck"
+  echo -e "    ${MAGENTA}9${NC}) Dashboard & Discord OAuth"
+  echo -e "    ${GREEN}10${NC}) Fertig -> einmal neu starten"
+  echo -e "    ${DIM}11${NC}) Fertig ohne Neustart"
+  echo -e "    ${CYAN}12${NC}) Doctor Check (ohne Aenderung)"
   echo ""
-  read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-9]${NC}: ")" SET_CHOICE
+  if [[ "$MODE_ARG" == "dashboard" && "${_DASHBOARD_SETTINGS_OPENED:-0}" != "1" ]]; then
+    _DASHBOARD_SETTINGS_OPENED=1
+    SET_CHOICE="9"
+    info "Direktmodus: Dashboard & Discord OAuth"
+  else
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-12]${NC}: ")" SET_CHOICE
+  fi
 
   case "${SET_CHOICE:-}" in
     1)
@@ -1208,7 +1434,7 @@ if [[ "$MODE" == "--settings" ]]; then
           write_env_line "PUBLIC_WEB_URL" "https://${new_domain}"
           auto_fix_web_env
         fi
-        restart_container
+        mark_settings_dirty
       else
         info "Keine Aenderung."
       fi
@@ -1218,18 +1444,19 @@ if [[ "$MODE" == "--settings" ]]; then
       normalized_public="$(extract_origin "$new_public" || true)"
       if [[ -z "$normalized_public" ]]; then
         fail "Ungueltige URL. Bitte mit http:// oder https:// eingeben."
-        exit 1
+        warn "Aenderung verworfen. Script laeuft weiter."
+      else
+        write_env_line "PUBLIC_WEB_URL" "$normalized_public"
+        ok "PUBLIC_WEB_URL gespeichert: ${normalized_public}"
+        if prompt_yes_no "CORS/Checkout Origins automatisch synchronisieren?" "j"; then
+          auto_fix_web_env
+        fi
+        mark_settings_dirty
       fi
-      write_env_line "PUBLIC_WEB_URL" "$normalized_public"
-      ok "PUBLIC_WEB_URL gespeichert: ${normalized_public}"
-      if prompt_yes_no "CORS/Checkout Origins automatisch synchronisieren?" "j"; then
-        auto_fix_web_env
-      fi
-      restart_container
       ;;
     4)
       auto_fix_web_env
-      restart_container
+      mark_settings_dirty
       ;;
     5)
       if [[ "$cur_trial" == "0" ]]; then
@@ -1239,7 +1466,7 @@ if [[ "$MODE" == "--settings" ]]; then
         write_env_line "PRO_TRIAL_ENABLED" "0"
         ok "Pro-Testmonat deaktiviert."
       fi
-      restart_container
+      mark_settings_dirty
       ;;
     6)
       echo ""
@@ -1256,23 +1483,24 @@ if [[ "$MODE" == "--settings" ]]; then
         fi
         if [[ -z "$new_dbl_token" || -z "$new_dbl_secret" ]]; then
           fail "Token und Webhook Secret sind erforderlich."
-          exit 1
-        fi
-        write_env_line "DISCORDBOTLIST_ENABLED" "1"
-        write_env_line "DISCORDBOTLIST_TOKEN" "$new_dbl_token"
-        write_env_line "DISCORDBOTLIST_WEBHOOK_SECRET" "$new_dbl_secret"
-        write_env_line "DISCORDBOTLIST_STATS_SCOPE" "$new_dbl_scope"
-        ok "DiscordBotList gespeichert."
-        if [[ -n "$cur_public_url" ]]; then
-          info "Webhook URL: ${cur_public_url}/api/discordbotlist/vote"
+          warn "Aenderung verworfen. Script laeuft weiter."
         else
-          warn "PUBLIC_WEB_URL ist noch leer. Setze zuerst die Public Web URL fuer den Vote-Webhook."
+          write_env_line "DISCORDBOTLIST_ENABLED" "1"
+          write_env_line "DISCORDBOTLIST_TOKEN" "$new_dbl_token"
+          write_env_line "DISCORDBOTLIST_WEBHOOK_SECRET" "$new_dbl_secret"
+          write_env_line "DISCORDBOTLIST_STATS_SCOPE" "$new_dbl_scope"
+          ok "DiscordBotList gespeichert."
+          if [[ -n "$cur_public_url" ]]; then
+            info "Webhook URL: ${cur_public_url}/api/discordbotlist/vote"
+          else
+            warn "PUBLIC_WEB_URL ist noch leer. Setze zuerst die Public Web URL fuer den Vote-Webhook."
+          fi
         fi
       else
         write_env_line "DISCORDBOTLIST_ENABLED" "0"
         ok "DiscordBotList deaktiviert."
       fi
-      restart_container
+      mark_settings_dirty
       ;;
     7)
       echo ""
@@ -1286,23 +1514,24 @@ if [[ "$MODE" == "--settings" ]]; then
         new_acoustid_key="$(prompt_default "AcoustID API Key" "$cur_acoustid_key")"
         if [[ -z "$new_acoustid_key" ]]; then
           fail "AcoustID API Key ist erforderlich."
-          exit 1
+          warn "Aenderung verworfen. Script laeuft weiter."
+        else
+          new_sample="$(prompt_default "Fingerprint Sample in Sekunden" "$cur_recognition_sample")"
+          new_min="$(prompt_default "Minimale brauchbare Audio-Dauer in Sekunden" "$cur_recognition_min")"
+          new_timeout="$(prompt_default "Timeout in Millisekunden" "$cur_recognition_timeout")"
+          write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "1"
+          write_env_line "ACOUSTID_API_KEY" "$new_acoustid_key"
+          write_env_line "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "$new_sample"
+          write_env_line "NOW_PLAYING_RECOGNITION_MIN_SECONDS" "$new_min"
+          write_env_line "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "$new_timeout"
+          write_env_line "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
+          ok "Track-Erkennung gespeichert."
         fi
-        new_sample="$(prompt_default "Fingerprint Sample in Sekunden" "$cur_recognition_sample")"
-        new_min="$(prompt_default "Minimale brauchbare Audio-Dauer in Sekunden" "$cur_recognition_min")"
-        new_timeout="$(prompt_default "Timeout in Millisekunden" "$cur_recognition_timeout")"
-        write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "1"
-        write_env_line "ACOUSTID_API_KEY" "$new_acoustid_key"
-        write_env_line "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "$new_sample"
-        write_env_line "NOW_PLAYING_RECOGNITION_MIN_SECONDS" "$new_min"
-        write_env_line "NOW_PLAYING_RECOGNITION_TIMEOUT_MS" "$new_timeout"
-        write_env_line "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
-        ok "Track-Erkennung gespeichert."
       else
         write_env_line "NOW_PLAYING_RECOGNITION_ENABLED" "0"
         ok "Track-Erkennung deaktiviert."
       fi
-      restart_container
+      mark_settings_dirty
       ;;
     8)
       echo ""
@@ -1381,12 +1610,101 @@ if [[ "$MODE" == "--settings" ]]; then
       write_env_line "PRIVACY_AUTHORITY_NAME" "$privacy_authority_name"
       write_env_line "PRIVACY_AUTHORITY_WEBSITE" "$privacy_authority_website"
       ok "Impressums- und Datenschutzdaten gespeichert."
-      restart_container
+      mark_settings_dirty
+      ;;
+    9)
+      echo ""
+      info "Discord OAuth Setup fuer Pro-Dashboard"
+      echo -e "    ${DIM}Discord Developer Portal -> OAuth2 -> Redirects${NC}"
+      echo -e "    ${DIM}Redirect muss auf /api/auth/discord/callback enden.${NC}"
+
+      dash_cid="$(prompt_default "Discord Client ID" "$cur_discord_client_id")"
+      dash_secret="$(prompt_default "Discord Client Secret" "$cur_discord_client_secret")"
+      dash_redirect="$(prompt_default "Discord Redirect URI" "$cur_discord_redirect_uri")"
+      dash_scopes="$(prompt_default "OAuth Scopes" "$cur_discord_oauth_scopes")"
+      dash_cookie="$(prompt_default "Dashboard Session Cookie" "$cur_dash_cookie")"
+      dash_ttl="$(prompt_default "Dashboard Session TTL (Sekunden)" "$cur_dash_ttl")"
+      dash_state_ttl="$(prompt_default "OAuth State TTL (Sekunden)" "$cur_dash_state_ttl")"
+
+      if [[ -z "$dash_cid" || -z "$dash_secret" || -z "$dash_redirect" ]]; then
+        fail "Client ID, Client Secret und Redirect URI sind erforderlich."
+        warn "Aenderung verworfen. Script laeuft weiter."
+      elif ! is_valid_http_url "$dash_redirect"; then
+        fail "Redirect URI ungueltig. Bitte mit http:// oder https:// eingeben."
+        warn "Aenderung verworfen. Script laeuft weiter."
+      elif [[ "$dash_redirect" != *"/api/auth/discord/callback"* ]]; then
+        fail "Redirect URI muss auf /api/auth/discord/callback enden."
+        warn "Aenderung verworfen. Script laeuft weiter."
+      else
+        if [[ ! "$dash_ttl" =~ ^[0-9]+$ ]] || (( dash_ttl < 300 )); then
+          warn "Session TTL ungueltig (<300). Verwende 86400."
+          dash_ttl="86400"
+        fi
+        if [[ ! "$dash_state_ttl" =~ ^[0-9]+$ ]] || (( dash_state_ttl < 60 )); then
+          warn "State TTL ungueltig (<60). Verwende 600."
+          dash_state_ttl="600"
+        fi
+
+        write_env_line "DISCORD_CLIENT_ID" "$dash_cid"
+        write_env_line "DISCORD_CLIENT_SECRET" "$dash_secret"
+        write_env_line "DISCORD_REDIRECT_URI" "$dash_redirect"
+        write_env_line "DISCORD_OAUTH_SCOPES" "$dash_scopes"
+        write_env_line "DASHBOARD_SESSION_COOKIE" "$dash_cookie"
+        write_env_line "DASHBOARD_SESSION_TTL_SECONDS" "$dash_ttl"
+        write_env_line "DISCORD_OAUTH_STATE_TTL_SECONDS" "$dash_state_ttl"
+
+        redirect_origin="$(extract_origin "$dash_redirect" || true)"
+        if [[ -n "$redirect_origin" && -z "$(read_env "PUBLIC_WEB_URL" "")" ]]; then
+          write_env_line "PUBLIC_WEB_URL" "$redirect_origin"
+          info "PUBLIC_WEB_URL aus Redirect URI gesetzt: ${redirect_origin}"
+        fi
+
+        auto_fix_web_env
+        ok "Dashboard OAuth Einstellungen gespeichert."
+        dashboard_oauth_health_report
+        mark_settings_dirty
+      fi
+      ;;
+    10)
+      if (( settings_restart_needed == 1 )); then
+        info "Fuehre einen einzigen Neustart fuer alle geaenderten Einstellungen aus..."
+        restart_container
+        settings_restart_needed=0
+        settings_changed=0
+      else
+        info "Keine offenen Neustarts erforderlich."
+      fi
+      break
+      ;;
+    11)
+      if (( settings_restart_needed == 1 )); then
+        warn "Es gibt noch offene Aenderungen ohne Neustart."
+      fi
+      break
+      ;;
+    12)
+      run_system_doctor || true
+      continue
       ;;
     *)
-      exit 0
+      warn "Ungueltige Auswahl. Bitte 1-12 waehlen."
+      continue
       ;;
   esac
+
+  if (( settings_changed == 1 )); then
+    info "Du kannst weitere Einstellungen bearbeiten oder mit 10/11 beenden."
+  fi
+done
+
+if (( settings_restart_needed == 1 )); then
+  if prompt_yes_no "Offene Aenderungen erkannt. Jetzt einmal neu starten?" "j"; then
+    restart_container
+  else
+    warn "Aenderungen gespeichert, aber Neustart ausstehend."
+  fi
+fi
+
   exit 0
 fi
 
@@ -1892,6 +2210,8 @@ echo -e "    Premium:          ${GREEN}./update.sh --premium${NC}"
 echo -e "    Codes:            ${GREEN}./update.sh --offers${NC}"
 echo -e "    E-Mail Setup:     ${GREEN}./update.sh --email${NC}"
 echo -e "    Einstellungen:    ${GREEN}./update.sh --settings${NC}"
+echo -e "    Dashboard OAuth:  ${GREEN}./update.sh --dashboard-settings${NC}"
+echo -e "    Doctor Check:     ${GREEN}./update.sh --doctor${NC}"
 echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
 echo -e "    Speicher cleanup: ${GREEN}./update.sh --cleanup${NC}"
 echo -e "    Recognition-Test:${GREEN} ./update.sh --recognition-test <URL>${NC}"
