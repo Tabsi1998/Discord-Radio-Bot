@@ -252,10 +252,11 @@ function applyCors(req, res, publicUrl) {
     originAllowed = true;
     res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
     res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
   }
 
-  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token, X-Admin-User");
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token, X-Admin-User, X-Session-Token");
   return originAllowed;
 }
 

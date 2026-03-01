@@ -53,14 +53,14 @@ function normalizeTier(rawTier, fallbackTier, fallbackFeatures) {
     const raw = tier[field] && typeof tier[field] === 'object' ? tier[field] : null;
     return raw || (fallback[field] && typeof fallback[field] === 'object' ? fallback[field] : {});
   };
+  const localizedFeatures = Array.isArray(fallbackFeatures) ? fallbackFeatures : [];
+  const apiFeatures = Array.isArray(tier.features) ? tier.features : [];
 
   return {
     name: String(tier.name || fallback.name || 'Plan'),
     pricePerMonth: Number.isFinite(Number(tier.pricePerMonth)) ? Number(tier.pricePerMonth) : Number(fallback.pricePerMonth || 0),
     startingAt: String(tier.startingAt || fallback.startingAt || '').trim(),
-    features: Array.isArray(tier.features) && tier.features.length > 0
-      ? tier.features
-      : (Array.isArray(fallbackFeatures) ? fallbackFeatures : []),
+    features: localizedFeatures.length > 0 ? localizedFeatures : apiFeatures,
     durationPricing: pick('durationPricing'),
     seatPricing: pick('seatPricing'),
   };
@@ -648,7 +648,8 @@ function Premium() {
 
     const loadPricing = async () => {
       try {
-        const response = await fetch(buildApiUrl('/api/premium/pricing'), { cache: 'no-store', signal: controller.signal });
+        const pricingUrl = `${buildApiUrl('/api/premium/pricing')}?lang=${encodeURIComponent(locale)}`;
+        const response = await fetch(pricingUrl, { cache: 'no-store', signal: controller.signal });
         const payload = await response.json();
         if (!response.ok || payload?.error) throw new Error(payload?.error || `HTTP ${response.status}`);
         setPricing(normalizePricing(payload, fallbackPricing));
@@ -662,7 +663,7 @@ function Premium() {
 
     loadPricing();
     return () => controller.abort();
-  }, [copy.premium.pricingFallback, fallbackPricing]);
+  }, [copy.premium.pricingFallback, fallbackPricing, locale]);
 
   const checkStatus = async () => {
     const normalizedServerId = serverId.trim();
@@ -803,7 +804,7 @@ function Premium() {
                         fontWeight: 600,
                       }}
                     >
-                      ab Preis
+                      {copy.premium.priceFrom}
                     </div>
                   )}
                   {buildPriceLabel(planId, tier, copy, formatDecimal)}

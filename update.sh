@@ -180,7 +180,7 @@ build_default_origin_candidates() {
 }
 
 auto_fix_web_env() {
-  local web_port domain public_url origin defaults_csv
+  local web_port domain public_url origin defaults_csv effective_public_url
   local current_cors current_returns new_cors new_returns changed=0
 
   web_port="$(read_env "WEB_PORT" "8081")"
@@ -191,16 +191,17 @@ auto_fix_web_env() {
   if [[ -z "$origin" ]]; then
     if [[ -n "$domain" ]]; then
       origin="https://${domain}"
+      write_env_line "PUBLIC_WEB_URL" "$origin"
+      public_url="$origin"
+      changed=1
+      info "PUBLIC_WEB_URL gesetzt: ${origin}"
     else
-      origin="http://localhost:${web_port}"
+      warn "PUBLIC_WEB_URL ist nicht gesetzt. Nutze nur lokale Fallback-Origins, bis die echte Frontend-URL eingetragen ist."
     fi
-    write_env_line "PUBLIC_WEB_URL" "$origin"
-    public_url="$origin"
-    changed=1
-    info "PUBLIC_WEB_URL gesetzt: ${origin}"
   fi
 
-  defaults_csv="$(build_default_origin_candidates "$public_url" "$web_port")"
+  effective_public_url="${public_url:-http://localhost:${web_port}}"
+  defaults_csv="$(build_default_origin_candidates "$effective_public_url" "$web_port")"
   current_cors="$(read_env "CORS_ALLOWED_ORIGINS" "")"
   current_returns="$(read_env "CHECKOUT_RETURN_ORIGINS" "")"
   IFS=',' read -r -a default_items <<< "$defaults_csv"
@@ -306,13 +307,14 @@ is_valid_http_url() {
 }
 
 dashboard_oauth_health_report() {
-  local cid secret redir scope ttl cookie
+  local cid secret redir scope ttl cookie public_url
   cid="$(read_env "DISCORD_CLIENT_ID" "")"
   secret="$(read_env "DISCORD_CLIENT_SECRET" "")"
   redir="$(read_env "DISCORD_REDIRECT_URI" "")"
   scope="$(read_env "DISCORD_OAUTH_SCOPES" "identify guilds")"
   ttl="$(read_env "DASHBOARD_SESSION_TTL_SECONDS" "86400")"
   cookie="$(read_env "DASHBOARD_SESSION_COOKIE" "omnifm_session")"
+  public_url="$(read_env "PUBLIC_WEB_URL" "")"
 
   local state="ok"
   local details=()
@@ -335,9 +337,16 @@ dashboard_oauth_health_report() {
     state="warn"
     details+=("Redirect URI ohne /api/auth/discord/callback")
   fi
+  if [[ -z "$public_url" ]]; then
+    state="warn"
+    details+=("PUBLIC_WEB_URL fehlt")
+  elif ! is_valid_http_url "$public_url"; then
+    state="warn"
+    details+=("PUBLIC_WEB_URL ungueltig")
+  fi
 
   if [[ "$state" == "ok" ]]; then
-    ok "Dashboard OAuth: konfiguriert (${scope}, cookie=${cookie}, ttl=${ttl}s)."
+    ok "Dashboard OAuth: konfiguriert (${scope}, cookie=${cookie}, ttl=${ttl}s, public=${public_url})."
   else
     warn "Dashboard OAuth: unvollstaendig (${details[*]})."
   fi
@@ -395,7 +404,7 @@ ensure_all_json_files() {
   ensure_json_file "listening-stats.json" '{"version":1,"guilds":{}}'
   ensure_json_file "scheduled-events.json" '{"version":1,"events":[]}'
   ensure_json_file "coupons.json" '{"offers":{},"redemptions":{}}'
-  ensure_json_file "dashboard.json" '{"events":{},"perms":{},"telemetry":{}}'
+  ensure_json_file "dashboard.json" '{"version":1,"events":{},"perms":{},"telemetry":{},"authSessions":{},"oauthStates":{}}'
   # stations.json nur erstellen wenn komplett fehlend
   if [[ -d "stations.json" ]]; then
     rm -rf "stations.json" 2>/dev/null || true
@@ -1653,10 +1662,8 @@ if [[ "$MODE" == "--settings" ]]; then
         write_env_line "DASHBOARD_SESSION_TTL_SECONDS" "$dash_ttl"
         write_env_line "DISCORD_OAUTH_STATE_TTL_SECONDS" "$dash_state_ttl"
 
-        redirect_origin="$(extract_origin "$dash_redirect" || true)"
-        if [[ -n "$redirect_origin" && -z "$(read_env "PUBLIC_WEB_URL" "")" ]]; then
-          write_env_line "PUBLIC_WEB_URL" "$redirect_origin"
-          info "PUBLIC_WEB_URL aus Redirect URI gesetzt: ${redirect_origin}"
+        if [[ -z "$(read_env "PUBLIC_WEB_URL" "")" ]]; then
+          warn "PUBLIC_WEB_URL ist noch leer. Bitte die echte Frontend-URL setzen, besonders wenn Dashboard und API auf unterschiedlichen Origins laufen."
         fi
 
         auto_fix_web_env
@@ -2090,7 +2097,7 @@ update_stamp="$(date +%Y%m%d%H%M%S)"
 licenses_before_update="$(count_license_entries premium.json)"
 
 # WICHTIG: Premium-Daten IMMER sichern vor Update!
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json; do
   if [[ -f "$pf" ]]; then
     cp "$pf" ".update-backups/${pf}.${update_stamp}" 2>/dev/null || true
   fi
@@ -2116,11 +2123,12 @@ git clean -fd \
   -e listening-stats.json \
   -e scheduled-events.json \
   -e coupons.json \
+  -e dashboard.json \
   -e docker-compose.override.yml 2>/dev/null || true
 
 # Laufzeitdaten immer aus dem VOR-Update Snapshot wiederherstellen,
 # damit git reset keine produktiven JSON-Daten ueberschreibt.
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json; do
   snapshot=".update-backups/${pf}.${update_stamp}"
   if [[ -s "$snapshot" ]]; then
     if ! cmp -s "$snapshot" "$pf" 2>/dev/null; then
@@ -2131,7 +2139,7 @@ for pf in premium.json bot-state.json custom-stations.json command-permissions.j
 done
 
 # Sicherheitscheck: Premium-Daten duerfen NICHT leer sein nach Update
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json; do
   if [[ -f "$pf" ]] && [[ ! -s "$pf" ]]; then
     latest_backup=$(ls -t ".update-backups/${pf}."* 2>/dev/null | head -1)
     if [[ -n "$latest_backup" ]] && [[ -s "$latest_backup" ]]; then

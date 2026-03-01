@@ -4,7 +4,7 @@ import { useI18n } from '../i18n';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 const PERMISSION_COMMANDS = [
-  'play', 'pause', 'resume', 'stop', 'stations', 'stats', 'event', 'perm', 'addstation', 'removestation', 'mystations',
+  'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',
 ];
 
 function buildApiUrl(path) {
@@ -38,6 +38,21 @@ function resolveAuthError() {
     return String(url.searchParams.get('authError') || '').trim();
   } catch {
     return '';
+  }
+}
+
+function resolveAuthErrorMessage(authError, t) {
+  switch (String(authError || '').trim()) {
+    case 'oauth_not_configured':
+      return t('Discord OAuth ist noch nicht vollstaendig konfiguriert.', 'Discord OAuth is not configured yet.');
+    case 'invalid_state':
+      return t('Der Discord-Login ist abgelaufen oder ungueltig. Bitte erneut versuchen.', 'The Discord login expired or is invalid. Please try again.');
+    case 'missing_code':
+      return t('Discord hat keinen gueltigen Login-Code geliefert.', 'Discord did not return a valid login code.');
+    case 'oauth_exchange_failed':
+      return t('Discord-Login konnte nicht abgeschlossen werden. Bitte erneut versuchen.', 'Discord login could not be completed. Please try again.');
+    default:
+      return String(authError || '').trim();
   }
 }
 
@@ -139,8 +154,10 @@ function MetricCard({ label, value, accent = '#00F0FF', testId }) {
 }
 
 export default function DashboardPortal() {
-  const { locale } = useI18n();
+  const { locale, formatDate } = useI18n();
   const t = useCallback((de, en) => (String(locale || 'de').startsWith('de') ? de : en), [locale]);
+  const authError = resolveAuthError();
+  const authErrorMessage = useMemo(() => resolveAuthErrorMessage(authError, t), [authError, t]);
 
   const [loadingSession, setLoadingSession] = useState(true);
   const [session, setSession] = useState({ authenticated: false, oauthConfigured: false, user: null, guilds: [] });
@@ -148,13 +165,12 @@ export default function DashboardPortal() {
   const [activeTab, setActiveTab] = useState('overview');
   const [loadingData, setLoadingData] = useState(false);
   const [message, setMessage] = useState('');
-  const [error, setError] = useState(resolveAuthError());
+  const [error, setError] = useState(authErrorMessage);
 
   const [events, setEvents] = useState([]);
   const [eventForm, setEventForm] = useState({
     title: '',
     stationKey: '',
-    fallbackStationKey: '',
     startsAt: '',
     timezone: 'Europe/Vienna',
     channelId: '',
@@ -179,7 +195,6 @@ export default function DashboardPortal() {
 
   const refreshSession = useCallback(async () => {
     setLoadingSession(true);
-    setError('');
     try {
       const payload = await apiRequest('/api/auth/session', { method: 'GET' });
       setSession({
@@ -194,13 +209,20 @@ export default function DashboardPortal() {
       const fallbackGuild = guilds.find((guild) => guild.dashboardEnabled) || guilds[0] || null;
       const selected = guilds.find((guild) => guild.id === savedGuildId) || fallbackGuild;
       setSelectedGuildId(selected?.id || '');
+      setError(payload.authenticated === true ? '' : authErrorMessage);
     } catch (err) {
       setError(err.message || 'Session konnte nicht geladen werden.');
       setSession({ authenticated: false, oauthConfigured: false, user: null, guilds: [] });
     } finally {
       setLoadingSession(false);
     }
-  }, []);
+  }, [authErrorMessage]);
+
+  useEffect(() => {
+    if (!session.authenticated) {
+      setError((current) => current || authErrorMessage);
+    }
+  }, [authErrorMessage, session.authenticated]);
 
   const refreshDashboardData = useCallback(async () => {
     if (!selectedGuildId || !dashboardEnabled) return;
@@ -277,15 +299,18 @@ export default function DashboardPortal() {
     setError('');
     setMessage('');
     try {
+      const startsAtIso = eventForm.startsAt ? new Date(eventForm.startsAt).toISOString() : '';
       const payload = await apiRequest(`/api/dashboard/events?serverId=${encodeURIComponent(selectedGuildId)}`, {
         method: 'POST',
-        body: JSON.stringify(eventForm),
+        body: JSON.stringify({
+          ...eventForm,
+          startsAt: startsAtIso,
+        }),
       });
       setEvents((current) => [payload.event, ...current]);
       setEventForm({
         title: '',
         stationKey: '',
-        fallbackStationKey: '',
         startsAt: '',
         timezone: 'Europe/Vienna',
         channelId: '',
@@ -323,7 +348,7 @@ export default function DashboardPortal() {
       });
       setEvents((current) => current.filter((eventItem) => eventItem.id !== eventId));
     } catch (err) {
-      setError(err.message || 'Event konnte nicht gelöscht werden.');
+      setError(err.message || 'Event konnte nicht geloescht werden.');
     }
   };
 
@@ -359,7 +384,7 @@ export default function DashboardPortal() {
         style={{ minHeight: '70vh', display: 'grid', placeItems: 'center', textAlign: 'center' }}
       >
         <div>
-          <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 44 }}>{t('Dashboard lädt…', 'Loading dashboard…')}</h1>
+          <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 44 }}>{t('Dashboard laedt...', 'Loading dashboard...')}</h1>
           <p style={{ color: '#A1A1AA', marginTop: 10 }}>{t('Bitte kurz warten.', 'Please wait a moment.')}</p>
         </div>
       </section>
@@ -394,7 +419,7 @@ export default function DashboardPortal() {
           </h1>
           <p style={{ color: '#A1A1AA', marginTop: 12, lineHeight: 1.7 }} data-testid="dashboard-login-description">
             {t(
-              'Melde dich mit deinem Discord Account an. Danach kannst du deine Server auswählen und Events, Rollenrechte und Stats zentral steuern. Dashboard ist ab PRO freigeschaltet.',
+              'Melde dich mit deinem Discord Account an. Danach kannst du deine Server auswaehlen und Events, Rollenrechte und Stats zentral steuern. Dashboard ist ab PRO freigeschaltet.',
               'Sign in with your Discord account. Then select your servers and manage events, permissions, and stats centrally. Dashboard access is unlocked from PRO.',
             )}
           </p>
@@ -413,7 +438,7 @@ export default function DashboardPortal() {
               data-testid="dashboard-oauth-not-configured"
               style={{ marginTop: 14, color: '#FDE68A', border: '1px solid rgba(253,230,138,0.35)', padding: '10px 12px', background: 'rgba(120,53,15,0.2)' }}
             >
-              {t('Discord OAuth ist noch nicht vollständig konfiguriert.', 'Discord OAuth is not fully configured yet.')}
+              {t('Discord OAuth ist noch nicht vollstaendig konfiguriert.', 'Discord OAuth is not fully configured yet.')}
             </div>
           )}
 
@@ -447,7 +472,7 @@ export default function DashboardPortal() {
       </div>
 
       <label htmlFor="dashboard-guild-select" style={{ display: 'block', color: '#A1A1AA', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-        {t('Server auswählen', 'Select server')}
+        {t('Server auswaehlen', 'Select server')}
       </label>
       <select
         id="dashboard-guild-select"
@@ -466,14 +491,14 @@ export default function DashboardPortal() {
       >
         {(session.guilds || []).map((guild) => (
           <option key={guild.id} value={guild.id}>
-            {guild.name} · {String(guild.tier || 'free').toUpperCase()}
+            {guild.name} | {String(guild.tier || 'free').toUpperCase()}
           </option>
         ))}
       </select>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {[
-          { key: 'overview', label: t('Übersicht', 'Overview'), icon: BarChart3 },
+          { key: 'overview', label: t('Uebersicht', 'Overview'), icon: BarChart3 },
           { key: 'events', label: t('Events', 'Events'), icon: CalendarDays },
           { key: 'perms', label: t('Permissions', 'Permissions'), icon: ShieldCheck },
           { key: 'stats', label: t('Stats', 'Stats'), icon: Users },
@@ -518,7 +543,7 @@ export default function DashboardPortal() {
   const topbar = (
     <>
       <div data-testid="dashboard-current-guild-name" style={{ fontFamily: "'Outfit', sans-serif", fontSize: 22 }}>
-        {selectedGuild?.name || t('Kein Server gewählt', 'No server selected')}
+        {selectedGuild?.name || t('Kein Server gewaehlt', 'No server selected')}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div data-testid="dashboard-user-chip" style={{ color: '#A1A1AA', fontSize: 13 }}>
@@ -598,9 +623,9 @@ export default function DashboardPortal() {
           {activeTab === 'overview' && (
             <section data-testid="dashboard-overview-panel">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-                <MetricCard testId="dashboard-metric-listeners" label={t('Live Zuhörer', 'Live listeners')} value={stats.basic?.listenersNow ?? 0} />
+                <MetricCard testId="dashboard-metric-listeners" label={t('Live Zuhoerer', 'Live listeners')} value={stats.basic?.listenersNow ?? 0} />
                 <MetricCard testId="dashboard-metric-streams" label={t('Aktive Streams', 'Active streams')} value={stats.basic?.activeStreams ?? 0} accent="#10B981" />
-                <MetricCard testId="dashboard-metric-peak" label={t('Peak Zuhörer', 'Peak listeners')} value={stats.basic?.peakListeners ?? 0} accent="#8B5CF6" />
+                <MetricCard testId="dashboard-metric-peak" label={t('Peak Zuhoerer', 'Peak listeners')} value={stats.basic?.peakListeners ?? 0} accent="#8B5CF6" />
                 <MetricCard testId="dashboard-metric-top-station" label={t('Top Station', 'Top station')} value={stats.basic?.topStation?.name || '-'} accent="#FFFFFF" />
               </div>
             </section>
@@ -613,8 +638,8 @@ export default function DashboardPortal() {
                 <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
                   <input data-testid="dashboard-event-title-input" value={eventForm.title} onChange={(event) => setEventForm((current) => ({ ...current, title: event.target.value }))} placeholder={t('Titel', 'Title')} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
                   <input data-testid="dashboard-event-station-input" value={eventForm.stationKey} onChange={(event) => setEventForm((current) => ({ ...current, stationKey: event.target.value }))} placeholder={t('Station Key', 'Station key')} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
-                  <input data-testid="dashboard-event-fallback-input" value={eventForm.fallbackStationKey} onChange={(event) => setEventForm((current) => ({ ...current, fallbackStationKey: event.target.value }))} placeholder={t('Fallback (Ultimate optional)', 'Fallback (Ultimate optional)')} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
-                  <input data-testid="dashboard-event-starts-at-input" value={eventForm.startsAt} onChange={(event) => setEventForm((current) => ({ ...current, startsAt: event.target.value }))} placeholder={t('Startzeit (z. B. Fr 20:00)', 'Start time (e.g. Fri 20:00)')} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
+                  <input data-testid="dashboard-event-channel-input" value={eventForm.channelId} onChange={(event) => setEventForm((current) => ({ ...current, channelId: event.target.value }))} placeholder={t('Voice Channel ID', 'Voice channel ID')} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
+                  <input data-testid="dashboard-event-starts-at-input" type="datetime-local" value={eventForm.startsAt} onChange={(event) => setEventForm((current) => ({ ...current, startsAt: event.target.value }))} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
                   <button data-testid="dashboard-event-create-button" onClick={createEvent} style={{ height: 42, border: 'none', background: '#5865F2', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>{t('Event speichern', 'Save event')}</button>
                 </div>
               </div>
@@ -629,11 +654,11 @@ export default function DashboardPortal() {
                         <strong>{eventItem.title || '-'}</strong>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button data-testid={`dashboard-event-toggle-${eventItem.id}`} onClick={() => toggleEvent(eventItem.id, !eventItem.enabled)} style={{ border: '1px solid #27272A', background: eventItem.enabled ? 'rgba(16,185,129,0.15)' : '#0A0A0A', color: '#fff', height: 30, padding: '0 10px', cursor: 'pointer' }}>{eventItem.enabled ? t('Aktiv', 'Enabled') : t('Inaktiv', 'Disabled')}</button>
-                          <button data-testid={`dashboard-event-delete-${eventItem.id}`} onClick={() => deleteEvent(eventItem.id)} style={{ border: '1px solid rgba(248,113,113,0.45)', background: 'rgba(127,29,29,0.2)', color: '#fff', height: 30, padding: '0 10px', cursor: 'pointer' }}>{t('Löschen', 'Delete')}</button>
+                          <button data-testid={`dashboard-event-delete-${eventItem.id}`} onClick={() => deleteEvent(eventItem.id)} style={{ border: '1px solid rgba(248,113,113,0.45)', background: 'rgba(127,29,29,0.2)', color: '#fff', height: 30, padding: '0 10px', cursor: 'pointer' }}>{t('Loeschen', 'Delete')}</button>
                         </div>
                       </div>
                       <div style={{ color: '#A1A1AA', marginTop: 6, fontSize: 13 }}>
-                        {t('Station', 'Station')}: {eventItem.stationKey || '-'} · {t('Start', 'Start')}: {eventItem.startsAt || '-'}
+                        {t('Station', 'Station')}: {eventItem.stationKey || '-'} | {t('Start', 'Start')}: {eventItem.startsAt ? formatDate(eventItem.startsAt, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'} | {t('Channel', 'Channel')}: {eventItem.channelId || '-'}
                       </div>
                     </div>
                   ))}
@@ -651,7 +676,7 @@ export default function DashboardPortal() {
             <section data-testid="dashboard-perms-panel" style={{ border: '1px solid #27272A', background: '#0A0A0A', padding: 16 }}>
               <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 24 }}>{t('Rollenrechte pro Command', 'Role permissions by command')}</h3>
               <p style={{ color: '#A1A1AA', marginTop: 8, lineHeight: 1.7 }}>
-                {t('Trenne mehrere Rollen mit Komma, z. B. DJ, Moderator, Admin', 'Use comma-separated role names, e.g. DJ, Moderator, Admin')}
+                {t('Trenne mehrere Rollen mit Komma. Rollennamen oder IDs werden aufgeloest, z. B. DJ, Moderator, 123456789012345678', 'Use comma-separated role names or IDs, e.g. DJ, Moderator, 123456789012345678')}
               </p>
 
               <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
@@ -682,7 +707,7 @@ export default function DashboardPortal() {
           {activeTab === 'stats' && (
             <section data-testid="dashboard-stats-panel" style={{ display: 'grid', gap: 12 }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                <MetricCard testId="dashboard-stats-listeners-now" label={t('Live Zuhörer', 'Live listeners')} value={stats.basic?.listenersNow ?? 0} />
+                <MetricCard testId="dashboard-stats-listeners-now" label={t('Live Zuhoerer', 'Live listeners')} value={stats.basic?.listenersNow ?? 0} />
                 <MetricCard testId="dashboard-stats-active-streams" label={t('Aktive Streams', 'Active streams')} value={stats.basic?.activeStreams ?? 0} accent="#10B981" />
                 <MetricCard testId="dashboard-stats-peak-time" label={t('Peak Zeit', 'Peak time')} value={stats.basic?.peakTime || '-'} accent="#8B5CF6" />
                 <MetricCard testId="dashboard-stats-top-station" label={t('Top Station', 'Top station')} value={stats.basic?.topStation?.name || '-'} accent="#FFFFFF" />
@@ -735,7 +760,7 @@ export default function DashboardPortal() {
 
           {loadingData && (
             <div data-testid="dashboard-loading-state" style={{ color: '#A1A1AA' }}>
-              {t('Daten werden aktualisiert…', 'Refreshing dashboard data…')}
+              {t('Daten werden aktualisiert...', 'Refreshing dashboard data...')}
             </div>
           )}
         </>

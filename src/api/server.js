@@ -4,6 +4,7 @@
 import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
+import { randomBytes } from "node:crypto";
 
 import { log, webDir, webRootSource, frontendBuildStamp } from "../lib/logging.js";
 import {
@@ -17,7 +18,6 @@ import {
   calculateUpgradePrice,
   durationPricingInEuro,
   seatPricingInEuro,
-  formatEuroCentsDe,
   sanitizeOfferCode,
   translateOfferReason,
   isProTrialEnabled,
@@ -75,6 +75,30 @@ import {
   getOffer,
 } from "../coupon-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
+import {
+  getDashboardTelemetry,
+  setDashboardTelemetry,
+  setDashboardOauthState,
+  popDashboardOauthState,
+  setDashboardAuthSession,
+  getDashboardAuthSession,
+  deleteDashboardAuthSession,
+  cleanupDashboardAuthState,
+} from "../dashboard-store.js";
+import {
+  getSupportedPermissionCommands,
+  getGuildCommandPermissionRules,
+  setCommandRolePermission,
+  resetCommandPermissions,
+} from "../command-permissions-store.js";
+import {
+  listScheduledEvents,
+  createScheduledEvent,
+  patchScheduledEvent,
+  deleteScheduledEvent,
+  getScheduledEvent,
+} from "../scheduled-events-store.js";
+import { getGuildListeningStats } from "../listening-stats-store.js";
 import {
   getDiscordBotListStatus,
   handleDiscordBotListVoteWebhook,
@@ -224,6 +248,515 @@ function buildPublicPrivacyNotice() {
     isConfigured: missingCoreFields.length === 0,
     basis: ["GDPR_ART_13", "GDPR_ART_15_22", "DSB_AT"],
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function parseEnvInt(value, fallback, minimum = 1) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(minimum, parsed);
+}
+
+function getDashboardSessionCookieName() {
+  return String(process.env.DASHBOARD_SESSION_COOKIE || "omnifm_session").trim() || "omnifm_session";
+}
+
+function getDashboardSessionTtlSeconds() {
+  return parseEnvInt(process.env.DASHBOARD_SESSION_TTL_SECONDS, 86_400, 300);
+}
+
+function getDiscordOauthStateTtlSeconds() {
+  return parseEnvInt(process.env.DISCORD_OAUTH_STATE_TTL_SECONDS, 600, 60);
+}
+
+function getDiscordOauthScopes() {
+  return String(process.env.DISCORD_OAUTH_SCOPES || "identify guilds").trim() || "identify guilds";
+}
+
+function getDiscordClientId() {
+  return String(process.env.DISCORD_CLIENT_ID || "").trim();
+}
+
+function getDiscordClientSecret() {
+  return String(process.env.DISCORD_CLIENT_SECRET || "").trim();
+}
+
+function getDiscordRedirectUri() {
+  return String(process.env.DISCORD_REDIRECT_URI || "").trim();
+}
+
+function isDiscordOauthConfigured() {
+  return Boolean(getDiscordClientId() && getDiscordClientSecret() && getDiscordRedirectUri());
+}
+
+function hasManageGuildPermission(rawPermissions) {
+  try {
+    const bitfield = BigInt(String(rawPermissions || "0").trim() || "0");
+    return (bitfield & 0x20n) === 0x20n || (bitfield & 0x8n) === 0x8n;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeDashboardPage(rawPage) {
+  const page = String(rawPage || "dashboard").trim().toLowerCase();
+  return page === "home" ? "home" : "dashboard";
+}
+
+function parseCookieHeader(rawCookieHeader) {
+  const cookies = {};
+  for (const part of String(rawCookieHeader || "").split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator <= 0) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim();
+    if (!key) continue;
+    try {
+      cookies[key] = decodeURIComponent(value);
+    } catch {
+      cookies[key] = value;
+    }
+  }
+  return cookies;
+}
+
+function resolveDashboardSessionToken(req) {
+  const auth = String(req.headers.authorization || "").trim();
+  if (/^Bearer\s+/i.test(auth)) {
+    const bearer = auth.replace(/^Bearer\s+/i, "").trim();
+    if (bearer) return bearer;
+  }
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const cookieToken = String(cookies[getDashboardSessionCookieName()] || "").trim();
+  if (cookieToken) return cookieToken;
+  const headerToken = String(req.headers["x-session-token"] || "").trim();
+  if (headerToken) return headerToken;
+  return "";
+}
+
+function getDashboardSession(req) {
+  cleanupDashboardAuthState();
+  const token = resolveDashboardSessionToken(req);
+  if (!token) return { session: null, token: "" };
+  return {
+    session: getDashboardAuthSession(token),
+    token,
+  };
+}
+
+function getFrontendBaseOrigin(req, publicUrl, preferredOrigin = "") {
+  const preferred = toOrigin(preferredOrigin);
+  if (preferred) return preferred;
+  const requestOrigin = toOrigin(String(req.headers.origin || "").trim());
+  if (requestOrigin) return requestOrigin;
+  const refererOrigin = toOrigin(String(req.headers.referer || req.headers.referrer || "").trim());
+  if (refererOrigin) return refererOrigin;
+  const publicOrigin = toOrigin(publicUrl);
+  if (publicOrigin) return publicOrigin;
+  const redirectOrigin = toOrigin(getDiscordRedirectUri());
+  if (redirectOrigin) return redirectOrigin;
+  return getConfiguredPublicOrigin(publicUrl);
+}
+
+function isSecureCookieRequest(req, targetOrigin = "") {
+  if (String(targetOrigin || "").startsWith("https://")) return true;
+  if (String(req.socket?.encrypted || false) === "true") return true;
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").trim().toLowerCase().split(",")[0].trim();
+  return forwardedProto === "https";
+}
+
+function buildDashboardSessionCookie(token, req, targetOrigin) {
+  const secure = isSecureCookieRequest(req, targetOrigin);
+  const sameSite = secure ? "None" : "Lax";
+  return [
+    `${getDashboardSessionCookieName()}=${encodeURIComponent(token)}`,
+    `Max-Age=${getDashboardSessionTtlSeconds()}`,
+    "HttpOnly",
+    `SameSite=${sameSite}`,
+    "Path=/",
+    ...(secure ? ["Secure"] : []),
+  ].join("; ");
+}
+
+function buildDashboardSessionCookieDeletion(req, targetOrigin) {
+  const secure = isSecureCookieRequest(req, targetOrigin);
+  const sameSite = secure ? "None" : "Lax";
+  return [
+    `${getDashboardSessionCookieName()}=`,
+    "Max-Age=0",
+    "HttpOnly",
+    `SameSite=${sameSite}`,
+    "Path=/",
+    ...(secure ? ["Secure"] : []),
+  ].join("; ");
+}
+
+function buildDiscordAuthorizeUrl(stateToken) {
+  const params = new URLSearchParams({
+    client_id: getDiscordClientId(),
+    response_type: "code",
+    redirect_uri: getDiscordRedirectUri(),
+    scope: getDiscordOauthScopes(),
+    state: stateToken,
+    prompt: "consent",
+  });
+  return `https://discord.com/api/oauth2/authorize?${params.toString()}`;
+}
+
+async function exchangeDiscordCodeForToken(code) {
+  const body = new URLSearchParams({
+    client_id: getDiscordClientId(),
+    client_secret: getDiscordClientSecret(),
+    grant_type: "authorization_code",
+    code: String(code || "").trim(),
+    redirect_uri: getDiscordRedirectUri(),
+  });
+  const response = await fetch("https://discord.com/api/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!response.ok) {
+    throw new Error(`discord_token_exchange_failed:${response.status}`);
+  }
+  const payload = await response.json();
+  const accessToken = String(payload?.access_token || "").trim();
+  if (!accessToken) {
+    throw new Error("discord_access_token_missing");
+  }
+  return accessToken;
+}
+
+async function fetchDiscordUserProfile(accessToken) {
+  const response = await fetch("https://discord.com/api/users/@me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new Error(`discord_user_fetch_failed:${response.status}`);
+  }
+  const payload = await response.json();
+  return {
+    id: String(payload?.id || "").trim(),
+    username: clipText(payload?.username || "Discord User", 80),
+    globalName: clipText(payload?.global_name || "", 80),
+    avatar: clipText(payload?.avatar || "", 120),
+  };
+}
+
+async function fetchDiscordUserGuilds(accessToken) {
+  const response = await fetch("https://discord.com/api/users/@me/guilds", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new Error(`discord_guilds_fetch_failed:${response.status}`);
+  }
+  const payload = await response.json();
+  if (!Array.isArray(payload)) return [];
+  return payload
+    .map((guild) => ({
+      id: String(guild?.id || "").trim(),
+      name: clipText(guild?.name || "Guild", 120),
+      icon: clipText(guild?.icon || "", 120),
+      owner: Boolean(guild?.owner),
+      permissions: String(guild?.permissions || "0"),
+    }))
+    .filter((guild) => /^\d{17,22}$/.test(guild.id));
+}
+
+function resolveDashboardGuildsForSession(sessionPayload) {
+  const guilds = Array.isArray(sessionPayload?.guilds) ? sessionPayload.guilds : [];
+  return guilds
+    .filter((guild) => guild && /^\d{17,22}$/.test(String(guild.id || "")) && hasManageGuildPermission(guild.permissions))
+    .map((guild) => {
+      const tier = getTier(guild.id);
+      return {
+        id: guild.id,
+        name: clipText(guild.name || guild.id, 120),
+        icon: clipText(guild.icon || "", 120),
+        owner: Boolean(guild.owner),
+        permissions: String(guild.permissions || "0"),
+        tier,
+        dashboardEnabled: (TIER_RANK[tier] || 0) >= (TIER_RANK.pro || 1),
+        ultimateEnabled: tier === "ultimate",
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function resolveDashboardGuildForSession(sessionPayload, serverId) {
+  const guildId = String(serverId || "").trim();
+  if (!/^\d{17,22}$/.test(guildId)) return null;
+  return resolveDashboardGuildsForSession(sessionPayload).find((guild) => guild.id === guildId) || null;
+}
+
+function buildDashboardErrorRedirect(origin, errorCode) {
+  const safeOrigin = toOrigin(origin) || "http://localhost";
+  return `${safeOrigin}/?page=dashboard&authError=${encodeURIComponent(String(errorCode || "oauth_error"))}`;
+}
+
+function resolveRuntimeForGuild(runtimes, guildId) {
+  const sorted = [...runtimes].sort((a, b) => {
+    if (a.role === "commander" && b.role !== "commander") return -1;
+    if (a.role !== "commander" && b.role === "commander") return 1;
+    return Number(a?.config?.index || 0) - Number(b?.config?.index || 0);
+  });
+
+  for (const runtime of sorted) {
+    const guild = runtime?.client?.guilds?.cache?.get?.(guildId) || null;
+    if (guild) return { runtime, guild };
+  }
+
+  return { runtime: sorted[0] || null, guild: null };
+}
+
+function collectGuildLiveDetails(runtimes, guildId) {
+  const rows = [];
+  for (const runtime of runtimes) {
+    if (typeof runtime?.getPublicStatus !== "function") continue;
+    const status = runtime.getPublicStatus();
+    const guildDetails = Array.isArray(status?.guildDetails) ? status.guildDetails : [];
+    for (const detail of guildDetails) {
+      if (String(detail?.guildId || "") !== String(guildId)) continue;
+      if (!detail?.playing) continue;
+      rows.push({
+        botId: status.botId || status.id || null,
+        botName: status.name || "Bot",
+        stationKey: detail.stationKey || null,
+        stationName: detail.stationName || detail.stationKey || "-",
+        channelId: detail.channelId || null,
+        channelName: detail.channelName || detail.channelId || "Voice",
+        listeners: Number(detail.listenerCount || 0) || 0,
+      });
+    }
+  }
+  return rows;
+}
+
+function normalizeDashboardTelemetryPayload(rawTelemetry) {
+  const source = rawTelemetry && typeof rawTelemetry === "object" ? rawTelemetry : {};
+  const listenersByChannel = Array.isArray(source.listenersByChannel)
+    ? source.listenersByChannel
+        .filter((item) => item && typeof item === "object")
+        .slice(0, 20)
+        .map((item) => ({
+          name: clipText(item.name || item.channel || "Voice", 80),
+          listeners: Math.max(0, Number.parseInt(String(item.listeners || 0), 10) || 0),
+        }))
+    : [];
+
+  const dailyReport = Array.isArray(source.dailyReport)
+    ? source.dailyReport
+        .filter((item) => item && typeof item === "object")
+        .slice(0, 31)
+        .map((item) => ({
+          day: clipText(item.day || "", 20),
+          starts: Math.max(0, Number.parseInt(String(item.starts || 0), 10) || 0),
+          peakListeners: Math.max(0, Number.parseInt(String(item.peakListeners || 0), 10) || 0),
+        }))
+        .filter((item) => item.day)
+    : [];
+
+  const stationBreakdown = Array.isArray(source.stationBreakdown)
+    ? source.stationBreakdown
+        .filter((item) => item && typeof item === "object")
+        .slice(0, 20)
+        .map((item) => ({
+          name: clipText(item.name || item.station || "Station", 80),
+          starts: Math.max(0, Number.parseInt(String(item.starts || 0), 10) || 0),
+          peakListeners: Math.max(0, Number.parseInt(String(item.peakListeners || 0), 10) || 0),
+        }))
+    : [];
+
+  return {
+    listenersNow: Math.max(0, Number.parseInt(String(source.listenersNow || 0), 10) || 0),
+    activeStreams: Math.max(0, Number.parseInt(String(source.activeStreams || 0), 10) || 0),
+    peakListeners: Math.max(0, Number.parseInt(String(source.peakListeners || 0), 10) || 0),
+    peakTime: clipText(source.peakTime || "", 80),
+    topStation: {
+      name: clipText(source?.topStation?.name || source.topStationName || "-", 120) || "-",
+      listeners: Math.max(0, Number.parseInt(String(source?.topStation?.listeners || source.topStationListeners || 0), 10) || 0),
+    },
+    listenersByChannel,
+    dailyReport,
+    stationBreakdown,
+    updatedAt: clipText(source.updatedAt || new Date().toISOString(), 80),
+  };
+}
+
+function buildDashboardStatsForGuild(serverId, tier, runtimes) {
+  const listeningStats = getGuildListeningStats(serverId) || {};
+  const telemetry = normalizeDashboardTelemetryPayload(getDashboardTelemetry(serverId));
+  const liveRows = collectGuildLiveDetails(runtimes, serverId);
+  const events = listScheduledEvents({ guildId: serverId });
+  const permissionRules = getGuildCommandPermissionRules(serverId);
+
+  const listenersNow = liveRows.reduce((sum, row) => sum + (Number(row.listeners || 0) || 0), 0);
+  const activeStreams = liveRows.length;
+  const listenersByChannel = liveRows
+    .reduce((map, row) => {
+      const key = row.channelId || row.channelName || row.botId || row.botName;
+      const current = map.get(key) || { name: row.channelName || row.channelId || "Voice", listeners: 0 };
+      current.listeners += Number(row.listeners || 0) || 0;
+      map.set(key, current);
+      return map;
+    }, new Map());
+
+  const stationBreakdown = Object.entries(listeningStats.stationStarts || {})
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 12)
+    .map(([name, starts]) => ({
+      name: listeningStats.stationNames?.[name] || name,
+      starts: Number(starts || 0) || 0,
+      peakListeners: 0,
+    }));
+
+  const liveTopStation = liveRows
+    .slice()
+    .sort((a, b) => b.listeners - a.listeners || String(a.stationName).localeCompare(String(b.stationName)))[0];
+  const historicalTopStation = stationBreakdown[0];
+  const topStation = liveTopStation
+    ? { name: liveTopStation.stationName || "-", listeners: liveTopStation.listeners || 0 }
+    : telemetry.topStation?.name && telemetry.topStation.name !== "-"
+      ? telemetry.topStation
+      : historicalTopStation
+        ? { name: historicalTopStation.name, listeners: historicalTopStation.peakListeners || 0 }
+        : { name: "-", listeners: 0 };
+
+  const peakTime = telemetry.peakTime
+    || (listeningStats.lastStartedAt ? new Date(listeningStats.lastStartedAt).toISOString() : "");
+  const peakListeners = Math.max(
+    Number(listeningStats.peakListeners || 0) || 0,
+    Number(telemetry.peakListeners || 0) || 0,
+    listenersNow
+  );
+
+  const basic = {
+    listenersNow,
+    activeStreams,
+    peakListeners,
+    peakTime,
+    topStation,
+    eventsConfigured: events.length,
+    eventsActive: events.filter((item) => item?.enabled !== false).length,
+    permRules: Object.keys(permissionRules || {}).length,
+    updatedAt: telemetry.updatedAt || new Date().toISOString(),
+  };
+
+  if (tier !== "ultimate") {
+    return { basic, advanced: null };
+  }
+
+  const advanced = {
+    listenersByChannel: listenersByChannel.size
+      ? [...listenersByChannel.values()].sort((a, b) => b.listeners - a.listeners || a.name.localeCompare(b.name))
+      : telemetry.listenersByChannel,
+    dailyReport: telemetry.dailyReport,
+    stationBreakdown: stationBreakdown.length ? stationBreakdown : telemetry.stationBreakdown,
+  };
+
+  return { basic, advanced };
+}
+
+function normalizeDashboardRoleToken(rawValue) {
+  const text = String(rawValue || "").trim();
+  if (!text) return "";
+  const mention = text.match(/^<@&(\d{17,22})>$/);
+  if (mention) return mention[1];
+  return text;
+}
+
+async function resolveGuildRoleIds(guild, rawRoles) {
+  const roleIds = [];
+  const unresolved = [];
+  const seen = new Set();
+  const roleCollection = guild?.roles?.cache || new Map();
+
+  if (guild?.roles?.fetch) {
+    try {
+      await guild.roles.fetch();
+    } catch {}
+  }
+
+  for (const rawRole of Array.isArray(rawRoles) ? rawRoles : []) {
+    const token = normalizeDashboardRoleToken(rawRole);
+    if (!token) continue;
+
+    let roleId = /^\d{17,22}$/.test(token) ? token : "";
+    if (!roleId) {
+      const lowerToken = token.toLowerCase();
+      const match = [...roleCollection.values()].find((role) => String(role?.name || "").trim().toLowerCase() === lowerToken);
+      roleId = String(match?.id || "").trim();
+    }
+
+    if (!/^\d{17,22}$/.test(roleId)) {
+      unresolved.push(token);
+      continue;
+    }
+    if (seen.has(roleId)) continue;
+    seen.add(roleId);
+    roleIds.push(roleId);
+  }
+
+  return { roleIds, unresolved };
+}
+
+function formatDashboardPermissionMapForClient(commandRules, guild) {
+  const output = {};
+  const roleCollection = guild?.roles?.cache || new Map();
+  const supportedCommands = getSupportedPermissionCommands();
+
+  for (const command of supportedCommands) {
+    const rule = commandRules?.[command];
+    const allowRoleIds = Array.isArray(rule?.allowRoleIds) ? rule.allowRoleIds : [];
+    output[command] = allowRoleIds.map((roleId) => roleCollection.get(roleId)?.name || roleId);
+  }
+
+  return output;
+}
+
+function buildDashboardEventResponse(eventRow) {
+  return {
+    id: String(eventRow?.id || ""),
+    title: eventRow?.name || "OmniFM Event",
+    stationKey: eventRow?.stationKey || "",
+    startsAt: Number(eventRow?.runAtMs || 0) > 0 ? new Date(Number(eventRow.runAtMs)).toISOString() : "",
+    timezone: eventRow?.timeZone || "Europe/Vienna",
+    channelId: eventRow?.voiceChannelId || "",
+    enabled: eventRow?.enabled !== false,
+    createdAt: eventRow?.createdAt || new Date().toISOString(),
+    updatedAt: eventRow?.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeDashboardEventInput(body, guildId, botId) {
+  const payload = body && typeof body === "object" ? body : {};
+  const title = clipText(payload.title || payload.name || "OmniFM Event", 120);
+  const stationKey = clipText(payload.stationKey || payload.station || "", 120).trim().toLowerCase();
+  const channelId = String(payload.channelId || payload.voiceChannelId || "").trim();
+  const startsAtRaw = String(payload.startsAt || payload.startAt || "").trim();
+  const parsedRunAtMs = Date.parse(startsAtRaw);
+  const timezone = clipText(payload.timezone || "Europe/Vienna", 60) || "Europe/Vienna";
+
+  if (!title) return { ok: false, message: "Titel fehlt." };
+  if (!stationKey) return { ok: false, message: "Station Key fehlt." };
+  if (!/^\d{17,22}$/.test(channelId)) return { ok: false, message: "Voice Channel ID fehlt oder ist ungueltig." };
+  if (!Number.isFinite(parsedRunAtMs) || parsedRunAtMs <= 0) return { ok: false, message: "Startzeit ist ungueltig." };
+  if (!botId) return { ok: false, message: "Kein geeigneter Bot fuer dieses Event gefunden." };
+
+  return {
+    ok: true,
+    event: {
+      guildId,
+      botId,
+      name: title,
+      stationKey,
+      voiceChannelId: channelId,
+      runAtMs: parsedRunAtMs,
+      timeZone: timezone,
+      enabled: payload.enabled !== false,
+    },
   };
 }
 
@@ -611,6 +1144,483 @@ function startWebServer(runtimes) {
         log("ERROR", `DiscordBotList sync API error: ${err?.message || err}`);
         sendJson(res, 500, { success: false, error: "DiscordBotList Sync fehlgeschlagen." });
       }
+      return;
+    }
+
+    const dashboardEventMatch = requestUrl.pathname.match(/^\/api\/dashboard\/events\/([^/]+)$/);
+
+    if (requestUrl.pathname === "/api/auth/discord/login") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      if (!isDiscordOauthConfigured()) {
+        sendJson(res, 503, {
+          error: "Discord OAuth ist noch nicht konfiguriert.",
+          oauthConfigured: false,
+        });
+        return;
+      }
+
+      const nextPage = sanitizeDashboardPage(requestUrl.searchParams.get("nextPage"));
+      const stateToken = randomBytes(24).toString("base64url");
+      const frontendOrigin = getFrontendBaseOrigin(req, publicUrl);
+      const nowTs = Math.floor(Date.now() / 1000);
+      setDashboardOauthState(stateToken, {
+        nextPage,
+        origin: frontendOrigin,
+        createdAt: nowTs,
+        expiresAt: nowTs + getDiscordOauthStateTtlSeconds(),
+      });
+
+      sendJson(res, 200, {
+        oauthConfigured: true,
+        authUrl: buildDiscordAuthorizeUrl(stateToken),
+        state: stateToken,
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/auth/discord/callback") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+
+      const code = String(requestUrl.searchParams.get("code") || "").trim();
+      const stateToken = String(requestUrl.searchParams.get("state") || "").trim();
+      const fallbackOrigin = getFrontendBaseOrigin(req, publicUrl);
+      const statePayload = popDashboardOauthState(stateToken);
+      const frontendOrigin = statePayload?.origin || fallbackOrigin;
+
+      if (!isDiscordOauthConfigured()) {
+        res.writeHead(302, {
+          ...getCommonSecurityHeaders(),
+          Location: buildDashboardErrorRedirect(frontendOrigin, "oauth_not_configured"),
+        });
+        res.end();
+        return;
+      }
+      if (!statePayload) {
+        res.writeHead(302, {
+          ...getCommonSecurityHeaders(),
+          Location: buildDashboardErrorRedirect(frontendOrigin, "invalid_state"),
+        });
+        res.end();
+        return;
+      }
+      if (!code) {
+        res.writeHead(302, {
+          ...getCommonSecurityHeaders(),
+          Location: buildDashboardErrorRedirect(frontendOrigin, "missing_code"),
+        });
+        res.end();
+        return;
+      }
+
+      try {
+        const accessToken = await exchangeDiscordCodeForToken(code);
+        const userProfile = await fetchDiscordUserProfile(accessToken);
+        const guilds = await fetchDiscordUserGuilds(accessToken);
+        const sessionToken = randomBytes(32).toString("base64url");
+        const nowTs = Math.floor(Date.now() / 1000);
+        setDashboardAuthSession(sessionToken, {
+          user: userProfile,
+          guilds,
+          createdAt: nowTs,
+          expiresAt: nowTs + getDashboardSessionTtlSeconds(),
+        });
+
+        res.writeHead(302, {
+          ...getCommonSecurityHeaders(),
+          Location: `${frontendOrigin}/?page=${sanitizeDashboardPage(statePayload.nextPage)}`,
+          "Set-Cookie": buildDashboardSessionCookie(sessionToken, req, frontendOrigin),
+        });
+        res.end();
+      } catch (err) {
+        log("ERROR", `Discord OAuth callback failed: ${err?.message || err}`);
+        res.writeHead(302, {
+          ...getCommonSecurityHeaders(),
+          Location: buildDashboardErrorRedirect(frontendOrigin, "oauth_exchange_failed"),
+        });
+        res.end();
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/auth/session") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendJson(res, 200, {
+          authenticated: false,
+          oauthConfigured: isDiscordOauthConfigured(),
+          user: null,
+          guilds: [],
+        });
+        return;
+      }
+
+      sendJson(res, 200, {
+        authenticated: true,
+        oauthConfigured: isDiscordOauthConfigured(),
+        user: session.user || null,
+        guilds: resolveDashboardGuildsForSession(session),
+        expiresAt: session.expiresAt || null,
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/auth/logout") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+
+      const { token } = getDashboardSession(req);
+      if (token) {
+        deleteDashboardAuthSession(token);
+      }
+      res.writeHead(200, {
+        ...getCommonSecurityHeaders(),
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Set-Cookie": buildDashboardSessionCookieDeletion(req, getFrontendBaseOrigin(req, publicUrl)),
+      });
+      res.end(JSON.stringify({ success: true }));
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/guilds") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        return;
+      }
+      sendJson(res, 200, { guilds: resolveDashboardGuildsForSession(session) });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/stats") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        return;
+      }
+
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) {
+        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        return;
+      }
+      if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
+        sendJson(res, 403, { error: "Dashboard ist erst ab Pro verfuegbar." });
+        return;
+      }
+
+      const statsPayload = buildDashboardStatsForGuild(guild.id, guild.tier, runtimes);
+      sendJson(res, 200, {
+        serverId: guild.id,
+        tier: guild.tier,
+        basic: statsPayload.basic,
+        advanced: guild.tier === "ultimate" ? statsPayload.advanced : null,
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/telemetry") {
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      if (!isAdminApiRequest(req)) {
+        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+        return;
+      }
+      const serverId = String(requestUrl.searchParams.get("serverId") || "").trim();
+      if (!/^\d{17,22}$/.test(serverId)) {
+        sendJson(res, 400, { error: "ungueltige serverId" });
+        return;
+      }
+      try {
+        const body = await readJsonBody();
+        const telemetry = setDashboardTelemetry(serverId, normalizeDashboardTelemetryPayload(body));
+        sendJson(res, 200, { success: true, serverId, telemetry });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, { error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body." });
+          return;
+        }
+        sendJson(res, 500, { error: "Telemetry konnte nicht gespeichert werden." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/events") {
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        return;
+      }
+
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) {
+        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        return;
+      }
+      if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
+        sendJson(res, 403, { error: "Events sind erst ab Pro verfuegbar." });
+        return;
+      }
+
+      if (req.method === "GET") {
+        const events = listScheduledEvents({ guildId: guild.id }).map((eventRow) => buildDashboardEventResponse(eventRow));
+        sendJson(res, 200, { serverId: guild.id, events });
+        return;
+      }
+
+      if (req.method === "POST") {
+        try {
+          const body = await readJsonBody();
+          const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
+          if (!managedGuild) {
+            sendJson(res, 400, { error: "Der Bot ist auf diesem Server aktuell nicht verfuegbar." });
+            return;
+          }
+          const channelId = String(body?.channelId || body?.voiceChannelId || "").trim();
+          let voiceChannel = managedGuild.channels?.cache?.get(channelId) || null;
+          if (!voiceChannel && managedGuild.channels?.fetch) {
+            voiceChannel = await managedGuild.channels.fetch(channelId).catch(() => null);
+          }
+          if (!voiceChannel || typeof voiceChannel.isVoiceBased !== "function" || !voiceChannel.isVoiceBased()) {
+            sendJson(res, 400, { error: "Voice Channel ID ist ungueltig oder der Channel ist nicht sprachfaehig." });
+            return;
+          }
+          const normalized = normalizeDashboardEventInput(body, guild.id, runtime?.config?.id || "");
+          if (!normalized.ok) {
+            sendJson(res, 400, { error: normalized.message });
+            return;
+          }
+          const result = createScheduledEvent(normalized.event);
+          if (!result?.ok || !result?.event) {
+            sendJson(res, 400, { error: result?.message || "Event konnte nicht erstellt werden." });
+            return;
+          }
+          sendJson(res, 200, {
+            success: true,
+            event: buildDashboardEventResponse(result.event),
+          });
+        } catch (err) {
+          const status = Number(err?.status || 0);
+          if (status === 400 || status === 413) {
+            sendJson(res, status, { error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body." });
+            return;
+          }
+          sendJson(res, 500, { error: "Event konnte nicht erstellt werden." });
+        }
+        return;
+      }
+
+      methodNotAllowed(res, ["GET", "POST"]);
+      return;
+    }
+
+    if (dashboardEventMatch) {
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        return;
+      }
+
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) {
+        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        return;
+      }
+      if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
+        sendJson(res, 403, { error: "Events sind erst ab Pro verfuegbar." });
+        return;
+      }
+
+      const eventId = decodeURIComponent(dashboardEventMatch[1] || "").trim();
+      if (!eventId) {
+        sendJson(res, 400, { error: "Event-ID fehlt." });
+        return;
+      }
+
+      if (req.method === "PATCH") {
+        try {
+          const existingEvent = getScheduledEvent(eventId);
+          if (!existingEvent || String(existingEvent.guildId || "") !== guild.id) {
+            sendJson(res, 404, { error: "Event nicht gefunden." });
+            return;
+          }
+
+          const body = await readJsonBody();
+          const { guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
+          const patch = {};
+          if (body?.enabled !== undefined) patch.enabled = Boolean(body.enabled);
+          if (body?.title || body?.name) patch.name = clipText(body.title || body.name, 120);
+          if (body?.stationKey || body?.station) patch.stationKey = clipText(body.stationKey || body.station, 120).trim().toLowerCase();
+          if (body?.channelId || body?.voiceChannelId) {
+            const channelId = String(body.channelId || body.voiceChannelId).trim();
+            let voiceChannel = managedGuild?.channels?.cache?.get(channelId) || null;
+            if (!voiceChannel && managedGuild?.channels?.fetch) {
+              voiceChannel = await managedGuild.channels.fetch(channelId).catch(() => null);
+            }
+            if (managedGuild && (!voiceChannel || typeof voiceChannel.isVoiceBased !== "function" || !voiceChannel.isVoiceBased())) {
+              sendJson(res, 400, { error: "Voice Channel ID ist ungueltig oder der Channel ist nicht sprachfaehig." });
+              return;
+            }
+            patch.voiceChannelId = channelId;
+          }
+          if (body?.startsAt || body?.startAt) {
+            const parsed = Date.parse(String(body.startsAt || body.startAt).trim());
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+              sendJson(res, 400, { error: "Startzeit ist ungueltig." });
+              return;
+            }
+            patch.runAtMs = parsed;
+          }
+          if (body?.timezone) patch.timeZone = clipText(body.timezone, 60);
+          const result = patchScheduledEvent(eventId, patch);
+          if (!result?.ok || !result?.event) {
+            sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
+              error: result?.message || "Event konnte nicht aktualisiert werden.",
+            });
+            return;
+          }
+          sendJson(res, 200, { success: true, event: buildDashboardEventResponse(result.event) });
+        } catch (err) {
+          const status = Number(err?.status || 0);
+          if (status === 400 || status === 413) {
+            sendJson(res, status, { error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body." });
+            return;
+          }
+          sendJson(res, 500, { error: "Event konnte nicht aktualisiert werden." });
+        }
+        return;
+      }
+
+      if (req.method === "DELETE") {
+        const result = deleteScheduledEvent(eventId, { guildId: guild.id });
+        if (!result?.ok) {
+          sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
+            error: result?.message || "Event konnte nicht geloescht werden.",
+          });
+          return;
+        }
+        sendJson(res, 200, { success: true, eventId });
+        return;
+      }
+
+      methodNotAllowed(res, ["PATCH", "DELETE"]);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/perms") {
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        return;
+      }
+
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) {
+        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        return;
+      }
+      if ((TIER_RANK[guildInfo.tier] || 0) < (TIER_RANK.pro || 1)) {
+        sendJson(res, 403, { error: "Berechtigungen sind erst ab Pro verfuegbar." });
+        return;
+      }
+
+      const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
+      if (guild?.roles?.fetch) {
+        try { await guild.roles.fetch(); } catch {}
+      }
+
+      if (req.method === "GET") {
+        const rules = getGuildCommandPermissionRules(guildInfo.id);
+        sendJson(res, 200, {
+          serverId: guildInfo.id,
+          tier: guildInfo.tier,
+          commandRoleMap: formatDashboardPermissionMapForClient(rules, guild),
+          updatedAt: null,
+        });
+        return;
+      }
+
+      if (req.method === "PUT") {
+        try {
+          const body = await readJsonBody();
+          const incomingMap = body?.commandRoleMap && typeof body.commandRoleMap === "object"
+            ? body.commandRoleMap
+            : {};
+          const supportedCommands = getSupportedPermissionCommands();
+          const unresolved = [];
+          const resolvedCommands = [];
+
+          for (const [rawCommand, rawRoles] of Object.entries(incomingMap)) {
+            const command = String(rawCommand || "").trim().replace(/^\//, "").toLowerCase();
+            if (!supportedCommands.includes(command)) continue;
+            const resolved = await resolveGuildRoleIds(guild, rawRoles);
+            if (resolved.unresolved.length) {
+              unresolved.push(`${command}: ${resolved.unresolved.join(", ")}`);
+              continue;
+            }
+            resolvedCommands.push({ command, roleIds: resolved.roleIds });
+          }
+
+          if (unresolved.length) {
+            sendJson(res, 400, {
+              error: `Folgende Rollen konnten nicht aufgeloest werden: ${unresolved.join(" | ")}`,
+            });
+            return;
+          }
+
+          for (const command of supportedCommands) {
+            resetCommandPermissions(guildInfo.id, command);
+          }
+
+          for (const item of resolvedCommands) {
+            for (const roleId of item.roleIds) {
+              setCommandRolePermission(guildInfo.id, item.command, roleId, "allow");
+            }
+          }
+
+          const rules = getGuildCommandPermissionRules(guildInfo.id);
+          sendJson(res, 200, {
+            success: true,
+            serverId: guildInfo.id,
+            commandRoleMap: formatDashboardPermissionMapForClient(rules, guild),
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          const status = Number(err?.status || 0);
+          if (status === 400 || status === 413) {
+            sendJson(res, status, { error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body." });
+            return;
+          }
+          sendJson(res, 500, { error: "Berechtigungen konnten nicht gespeichert werden." });
+        }
+        return;
+      }
+
+      methodNotAllowed(res, ["GET", "PUT"]);
       return;
     }
 
@@ -1334,6 +2344,12 @@ function startWebServer(runtimes) {
         methodNotAllowed(res, ["GET"]);
         return;
       }
+      const pricingLanguage = normalizeLanguage(
+        requestUrl.searchParams.get("lang"),
+        resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage())
+      );
+      const t = (de, en) => languagePick(pricingLanguage, de, en);
+      const formatPricingValue = (cents) => (Number(cents || 0) / 100).toFixed(2);
       const serverId = requestUrl.searchParams.get("serverId");
       const result = {
         brand: BRAND.name,
@@ -1342,39 +2358,39 @@ function startWebServer(runtimes) {
             name: "Free",
             pricePerMonth: 0,
             features: [
-              "64k Bitrate",
-              "Bis zu 2 Bots",
-              "20 Free Stationen",
-              "Standard Reconnect (5s)",
+              t("64k Bitrate", "64k bitrate"),
+              t("Bis zu 2 Bots", "Up to 2 bots"),
+              t("20 Free Stationen", "20 free stations"),
+              t("Standard Reconnect (5s)", "Standard reconnect (5s)"),
             ]
           },
           pro: {
             name: "Pro",
             pricePerMonth: TIERS.pro.pricePerMonth,
-            startingAt: formatEuroCentsDe(getPricePerMonthCents("pro", 1)),
+            startingAt: formatPricingValue(getPricePerMonthCents("pro", 1)),
             durationPricing: durationPricingInEuro("pro"),
             seatPricing: seatPricingInEuro("pro"),
             features: [
-              "128k Bitrate (HQ Opus)",
-              "Bis zu 8 Bots",
-              "120 Stationen (Free + Pro)",
-              "Priority Reconnect (1,5s)",
-              "Rollenbasierte Command-Berechtigungen",
-              "Event-Scheduler",
+              t("128k Bitrate (HQ Opus)", "128k bitrate (HQ Opus)"),
+              t("Bis zu 8 Bots", "Up to 8 bots"),
+              t("120 Stationen (Free + Pro)", "120 stations (free + pro)"),
+              t("Priority Reconnect (1,5s)", "Priority reconnect (1.5s)"),
+              t("Rollenbasierte Command-Berechtigungen", "Role-based command permissions"),
+              t("Event-Scheduler", "Event scheduler"),
             ]
           },
           ultimate: {
             name: "Ultimate",
             pricePerMonth: TIERS.ultimate.pricePerMonth,
-            startingAt: formatEuroCentsDe(getPricePerMonthCents("ultimate", 1)),
+            startingAt: formatPricingValue(getPricePerMonthCents("ultimate", 1)),
             durationPricing: durationPricingInEuro("ultimate"),
             seatPricing: seatPricingInEuro("ultimate"),
             features: [
-              "320k Bitrate (Ultra HQ)",
-              "Bis zu 16 Bots",
-              "Alle Stationen + Custom URLs",
-              "Instant Reconnect (0,4s)",
-              "Rollenbasierte Command-Berechtigungen",
+              t("320k Bitrate (Ultra HQ)", "320k bitrate (Ultra HQ)"),
+              t("Bis zu 16 Bots", "Up to 16 bots"),
+              t("Alle Stationen + Custom URLs", "All stations + custom URLs"),
+              t("Instant Reconnect (0,4s)", "Instant reconnect (0.4s)"),
+              t("Rollenbasierte Command-Berechtigungen", "Role-based command permissions"),
             ]
           },
         },
