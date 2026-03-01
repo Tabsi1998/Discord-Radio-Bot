@@ -474,7 +474,9 @@ run_recognition_test() {
   echo -e "  URL: ${CYAN}${target_url}${NC}"
   echo ""
 
-  RECOGNITION_TEST_URL="$target_url" docker compose exec -T omnifm sh -lc 'cd /app && node --input-type=module - <<'\''EOF'\''
+  docker compose exec -T \
+    -e RECOGNITION_TEST_URL="$target_url" \
+    omnifm sh -lc 'cd /app && node --input-type=module - <<'\''EOF'\''
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
