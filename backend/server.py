@@ -191,6 +191,359 @@ def clip_text(value, max_len=300):
     return text[: max_len - 3] + "..."
 
 
+def is_discord_oauth_configured():
+    return bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET and DISCORD_REDIRECT_URI)
+
+
+def get_frontend_base_url(request: Request):
+    configured = (os.environ.get("PUBLIC_WEB_URL") or "").strip()
+    parsed_config = urlparse(configured)
+    if parsed_config.scheme in ("http", "https") and parsed_config.netloc:
+        return f"{parsed_config.scheme}://{parsed_config.netloc}"
+
+    from_redirect = urlparse(DISCORD_REDIRECT_URI)
+    if from_redirect.scheme in ("http", "https") and from_redirect.netloc:
+        return f"{from_redirect.scheme}://{from_redirect.netloc}"
+
+    origin = (request.headers.get("origin") or "").strip()
+    parsed_origin = urlparse(origin)
+    if parsed_origin.scheme in ("http", "https") and parsed_origin.netloc:
+        return f"{parsed_origin.scheme}://{parsed_origin.netloc}"
+
+    request_origin = f"{request.url.scheme}://{request.url.netloc}"
+    return request_origin
+
+
+def clean_expired_oauth_states(now_ts=None):
+    now_value = int(now_ts if now_ts is not None else time.time())
+    expired = []
+    for state_key, payload in DISCORD_OAUTH_STATE_STORE.items():
+        expires_at = int(payload.get("expiresAt", 0) or 0)
+        if expires_at <= now_value:
+            expired.append(state_key)
+    for state_key in expired:
+        DISCORD_OAUTH_STATE_STORE.pop(state_key, None)
+
+
+def clean_expired_dashboard_sessions(now_ts=None):
+    now_value = int(now_ts if now_ts is not None else time.time())
+    expired = []
+    for session_key, payload in DASHBOARD_SESSION_STORE.items():
+        expires_at = int(payload.get("expiresAt", 0) or 0)
+        if expires_at <= now_value:
+            expired.append(session_key)
+    for session_key in expired:
+        DASHBOARD_SESSION_STORE.pop(session_key, None)
+
+
+def load_dashboard_data():
+    default_data = {
+        "events": {},
+        "perms": {},
+        "telemetry": {},
+    }
+
+    if db is not None:
+        try:
+            doc = db.dashboard_state.find_one({"_id": "dashboard_state"}, {"_id": 0})
+            if isinstance(doc, dict):
+                return {
+                    "events": doc.get("events", {}),
+                    "perms": doc.get("perms", {}),
+                    "telemetry": doc.get("telemetry", {}),
+                }
+        except Exception:
+            pass
+
+    if DASHBOARD_FILE.exists():
+        try:
+            payload = json.loads(DASHBOARD_FILE.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return {
+                    "events": payload.get("events", {}),
+                    "perms": payload.get("perms", {}),
+                    "telemetry": payload.get("telemetry", {}),
+                }
+        except Exception:
+            pass
+    return default_data
+
+
+def save_dashboard_data(payload):
+    safe_payload = {
+        "events": payload.get("events", {}) if isinstance(payload, dict) else {},
+        "perms": payload.get("perms", {}) if isinstance(payload, dict) else {},
+        "telemetry": payload.get("telemetry", {}) if isinstance(payload, dict) else {},
+    }
+    if db is not None:
+        try:
+            db.dashboard_state.update_one(
+                {"_id": "dashboard_state"},
+                {"$set": safe_payload},
+                upsert=True,
+            )
+            return
+        except Exception:
+            pass
+    try:
+        DASHBOARD_FILE.write_text(json.dumps(safe_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def normalize_dashboard_event(event_payload):
+    payload = event_payload if isinstance(event_payload, dict) else {}
+    event_id = str(payload.get("id") or secrets.token_hex(8)).strip()[:64]
+    title = clip_text(payload.get("title") or payload.get("name") or "OmniFM Event", 120)
+    station_key = clip_text(payload.get("stationKey") or payload.get("station") or "", 120)
+    fallback_key = clip_text(payload.get("fallbackStationKey") or payload.get("fallback") or "", 120)
+    starts_at = clip_text(payload.get("startsAt") or payload.get("startAt") or "", 80)
+    timezone_name = clip_text(payload.get("timezone") or "Europe/Vienna", 60)
+    channel_id = clip_text(payload.get("channelId") or "", 60)
+    enabled = payload.get("enabled") is not False
+    now_iso = datetime.now(timezone.utc).isoformat()
+    return {
+        "id": event_id,
+        "title": title,
+        "stationKey": station_key,
+        "fallbackStationKey": fallback_key,
+        "startsAt": starts_at,
+        "timezone": timezone_name,
+        "channelId": channel_id,
+        "enabled": enabled,
+        "updatedAt": now_iso,
+        "createdAt": clip_text(payload.get("createdAt") or now_iso, 80),
+    }
+
+
+def normalize_dashboard_perms(payload):
+    body = payload if isinstance(payload, dict) else {}
+    incoming = body.get("commandRoleMap") if isinstance(body.get("commandRoleMap"), dict) else {}
+    normalized = {}
+    for raw_command, raw_roles in incoming.items():
+        command = clip_text(raw_command, 64).lstrip("/").lower()
+        if not command:
+            continue
+        roles = []
+        if isinstance(raw_roles, list):
+            for role in raw_roles:
+                role_name = clip_text(role, 80)
+                if role_name and role_name not in roles:
+                    roles.append(role_name)
+        normalized[command] = roles
+    return {
+        "commandRoleMap": normalized,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def normalize_dashboard_telemetry(payload):
+    body = payload if isinstance(payload, dict) else {}
+    listeners_now = max(0, parse_int(body.get("listenersNow"), 0))
+    active_streams = max(0, parse_int(body.get("activeStreams"), 0))
+    peak_listeners = max(0, parse_int(body.get("peakListeners"), listeners_now))
+    peak_time = clip_text(body.get("peakTime") or datetime.now(timezone.utc).isoformat(), 80)
+    top_station_name = clip_text((body.get("topStation") or {}).get("name") if isinstance(body.get("topStation"), dict) else body.get("topStationName"), 120)
+    top_station_listeners = max(0, parse_int((body.get("topStation") or {}).get("listeners") if isinstance(body.get("topStation"), dict) else body.get("topStationListeners"), 0))
+
+    listeners_by_channel = []
+    raw_channels = body.get("listenersByChannel") if isinstance(body.get("listenersByChannel"), list) else []
+    for item in raw_channels[:20]:
+        if not isinstance(item, dict):
+            continue
+        listeners_by_channel.append({
+            "name": clip_text(item.get("name") or item.get("channel") or "Voice", 80),
+            "listeners": max(0, parse_int(item.get("listeners"), 0)),
+        })
+
+    daily_report = []
+    raw_daily = body.get("dailyReport") if isinstance(body.get("dailyReport"), list) else body.get("daily") if isinstance(body.get("daily"), list) else []
+    for item in raw_daily[:31]:
+        if not isinstance(item, dict):
+            continue
+        day_key = clip_text(item.get("day"), 20)
+        if not day_key:
+            continue
+        daily_report.append({
+            "day": day_key,
+            "starts": max(0, parse_int(item.get("starts"), 0)),
+            "peakListeners": max(0, parse_int(item.get("peakListeners"), 0)),
+        })
+
+    station_breakdown = []
+    raw_station_breakdown = body.get("stationBreakdown") if isinstance(body.get("stationBreakdown"), list) else []
+    for item in raw_station_breakdown[:20]:
+        if not isinstance(item, dict):
+            continue
+        station_breakdown.append({
+            "name": clip_text(item.get("name") or item.get("station") or "Station", 80),
+            "starts": max(0, parse_int(item.get("starts"), 0)),
+            "peakListeners": max(0, parse_int(item.get("peakListeners"), 0)),
+        })
+
+    return {
+        "listenersNow": listeners_now,
+        "activeStreams": active_streams,
+        "peakListeners": peak_listeners,
+        "peakTime": peak_time,
+        "topStation": {
+            "name": top_station_name or "-",
+            "listeners": top_station_listeners,
+        },
+        "listenersByChannel": listeners_by_channel,
+        "dailyReport": daily_report,
+        "stationBreakdown": station_breakdown,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def has_manage_guild_permission(raw_permissions):
+    try:
+        bitfield = int(str(raw_permissions or "0"))
+    except Exception:
+        bitfield = 0
+    manage_guild = (bitfield & 0x20) == 0x20
+    administrator = (bitfield & 0x8) == 0x8
+    return manage_guild or administrator
+
+
+def resolve_session_token_from_request(request: Request):
+    auth = (request.headers.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        bearer = auth[7:].strip()
+        if bearer:
+            return bearer
+    cookie_token = (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+    if cookie_token:
+        return cookie_token
+    header_token = (request.headers.get("x-session-token") or "").strip()
+    if header_token:
+        return header_token
+    return ""
+
+
+def get_dashboard_session(request: Request):
+    clean_expired_dashboard_sessions()
+    token = resolve_session_token_from_request(request)
+    if not token:
+        return None, ""
+    session = DASHBOARD_SESSION_STORE.get(token)
+    if not isinstance(session, dict):
+        return None, token
+    return session, token
+
+
+def resolve_dashboard_guilds_for_session(session_payload):
+    guilds = session_payload.get("guilds") if isinstance(session_payload.get("guilds"), list) else []
+    output = []
+    for item in guilds:
+        if not isinstance(item, dict):
+            continue
+        guild_id = str(item.get("id") or "").strip()
+        if not is_valid_server_id(guild_id):
+            continue
+        if not has_manage_guild_permission(item.get("permissions", "0")):
+            continue
+        tier = get_tier(guild_id)
+        output.append({
+            "id": guild_id,
+            "name": clip_text(item.get("name") or guild_id, 120),
+            "icon": clip_text(item.get("icon") or "", 120),
+            "owner": bool(item.get("owner", False)),
+            "permissions": str(item.get("permissions") or "0"),
+            "tier": tier,
+            "dashboardEnabled": (TIER_RANK.get(tier, 0) >= TIER_RANK.get("pro", 1)),
+            "ultimateEnabled": tier == "ultimate",
+        })
+    output.sort(key=lambda row: row.get("name", "").lower())
+    return output
+
+
+def resolve_session_guild_for_server(session_payload, server_id):
+    normalized = str(server_id or "").strip()
+    if not is_valid_server_id(normalized):
+        return None
+    for guild in resolve_dashboard_guilds_for_session(session_payload):
+        if guild.get("id") == normalized:
+            return guild
+    return None
+
+
+def build_discord_authorize_url(state, prompt="consent"):
+    params = {
+        "client_id": DISCORD_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": DISCORD_REDIRECT_URI,
+        "scope": DISCORD_OAUTH_SCOPES,
+        "state": state,
+        "prompt": prompt,
+    }
+    return f"https://discord.com/api/oauth2/authorize?{urlencode(params)}"
+
+
+def exchange_discord_code_for_token(code):
+    response = requests.post(
+        "https://discord.com/api/oauth2/token",
+        data={
+            "client_id": DISCORD_CLIENT_ID,
+            "client_secret": DISCORD_CLIENT_SECRET,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": DISCORD_REDIRECT_URI,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"discord_token_exchange_failed:{response.status_code}")
+    payload = response.json() if response.content else {}
+    access_token = str(payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("discord_access_token_missing")
+    return access_token
+
+
+def fetch_discord_user_profile(access_token):
+    response = requests.get(
+        "https://discord.com/api/users/@me",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"discord_user_fetch_failed:{response.status_code}")
+    payload = response.json() if response.content else {}
+    return {
+        "id": str(payload.get("id") or "").strip(),
+        "username": clip_text(payload.get("username") or "Discord User", 80),
+        "globalName": clip_text(payload.get("global_name") or "", 80),
+        "avatar": clip_text(payload.get("avatar") or "", 120),
+    }
+
+
+def fetch_discord_user_guilds(access_token):
+    response = requests.get(
+        "https://discord.com/api/users/@me/guilds",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"discord_guilds_fetch_failed:{response.status_code}")
+    payload = response.json() if response.content else []
+    output = []
+    if isinstance(payload, list):
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            output.append({
+                "id": str(item.get("id") or "").strip(),
+                "name": clip_text(item.get("name") or "Guild", 120),
+                "icon": clip_text(item.get("icon") or "", 120),
+                "owner": bool(item.get("owner", False)),
+                "permissions": str(item.get("permissions") or "0"),
+            })
+    return output
+
+
 def extract_mailbox(raw_value):
     text = str(raw_value or "").strip()
     if not text:
