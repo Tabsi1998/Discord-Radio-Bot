@@ -1397,11 +1397,12 @@ async def get_commands():
     return {
         "commands": [
             {"name": "/help", "args": "", "description": "Zeigt alle Befehle und kurze Erklaerungen"},
-            {"name": "/play", "args": "[station] [voice] [channel]", "description": "Starte einen Radio-Stream in deinem Voice-Channel"},
+            {"name": "/play", "args": "[station] [voice] [fallback] [bot]", "description": "Starte einen Radio-Stream im Voice-Channel (Ultimate: optional Fallback + YouTube-Live-URL)"},
             {"name": "/pause", "args": "", "description": "Wiedergabe pausieren"},
             {"name": "/resume", "args": "", "description": "Setzt die Wiedergabe fort"},
             {"name": "/stop", "args": "", "description": "Stoppt die Wiedergabe und verlaesst den Channel"},
             {"name": "/stations", "args": "", "description": "Zeigt alle verfuegbaren Radio-Stationen (nach Tier gefiltert)"},
+            {"name": "/stats", "args": "", "description": "[Pro+] Zeigt Server-Statistiken (Ultimate: erweiterte Analytics + Tagesreport)"},
             {"name": "/now", "args": "", "description": "Zeigt die aktuelle Station und Metadaten"},
             {"name": "/history", "args": "[limit]", "description": "Zeigt die zuletzt erkannten Songs"},
             {"name": "/setvolume", "args": "<value>", "description": "Setzt die Lautstaerke"},
