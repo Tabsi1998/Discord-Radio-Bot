@@ -101,8 +101,8 @@ function mapTierToColor(tier) {
 function buildPriceLabel(planId, tier, copy, formatDecimal) {
   if (planId === 'free') return copy.premium.freePrice;
   const startPrice = parsePriceNumber(tier.startingAt);
-  if (Number.isFinite(startPrice)) return `${copy.premium.priceFrom} ${formatDecimal(startPrice)} EUR`;
-  return `${copy.premium.priceFrom} ${formatDecimal(tier.pricePerMonth / 100)} EUR`;
+  if (Number.isFinite(startPrice)) return `${formatDecimal(startPrice)} EUR`;
+  return `${formatDecimal(tier.pricePerMonth / 100)} EUR`;
 }
 
 function CheckoutModal(props) {
@@ -791,6 +791,22 @@ function Premium() {
                 </div>
 
                 <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 16, fontFamily: "'JetBrains Mono', monospace" }}>
+                  {planId !== 'free' && (
+                    <div
+                      data-testid={`premium-price-prefix-${planId}`}
+                      style={{
+                        fontSize: 11,
+                        color: '#A1A1AA',
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        marginBottom: 6,
+                        fontFamily: "'Outfit', sans-serif",
+                        fontWeight: 600,
+                      }}
+                    >
+                      ab Preis
+                    </div>
+                  )}
                   {buildPriceLabel(planId, tier, copy, formatDecimal)}
                   <span style={{ fontSize: 13, color: '#52525B', fontWeight: 400, fontFamily: "'DM Sans', sans-serif" }}>
                     {copy.premium.perMonth}
