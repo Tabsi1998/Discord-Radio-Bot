@@ -1,54 +1,41 @@
-# OmniFM v3.0 - Project Requirements Document
+# PRD – Repo Vollanalyse: Discord-Radio-Bot
 
 ## Original Problem Statement
-Refactoring & modernization of a Node.js Discord Radio Bot:
-- Phase 1: Modularize monolithic index.js + MongoDB migration
-- Phase 2: Commander/Worker architecture with tiered workers
-- Phase 3: All JSON stores to MongoDB + pricing migration
-- Phase 4: Web UI redesign + update.sh CLI expansion
+"Hol dir bitte das angegebene Github Repossitory KOMPLETT sauber runter und ANALYSIERE es komplett udn nimme s im preview in betrieb und alles! dass wir usn gemeinsam anschauen was man noch verbessern udn obtimieren kann oder wo es noch punkte giebt oder geben könnte! Analysiere ob wie eo was fehlt usw usw. also alles einmal! https://github.com/Tabsi1998/Discord-Radio-Bot"
 
-## Architecture
-```
-/app/
-├── backend/          # FastAPI (MongoDB, pricing API)
-├── frontend/         # React (redesigned dashboard)
-├── src/              # Node.js bot (Commander/Worker)
-│   ├── lib/          # logging.js, helpers.js, db.js etc.
-│   ├── bot/          # runtime.js, worker-manager.js
-│   ├── services/     # stream.js, now-playing.js, pricing.js
-│   ├── core/         # network-recovery.js, entitlements.js
-│   ├── ui/           # upgradeEmbeds.js
-│   ├── discord/      # syncGuildCommandsSafe.js
-│   └── utils/        # commandSyncGuard.js
-├── update.sh         # Admin CLI (Commander/Worker mgmt)
-└── web/              # Legacy static UI
-```
+## Architecture Decisions
+- Analyse auf `main`-Branch durchgeführt.
+- Vollscan über Node-Core (`src/`), React-Frontend (`frontend/`), FastAPI (`backend/`), Docker + Skripte.
+- Preview-Betrieb über laufende Frontend/Backend-Services aktiviert.
+- Qualitätssignale aus Tests, Lint, Build, API-Smoke, Browser-Konsole zusammengeführt.
 
-## Pricing Model
-- Durations: 1, 3, 6, 12 months
-- Server counts: 1, 2, 3, 5 servers per license
-- Pro: 1S=2.99, 2S=5.49, 3S=7.49, 5S=11.49 EUR/mo
-- Ultimate: 1S=4.99, 2S=9.19, 3S=12.49, 5S=19.19 EUR/mo
+## Was umgesetzt wurde
+- Repo geklont und lauffähig geprüft.
+- Preview-URL erfolgreich gestartet und visuell verifiziert.
+- Node-Tests ausgeführt (31/31 passed).
+- FastAPI-Tests gegen laufende API ausgeführt (11 passed, 2 failed).
+- API-Endpunkt-Matrix Node vs FastAPI erstellt (Drift identifiziert).
+- Sicherheits-/Dependenz-Check (`npm audit`) durchgeführt.
+- Vollständiger Analysebericht erstellt: `/app/Discord-Radio-Bot/ANALYSE_REPORT.md`.
 
-## Worker-Bot Tiers
-- Free: Bot 1-2 (Commander invite on website)
-- Pro: Bot 3-8 (via /invite command)
-- Ultimate: Bot 9-16 (via /invite command)
+## Priorisierter Backlog
+### P0
+- API-Contract zwischen Node und FastAPI harmonisieren.
+- Fehlende FastAPI-Endpunkte ergänzen (`/api/legal`, `/api/privacy`, Trial/Offers/DBL-Status).
+- Pricing-Datenformat robust machen (locale-safe numerische Verarbeitung).
+- Test-Fails beheben (`workers.botId`, `pricing.trial`).
 
-## Bug Fixes (2026-02-25)
-- FIXED: network-recovery.js (./logging.js -> ../lib/logging.js)
-- FIXED: now-playing.js (./logging.js -> ../lib/logging.js)
-- FIXED: stream.js (shouldLogFfmpegStderrLine from logging.js not helpers.js)
-- FIXED: runtime.js (removed nonexistent buildUpgradeEmbed, getDiscordLocale, commandSyncGuard imports)
-- FIXED: Added normalizeSeats + PRO_TRIAL_SEATS to helpers.js (used by payment.js, api-helpers.js)
-- FIXED: Updated DURATION_OPTIONS to [1,3,6,12] in helpers.js
-- VERIFIED: ALL src/ imports validated - zero issues
+### P1
+- `.gitignore` hinzufügen.
+- CI-Workflow für lint/test/smoke einführen.
+- Große Dateien modulweise aufsplitten (runtime/api/premium/frontend premium).
 
-## Test Results
-- iteration_11: Full feature set (z-index fixed)
-- Post-fix validation: ALL files pass node --check, ALL imports verified
+### P2
+- Legacy-Webpfad (`web/`) mit React vereinheitlichen oder entfernen.
+- Dependency-Audit-Fixes mit Regressionstests.
+- Frontend-Konsole-Warnungen (Animation-Styles) bereinigen.
 
-## Backlog
-- P2: Full testing of update.sh CLI
-- P1: TypeScript migration, Node.js test suite
-- P2: Admin panel, Discord bot testing with tokens
+## Next Tasks
+1. P0 API-Drift-Fixes umsetzen und E2E erneut testen.
+2. Danach CI + `.gitignore` einführen.
+3. Anschließend Refactoring-Paket für große Dateien planen.
