@@ -158,6 +158,25 @@ function Hero({ stats }) {
             {copy.hero.subtitleTail}
           </p>
 
+          <div
+            data-testid="hero-ultimate-youtube-badge"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              border: '1px solid rgba(139,92,246,0.45)',
+              background: 'rgba(139,92,246,0.14)',
+              color: '#DDD6FE',
+              padding: '8px 12px',
+              marginBottom: 26,
+              fontFamily: "'Outfit', sans-serif",
+              letterSpacing: '0.04em',
+              fontSize: 13,
+            }}
+          >
+            Ultimate Feature: YouTube Livestream Playback
+          </div>
+
           <div style={{
             display: 'flex',
             flexWrap: 'wrap',
