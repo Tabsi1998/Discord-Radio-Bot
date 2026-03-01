@@ -91,7 +91,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if CORS_HAS_WILDCARD else ALLOWED_ORIGINS,
     allow_credentials=not CORS_HAS_WILDCARD,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Admin-Token"],
 )
 
