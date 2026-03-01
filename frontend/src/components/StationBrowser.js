@@ -96,7 +96,7 @@ function StationCard({ station, index, isPlaying, onPlay, onStop, copy }) {
 }
 
 function StationBrowser({ stations, loading }) {
-  const { copy, formatNumber } = useI18n();
+  const { copy, formatNumber, locale } = useI18n();
   const [search, setSearch] = useState('');
   const [activeTier, setActiveTier] = useState(null);
   const [playingKey, setPlayingKey] = useState(null);
@@ -109,7 +109,6 @@ function StationBrowser({ stations, loading }) {
     { id: null, label: copy.stations.filters.all, color: '#fff' },
     { id: 'free', label: copy.stations.filters.free, color: '#39FF14' },
     { id: 'pro', label: copy.stations.filters.pro, color: '#FFB800' },
-    { id: 'ultimate', label: copy.stations.filters.ultimate, color: '#BD00FF' },
   ];
 
   const counts = useMemo(() => ({
@@ -187,6 +186,25 @@ function StationBrowser({ stations, loading }) {
     pro: formatNumber(counts.pro),
     ultimate: formatNumber(counts.ultimate),
   });
+
+  const removeUltimateCount = useCallback((value) => String(value || '')
+    .replace(/,\s*\d+[.,]?\d*\s*ultimate/gi, '')
+    .replace(/\(\s*/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/\(\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim(), []);
+
+  const finalSummaryText = counts.ultimate > 0
+    ? summaryText
+    : removeUltimateCount(summaryText);
+  const finalFilterSummaryText = counts.ultimate > 0
+    ? filterSummaryText
+    : removeUltimateCount(filterSummaryText);
+
+  const searchPlaceholder = counts.ultimate > 0
+    ? copy.stations.searchPlaceholder
+    : (String(locale || 'de').startsWith('de') ? 'Station suchen…' : 'Search station…');
 
   return (
     <section id="stations" data-testid="station-browser" style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}>
@@ -309,7 +327,7 @@ function StationBrowser({ stations, loading }) {
               type="text"
               data-testid="station-search"
               className="station-search"
-              placeholder={copy.stations.searchPlaceholder}
+              placeholder={searchPlaceholder}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -341,7 +359,7 @@ function StationBrowser({ stations, loading }) {
             })}
           </div>
           <p style={{ fontSize: 12, color: '#52525B', marginTop: 8 }}>
-            {filterSummaryText}
+            {finalFilterSummaryText}
           </p>
         </div>
 
