@@ -53,6 +53,12 @@ else
   echo "[WARN] ffmpeg fehlt im Container."
 fi
 
+if command -v yt-dlp >/dev/null 2>&1; then
+  echo "[INFO] yt-dlp verfuegbar: $(yt-dlp --version 2>/dev/null | head -n 1)"
+else
+  echo "[WARN] yt-dlp fehlt im Container. YouTube-Livestreams koennen nicht abgespielt werden."
+fi
+
 if [ "${NOW_PLAYING_RECOGNITION_ENABLED:-0}" != "0" ]; then
   if command -v fpcalc >/dev/null 2>&1; then
     echo "[INFO] Audio-Erkennung bereit: $(fpcalc -version 2>/dev/null | head -n 1)"

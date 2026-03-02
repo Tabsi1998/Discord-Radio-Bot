@@ -302,7 +302,12 @@ export default function DashboardPortal() {
   const startDiscordLogin = async () => {
     setError('');
     try {
-      const payload = await apiRequest('/api/auth/discord/login?nextPage=dashboard', { method: 'GET' });
+      const params = new URLSearchParams({ nextPage: 'dashboard' });
+      if (typeof window !== 'undefined') {
+        params.set('origin', window.location.origin);
+        params.set('returnUrl', window.location.href);
+      }
+      const payload = await apiRequest(`/api/auth/discord/login?${params.toString()}`, { method: 'GET' });
       if (payload?.authUrl) {
         window.location.href = payload.authUrl;
       }

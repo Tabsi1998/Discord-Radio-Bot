@@ -1163,8 +1163,12 @@ function startWebServer(runtimes) {
       }
 
       const nextPage = sanitizeDashboardPage(requestUrl.searchParams.get("nextPage"));
+      const requestedOrigin = requestUrl.searchParams.get("origin") || requestUrl.searchParams.get("returnUrl") || "";
+      const safeRequestedOrigin = requestedOrigin
+        ? toOrigin(resolveCheckoutReturnBase(requestedOrigin, publicUrl, req))
+        : "";
       const stateToken = randomBytes(24).toString("base64url");
-      const frontendOrigin = getFrontendBaseOrigin(req, publicUrl);
+      const frontendOrigin = getFrontendBaseOrigin(req, publicUrl, safeRequestedOrigin);
       const nowTs = Math.floor(Date.now() / 1000);
       setDashboardOauthState(stateToken, {
         nextPage,
@@ -2459,6 +2463,9 @@ function startWebServer(runtimes) {
     }
     if (publicUrl) {
       log("INFO", `Public URL: ${publicUrl}`);
+    }
+    if (!isDiscordOauthConfigured()) {
+      log("WARN", "Discord OAuth ist nicht vollstaendig konfiguriert. Setze DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET und DISCORD_REDIRECT_URI.");
     }
   });
 

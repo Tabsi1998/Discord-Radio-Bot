@@ -102,6 +102,7 @@ import {
   normalizeTrackSearchText,
 } from "../services/now-playing.js";
 import { createResource } from "../services/stream.js";
+import { isYouTubeUrl } from "../services/youtube-live.js";
 import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier } from "../stations-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "../bot-state.js";
 import {
@@ -423,6 +424,7 @@ class BotRuntime {
     const state = this.guildState.get(guildId);
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     if (state) {
+      this.queueDeleteNowPlayingMessage(guildId, state);
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
@@ -1599,6 +1601,54 @@ class BotRuntime {
     }
   }
 
+  async deleteNowPlayingMessage(guildId, state) {
+    if (!state) return false;
+
+    const channelId = String(state.nowPlayingChannelId || "").trim();
+    const messageId = String(state.nowPlayingMessageId || "").trim();
+    state.nowPlayingMessageId = null;
+    state.nowPlayingChannelId = null;
+    state.nowPlayingSignature = null;
+
+    if (!channelId || !messageId) return false;
+
+    const guild = this.client.guilds.cache.get(guildId);
+    let channel = guild?.channels?.cache?.get(channelId) || null;
+    if (!channel && guild?.channels?.fetch) {
+      channel = await guild.channels.fetch(channelId).catch(() => null);
+    }
+    if (!channel?.messages?.fetch) return false;
+
+    const existing = await channel.messages.fetch(messageId).catch(() => null);
+    if (!existing?.delete) return false;
+
+    try {
+      await existing.delete();
+      return true;
+    } catch (err) {
+      const code = Number(err?.code || err?.rawError?.code || 0);
+      if (code === 10008 || code === 10003) {
+        return false;
+      }
+      this.logNowPlayingIssue(
+        guildId,
+        state,
+        `Loeschen fehlgeschlagen in #${channel.name || channel.id}: ${clipText(err?.message || String(err), 160)}`
+      );
+      return false;
+    }
+  }
+
+  queueDeleteNowPlayingMessage(guildId, state) {
+    this.deleteNowPlayingMessage(guildId, state).catch((err) => {
+      this.logNowPlayingIssue(
+        guildId,
+        state,
+        `Cleanup fehlgeschlagen: ${clipText(err?.message || String(err), 160)}`
+      );
+    });
+  }
+
   async updateNowPlayingEmbed(guildId, state, { force = false } = {}) {
     if (!NOW_PLAYING_ENABLED) return;
     if (!state.currentStationKey) return;
@@ -1959,6 +2009,7 @@ class BotRuntime {
     const key = state.currentStationKey;
     if (!resolvedStation?.stations || !resolvedStation?.station) {
       this.clearNowPlayingTimer(state);
+      this.queueDeleteNowPlayingMessage(guildId, state);
       state.currentStationKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
@@ -2241,6 +2292,7 @@ class BotRuntime {
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
 
     if (!preservePlaybackTarget) {
+      this.queueDeleteNowPlayingMessage(guildId, state);
       state.currentStationKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
@@ -5842,6 +5894,7 @@ class BotRuntime {
       this.clearScheduledEventPlayback(state);
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
+      this.queueDeleteNowPlayingMessage(interaction.guildId, state);
       state.player.stop();
       this.clearCurrentProcess(state);
 
@@ -6476,7 +6529,8 @@ class BotRuntime {
         log("ERROR", `[${this.config.name}] Play error: ${err.message}`);
         state.lastStreamErrorAt = new Date().toISOString();
 
-        const fallbackKey = getFallbackKey(stations, key);
+        const allowFallback = !isCustom && !isYouTubeUrl(selectedStation?.url || "");
+        const fallbackKey = allowFallback ? getFallbackKey(stations, key) : null;
         if (fallbackKey && fallbackKey !== key && stations.stations[fallbackKey]) {
           try {
             await this.playStation(state, stations, fallbackKey, guildId);
@@ -6496,6 +6550,7 @@ class BotRuntime {
         state.shouldReconnect = false;
         this.syncVoiceChannelStatus(guildId, "").catch(() => null);
         this.clearNowPlayingTimer(state);
+        this.queueDeleteNowPlayingMessage(guildId, state);
         state.player.stop();
         this.clearCurrentProcess(state);
         if (state.connection) {
@@ -6569,6 +6624,7 @@ class BotRuntime {
     this.clearScheduledEventPlayback(state);
     this.clearReconnectTimer(state);
     this.clearNowPlayingTimer(state);
+    this.queueDeleteNowPlayingMessage(guildId, state);
     state.player.stop();
     this.clearCurrentProcess(state);
 
@@ -6832,6 +6888,7 @@ class BotRuntime {
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
+      await this.deleteNowPlayingMessage(guildId, state).catch(() => null);
       state.player.stop();
       this.clearCurrentProcess(state);
       if (state.connection) {
