@@ -744,8 +744,36 @@ export default function DashboardPortal() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                 <MetricCard testId="dashboard-stats-listeners-now" label={t('Live Zuhoerer', 'Live listeners')} value={stats.basic?.listenersNow ?? 0} />
                 <MetricCard testId="dashboard-stats-active-streams" label={t('Aktive Streams', 'Active streams')} value={stats.basic?.activeStreams ?? 0} accent="#10B981" />
+                <MetricCard testId="dashboard-stats-listener-hours" label={t('Hoerstunden gesamt', 'Total listener hours')} value={stats.basic?.listenerHours ?? 0} accent="#F59E0B" />
+                <MetricCard testId="dashboard-stats-active-hours" label={t('Voice aktiv', 'Voice active')} value={stats.basic?.activeHours ?? 0} accent="#14B8A6" />
+                <MetricCard testId="dashboard-stats-stations-ever" label={t('Sender jemals', 'Stations ever')} value={stats.basic?.uniqueStations ?? 0} accent="#FFFFFF" />
                 <MetricCard testId="dashboard-stats-peak-time" label={t('Peak Zeit', 'Peak time')} value={stats.basic?.peakTime || '-'} accent="#8B5CF6" />
                 <MetricCard testId="dashboard-stats-top-station" label={t('Top Station', 'Top station')} value={stats.basic?.topStation?.name || '-'} accent="#FFFFFF" />
+              </div>
+
+              <div style={{ border: '1px solid #27272A', background: '#0A0A0A', padding: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <strong>{t('Analysefenster', 'Analytics window')}</strong>
+                  <span style={{ color: '#A1A1AA' }}>{stats.basic?.retentionDays || 0} {t('Tage', 'days')}</span>
+                </div>
+                <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                  <div style={{ border: '1px solid #27272A', background: '#050505', padding: 12 }}>
+                    <div style={{ color: '#A1A1AA', fontSize: 12 }}>{t('Starts im Fenster', 'Starts in window')}</div>
+                    <strong>{stats.basic?.windowSummary?.starts ?? 0}</strong>
+                  </div>
+                  <div style={{ border: '1px solid #27272A', background: '#050505', padding: 12 }}>
+                    <div style={{ color: '#A1A1AA', fontSize: 12 }}>{t('Hoerstunden im Fenster', 'Listener hours in window')}</div>
+                    <strong>{stats.basic?.windowSummary?.listenerHours ?? 0}</strong>
+                  </div>
+                  <div style={{ border: '1px solid #27272A', background: '#050505', padding: 12 }}>
+                    <div style={{ color: '#A1A1AA', fontSize: 12 }}>{t('Voice aktiv im Fenster', 'Voice active in window')}</div>
+                    <strong>{stats.basic?.windowSummary?.activeHours ?? 0}</strong>
+                  </div>
+                  <div style={{ border: '1px solid #27272A', background: '#050505', padding: 12 }}>
+                    <div style={{ color: '#A1A1AA', fontSize: 12 }}>{t('Peak im Fenster', 'Peak in window')}</div>
+                    <strong>{stats.basic?.windowSummary?.peakListeners ?? 0}</strong>
+                  </div>
+                </div>
               </div>
 
               {!isUltimate && (
@@ -755,41 +783,88 @@ export default function DashboardPortal() {
                     <strong>{t('Ultimate Analytics', 'Ultimate analytics')}</strong>
                   </div>
                   <p style={{ color: '#A1A1AA', marginTop: 8, lineHeight: 1.7 }}>
-                    {t('Mit Ultimate siehst du Channel-Breakdowns, Tagesreports und detaillierte Station-Auswertungen.', 'Ultimate unlocks channel breakdowns, daily reports, and detailed station analytics.')}
+                    {t('PRO zeigt jetzt bereits Hoerstunden, Trendfenster und Top-Sender. Ultimate schaltet das komplette Sender-Archiv und die staerksten Tage frei.', 'PRO already shows listener hours, trend windows, and top stations. Ultimate unlocks the complete station archive and strongest days.')}
                   </p>
                 </div>
               )}
 
-              {isUltimate && (
-                <div data-testid="dashboard-stats-advanced" style={{ border: '1px solid #27272A', background: '#0A0A0A', padding: 16, display: 'grid', gap: 12 }}>
-                  <div>
-                    <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Listener pro Channel', 'Listeners by channel')}</h4>
-                    <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                      {(stats.advanced?.listenersByChannel || []).length === 0 && <div data-testid="dashboard-advanced-channels-empty" style={{ color: '#A1A1AA' }}>{t('Keine Channel-Daten.', 'No channel data yet.')}</div>}
-                      {(stats.advanced?.listenersByChannel || []).map((item, index) => (
-                        <div key={`${item.name}-${index}`} data-testid={`dashboard-advanced-channel-row-${index}`} style={{ border: '1px solid #27272A', background: '#050505', padding: '8px 10px', display: 'flex', justifyContent: 'space-between' }}>
-                          <span>{item.name}</span>
-                          <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{item.listeners}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Tagesreport', 'Daily report')}</h4>
-                    <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                      {(stats.advanced?.dailyReport || []).length === 0 && <div data-testid="dashboard-advanced-daily-empty" style={{ color: '#A1A1AA' }}>{t('Keine Tagesdaten.', 'No daily data yet.')}</div>}
-                      {(stats.advanced?.dailyReport || []).map((item, index) => (
-                        <div key={`${item.day}-${index}`} data-testid={`dashboard-advanced-daily-row-${index}`} style={{ border: '1px solid #27272A', background: '#050505', padding: '8px 10px', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                          <span style={{ minWidth: 90 }}>{item.day}</span>
-                          <span>{t('Starts', 'Starts')}: <strong>{item.starts}</strong></span>
-                          <span>{t('Peak', 'Peak')}: <strong>{item.peakListeners}</strong></span>
-                        </div>
-                      ))}
-                    </div>
+              <div data-testid="dashboard-stats-advanced" style={{ border: '1px solid #27272A', background: '#0A0A0A', padding: 16, display: 'grid', gap: 12 }}>
+                <div>
+                  <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Listener pro Channel', 'Listeners by channel')}</h4>
+                  <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                    {(stats.advanced?.listenersByChannel || []).length === 0 && <div data-testid="dashboard-advanced-channels-empty" style={{ color: '#A1A1AA' }}>{t('Keine Channel-Daten.', 'No channel data yet.')}</div>}
+                    {(stats.advanced?.listenersByChannel || []).map((item, index) => (
+                      <div key={`${item.name}-${index}`} data-testid={`dashboard-advanced-channel-row-${index}`} style={{ border: '1px solid #27272A', background: '#050505', padding: '8px 10px', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, alignItems: 'center' }}>
+                        <span>{item.name}</span>
+                        <span style={{ color: '#A1A1AA' }}>{t('Jetzt', 'Now')}: <strong>{item.listenersCurrent ?? item.listeners ?? 0}</strong></span>
+                        <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{item.listenerHours ?? 0}h</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )}
+
+                <div>
+                  <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Top Stationen', 'Top stations')}</h4>
+                  <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                    {(stats.advanced?.stationBreakdown || []).length === 0 && <div data-testid="dashboard-advanced-stations-empty" style={{ color: '#A1A1AA' }}>{t('Keine Stationsdaten.', 'No station data yet.')}</div>}
+                    {(stats.advanced?.stationBreakdown || []).map((item, index) => (
+                      <div key={`${item.name}-${index}`} data-testid={`dashboard-advanced-station-row-${index}`} style={{ border: '1px solid #27272A', background: '#050505', padding: '8px 10px', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, alignItems: 'center' }}>
+                        <span>{item.name}</span>
+                        <span>{t('Starts', 'Starts')}: <strong>{item.starts ?? 0}</strong></span>
+                        <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{item.listenerHours ?? 0}h</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Tagesreport', 'Daily report')}</h4>
+                  <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                    {(stats.advanced?.dailyReport || []).length === 0 && <div data-testid="dashboard-advanced-daily-empty" style={{ color: '#A1A1AA' }}>{t('Keine Tagesdaten.', 'No daily data yet.')}</div>}
+                    {(stats.advanced?.dailyReport || []).map((item, index) => (
+                      <div key={`${item.day}-${index}`} data-testid={`dashboard-advanced-daily-row-${index}`} style={{ border: '1px solid #27272A', background: '#050505', padding: '8px 10px', display: 'grid', gridTemplateColumns: 'minmax(90px, auto) auto auto auto', justifyContent: 'space-between', gap: 12 }}>
+                        <span>{item.day}</span>
+                        <span>{t('Starts', 'Starts')}: <strong>{item.starts}</strong></span>
+                        <span>{t('Peak', 'Peak')}: <strong>{item.peakListeners}</strong></span>
+                        <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{item.listenerHours ?? 0}h</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {isUltimate && (
+                  <>
+                    <div>
+                      <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Staerkste Tage', 'Strongest days')}</h4>
+                      <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                        {(stats.advanced?.topDays || []).length === 0 && <div data-testid="dashboard-advanced-topdays-empty" style={{ color: '#A1A1AA' }}>{t('Keine Tages-Peaks.', 'No top days yet.')}</div>}
+                        {(stats.advanced?.topDays || []).map((item, index) => (
+                          <div key={`${item.day}-top-${index}`} data-testid={`dashboard-advanced-topday-row-${index}`} style={{ border: '1px solid #27272A', background: '#050505', padding: '8px 10px', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12 }}>
+                            <span>{item.day}</span>
+                            <span>{t('Starts', 'Starts')}: <strong>{item.starts}</strong></span>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{item.listenerHours ?? 0}h</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Alle Sender jemals', 'All stations ever')}</h4>
+                      <div style={{ marginTop: 8, display: 'grid', gap: 6, maxHeight: 420, overflowY: 'auto' }}>
+                        {(stats.advanced?.allStations || []).length === 0 && <div data-testid="dashboard-advanced-allstations-empty" style={{ color: '#A1A1AA' }}>{t('Noch keine Lifetime-Stationen.', 'No lifetime stations yet.')}</div>}
+                        {(stats.advanced?.allStations || []).map((item, index) => (
+                          <div key={`${item.name}-all-${index}`} data-testid={`dashboard-advanced-allstation-row-${index}`} style={{ border: '1px solid #27272A', background: '#050505', padding: '8px 10px', display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 12, alignItems: 'center' }}>
+                            <span>{item.name}</span>
+                            <span>{t('Starts', 'Starts')}: <strong>{item.starts}</strong></span>
+                            <span>{t('Peak', 'Peak')}: <strong>{item.peakListeners}</strong></span>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{item.listenerHours ?? 0}h</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </section>
           )}
 

@@ -151,6 +151,7 @@ import {
   recordCommandUsage,
   recordStationStart,
   recordListenerSample,
+  buildGuildListeningAnalytics,
   getGuildListeningStats,
   getTopGuildsByActivity,
 } from "../listening-stats-store.js";
@@ -366,6 +367,7 @@ class BotRuntime {
         nowPlayingMessageId: null,
         nowPlayingChannelId: null,
         nowPlayingSignature: null,
+        lastListenerStatsSampleAt: 0,
         nowPlayingLastErrorAt: 0,
         voiceStatusText: "",
         lastVoiceStatusErrorAt: 0,
@@ -424,6 +426,7 @@ class BotRuntime {
     const state = this.guildState.get(guildId);
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     if (state) {
+      this.flushListeningStatsSample(guildId, state);
       this.queueDeleteNowPlayingMessage(guildId, state);
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
@@ -433,6 +436,7 @@ class BotRuntime {
       if (state.connection) {
         try { state.connection.destroy(); } catch {}
       }
+      state.lastListenerStatsSampleAt = 0;
       this.guildState.delete(guildId);
     }
     deleteScheduledEventsByFilter({ guildId, botId: this.config.id });
@@ -885,6 +889,57 @@ class BotRuntime {
     return this.getVoiceListenerCount(guildId, channelId);
   }
 
+  getVoiceChannelDisplayName(guildId, channelId) {
+    const guild = this.client.guilds.cache.get(guildId);
+    const normalizedChannelId = String(channelId || "").trim();
+    if (!guild || !normalizedChannelId) return normalizedChannelId || "Voice";
+    return guild.channels?.cache?.get(normalizedChannelId)?.name || normalizedChannelId;
+  }
+
+  getListeningStatsWindowDays(guildTier) {
+    if (guildTier === "ultimate") return 365;
+    if (guildTier === "pro") return 180;
+    return 30;
+  }
+
+  formatStatsDuration(seconds, language = "de") {
+    const safeSeconds = Math.max(0, Number(seconds || 0) || 0);
+    const hours = safeSeconds / 3600;
+    if (hours >= 100) return `${hours.toFixed(0)} h`;
+    if (hours >= 1) return `${hours.toFixed(1)} h`;
+    return `${Math.round(safeSeconds / 60)} ${language === "de" ? "Min." : "min"}`;
+  }
+
+  flushListeningStatsSample(guildId, state, nowMs = Date.now()) {
+    if (!guildId || !state) return false;
+    const now = Number(nowMs) || Date.now();
+    const lastSampleAt = Number.parseInt(String(state.lastListenerStatsSampleAt || 0), 10) || 0;
+    if (!state.currentStationKey) {
+      state.lastListenerStatsSampleAt = now;
+      return false;
+    }
+    if (!lastSampleAt) {
+      state.lastListenerStatsSampleAt = now;
+      return false;
+    }
+
+    const sampleDurationMs = Math.max(0, now - lastSampleAt);
+    state.lastListenerStatsSampleAt = now;
+    if (sampleDurationMs <= 0) return false;
+
+    const channelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
+    recordListenerSample(guildId, {
+      listenerCount: this.getCurrentListenerCount(guildId, state),
+      stationKey: state.currentStationKey || "",
+      stationName: state.currentStationName || state.currentStationKey || "",
+      channelId,
+      channelName: this.getVoiceChannelDisplayName(guildId, channelId),
+      sampleDurationMs,
+      timestampMs: now,
+    });
+    return true;
+  }
+
   getLiveGuildPlaybackSnapshot(guildId) {
     const normalizedGuildId = String(guildId || "").trim();
     if (!normalizedGuildId) return [];
@@ -1017,6 +1072,165 @@ class BotRuntime {
       .setTimestamp(new Date());
 
     return embed;
+  }
+
+  buildListeningStatsPayload(guildId, language = "de") {
+    const t = (de, en) => languagePick(language, de, en);
+    const guild = this.client.guilds.cache.get(guildId) || null;
+    const guildTier = getTier(guildId);
+    const windowDays = this.getListeningStatsWindowDays(guildTier);
+    const analytics = buildGuildListeningAnalytics(guildId, {
+      windowDays,
+      stationLimit: guildTier === "ultimate" ? 12 : guildTier === "pro" ? 8 : 5,
+      channelLimit: guildTier === "ultimate" ? 8 : 5,
+      dailyLimit: guildTier === "ultimate" ? 10 : 6,
+    });
+    const liveStreams = this.getLiveGuildPlaybackSnapshot(guildId);
+    const totalLiveListeners = liveStreams.reduce((sum, item) => sum + (Number(item.listenerCount) || 0), 0);
+    const lifetime = analytics.lifetime;
+    const windowSummary = analytics.window;
+    const topStation = analytics.topStation;
+    const topHour = analytics.topHour;
+    const topChannels = analytics.channels
+      .slice(0, guildTier === "ultimate" ? 5 : 3)
+      .map((row) => `#${clipText(this.getVoiceChannelDisplayName(guildId, row.channelId) || row.name || row.channelId, 50)}: ${this.formatStatsDuration(row.listenerSeconds, language)}`);
+    const topGuild = getTopGuildsByActivity(1)[0] || null;
+    const topGuildName = topGuild
+      ? (this.client.guilds.cache.get(topGuild.guildId)?.name || topGuild.guildId)
+      : null;
+    const liveStationsText = liveStreams.length
+      ? liveStreams.map((item) => {
+        const stationName = clipText(item.stationName || item.stationKey || "-", 80);
+        const voiceLabel = item.channelId ? `<#${item.channelId}>` : t("unbekannt", "unknown");
+        return `**${stationName}** - ${voiceLabel} - ${item.listenerCount} ${t("Zuhoerer", "listeners")}`;
+      }).join("\n")
+      : t("Aktuell laeuft auf diesem Server kein Stream.", "No stream is currently running on this server.");
+
+    const summaryEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle(t("Listening-Stats", "Listening stats"))
+      .setDescription(
+        t(
+          `Server: **${guild?.name || guildId}**\nLive-Zuhoerer jetzt: **${totalLiveListeners}**\nAnalysefenster: **${windowDays} Tage**`,
+          `Server: **${guild?.name || guildId}**\nLive listeners now: **${totalLiveListeners}**\nAnalytics window: **${windowDays} days**`
+        )
+      )
+      .addFields(
+        {
+          name: t("Live gerade", "Live now"),
+          value: clipText(liveStationsText, 900),
+          inline: false,
+        },
+        {
+          name: t("Top Station nach Hoerstunden", "Top station by listener hours"),
+          value: topStation
+            ? `${clipText(topStation.name, 100)} (${this.formatStatsDuration(topStation.listenerSeconds, language)})`
+            : t("Noch keine Daten", "No data yet"),
+          inline: true,
+        },
+        {
+          name: t("Peak-Zeit", "Peak time"),
+          value: topHour && (Number(topHour.listenerSeconds || 0) > 0 || Number(topHour.starts || 0) > 0)
+            ? Number(topHour.listenerSeconds || 0) > 0
+              ? `${this.formatStatsHourBucket(topHour.hour, language)} (${this.formatStatsDuration(topHour.listenerSeconds, language)})`
+              : `${this.formatStatsHourBucket(topHour.hour, language)} (${topHour.starts} ${t("Starts", "starts")})`
+            : t("Noch keine Daten", "No data yet"),
+          inline: true,
+        },
+        {
+          name: t("Peak-Zuhoerer", "Peak listeners"),
+          value: String(Number(lifetime?.peakListeners || 0)),
+          inline: true,
+        },
+        {
+          name: t("Aktivste Voice-Channels", "Most active voice channels"),
+          value: topChannels.length ? clipText(topChannels.join("\n"), 900) : t("Noch keine Daten", "No data yet"),
+          inline: false,
+        },
+        {
+          name: t("Hoerzeit im Fenster", "Listening time in window"),
+          value: t(
+            `Zuhoerstunden: **${this.formatStatsDuration(windowSummary.totalListenerSeconds, language)}**\nVoice aktiv: **${this.formatStatsDuration(windowSummary.totalActiveSeconds, language)}**`,
+            `Listener hours: **${this.formatStatsDuration(windowSummary.totalListenerSeconds, language)}**\nVoice active: **${this.formatStatsDuration(windowSummary.totalActiveSeconds, language)}**`
+          ),
+          inline: true,
+        },
+        {
+          name: t("Server gesamt", "Server totals"),
+          value: t(
+            `Starts: **${Number(lifetime?.totalStarts || 0)}**\nStationen jemals: **${Number(lifetime?.stationCount || 0)}**\nLetzter Start: ${lifetime?.lastStartedAt ? this.formatDiscordTimestamp(lifetime.lastStartedAt, "R") : "-"}`,
+            `Starts: **${Number(lifetime?.totalStarts || 0)}**\nStations ever played: **${Number(lifetime?.stationCount || 0)}**\nLast start: ${lifetime?.lastStartedAt ? this.formatDiscordTimestamp(lifetime.lastStartedAt, "R") : "-"}`
+          ),
+          inline: true,
+        },
+        {
+          name: t("Top-Server global", "Top server global"),
+          value: topGuild
+            ? `${clipText(topGuildName, 80)} (${this.formatStatsDuration(topGuild.totalListenerSeconds || 0, language)})`
+            : t("Noch keine Daten", "No data yet"),
+          inline: true,
+        }
+      )
+      .setFooter({
+        text: t("OmniFM Analytics | /stats", "OmniFM analytics | /stats"),
+      })
+      .setTimestamp(new Date());
+
+    const embeds = [summaryEmbed];
+
+    if (guildTier !== "free") {
+      const stationLines = analytics.stations.length
+        ? analytics.stations.map((row, index) => (
+          `${index + 1}. **${clipText(row.name, 70)}** - ${this.formatStatsDuration(row.listenerSeconds, language)} | ${row.starts} ${t("Starts", "starts")} | Peak ${row.peakListeners || 0}`
+          + (row.lastStartedAt ? ` | ${this.formatDiscordTimestamp(row.lastStartedAt, "R")}` : "")
+        )).join("\n")
+        : t("Noch keine Stations-Historie vorhanden.", "No station history yet.");
+
+      const dayLines = analytics.daily.length
+        ? analytics.daily.map((row) => (
+          `${row.day}: ${this.formatStatsDuration(row.listenerSeconds, language)} | ${row.starts} ${t("Starts", "starts")} | Peak ${row.peakListeners || 0}`
+        )).join("\n")
+        : t("Noch keine Tagesdaten vorhanden.", "No daily data yet.");
+
+      embeds.push(
+        new EmbedBuilder()
+          .setColor(guildTier === "ultimate" ? 0xBD00FF : 0xFFB800)
+          .setTitle(guildTier === "ultimate"
+            ? t("Ultimate Analyse", "Ultimate analytics")
+            : t("Pro Analyse", "Pro analytics"))
+          .addFields(
+            {
+              name: guildTier === "ultimate"
+                ? t("Stationen jemals gespielt", "Stations ever played")
+                : t("Top Stationen", "Top stations"),
+              value: clipText(stationLines, 1000),
+              inline: false,
+            },
+            {
+              name: t("Letzte Tage", "Recent days"),
+              value: clipText(dayLines, 1000),
+              inline: false,
+            }
+          )
+          .setFooter({
+            text: guildTier === "ultimate"
+              ? t("Ultimate: Lifetime + 365 Tage Verlauf", "Ultimate: lifetime + 365 day trend")
+              : t("Pro: Fokus auf 180 Tage Verlauf", "Pro: focused 180 day trend"),
+          })
+          .setTimestamp(new Date())
+      );
+    } else {
+      summaryEmbed.addFields({
+        name: t("Mehr Analytics", "More analytics"),
+        value: t(
+          "Pro schaltet 180-Tage-Analysen frei. Ultimate zeigt die komplette Sender-Historie, Hoerstunden und Langzeit-Trends.",
+          "Pro unlocks 180-day analytics. Ultimate shows the full station archive, listener hours, and long-term trends."
+        ),
+        inline: false,
+      });
+    }
+
+    return { embeds };
   }
 
   buildSongHistoryEmbed(history, guildId, playbackRuntime, language = "de") {
@@ -1717,20 +1931,14 @@ class BotRuntime {
         return;
       }
 
-      const listenerCount = this.getCurrentListenerCount(guildId, state);
       const payload = this.buildNowPlayingMessagePayload(guildId, station, nextMeta, {
         channelId: state.connection?.joinConfig?.channelId || state.lastChannelId || null,
-        listenerCount,
+        listenerCount: this.getCurrentListenerCount(guildId, state),
         workerName: this.config.name,
       });
       const sent = await this.upsertNowPlayingMessage(guildId, state, payload, channel);
       if (sent) {
         state.nowPlayingSignature = signature;
-        const now = Date.now();
-        if (!state.lastListenerStatsSampleAt || (now - state.lastListenerStatsSampleAt) >= Math.max(60_000, NOW_PLAYING_POLL_MS)) {
-          recordListenerSample(guildId, listenerCount, now);
-          state.lastListenerStatsSampleAt = now;
-        }
       }
     } catch (err) {
       this.logNowPlayingIssue(guildId, state, clipText(err?.message || String(err), 200));
@@ -1740,10 +1948,12 @@ class BotRuntime {
   startNowPlayingLoop(guildId, state) {
     this.clearNowPlayingTimer(state);
     state.nowPlayingSignature = null;
-    if (!NOW_PLAYING_ENABLED || !state.currentStationKey) return;
+    if (!state.currentStationKey) return;
 
     const taskId = `guild-${guildId}-nowplaying`;
     const update = async () => {
+      this.flushListeningStatsSample(guildId, state);
+      if (!NOW_PLAYING_ENABLED) return;
       try {
         await this.updateNowPlayingEmbed(guildId, state);
       } catch (err) {
@@ -1918,6 +2128,9 @@ class BotRuntime {
     const station = stations.stations[key];
     if (!station) throw new Error("Station nicht gefunden.");
 
+    if (guildId && state.currentStationKey) {
+      this.flushListeningStatsSample(guildId, state);
+    }
     this.clearCurrentProcess(state);
 
     // Premium: override bitrate based on tier
@@ -1944,6 +2157,7 @@ class BotRuntime {
     state.currentMeta = null;
     state.nowPlayingSignature = null;
     state.lastStreamStartAt = Date.now();
+    state.lastListenerStatsSampleAt = state.lastStreamStartAt;
     state.lastProcessExitCode = null;
     state.lastProcessExitAt = 0;
     this.armStreamStabilityReset(guildId, state);
@@ -1955,6 +2169,7 @@ class BotRuntime {
       stationKey: key,
       stationName: state.currentStationName || station.name || key,
       channelId: state.connection?.joinConfig?.channelId || state.lastChannelId || "",
+      channelName: this.getVoiceChannelDisplayName(guildId, state.connection?.joinConfig?.channelId || state.lastChannelId || ""),
       listenerCount: this.getCurrentListenerCount(guildId, state),
       timestampMs: state.lastStreamStartAt,
     });
@@ -2014,6 +2229,7 @@ class BotRuntime {
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
+      state.lastListenerStatsSampleAt = 0;
       this.clearScheduledEventPlayback(state);
       this.updatePresence();
       return;
@@ -2279,6 +2495,7 @@ class BotRuntime {
   resetVoiceSession(guildId, state, { preservePlaybackTarget = false, clearLastChannel = false } = {}) {
     if (!state) return;
     this.clearQueuedVoiceReconcile(guildId);
+    this.flushListeningStatsSample(guildId, state);
 
     if (state.connection) {
       try { state.connection.destroy(); } catch {}
@@ -2309,6 +2526,7 @@ class BotRuntime {
     if (!preservePlaybackTarget) {
       state.reconnectAttempts = 0;
       state.streamErrorCount = 0;
+      state.lastListenerStatsSampleAt = 0;
     }
 
     this.updatePresence();
@@ -5499,7 +5717,7 @@ class BotRuntime {
 
     if (interaction.commandName === "stats") {
       await interaction.reply({
-        embeds: [this.buildListeningStatsEmbed(interaction.guildId, language)],
+        ...this.buildListeningStatsPayload(interaction.guildId, language),
         ephemeral: true,
       });
       return;
@@ -5892,6 +6110,7 @@ class BotRuntime {
       this.syncVoiceChannelStatus(interaction.guildId, "").catch(() => null);
       state.shouldReconnect = false;
       this.clearScheduledEventPlayback(state);
+      this.flushListeningStatsSample(interaction.guildId, state);
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
       this.queueDeleteNowPlayingMessage(interaction.guildId, state);
@@ -5907,6 +6126,7 @@ class BotRuntime {
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
+      state.lastListenerStatsSampleAt = 0;
       state.reconnectAttempts = 0;
       state.streamErrorCount = 0;
       this.updatePresence();
@@ -6561,6 +6781,7 @@ class BotRuntime {
         state.currentStationName = null;
         state.currentMeta = null;
         state.nowPlayingSignature = null;
+        state.lastListenerStatsSampleAt = 0;
         this.updatePresence();
         await interaction.editReply(t(`Fehler beim Starten: ${err.message}`, `Error while starting: ${err.message}`));
       }
@@ -6622,6 +6843,7 @@ class BotRuntime {
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     state.shouldReconnect = false;
     this.clearScheduledEventPlayback(state);
+    this.flushListeningStatsSample(guildId, state);
     this.clearReconnectTimer(state);
     this.clearNowPlayingTimer(state);
     this.queueDeleteNowPlayingMessage(guildId, state);
@@ -6637,6 +6859,7 @@ class BotRuntime {
     state.currentStationName = null;
     state.currentMeta = null;
     state.nowPlayingSignature = null;
+    state.lastListenerStatsSampleAt = 0;
     state.reconnectAttempts = 0;
     state.streamErrorCount = 0;
     this.updatePresence();
@@ -6886,6 +7109,7 @@ class BotRuntime {
     for (const [guildId, state] of this.guildState.entries()) {
       this.syncVoiceChannelStatus(guildId, "").catch(() => null);
       state.shouldReconnect = false;
+      this.flushListeningStatsSample(guildId, state);
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
       await this.deleteNowPlayingMessage(guildId, state).catch(() => null);
@@ -6899,6 +7123,7 @@ class BotRuntime {
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
+      state.lastListenerStatsSampleAt = 0;
       state.streamErrorCount = 0;
     }
 

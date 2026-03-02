@@ -98,7 +98,7 @@ import {
   deleteScheduledEvent,
   getScheduledEvent,
 } from "../scheduled-events-store.js";
-import { getGuildListeningStats } from "../listening-stats-store.js";
+import { buildGuildListeningAnalytics } from "../listening-stats-store.js";
 import {
   getDiscordBotListStatus,
   handleDiscordBotListVoteWebhook,
@@ -586,7 +586,13 @@ function normalizeDashboardTelemetryPayload(rawTelemetry) {
 }
 
 function buildDashboardStatsForGuild(serverId, tier, runtimes) {
-  const listeningStats = getGuildListeningStats(serverId) || {};
+  const retentionDays = tier === "ultimate" ? 365 : 180;
+  const analytics = buildGuildListeningAnalytics(serverId, {
+    windowDays: retentionDays,
+    stationLimit: tier === "ultimate" ? 40 : 12,
+    channelLimit: tier === "ultimate" ? 15 : 8,
+    dailyLimit: tier === "ultimate" ? 60 : 30,
+  });
   const telemetry = normalizeDashboardTelemetryPayload(getDashboardTelemetry(serverId));
   const liveRows = collectGuildLiveDetails(runtimes, serverId);
   const events = listScheduledEvents({ guildId: serverId });
@@ -602,32 +608,57 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
       map.set(key, current);
       return map;
     }, new Map());
-
-  const stationBreakdown = Object.entries(listeningStats.stationStarts || {})
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 12)
-    .map(([name, starts]) => ({
-      name: listeningStats.stationNames?.[name] || name,
-      starts: Number(starts || 0) || 0,
+  const mergedChannelRows = new Map();
+  for (const row of analytics.channels) {
+    const key = row.channelId || row.name;
+    mergedChannelRows.set(key, {
+      name: row.name,
+      listeners: 0,
+      listenersCurrent: 0,
+      listenerHours: Number(((row.listenerSeconds || 0) / 3600).toFixed(1)),
+      starts: row.starts || 0,
+      peakListeners: row.peakListeners || 0,
+    });
+  }
+  for (const [key, row] of listenersByChannel.entries()) {
+    const existing = mergedChannelRows.get(key) || {
+      name: row.name,
+      listeners: 0,
+      listenersCurrent: 0,
+      listenerHours: 0,
+      starts: 0,
       peakListeners: 0,
-    }));
+    };
+    existing.name = row.name || existing.name;
+    existing.listeners = row.listeners;
+    existing.listenersCurrent = row.listeners;
+    existing.peakListeners = Math.max(existing.peakListeners || 0, row.listeners || 0);
+    mergedChannelRows.set(key, existing);
+  }
 
   const liveTopStation = liveRows
     .slice()
     .sort((a, b) => b.listeners - a.listeners || String(a.stationName).localeCompare(String(b.stationName)))[0];
-  const historicalTopStation = stationBreakdown[0];
+  const historicalTopStation = analytics.topStation;
   const topStation = liveTopStation
     ? { name: liveTopStation.stationName || "-", listeners: liveTopStation.listeners || 0 }
     : telemetry.topStation?.name && telemetry.topStation.name !== "-"
       ? telemetry.topStation
       : historicalTopStation
-        ? { name: historicalTopStation.name, listeners: historicalTopStation.peakListeners || 0 }
+        ? {
+            name: historicalTopStation.name,
+            listeners: historicalTopStation.peakListeners || 0,
+            listenerHours: Number(((historicalTopStation.listenerSeconds || 0) / 3600).toFixed(1)),
+            starts: historicalTopStation.starts || 0,
+          }
         : { name: "-", listeners: 0 };
 
   const peakTime = telemetry.peakTime
-    || (listeningStats.lastStartedAt ? new Date(listeningStats.lastStartedAt).toISOString() : "");
+    || (analytics.topHour
+      ? `${String(analytics.topHour.hour).padStart(2, "0")}:00-${String((analytics.topHour.hour + 1) % 24).padStart(2, "0")}:00`
+      : "");
   const peakListeners = Math.max(
-    Number(listeningStats.peakListeners || 0) || 0,
+    Number(analytics.lifetime.peakListeners || 0) || 0,
     Number(telemetry.peakListeners || 0) || 0,
     listenersNow
   );
@@ -641,19 +672,65 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     eventsConfigured: events.length,
     eventsActive: events.filter((item) => item?.enabled !== false).length,
     permRules: Object.keys(permissionRules || {}).length,
+    totalStarts: Number(analytics.lifetime.totalStarts || 0) || 0,
+    listenerHours: Number(((analytics.lifetime.totalListenerSeconds || 0) / 3600).toFixed(1)),
+    activeHours: Number(((analytics.lifetime.totalActiveSeconds || 0) / 3600).toFixed(1)),
+    streamHours: Number(((analytics.lifetime.totalStreamSeconds || 0) / 3600).toFixed(1)),
+    uniqueStations: Number(analytics.lifetime.stationCount || 0) || 0,
+    retentionDays,
+    windowSummary: {
+      days: retentionDays,
+      starts: Number(analytics.window.totalStarts || 0) || 0,
+      listenerHours: Number(((analytics.window.totalListenerSeconds || 0) / 3600).toFixed(1)),
+      activeHours: Number(((analytics.window.totalActiveSeconds || 0) / 3600).toFixed(1)),
+      streamHours: Number(((analytics.window.totalStreamSeconds || 0) / 3600).toFixed(1)),
+      peakListeners: Number(analytics.window.peakListeners || 0) || 0,
+    },
     updatedAt: telemetry.updatedAt || new Date().toISOString(),
   };
 
-  if (tier !== "ultimate") {
-    return { basic, advanced: null };
-  }
-
   const advanced = {
-    listenersByChannel: listenersByChannel.size
-      ? [...listenersByChannel.values()].sort((a, b) => b.listeners - a.listeners || a.name.localeCompare(b.name))
-      : telemetry.listenersByChannel,
-    dailyReport: telemetry.dailyReport,
-    stationBreakdown: stationBreakdown.length ? stationBreakdown : telemetry.stationBreakdown,
+    listenersByChannel: [...mergedChannelRows.values()]
+      .sort((a, b) => (b.listenerHours || 0) - (a.listenerHours || 0) || (b.listenersCurrent || 0) - (a.listenersCurrent || 0) || a.name.localeCompare(b.name)),
+    dailyReport: analytics.daily.map((row) => ({
+      day: row.day,
+      starts: row.starts || 0,
+      peakListeners: row.peakListeners || 0,
+      listenerHours: Number(((row.listenerSeconds || 0) / 3600).toFixed(1)),
+      activeHours: Number(((row.activeSeconds || 0) / 3600).toFixed(1)),
+      streamHours: Number(((row.streamSeconds || 0) / 3600).toFixed(1)),
+    })),
+    stationBreakdown: analytics.stations.map((row) => ({
+      name: row.name,
+      starts: row.starts || 0,
+      peakListeners: row.peakListeners || 0,
+      listenerHours: Number(((row.listenerSeconds || 0) / 3600).toFixed(1)),
+      activeHours: Number(((row.activeSeconds || 0) / 3600).toFixed(1)),
+      lastStartedAt: row.lastStartedAt || 0,
+    })),
+    detailGrade: tier,
+    allStations: tier === "ultimate"
+      ? analytics.allStations.map((row) => ({
+          name: row.name,
+          starts: row.starts || 0,
+          peakListeners: row.peakListeners || 0,
+          listenerHours: Number(((row.listenerSeconds || 0) / 3600).toFixed(1)),
+          activeHours: Number(((row.activeSeconds || 0) / 3600).toFixed(1)),
+          streamHours: Number(((row.streamSeconds || 0) / 3600).toFixed(1)),
+          lastStartedAt: row.lastStartedAt || 0,
+        }))
+      : [],
+    topDays: tier === "ultimate"
+      ? [...analytics.allDaily]
+          .sort((a, b) => b.listenerSeconds - a.listenerSeconds || b.starts - a.starts || b.timestampMs - a.timestampMs)
+          .slice(0, 12)
+          .map((row) => ({
+            day: row.day,
+            starts: row.starts || 0,
+            peakListeners: row.peakListeners || 0,
+            listenerHours: Number(((row.listenerSeconds || 0) / 3600).toFixed(1)),
+          }))
+      : [],
   };
 
   return { basic, advanced };
