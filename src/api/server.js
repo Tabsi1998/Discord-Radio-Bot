@@ -5,6 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 import { randomBytes } from "node:crypto";
+import { ChannelType, PermissionFlagsBits } from "discord.js";
 
 import { log, webDir, webRootSource, frontendBuildStamp } from "../lib/logging.js";
 import {
@@ -49,8 +50,9 @@ import {
   enforceApiRateLimit,
   getClientIp,
 } from "../lib/api-helpers.js";
-import { loadStations } from "../stations-store.js";
+import { loadStations, filterStationsByTier } from "../stations-store.js";
 import { getTier, checkFeatureAccess, getServerPlanConfig } from "../core/entitlements.js";
+import { getGuildStations } from "../custom-stations.js";
 import {
   getServerLicense,
   getLicenseById,
@@ -99,6 +101,12 @@ import {
   getScheduledEvent,
 } from "../scheduled-events-store.js";
 import { buildGuildListeningAnalytics } from "../listening-stats-store.js";
+import {
+  EVENT_FALLBACK_TIME_ZONE,
+  EVENT_TIME_ZONE_SUGGESTIONS,
+  getRepeatLabel,
+  normalizeRepeatMode,
+} from "../lib/event-time.js";
 import {
   getDiscordBotListStatus,
   handleDiscordBotListVoteWebhook,
@@ -787,52 +795,408 @@ function formatDashboardPermissionMapForClient(commandRules, guild) {
   for (const command of supportedCommands) {
     const rule = commandRules?.[command];
     const allowRoleIds = Array.isArray(rule?.allowRoleIds) ? rule.allowRoleIds : [];
-    output[command] = allowRoleIds.map((roleId) => roleCollection.get(roleId)?.name || roleId);
+    const denyRoleIds = Array.isArray(rule?.denyRoleIds) ? rule.denyRoleIds : [];
+    output[command] = {
+      allowRoleIds,
+      denyRoleIds,
+      allowRoleNames: allowRoleIds.map((roleId) => roleCollection.get(roleId)?.name || roleId),
+      denyRoleNames: denyRoleIds.map((roleId) => roleCollection.get(roleId)?.name || roleId),
+    };
   }
 
   return output;
 }
 
-function buildDashboardEventResponse(eventRow) {
+function buildDashboardRoleCatalog(guild) {
+  return [...(guild?.roles?.cache?.values?.() || [])]
+    .filter((role) => String(role?.id || "") !== String(guild?.id || ""))
+    .sort((a, b) => (Number(b?.position || 0) - Number(a?.position || 0)) || String(a?.name || "").localeCompare(String(b?.name || "")))
+    .map((role) => ({
+      id: String(role?.id || ""),
+      name: clipText(role?.name || role?.id || "Role", 100),
+      color: role?.hexColor || "#99AAB5",
+      position: Number(role?.position || 0) || 0,
+      managed: Boolean(role?.managed),
+      mentionable: Boolean(role?.mentionable),
+    }));
+}
+
+function buildDashboardChannelLabel(channel) {
+  const parentName = clipText(channel?.parent?.name || "", 60);
+  const name = clipText(channel?.name || channel?.id || "channel", 90);
+  const typeLabel = channel?.type === ChannelType.GuildStageVoice
+    ? "Stage"
+    : channel?.type === ChannelType.GuildVoice
+      ? "Voice"
+      : channel?.type === ChannelType.GuildAnnouncement
+        ? "News"
+        : "Text";
+  if (parentName) {
+    return clipText(`${parentName} / ${name} (${typeLabel})`, 120);
+  }
+  return clipText(`${name} (${typeLabel})`, 120);
+}
+
+function buildDashboardChannelCatalog(guild, channelTypes) {
+  return [...(guild?.channels?.cache?.values?.() || [])]
+    .filter((channel) => channelTypes.includes(channel?.type))
+    .sort((a, b) => {
+      const parentDiff = Number(a?.parent?.rawPosition || 0) - Number(b?.parent?.rawPosition || 0);
+      if (parentDiff !== 0) return parentDiff;
+      const channelDiff = Number(a?.rawPosition || 0) - Number(b?.rawPosition || 0);
+      if (channelDiff !== 0) return channelDiff;
+      return String(a?.name || "").localeCompare(String(b?.name || ""));
+    })
+    .map((channel) => ({
+      id: String(channel?.id || ""),
+      name: clipText(channel?.name || channel?.id || "channel", 100),
+      label: buildDashboardChannelLabel(channel),
+      type: channel?.type === ChannelType.GuildStageVoice
+        ? "stage"
+        : channel?.type === ChannelType.GuildVoice
+          ? "voice"
+          : channel?.type === ChannelType.GuildAnnouncement
+            ? "announcement"
+            : "text",
+      parentName: clipText(channel?.parent?.name || "", 80),
+    }));
+}
+
+function buildDashboardStationCatalog(guildId) {
+  const tier = getTier(guildId);
+  const stations = loadStations();
+  const available = filterStationsByTier(stations.stations, tier);
+  const output = Object.entries(available).map(([key, value]) => ({
+    key,
+    name: clipText(value?.name || key, 120),
+    tier: String(value?.tier || "free").toLowerCase(),
+    isCustom: false,
+    label: clipText(
+      `${value?.name || key}${value?.tier && value.tier !== "free" ? ` [${String(value.tier).toUpperCase()}]` : ""}`,
+      120
+    ),
+  }));
+
+  if (tier === "ultimate") {
+    const customStations = getGuildStations(guildId);
+    for (const [key, station] of Object.entries(customStations || {})) {
+      output.push({
+        key,
+        name: clipText(station?.name || key, 120),
+        tier: "ultimate",
+        isCustom: true,
+        label: clipText(`${station?.name || key} [CUSTOM]`, 120),
+      });
+    }
+  }
+
+  return output.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function buildDashboardRepeatModeCatalog() {
+  return [
+    { value: "none", label: "Einmalig", labelEn: "One-time" },
+    { value: "daily", label: "Taeglich", labelEn: "Daily" },
+    { value: "weekly", label: "Woechentlich", labelEn: "Weekly" },
+    { value: "monthly_first_weekday", label: "Monatlich: 1. Wochentag", labelEn: "Monthly: 1st weekday" },
+    { value: "monthly_second_weekday", label: "Monatlich: 2. Wochentag", labelEn: "Monthly: 2nd weekday" },
+    { value: "monthly_third_weekday", label: "Monatlich: 3. Wochentag", labelEn: "Monthly: 3rd weekday" },
+    { value: "monthly_fourth_weekday", label: "Monatlich: 4. Wochentag", labelEn: "Monthly: 4th weekday" },
+    { value: "monthly_last_weekday", label: "Monatlich: letzter Wochentag", labelEn: "Monthly: last weekday" },
+  ];
+}
+
+function buildDashboardTimeZoneCatalog() {
+  const dedup = new Map();
+  for (const entry of EVENT_TIME_ZONE_SUGGESTIONS) {
+    if (!entry?.value) continue;
+    dedup.set(String(entry.value), String(entry.value));
+  }
+  dedup.set(EVENT_FALLBACK_TIME_ZONE, EVENT_FALLBACK_TIME_ZONE);
+  return [...dedup.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => ({ value, label: value }));
+}
+
+function buildDashboardEventCatalog(guildId, guild) {
+  return {
+    defaultTimeZone: EVENT_FALLBACK_TIME_ZONE,
+    stations: buildDashboardStationCatalog(guildId),
+    voiceChannels: buildDashboardChannelCatalog(guild, [ChannelType.GuildVoice, ChannelType.GuildStageVoice]),
+    textChannels: buildDashboardChannelCatalog(guild, [ChannelType.GuildText, ChannelType.GuildAnnouncement]),
+    repeatModes: buildDashboardRepeatModeCatalog(),
+    timeZones: buildDashboardTimeZoneCatalog(),
+  };
+}
+
+async function resolveDashboardBotMember(guild) {
+  if (guild?.members?.me) return guild.members.me;
+  if (guild?.members?.fetchMe) {
+    return guild.members.fetchMe().catch(() => null);
+  }
+  return null;
+}
+
+async function validateDashboardTextChannel(guild, channel) {
+  if (!channel) return "Der gewaehlte Text-Channel ist ungueltig.";
+  if (String(channel?.guildId || "") !== String(guild?.id || "")) {
+    return "Der gewaehlte Text-Channel ist nicht in diesem Server.";
+  }
+  if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+    return "Bitte waehle einen Text- oder Announcement-Channel.";
+  }
+  const me = await resolveDashboardBotMember(guild);
+  if (!me) return "Bot-Mitglied im Server konnte nicht geladen werden.";
+  const perms = channel.permissionsFor(me);
+  if (!perms?.has(PermissionFlagsBits.ViewChannel) || !perms?.has(PermissionFlagsBits.SendMessages)) {
+    return `Ich kann in #${channel.name || channel.id} nicht schreiben.`;
+  }
+  return null;
+}
+
+async function validateDashboardVoiceChannel(runtime, guild, channel, { stageTopic = null, createDiscordEvent = false } = {}) {
+  if (!channel) return "Voice- oder Stage-Channel fehlt.";
+  if (String(channel?.guildId || "") !== String(guild?.id || "")) {
+    return "Der gewaehlte Voice/Stage-Channel ist nicht in diesem Server.";
+  }
+  if (!channel.isVoiceBased?.() || (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice)) {
+    return "Bitte waehle einen Voice- oder Stage-Channel.";
+  }
+  if (stageTopic && channel.type !== ChannelType.GuildStageVoice) {
+    return "`stagetopic` funktioniert nur mit Stage-Channels.";
+  }
+  const me = await resolveDashboardBotMember(guild);
+  if (!me) return "Bot-Mitglied im Server konnte nicht geladen werden.";
+  const perms = channel.permissionsFor(me);
+  if (!perms?.has(PermissionFlagsBits.Connect)) {
+    return `Ich habe keine Connect-Berechtigung fuer #${channel.name || channel.id}.`;
+  }
+  if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
+    return `Ich habe keine Speak-Berechtigung fuer #${channel.name || channel.id}.`;
+  }
+  if (createDiscordEvent && typeof runtime?.validateDiscordScheduledEventPermissions === "function") {
+    return runtime.validateDiscordScheduledEventPermissions(guild, channel, "de");
+  }
+  return null;
+}
+
+function getDashboardEventEndAtMs(eventRow) {
+  const activeUntilMs = Number.parseInt(String(eventRow?.activeUntilMs || 0), 10);
+  if (Number.isFinite(activeUntilMs) && activeUntilMs > 0) return activeUntilMs;
+  const runAtMs = Number.parseInt(String(eventRow?.runAtMs || 0), 10);
+  const durationMs = Number.parseInt(String(eventRow?.durationMs || 0), 10);
+  if (!Number.isFinite(runAtMs) || runAtMs <= 0 || !Number.isFinite(durationMs) || durationMs <= 0) return 0;
+  return runAtMs + durationMs;
+}
+
+function buildDashboardEventResponse(eventRow, guild = null) {
+  const voiceChannel = guild?.channels?.cache?.get?.(String(eventRow?.voiceChannelId || "")) || null;
+  const textChannel = guild?.channels?.cache?.get?.(String(eventRow?.textChannelId || "")) || null;
+  const endAtMs = getDashboardEventEndAtMs(eventRow);
+  const repeat = normalizeRepeatMode(eventRow?.repeat || "none");
+  const stationMeta = buildDashboardStationCatalog(String(eventRow?.guildId || "")).find((item) => item.key === String(eventRow?.stationKey || ""));
   return {
     id: String(eventRow?.id || ""),
     title: eventRow?.name || "OmniFM Event",
     stationKey: eventRow?.stationKey || "",
+    stationName: stationMeta?.name || eventRow?.stationName || eventRow?.stationKey || "",
     startsAt: Number(eventRow?.runAtMs || 0) > 0 ? new Date(Number(eventRow.runAtMs)).toISOString() : "",
+    endsAt: endAtMs > 0 ? new Date(endAtMs).toISOString() : "",
     timezone: eventRow?.timeZone || "Europe/Vienna",
+    repeat,
+    repeatLabel: getRepeatLabel(repeat, "de", {
+      runAtMs: Number(eventRow?.runAtMs || 0) || null,
+      timeZone: eventRow?.timeZone || EVENT_FALLBACK_TIME_ZONE,
+    }),
     channelId: eventRow?.voiceChannelId || "",
+    channelName: voiceChannel?.name || eventRow?.voiceChannelId || "",
+    textChannelId: eventRow?.textChannelId || "",
+    textChannelName: textChannel?.name || eventRow?.textChannelId || "",
+    createDiscordEvent: eventRow?.createDiscordEvent === true,
+    discordScheduledEventId: eventRow?.discordScheduledEventId || "",
+    stageTopic: eventRow?.stageTopic || "",
+    announceMessage: eventRow?.announceMessage || "",
+    description: eventRow?.description || "",
+    durationMs: Number(eventRow?.durationMs || 0) || 0,
     enabled: eventRow?.enabled !== false,
     createdAt: eventRow?.createdAt || new Date().toISOString(),
     updatedAt: eventRow?.createdAt || new Date().toISOString(),
   };
 }
 
-function normalizeDashboardEventInput(body, guildId, botId) {
+function normalizeDashboardDateTimeInput(rawValue) {
+  const text = String(rawValue || "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text)) {
+    return text.slice(0, 16).replace(" ", "T");
+  }
+  return text;
+}
+
+function hasDashboardBodyField(body, fieldName) {
+  return Boolean(body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, fieldName));
+}
+
+async function normalizeDashboardEventInput(body, guildId, runtime, guild, existingEvent = null) {
   const payload = body && typeof body === "object" ? body : {};
-  const title = clipText(payload.title || payload.name || "OmniFM Event", 120);
-  const stationKey = clipText(payload.stationKey || payload.station || "", 120).trim().toLowerCase();
-  const channelId = String(payload.channelId || payload.voiceChannelId || "").trim();
-  const startsAtRaw = String(payload.startsAt || payload.startAt || "").trim();
-  const parsedRunAtMs = Date.parse(startsAtRaw);
-  const timezone = clipText(payload.timezone || "Europe/Vienna", 60) || "Europe/Vienna";
+  const titleSource = hasDashboardBodyField(payload, "title") || hasDashboardBodyField(payload, "name")
+    ? payload.title ?? payload.name
+    : existingEvent?.name || "OmniFM Event";
+  const title = clipText(String(titleSource || "").trim(), 120);
+  const stationInput = hasDashboardBodyField(payload, "stationKey") || hasDashboardBodyField(payload, "station")
+    ? payload.stationKey ?? payload.station
+    : existingEvent?.stationKey || "";
+  const voiceChannelId = hasDashboardBodyField(payload, "channelId") || hasDashboardBodyField(payload, "voiceChannelId")
+    ? String(payload.channelId ?? payload.voiceChannelId ?? "").trim()
+    : String(existingEvent?.voiceChannelId || "").trim();
+  const textChannelRaw = hasDashboardBodyField(payload, "textChannelId") || hasDashboardBodyField(payload, "textChannel")
+    ? String(payload.textChannelId ?? payload.textChannel ?? "").trim()
+    : String(existingEvent?.textChannelId || "").trim();
+  const clearTextChannel = payload.clearTextChannel === true;
+  const requestedTimeZone = hasDashboardBodyField(payload, "timezone")
+    ? clipText(payload.timezone, 60)
+    : existingEvent?.timeZone || EVENT_FALLBACK_TIME_ZONE;
+  const stageTopic = hasDashboardBodyField(payload, "stageTopic") || hasDashboardBodyField(payload, "stagetopic")
+    ? runtime?.normalizeClearableText?.(payload.stageTopic ?? payload.stagetopic, 120)
+    : existingEvent?.stageTopic || null;
+  const announceMessage = hasDashboardBodyField(payload, "announceMessage") || hasDashboardBodyField(payload, "message")
+    ? runtime?.normalizeClearableText?.(payload.announceMessage ?? payload.message, 1200)
+    : existingEvent?.announceMessage || null;
+  const description = hasDashboardBodyField(payload, "description")
+    ? runtime?.normalizeClearableText?.(payload.description, 800)
+    : existingEvent?.description || null;
+  const createDiscordEvent = hasDashboardBodyField(payload, "createDiscordEvent") || hasDashboardBodyField(payload, "serverevent")
+    ? Boolean(payload.createDiscordEvent ?? payload.serverevent)
+    : existingEvent?.createDiscordEvent === true;
+  const repeat = hasDashboardBodyField(payload, "repeat")
+    ? normalizeRepeatMode(payload.repeat)
+    : normalizeRepeatMode(existingEvent?.repeat || "none");
+  const enabled = hasDashboardBodyField(payload, "enabled")
+    ? payload.enabled === true
+    : existingEvent?.enabled !== false;
+  const startRaw = hasDashboardBodyField(payload, "startsAt") || hasDashboardBodyField(payload, "startAt")
+    ? normalizeDashboardDateTimeInput(payload.startsAt ?? payload.startAt)
+    : undefined;
+  const shouldClearEnd = payload.clearEndAt === true || payload.clearEnd === true;
+  const endRaw = shouldClearEnd
+    ? "clear"
+    : hasDashboardBodyField(payload, "endsAt") || hasDashboardBodyField(payload, "endAt")
+      ? normalizeDashboardDateTimeInput(payload.endsAt ?? payload.endAt)
+      : undefined;
 
   if (!title) return { ok: false, message: "Titel fehlt." };
-  if (!stationKey) return { ok: false, message: "Station Key fehlt." };
-  if (!/^\d{17,22}$/.test(channelId)) return { ok: false, message: "Voice Channel ID fehlt oder ist ungueltig." };
-  if (!Number.isFinite(parsedRunAtMs) || parsedRunAtMs <= 0) return { ok: false, message: "Startzeit ist ungueltig." };
-  if (!botId) return { ok: false, message: "Kein geeigneter Bot fuer dieses Event gefunden." };
+  if (!voiceChannelId || !/^\d{17,22}$/.test(voiceChannelId)) {
+    return { ok: false, message: "Voice Channel fehlt oder ist ungueltig." };
+  }
+  if (!runtime?.config?.id) return { ok: false, message: "Kein geeigneter Bot fuer dieses Event gefunden." };
+
+  const station = runtime?.resolveStationForGuild?.(guildId, stationInput, "de");
+  if (!station?.ok) {
+    return { ok: false, message: station?.message || "Station konnte nicht aufgeloest werden." };
+  }
+
+  let voiceChannel = guild?.channels?.cache?.get?.(voiceChannelId) || null;
+  if (!voiceChannel && guild?.channels?.fetch) {
+    voiceChannel = await guild.channels.fetch(voiceChannelId).catch(() => null);
+  }
+  const voiceError = await validateDashboardVoiceChannel(runtime, guild, voiceChannel, {
+    stageTopic,
+    createDiscordEvent,
+  });
+  if (voiceError) return { ok: false, message: voiceError };
+
+  const textChannelId = clearTextChannel ? null : (textChannelRaw || null);
+  let textChannel = null;
+  if (textChannelId) {
+    textChannel = guild?.channels?.cache?.get?.(textChannelId) || null;
+    if (!textChannel && guild?.channels?.fetch) {
+      textChannel = await guild.channels.fetch(textChannelId).catch(() => null);
+    }
+    const textError = await validateDashboardTextChannel(guild, textChannel);
+    if (textError) return { ok: false, message: textError };
+  }
+
+  if (!existingEvent && runtime?.role === "commander" && runtime?.workerManager) {
+    const invitedWorkers = runtime.workerManager.getInvitedWorkers(guildId, getTier(guildId));
+    if (invitedWorkers.length === 0) {
+      return {
+        ok: false,
+        message: "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit `/invite worker:1` einladen.",
+      };
+    }
+  }
+
+  const parsedWindow = typeof runtime?.parseEventWindowInput === "function"
+    ? runtime.parseEventWindowInput({
+        startRaw,
+        endRaw,
+        baseRunAtMs: existingEvent?.runAtMs || 0,
+        baseDurationMs: existingEvent?.durationMs || 0,
+        requestedTimeZone,
+        allowImmediate: !createDiscordEvent,
+      }, "de")
+    : { ok: false, message: "Event-Zeitlogik ist nicht verfuegbar." };
+  if (!parsedWindow?.ok) {
+    return { ok: false, message: parsedWindow?.message || "Startzeit ist ungueltig." };
+  }
+
+  const hasStartChange = Boolean(startRaw);
+  if (createDiscordEvent && (!existingEvent || hasStartChange || hasDashboardBodyField(payload, "createDiscordEvent") || hasDashboardBodyField(payload, "serverevent")) && parsedWindow.runAtMs < Date.now() + 60_000) {
+    return {
+      ok: false,
+      message: "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
+    };
+  }
+
+  const eventIsActive = existingEvent
+    ? Number.parseInt(String(existingEvent.activeUntilMs || 0), 10) > Date.now()
+      && Number.parseInt(String(existingEvent.lastStopAtMs || 0), 10) < Number.parseInt(String(existingEvent.activeUntilMs || 0), 10)
+    : false;
 
   return {
     ok: true,
-    event: {
-      guildId,
-      botId,
-      name: title,
-      stationKey,
-      voiceChannelId: channelId,
-      runAtMs: parsedRunAtMs,
-      timeZone: timezone,
-      enabled: payload.enabled !== false,
+    station,
+    eventData: existingEvent
+      ? {
+          name: title,
+          stationKey: station.key,
+          voiceChannelId,
+          textChannelId,
+          announceMessage: announceMessage || null,
+          description: description || null,
+          stageTopic: stageTopic || null,
+          timeZone: parsedWindow.timeZone,
+          createDiscordEvent,
+          repeat,
+          runAtMs: parsedWindow.runAtMs,
+          durationMs: parsedWindow.durationMs,
+          activeUntilMs: eventIsActive ? parsedWindow.endAtMs : 0,
+          enabled,
+        }
+      : {
+          guildId,
+          botId: runtime.config.id,
+          name: title,
+          stationKey: station.key,
+          voiceChannelId,
+          textChannelId,
+          announceMessage: announceMessage || null,
+          description: description || null,
+          stageTopic: stageTopic || null,
+          timeZone: parsedWindow.timeZone,
+          createDiscordEvent,
+          discordScheduledEventId: null,
+          repeat,
+          runAtMs: parsedWindow.runAtMs,
+          durationMs: parsedWindow.durationMs,
+          activeUntilMs: 0,
+          deleteAfterStop: false,
+          createdByUserId: null,
+          enabled,
+        },
+    catalog: {
+      voiceChannelName: voiceChannel?.name || "",
+      textChannelName: textChannel?.name || "",
     },
   };
 }
@@ -1467,42 +1831,66 @@ function startWebServer(runtimes) {
         return;
       }
 
+      const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
+      if (managedGuild?.channels?.fetch) {
+        try { await managedGuild.channels.fetch(); } catch {}
+      }
+
       if (req.method === "GET") {
-        const events = listScheduledEvents({ guildId: guild.id }).map((eventRow) => buildDashboardEventResponse(eventRow));
-        sendJson(res, 200, { serverId: guild.id, events });
+        const events = listScheduledEvents({ guildId: guild.id }).map((eventRow) => buildDashboardEventResponse(eventRow, managedGuild));
+        sendJson(res, 200, {
+          serverId: guild.id,
+          events,
+          catalog: buildDashboardEventCatalog(guild.id, managedGuild),
+        });
         return;
       }
 
       if (req.method === "POST") {
         try {
           const body = await readJsonBody();
-          const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
           if (!managedGuild) {
             sendJson(res, 400, { error: "Der Bot ist auf diesem Server aktuell nicht verfuegbar." });
             return;
           }
-          const channelId = String(body?.channelId || body?.voiceChannelId || "").trim();
-          let voiceChannel = managedGuild.channels?.cache?.get(channelId) || null;
-          if (!voiceChannel && managedGuild.channels?.fetch) {
-            voiceChannel = await managedGuild.channels.fetch(channelId).catch(() => null);
-          }
-          if (!voiceChannel || typeof voiceChannel.isVoiceBased !== "function" || !voiceChannel.isVoiceBased()) {
-            sendJson(res, 400, { error: "Voice Channel ID ist ungueltig oder der Channel ist nicht sprachfaehig." });
-            return;
-          }
-          const normalized = normalizeDashboardEventInput(body, guild.id, runtime?.config?.id || "");
+          const normalized = await normalizeDashboardEventInput(body, guild.id, runtime, managedGuild);
           if (!normalized.ok) {
             sendJson(res, 400, { error: normalized.message });
             return;
           }
-          const result = createScheduledEvent(normalized.event);
+          const result = createScheduledEvent(normalized.eventData);
           if (!result?.ok || !result?.event) {
             sendJson(res, 400, { error: result?.message || "Event konnte nicht erstellt werden." });
             return;
           }
+
+          let savedEvent = result.event;
+          if (normalized.eventData.enabled === false) {
+            const disabled = patchScheduledEvent(savedEvent.id, { enabled: false });
+            savedEvent = disabled?.event || { ...savedEvent, enabled: false };
+          }
+          let warning = "";
+          if (savedEvent.createDiscordEvent === true && savedEvent.enabled !== false && typeof runtime?.syncDiscordScheduledEvent === "function") {
+            try {
+              const scheduledEvent = await runtime.syncDiscordScheduledEvent(savedEvent, normalized.station?.station || { name: savedEvent.stationKey }, {
+                runAtMs: savedEvent.runAtMs,
+              });
+              if (scheduledEvent?.id) {
+                const patched = patchScheduledEvent(savedEvent.id, { discordScheduledEventId: scheduledEvent.id });
+                savedEvent = patched?.event || { ...savedEvent, discordScheduledEventId: scheduledEvent.id };
+              }
+            } catch (err) {
+              warning = `Server-Event Hinweis: ${clipText(err?.message || err, 180)}`;
+              log("WARN", `Dashboard event create sync failed (${guild.id}, ${savedEvent.id}): ${err?.message || err}`);
+            }
+          }
+          if (savedEvent.enabled !== false && Number(savedEvent.runAtMs || 0) <= Date.now() + 5_000 && typeof runtime?.queueImmediateScheduledEventTick === "function") {
+            runtime.queueImmediateScheduledEventTick(250);
+          }
           sendJson(res, 200, {
             success: true,
-            event: buildDashboardEventResponse(result.event),
+            event: buildDashboardEventResponse(savedEvent, managedGuild),
+            warning,
           });
         } catch (err) {
           const status = Number(err?.status || 0);
@@ -1536,6 +1924,11 @@ function startWebServer(runtimes) {
         return;
       }
 
+      const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
+      if (managedGuild?.channels?.fetch) {
+        try { await managedGuild.channels.fetch(); } catch {}
+      }
+
       const eventId = decodeURIComponent(dashboardEventMatch[1] || "").trim();
       if (!eventId) {
         sendJson(res, 400, { error: "Event-ID fehlt." });
@@ -1551,40 +1944,52 @@ function startWebServer(runtimes) {
           }
 
           const body = await readJsonBody();
-          const { guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
-          const patch = {};
-          if (body?.enabled !== undefined) patch.enabled = Boolean(body.enabled);
-          if (body?.title || body?.name) patch.name = clipText(body.title || body.name, 120);
-          if (body?.stationKey || body?.station) patch.stationKey = clipText(body.stationKey || body.station, 120).trim().toLowerCase();
-          if (body?.channelId || body?.voiceChannelId) {
-            const channelId = String(body.channelId || body.voiceChannelId).trim();
-            let voiceChannel = managedGuild?.channels?.cache?.get(channelId) || null;
-            if (!voiceChannel && managedGuild?.channels?.fetch) {
-              voiceChannel = await managedGuild.channels.fetch(channelId).catch(() => null);
-            }
-            if (managedGuild && (!voiceChannel || typeof voiceChannel.isVoiceBased !== "function" || !voiceChannel.isVoiceBased())) {
-              sendJson(res, 400, { error: "Voice Channel ID ist ungueltig oder der Channel ist nicht sprachfaehig." });
-              return;
-            }
-            patch.voiceChannelId = channelId;
+          if (!managedGuild) {
+            sendJson(res, 400, { error: "Der Bot ist auf diesem Server aktuell nicht verfuegbar." });
+            return;
           }
-          if (body?.startsAt || body?.startAt) {
-            const parsed = Date.parse(String(body.startsAt || body.startAt).trim());
-            if (!Number.isFinite(parsed) || parsed <= 0) {
-              sendJson(res, 400, { error: "Startzeit ist ungueltig." });
-              return;
-            }
-            patch.runAtMs = parsed;
+          const normalized = await normalizeDashboardEventInput(body, guild.id, runtime, managedGuild, existingEvent);
+          if (!normalized.ok) {
+            sendJson(res, 400, { error: normalized.message });
+            return;
           }
-          if (body?.timezone) patch.timeZone = clipText(body.timezone, 60);
-          const result = patchScheduledEvent(eventId, patch);
+          const result = patchScheduledEvent(eventId, normalized.eventData);
           if (!result?.ok || !result?.event) {
             sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
               error: result?.message || "Event konnte nicht aktualisiert werden.",
             });
             return;
           }
-          sendJson(res, 200, { success: true, event: buildDashboardEventResponse(result.event) });
+
+          let savedEvent = result.event;
+          let warning = "";
+          if (savedEvent.createDiscordEvent !== true && existingEvent.discordScheduledEventId && typeof runtime?.deleteDiscordScheduledEventById === "function") {
+            await runtime.deleteDiscordScheduledEventById(guild.id, existingEvent.discordScheduledEventId).catch(() => null);
+            const cleared = patchScheduledEvent(eventId, { discordScheduledEventId: null });
+            savedEvent = cleared?.event || { ...savedEvent, discordScheduledEventId: null };
+          } else if (savedEvent.createDiscordEvent === true && typeof runtime?.syncDiscordScheduledEvent === "function") {
+            try {
+              const scheduledEvent = await runtime.syncDiscordScheduledEvent(savedEvent, normalized.station?.station || { name: savedEvent.stationKey }, {
+                runAtMs: savedEvent.runAtMs,
+              });
+              if (scheduledEvent?.id) {
+                const synced = patchScheduledEvent(eventId, { discordScheduledEventId: scheduledEvent.id });
+                savedEvent = synced?.event || { ...savedEvent, discordScheduledEventId: scheduledEvent.id };
+              }
+            } catch (err) {
+              warning = `Server-Event Hinweis: ${clipText(err?.message || err, 180)}`;
+              log("WARN", `Dashboard event update sync failed (${guild.id}, ${eventId}): ${err?.message || err}`);
+            }
+          }
+
+          if (savedEvent.enabled !== false && Number(savedEvent.runAtMs || 0) <= Date.now() + 5_000 && typeof runtime?.queueImmediateScheduledEventTick === "function") {
+            runtime.queueImmediateScheduledEventTick(250);
+          }
+          sendJson(res, 200, {
+            success: true,
+            event: buildDashboardEventResponse(savedEvent, managedGuild),
+            warning,
+          });
         } catch (err) {
           const status = Number(err?.status || 0);
           if (status === 400 || status === 413) {
@@ -1597,6 +2002,10 @@ function startWebServer(runtimes) {
       }
 
       if (req.method === "DELETE") {
+        const existingEvent = getScheduledEvent(eventId);
+        if (existingEvent?.discordScheduledEventId && typeof runtime?.deleteDiscordScheduledEventById === "function") {
+          await runtime.deleteDiscordScheduledEventById(guild.id, existingEvent.discordScheduledEventId).catch(() => null);
+        }
         const result = deleteScheduledEvent(eventId, { guildId: guild.id });
         if (!result?.ok) {
           sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
@@ -1640,6 +2049,7 @@ function startWebServer(runtimes) {
           serverId: guildInfo.id,
           tier: guildInfo.tier,
           commandRoleMap: formatDashboardPermissionMapForClient(rules, guild),
+          roles: buildDashboardRoleCatalog(guild),
           updatedAt: null,
         });
         return;
@@ -1647,6 +2057,10 @@ function startWebServer(runtimes) {
 
       if (req.method === "PUT") {
         try {
+          if (!guild) {
+            sendJson(res, 400, { error: "Der Bot ist auf diesem Server aktuell nicht verfuegbar." });
+            return;
+          }
           const body = await readJsonBody();
           const incomingMap = body?.commandRoleMap && typeof body.commandRoleMap === "object"
             ? body.commandRoleMap
@@ -1655,15 +2069,36 @@ function startWebServer(runtimes) {
           const unresolved = [];
           const resolvedCommands = [];
 
-          for (const [rawCommand, rawRoles] of Object.entries(incomingMap)) {
+          for (const [rawCommand, rawRule] of Object.entries(incomingMap)) {
             const command = String(rawCommand || "").trim().replace(/^\//, "").toLowerCase();
             if (!supportedCommands.includes(command)) continue;
-            const resolved = await resolveGuildRoleIds(guild, rawRoles);
-            if (resolved.unresolved.length) {
-              unresolved.push(`${command}: ${resolved.unresolved.join(", ")}`);
+            const allowSource = Array.isArray(rawRule)
+              ? rawRule
+              : Array.isArray(rawRule?.allowRoleIds)
+                ? rawRule.allowRoleIds
+                : Array.isArray(rawRule?.allow)
+                  ? rawRule.allow
+                  : [];
+            const denySource = Array.isArray(rawRule?.denyRoleIds)
+              ? rawRule.denyRoleIds
+              : Array.isArray(rawRule?.deny)
+                ? rawRule.deny
+                : [];
+            const allowResolved = await resolveGuildRoleIds(guild, allowSource);
+            const denyResolved = await resolveGuildRoleIds(guild, denySource);
+            if (allowResolved.unresolved.length) {
+              unresolved.push(`${command} allow: ${allowResolved.unresolved.join(", ")}`);
               continue;
             }
-            resolvedCommands.push({ command, roleIds: resolved.roleIds });
+            if (denyResolved.unresolved.length) {
+              unresolved.push(`${command} deny: ${denyResolved.unresolved.join(", ")}`);
+              continue;
+            }
+            resolvedCommands.push({
+              command,
+              allowRoleIds: allowResolved.roleIds,
+              denyRoleIds: denyResolved.roleIds.filter((roleId) => !allowResolved.roleIds.includes(roleId)),
+            });
           }
 
           if (unresolved.length) {
@@ -1678,8 +2113,11 @@ function startWebServer(runtimes) {
           }
 
           for (const item of resolvedCommands) {
-            for (const roleId of item.roleIds) {
+            for (const roleId of item.allowRoleIds) {
               setCommandRolePermission(guildInfo.id, item.command, roleId, "allow");
+            }
+            for (const roleId of item.denyRoleIds) {
+              setCommandRolePermission(guildInfo.id, item.command, roleId, "deny");
             }
           }
 
@@ -1688,6 +2126,7 @@ function startWebServer(runtimes) {
             success: true,
             serverId: guildInfo.id,
             commandRoleMap: formatDashboardPermissionMapForClient(rules, guild),
+            roles: buildDashboardRoleCatalog(guild),
             updatedAt: new Date().toISOString(),
           });
         } catch (err) {

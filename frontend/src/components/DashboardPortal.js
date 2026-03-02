@@ -12,6 +12,100 @@ const EMPTY_SESSION = {
   user: null,
   guilds: [],
 };
+const DEFAULT_TIMEZONE = 'Europe/Vienna';
+const EMPTY_EVENT_CATALOG = {
+  defaultTimeZone: DEFAULT_TIMEZONE,
+  stations: [],
+  voiceChannels: [],
+  textChannels: [],
+  repeatModes: [],
+  timeZones: [],
+};
+
+function createEventForm(defaultTimeZone = DEFAULT_TIMEZONE) {
+  return {
+    title: '',
+    stationKey: '',
+    channelId: '',
+    textChannelId: '',
+    startsAt: '',
+    endsAt: '',
+    timezone: defaultTimeZone,
+    repeat: 'none',
+    createDiscordEvent: false,
+    stageTopic: '',
+    announceMessage: '',
+    description: '',
+    enabled: true,
+  };
+}
+
+function createPermsDraft() {
+  const base = {};
+  PERMISSION_COMMANDS.forEach((command) => {
+    base[command] = { allowRoleIds: [], denyRoleIds: [] };
+  });
+  return base;
+}
+
+function uniqueIds(values) {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function toDateTimeLocal(rawValue) {
+  if (!rawValue) return '';
+  const value = new Date(rawValue);
+  if (Number.isNaN(value.getTime())) return '';
+  const pad = (input) => String(input).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+}
+
+function normalizePermRule(rawRule) {
+  if (Array.isArray(rawRule)) {
+    return { allowRoleIds: uniqueIds(rawRule), denyRoleIds: [] };
+  }
+  return {
+    allowRoleIds: uniqueIds(rawRule?.allowRoleIds),
+    denyRoleIds: uniqueIds(rawRule?.denyRoleIds),
+  };
+}
+
+function buildEventFormFromEvent(eventItem, fallbackTimeZone = DEFAULT_TIMEZONE) {
+  const form = createEventForm(eventItem?.timezone || fallbackTimeZone);
+  return {
+    ...form,
+    title: eventItem?.title || '',
+    stationKey: eventItem?.stationKey || '',
+    channelId: eventItem?.channelId || '',
+    textChannelId: eventItem?.textChannelId || '',
+    startsAt: toDateTimeLocal(eventItem?.startsAt),
+    endsAt: toDateTimeLocal(eventItem?.endsAt),
+    timezone: eventItem?.timezone || fallbackTimeZone,
+    repeat: eventItem?.repeat || 'none',
+    createDiscordEvent: eventItem?.createDiscordEvent === true,
+    stageTopic: eventItem?.stageTopic || '',
+    announceMessage: eventItem?.announceMessage || '',
+    description: eventItem?.description || '',
+    enabled: eventItem?.enabled !== false,
+  };
+}
+
+function resolveRoleNames(roleIds, roles) {
+  const roleMap = new Map((Array.isArray(roles) ? roles : []).map((role) => [role.id, role.name]));
+  const names = uniqueIds(roleIds).map((roleId) => roleMap.get(roleId) || roleId);
+  return names.join(', ') || '-';
+}
+
+function normalizeEventCatalog(rawCatalog) {
+  return {
+    defaultTimeZone: rawCatalog?.defaultTimeZone || DEFAULT_TIMEZONE,
+    stations: Array.isArray(rawCatalog?.stations) ? rawCatalog.stations : [],
+    voiceChannels: Array.isArray(rawCatalog?.voiceChannels) ? rawCatalog.voiceChannels : [],
+    textChannels: Array.isArray(rawCatalog?.textChannels) ? rawCatalog.textChannels : [],
+    repeatModes: Array.isArray(rawCatalog?.repeatModes) ? rawCatalog.repeatModes : [],
+    timeZones: Array.isArray(rawCatalog?.timeZones) ? rawCatalog.timeZones : [],
+  };
+}
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(buildApiUrl(path), {
@@ -196,20 +290,12 @@ export default function DashboardPortal() {
   const [error, setError] = useState(authErrorMessage);
 
   const [events, setEvents] = useState([]);
-  const [eventForm, setEventForm] = useState({
-    title: '',
-    stationKey: '',
-    startsAt: '',
-    timezone: 'Europe/Vienna',
-    channelId: '',
-    enabled: true,
-  });
+  const [eventCatalog, setEventCatalog] = useState(EMPTY_EVENT_CATALOG);
+  const [editingEventId, setEditingEventId] = useState('');
+  const [eventForm, setEventForm] = useState(() => createEventForm());
 
-  const [permsDraft, setPermsDraft] = useState(() => {
-    const base = {};
-    PERMISSION_COMMANDS.forEach((command) => { base[command] = ''; });
-    return base;
-  });
+  const [permRoles, setPermRoles] = useState([]);
+  const [permsDraft, setPermsDraft] = useState(() => createPermsDraft());
 
   const [stats, setStats] = useState({ basic: null, advanced: null, tier: 'free' });
 
@@ -220,6 +306,11 @@ export default function DashboardPortal() {
 
   const dashboardEnabled = Boolean(selectedGuild?.dashboardEnabled);
   const isUltimate = selectedGuild?.tier === 'ultimate';
+
+  const resetEventEditor = useCallback((catalog = null) => {
+    setEditingEventId('');
+    setEventForm(createEventForm(catalog?.defaultTimeZone || DEFAULT_TIMEZONE));
+  }, []);
 
   const refreshSession = useCallback(async () => {
     setLoadingSession(true);
@@ -270,19 +361,32 @@ export default function DashboardPortal() {
         advanced: statsPayload.advanced || null,
       });
       setEvents(Array.isArray(eventsPayload.events) ? eventsPayload.events : []);
+      const nextCatalog = normalizeEventCatalog(eventsPayload.catalog);
+      setEventCatalog(nextCatalog);
+      setPermRoles(Array.isArray(permsPayload.roles) ? permsPayload.roles : []);
 
-      const nextDraft = {};
+      const nextDraft = createPermsDraft();
       PERMISSION_COMMANDS.forEach((command) => {
-        const roles = permsPayload.commandRoleMap?.[command] || [];
-        nextDraft[command] = Array.isArray(roles) ? roles.join(', ') : '';
+        nextDraft[command] = normalizePermRule(permsPayload.commandRoleMap?.[command]);
       });
       setPermsDraft(nextDraft);
+
+      setEventForm((current) => (
+        editingEventId
+          ? current
+          : {
+            ...current,
+            timezone: current.timezone && current.timezone !== DEFAULT_TIMEZONE
+              ? current.timezone
+              : (nextCatalog.defaultTimeZone || DEFAULT_TIMEZONE),
+          }
+      ));
     } catch (err) {
       setError(err.message || 'Dashboard-Daten konnten nicht geladen werden.');
     } finally {
       setLoadingData(false);
     }
-  }, [selectedGuildId, dashboardEnabled, selectedGuild?.tier]);
+  }, [selectedGuildId, dashboardEnabled, selectedGuild?.tier, editingEventId]);
 
   useEffect(() => {
     refreshSession();
@@ -292,6 +396,13 @@ export default function DashboardPortal() {
     if (!selectedGuildId) return;
     window.localStorage.setItem('omnifm.dashboard.guildId', selectedGuildId);
   }, [selectedGuildId]);
+
+  useEffect(() => {
+    setEventCatalog(EMPTY_EVENT_CATALOG);
+    setPermRoles([]);
+    setPermsDraft(createPermsDraft());
+    resetEventEditor(EMPTY_EVENT_CATALOG);
+  }, [selectedGuildId, resetEventEditor]);
 
   useEffect(() => {
     if (session.authenticated && selectedGuildId && dashboardEnabled) {
@@ -327,29 +438,46 @@ export default function DashboardPortal() {
     }
   };
 
-  const createEvent = async () => {
+  const startEditingEvent = (eventItem) => {
+    setEditingEventId(eventItem.id);
+    setEventForm(buildEventFormFromEvent(eventItem, eventCatalog.defaultTimeZone || DEFAULT_TIMEZONE));
+  };
+
+  const saveEvent = async () => {
     if (!selectedGuildId) return;
     setError('');
     setMessage('');
     try {
-      const startsAtIso = eventForm.startsAt ? new Date(eventForm.startsAt).toISOString() : '';
-      const payload = await apiRequest(`/api/dashboard/events?serverId=${encodeURIComponent(selectedGuildId)}`, {
-        method: 'POST',
+      const requestBody = {
+        title: eventForm.title,
+        stationKey: eventForm.stationKey,
+        channelId: eventForm.channelId,
+        textChannelId: eventForm.textChannelId,
+        startsAt: eventForm.startsAt,
+        endsAt: eventForm.endsAt,
+        clearEndAt: !eventForm.endsAt,
+        clearTextChannel: !eventForm.textChannelId,
+        timezone: eventForm.timezone,
+        repeat: eventForm.repeat,
+        createDiscordEvent: eventForm.createDiscordEvent,
+        stageTopic: eventForm.stageTopic,
+        message: eventForm.announceMessage,
+        description: eventForm.description,
+        enabled: eventForm.enabled,
+      };
+      const path = editingEventId
+        ? `/api/dashboard/events/${encodeURIComponent(editingEventId)}?serverId=${encodeURIComponent(selectedGuildId)}`
+        : `/api/dashboard/events?serverId=${encodeURIComponent(selectedGuildId)}`;
+      const payload = await apiRequest(path, {
+        method: editingEventId ? 'PATCH' : 'POST',
         body: JSON.stringify({
-          ...eventForm,
-          startsAt: startsAtIso,
+          ...requestBody,
         }),
       });
-      setEvents((current) => [payload.event, ...current]);
-      setEventForm({
-        title: '',
-        stationKey: '',
-        startsAt: '',
-        timezone: 'Europe/Vienna',
-        channelId: '',
-        enabled: true,
-      });
-      setMessage(t('Event gespeichert.', 'Event saved.'));
+      resetEventEditor(eventCatalog);
+      setMessage(payload?.warning
+        ? `${t('Event gespeichert.', 'Event saved.')} ${payload.warning}`
+        : t(editingEventId ? 'Event aktualisiert.' : 'Event gespeichert.', editingEventId ? 'Event updated.' : 'Event saved.'));
       refreshDashboardData();
     } catch (err) {
       setError(err.message || 'Event konnte nicht gespeichert werden.');
@@ -379,10 +507,34 @@ export default function DashboardPortal() {
       await apiRequest(`/api/dashboard/events/${encodeURIComponent(eventId)}?serverId=${encodeURIComponent(selectedGuildId)}`, {
         method: 'DELETE',
       });
+      if (editingEventId === eventId) {
+        resetEventEditor(eventCatalog);
+      }
       setEvents((current) => current.filter((eventItem) => eventItem.id !== eventId));
     } catch (err) {
       setError(err.message || 'Event konnte nicht geloescht werden.');
     }
+  };
+
+  const updatePermDraft = (command, field, selectedOptions) => {
+    const values = uniqueIds([...selectedOptions].map((option) => option.value));
+    setPermsDraft((current) => {
+      const currentRule = current[command] || { allowRoleIds: [], denyRoleIds: [] };
+      const nextRule = {
+        ...currentRule,
+        [field]: values,
+      };
+      if (field === 'allowRoleIds') {
+        nextRule.denyRoleIds = nextRule.denyRoleIds.filter((roleId) => !values.includes(roleId));
+      }
+      if (field === 'denyRoleIds') {
+        nextRule.allowRoleIds = nextRule.allowRoleIds.filter((roleId) => !values.includes(roleId));
+      }
+      return {
+        ...current,
+        [command]: nextRule,
+      };
+    });
   };
 
   const savePerms = async () => {
@@ -390,12 +542,10 @@ export default function DashboardPortal() {
     setError('');
     setMessage('');
     const commandRoleMap = {};
-    Object.entries(permsDraft).forEach(([command, rawRoles]) => {
-      const normalized = String(rawRoles || '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean);
-      commandRoleMap[command] = [...new Set(normalized)];
+    Object.entries(permsDraft).forEach(([command, rawRule]) => {
+      const allowRoleIds = uniqueIds(rawRule?.allowRoleIds);
+      const denyRoleIds = uniqueIds(rawRule?.denyRoleIds).filter((roleId) => !allowRoleIds.includes(roleId));
+      commandRoleMap[command] = { allowRoleIds, denyRoleIds };
     });
 
     try {
@@ -669,13 +819,173 @@ export default function DashboardPortal() {
           {activeTab === 'events' && (
             <section data-testid="dashboard-events-panel" style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 420px) 1fr', gap: 14 }}>
               <div style={{ border: '1px solid #27272A', background: '#0A0A0A', padding: 16 }}>
-                <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 24 }}>{t('Neues Event', 'Create event')}</h3>
+                <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 24 }}>
+                  {editingEventId ? t('Event bearbeiten', 'Edit event') : t('Neues Event', 'Create event')}
+                </h3>
+                <p style={{ color: '#A1A1AA', marginTop: 8, lineHeight: 1.7 }}>
+                  {t(
+                    'Dashboard nutzt jetzt dieselben Kernoptionen wie `/event`: Station, Voice/Stage-Channel, Start, Ende, Repeat, Text-Ankuendigung, Discord-Server-Event, Stage-Topic und Nachricht.',
+                    'The dashboard now exposes the same core event options as `/event`: station, voice/stage channel, start, end, repeat, text announcement, Discord server event, stage topic, and message.',
+                  )}
+                </p>
                 <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
-                  <input data-testid="dashboard-event-title-input" value={eventForm.title} onChange={(event) => setEventForm((current) => ({ ...current, title: event.target.value }))} placeholder={t('Titel', 'Title')} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
-                  <input data-testid="dashboard-event-station-input" value={eventForm.stationKey} onChange={(event) => setEventForm((current) => ({ ...current, stationKey: event.target.value }))} placeholder={t('Station Key', 'Station key')} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
-                  <input data-testid="dashboard-event-channel-input" value={eventForm.channelId} onChange={(event) => setEventForm((current) => ({ ...current, channelId: event.target.value }))} placeholder={t('Voice Channel ID', 'Voice channel ID')} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
-                  <input data-testid="dashboard-event-starts-at-input" type="datetime-local" value={eventForm.startsAt} onChange={(event) => setEventForm((current) => ({ ...current, startsAt: event.target.value }))} style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }} />
-                  <button data-testid="dashboard-event-create-button" onClick={createEvent} style={{ height: 42, border: 'none', background: '#5865F2', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>{t('Event speichern', 'Save event')}</button>
+                  <input
+                    data-testid="dashboard-event-title-input"
+                    value={eventForm.title}
+                    onChange={(event) => setEventForm((current) => ({ ...current, title: event.target.value }))}
+                    placeholder={t('Titel', 'Title')}
+                    style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                  />
+
+                  <select
+                    data-testid="dashboard-event-station-input"
+                    value={eventForm.stationKey}
+                    onChange={(event) => setEventForm((current) => ({ ...current, stationKey: event.target.value }))}
+                    style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                  >
+                    <option value="">{t('Station auswaehlen', 'Select station')}</option>
+                    {(eventCatalog.stations || []).map((station) => (
+                      <option key={station.key} value={station.key}>{station.label || station.name || station.key}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    data-testid="dashboard-event-channel-input"
+                    value={eventForm.channelId}
+                    onChange={(event) => setEventForm((current) => ({ ...current, channelId: event.target.value }))}
+                    style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                  >
+                    <option value="">{t('Voice/Stage-Channel auswaehlen', 'Select voice/stage channel')}</option>
+                    {(eventCatalog.voiceChannels || []).map((channel) => (
+                      <option key={channel.id} value={channel.id}>{channel.label || channel.name || channel.id}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    data-testid="dashboard-event-text-channel-select"
+                    value={eventForm.textChannelId}
+                    onChange={(event) => setEventForm((current) => ({ ...current, textChannelId: event.target.value }))}
+                    style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                  >
+                    <option value="">{t('Kein Text-Channel', 'No text channel')}</option>
+                    {(eventCatalog.textChannels || []).map((channel) => (
+                      <option key={channel.id} value={channel.id}>{channel.label || channel.name || channel.id}</option>
+                    ))}
+                  </select>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <input
+                      data-testid="dashboard-event-starts-at-input"
+                      type="datetime-local"
+                      value={eventForm.startsAt}
+                      onChange={(event) => setEventForm((current) => ({ ...current, startsAt: event.target.value }))}
+                      style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                    />
+                    <input
+                      data-testid="dashboard-event-ends-at-input"
+                      type="datetime-local"
+                      value={eventForm.endsAt}
+                      onChange={(event) => setEventForm((current) => ({ ...current, endsAt: event.target.value }))}
+                      style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <select
+                      data-testid="dashboard-event-timezone-select"
+                      value={eventForm.timezone}
+                      onChange={(event) => setEventForm((current) => ({ ...current, timezone: event.target.value }))}
+                      style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                    >
+                      {(eventCatalog.timeZones || []).map((item) => (
+                        <option key={item.value} value={item.value}>{item.label || item.value}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      data-testid="dashboard-event-repeat-select"
+                      value={eventForm.repeat}
+                      onChange={(event) => setEventForm((current) => ({ ...current, repeat: event.target.value }))}
+                      style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                    >
+                      {(eventCatalog.repeatModes || []).map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {String(locale || 'de').startsWith('de') ? (item.label || item.value) : (item.labelEn || item.label || item.value)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#E4E4E7' }}>
+                    <input
+                      data-testid="dashboard-event-serverevent-toggle"
+                      type="checkbox"
+                      checked={eventForm.createDiscordEvent}
+                      onChange={(event) => setEventForm((current) => ({ ...current, createDiscordEvent: event.target.checked }))}
+                    />
+                    {t('Discord-Server-Event automatisch anlegen', 'Create Discord server event automatically')}
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#E4E4E7' }}>
+                    <input
+                      data-testid="dashboard-event-enabled-toggle"
+                      type="checkbox"
+                      checked={eventForm.enabled}
+                      onChange={(event) => setEventForm((current) => ({ ...current, enabled: event.target.checked }))}
+                    />
+                    {t('Event aktiviert', 'Event enabled')}
+                  </label>
+
+                  <input
+                    data-testid="dashboard-event-stage-topic-input"
+                    value={eventForm.stageTopic}
+                    onChange={(event) => setEventForm((current) => ({ ...current, stageTopic: event.target.value }))}
+                    placeholder={t('Stage-Thema (nur Stage-Channel)', 'Stage topic (stage channels only)')}
+                    style={{ height: 40, padding: '0 10px', border: '1px solid #27272A', background: '#050505', color: '#fff' }}
+                  />
+
+                  <textarea
+                    data-testid="dashboard-event-message-input"
+                    value={eventForm.announceMessage}
+                    onChange={(event) => setEventForm((current) => ({ ...current, announceMessage: event.target.value }))}
+                    placeholder={t('Ankuendigungsnachricht', 'Announcement message')}
+                    rows={4}
+                    style={{ padding: '10px', border: '1px solid #27272A', background: '#050505', color: '#fff', resize: 'vertical' }}
+                  />
+
+                  <textarea
+                    data-testid="dashboard-event-description-input"
+                    value={eventForm.description}
+                    onChange={(event) => setEventForm((current) => ({ ...current, description: event.target.value }))}
+                    placeholder={t('Beschreibung fuer Discord-Server-Event', 'Description for Discord server event')}
+                    rows={4}
+                    style={{ padding: '10px', border: '1px solid #27272A', background: '#050505', color: '#fff', resize: 'vertical' }}
+                  />
+
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button
+                      data-testid="dashboard-event-create-button"
+                      onClick={saveEvent}
+                      style={{ height: 42, border: 'none', background: '#5865F2', color: '#fff', fontWeight: 700, cursor: 'pointer', padding: '0 14px' }}
+                    >
+                      {editingEventId ? t('Event aktualisieren', 'Update event') : t('Event speichern', 'Save event')}
+                    </button>
+                    {editingEventId && (
+                      <button
+                        data-testid="dashboard-event-cancel-button"
+                        onClick={() => resetEventEditor(eventCatalog)}
+                        style={{ height: 42, border: '1px solid #27272A', background: '#050505', color: '#fff', cursor: 'pointer', padding: '0 14px' }}
+                      >
+                        {t('Abbrechen', 'Cancel')}
+                      </button>
+                    )}
+                  </div>
+
+                  {(eventCatalog.voiceChannels || []).length === 0 && (
+                    <div style={{ color: '#FDE68A', fontSize: 13 }}>
+                      {t('Noch keine Voice- oder Stage-Channels vom Server geladen.', 'No voice or stage channels could be loaded from the server yet.')}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -686,14 +996,43 @@ export default function DashboardPortal() {
                   {events.map((eventItem) => (
                     <div key={eventItem.id} data-testid={`dashboard-event-item-${eventItem.id}`} style={{ border: '1px solid #27272A', padding: 12, background: '#050505' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                        <strong>{eventItem.title || '-'}</strong>
+                        <div>
+                          <strong>{eventItem.title || '-'}</strong>
+                          <div style={{ color: '#71717A', fontSize: 12, marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>{eventItem.id}</div>
+                        </div>
                         <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            data-testid={`dashboard-event-edit-${eventItem.id}`}
+                            onClick={() => startEditingEvent(eventItem)}
+                            style={{ border: '1px solid #27272A', background: '#0A0A0A', color: '#fff', height: 30, padding: '0 10px', cursor: 'pointer' }}
+                          >
+                            {t('Bearbeiten', 'Edit')}
+                          </button>
                           <button data-testid={`dashboard-event-toggle-${eventItem.id}`} onClick={() => toggleEvent(eventItem.id, !eventItem.enabled)} style={{ border: '1px solid #27272A', background: eventItem.enabled ? 'rgba(16,185,129,0.15)' : '#0A0A0A', color: '#fff', height: 30, padding: '0 10px', cursor: 'pointer' }}>{eventItem.enabled ? t('Aktiv', 'Enabled') : t('Inaktiv', 'Disabled')}</button>
                           <button data-testid={`dashboard-event-delete-${eventItem.id}`} onClick={() => deleteEvent(eventItem.id)} style={{ border: '1px solid rgba(248,113,113,0.45)', background: 'rgba(127,29,29,0.2)', color: '#fff', height: 30, padding: '0 10px', cursor: 'pointer' }}>{t('Loeschen', 'Delete')}</button>
                         </div>
                       </div>
-                      <div style={{ color: '#A1A1AA', marginTop: 6, fontSize: 13 }}>
-                        {t('Station', 'Station')}: {eventItem.stationKey || '-'} | {t('Start', 'Start')}: {eventItem.startsAt ? formatDate(eventItem.startsAt, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'} | {t('Channel', 'Channel')}: {eventItem.channelId || '-'}
+                      <div style={{ color: '#A1A1AA', marginTop: 8, fontSize: 13, display: 'grid', gap: 4 }}>
+                        <div>{t('Station', 'Station')}: <strong>{eventItem.stationName || eventItem.stationKey || '-'}</strong></div>
+                        <div>{t('Voice/Stage', 'Voice/stage')}: {eventItem.channelName || eventItem.channelId || '-'}</div>
+                        <div>{t('Text-Channel', 'Text channel')}: {eventItem.textChannelName || eventItem.textChannelId || '-'}</div>
+                        <div>
+                          {t('Start', 'Start')}: {eventItem.startsAt ? formatDate(eventItem.startsAt, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                          {' | '}
+                          {t('Ende', 'End')}: {eventItem.endsAt ? formatDate(eventItem.endsAt, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                        </div>
+                        <div>
+                          {t('Repeat', 'Repeat')}: {eventItem.repeatLabel || eventItem.repeat || 'none'}
+                          {' | '}
+                          {t('Discord-Server-Event', 'Discord server event')}: {eventItem.createDiscordEvent ? t('Ja', 'Yes') : t('Nein', 'No')}
+                        </div>
+                        {(eventItem.stageTopic || eventItem.announceMessage || eventItem.description) && (
+                          <div style={{ color: '#D4D4D8' }}>
+                            {eventItem.stageTopic && <span>{t('Stage-Thema', 'Stage topic')}: {eventItem.stageTopic} </span>}
+                            {eventItem.announceMessage && <span>{t('Nachricht', 'Message')}: {eventItem.announceMessage} </span>}
+                            {eventItem.description && <span>{t('Beschreibung', 'Description')}: {eventItem.description}</span>}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -711,23 +1050,63 @@ export default function DashboardPortal() {
             <section data-testid="dashboard-perms-panel" style={{ border: '1px solid #27272A', background: '#0A0A0A', padding: 16 }}>
               <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 24 }}>{t('Rollenrechte pro Command', 'Role permissions by command')}</h3>
               <p style={{ color: '#A1A1AA', marginTop: 8, lineHeight: 1.7 }}>
-                {t('Trenne mehrere Rollen mit Komma. Rollennamen oder IDs werden aufgeloest, z. B. DJ, Moderator, 123456789012345678', 'Use comma-separated role names or IDs, e.g. DJ, Moderator, 123456789012345678')}
+                {t('Die Rollen werden direkt vom Discord-Server geladen. Allow gibt Zugriff, Deny sperrt den Command explizit und ueberschreibt Allow.', 'Roles are loaded directly from the Discord server. Allow grants access, Deny blocks the command explicitly and overrides Allow.')}
               </p>
 
               <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
                 {PERMISSION_COMMANDS.map((command) => (
-                  <label key={command} data-testid={`dashboard-perm-row-${command}`} style={{ display: 'grid', gap: 6 }}>
+                  <div key={command} data-testid={`dashboard-perm-row-${command}`} style={{ display: 'grid', gap: 8, border: '1px solid #27272A', background: '#050505', padding: 12 }}>
                     <span style={{ color: '#A1A1AA', fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>/{command}</span>
-                    <input
-                      data-testid={`dashboard-perm-input-${command}`}
-                      value={permsDraft[command] || ''}
-                      onChange={(event) => setPermsDraft((current) => ({ ...current, [command]: event.target.value }))}
-                      placeholder={t('Rollen', 'Roles')}
-                      style={{ height: 38, border: '1px solid #27272A', background: '#050505', color: '#fff', padding: '0 10px' }}
-                    />
-                  </label>
+                    <label style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ color: '#D4D4D8', fontSize: 12 }}>{t('Allow', 'Allow')}</span>
+                      <select
+                        multiple
+                        size={Math.min(Math.max(4, permRoles.length || 4), 8)}
+                        data-testid={`dashboard-perm-allow-${command}`}
+                        value={permsDraft[command]?.allowRoleIds || []}
+                        onChange={(event) => updatePermDraft(command, 'allowRoleIds', event.target.selectedOptions)}
+                        style={{ border: '1px solid #27272A', background: '#050505', color: '#fff', padding: 8 }}
+                      >
+                        {permRoles.map((role) => (
+                          <option key={`${command}-allow-${role.id}`} value={role.id}>
+                            {role.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ color: '#D4D4D8', fontSize: 12 }}>{t('Deny', 'Deny')}</span>
+                      <select
+                        multiple
+                        size={Math.min(Math.max(4, permRoles.length || 4), 8)}
+                        data-testid={`dashboard-perm-deny-${command}`}
+                        value={permsDraft[command]?.denyRoleIds || []}
+                        onChange={(event) => updatePermDraft(command, 'denyRoleIds', event.target.selectedOptions)}
+                        style={{ border: '1px solid #27272A', background: '#050505', color: '#fff', padding: 8 }}
+                      >
+                        {permRoles.map((role) => (
+                          <option key={`${command}-deny-${role.id}`} value={role.id}>
+                            {role.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div style={{ color: '#71717A', fontSize: 12, lineHeight: 1.6 }}>
+                      {t('Allow', 'Allow')}: {resolveRoleNames(permsDraft[command]?.allowRoleIds, permRoles)}
+                      <br />
+                      {t('Deny', 'Deny')}: {resolveRoleNames(permsDraft[command]?.denyRoleIds, permRoles)}
+                    </div>
+                  </div>
                 ))}
               </div>
+
+              {permRoles.length === 0 && (
+                <div style={{ marginTop: 12, color: '#FDE68A' }}>
+                  {t('Es konnten noch keine Rollen vom Server geladen werden.', 'No guild roles could be loaded yet.')}
+                </div>
+              )}
 
               <button
                 data-testid="dashboard-perms-save-button"
