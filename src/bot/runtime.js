@@ -345,6 +345,7 @@ class BotRuntime {
         player,
         connection: null,
         currentStationKey: null,
+        currentFallbackKey: null,
         currentStationName: null,
         currentMeta: null,
         lastChannelId: null,
@@ -429,6 +430,7 @@ class BotRuntime {
       this.flushListeningStatsSample(guildId, state);
       this.queueDeleteNowPlayingMessage(guildId, state);
       state.shouldReconnect = false;
+      state.currentFallbackKey = null;
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
       state.player.stop();
@@ -2226,6 +2228,7 @@ class BotRuntime {
       this.clearNowPlayingTimer(state);
       this.queueDeleteNowPlayingMessage(guildId, state);
       state.currentStationKey = null;
+      state.currentFallbackKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
@@ -2251,12 +2254,12 @@ class BotRuntime {
       state.lastStreamErrorAt = new Date().toISOString();
       log("ERROR", `[${this.config.name}] Auto-restart error for ${key}: ${err.message}`);
 
-      const isCustomStation = this.normalizeStationReference(key).isCustom;
-      const fallbackKey = !isCustomStation ? getFallbackKey(resolvedStation.stations, resolvedStation.key) : null;
-      if (fallbackKey && resolvedStation.stations.stations[fallbackKey]) {
+      const fallback = this.resolvePlaybackFallback(guildId, resolvedStation.key, state.currentFallbackKey);
+      if (fallback?.ok) {
         try {
-          await this.playStation(state, resolvedStation.stations, fallbackKey, guildId);
-          log("INFO", `[${this.config.name}] Fallback to ${fallbackKey} after restart failure`);
+          await this.playStation(state, fallback.stations, fallback.key, guildId);
+          state.currentFallbackKey = fallback.key;
+          log("INFO", `[${this.config.name}] Fallback to ${fallback.key} after restart failure (${fallback.source})`);
         } catch (fallbackErr) {
           log("ERROR", `[${this.config.name}] Fallback restart also failed: ${fallbackErr.message}`);
         }
@@ -2511,6 +2514,7 @@ class BotRuntime {
     if (!preservePlaybackTarget) {
       this.queueDeleteNowPlayingMessage(guildId, state);
       state.currentStationKey = null;
+      state.currentFallbackKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
@@ -3750,6 +3754,36 @@ class BotRuntime {
     if (!state?.currentStationKey) return null;
     const resolved = this.resolveStationForGuild(guildId, state.currentStationKey, language || this.resolveGuildLanguage(guildId));
     return resolved.ok ? resolved : null;
+  }
+
+  resolvePlaybackFallback(guildId, currentKey, explicitFallbackKey = "", language = null) {
+    const fallbackLanguage = language || this.resolveGuildLanguage(guildId);
+    const explicitKey = String(explicitFallbackKey || "").trim();
+    if (explicitKey && explicitKey !== currentKey) {
+      const explicit = this.resolveStationForGuild(guildId, explicitKey, fallbackLanguage);
+      if (explicit.ok && explicit.key !== currentKey) {
+        return { ...explicit, source: "explicit" };
+      }
+    }
+
+    const current = this.resolveStationForGuild(guildId, currentKey, fallbackLanguage);
+    if (!current.ok || current.isCustom || isYouTubeUrl(current.station?.url || "")) {
+      return null;
+    }
+
+    const fallbackKey = getFallbackKey(current.stations, current.key);
+    if (!fallbackKey || fallbackKey === current.key || !current.stations.stations[fallbackKey]) {
+      return null;
+    }
+
+    return {
+      ok: true,
+      key: fallbackKey,
+      station: current.stations.stations[fallbackKey],
+      stations: current.stations,
+      isCustom: false,
+      source: "automatic",
+    };
   }
 
   clearScheduledEventPlayback(state) {
@@ -5539,7 +5573,7 @@ class BotRuntime {
 
       const focused = interaction.options.getFocused(true);
 
-      if (focused.name === "station") {
+      if (focused.name === "station" || focused.name === "fallback") {
         const stations = loadStations();
         const guildId = interaction.guildId;
         const guildTier = getTier(guildId);
@@ -6123,6 +6157,7 @@ class BotRuntime {
       }
 
       state.currentStationKey = null;
+      state.currentFallbackKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
@@ -6562,6 +6597,7 @@ class BotRuntime {
 
     if (interaction.commandName === "play") {
       const requested = interaction.options.getString("station");
+      const requestedFallback = interaction.options.getString("fallback");
       const requestedVoiceChannel = interaction.options.getChannel("voice");
       const requestedBotIndex = interaction.options.getInteger("bot");
       let requestedChannel = null;
@@ -6589,6 +6625,17 @@ class BotRuntime {
 
       const guildId = interaction.guildId;
       const guildTier = getTier(guildId);
+      const fallbackRequested = String(requestedFallback || "").trim();
+      if (fallbackRequested && guildTier !== "ultimate") {
+        await interaction.reply({
+          content: t(
+            "Die `/play fallback` Option ist nur im Ultimate-Plan verfuegbar.",
+            "The `/play fallback` option is only available on the Ultimate plan."
+          ),
+          ephemeral: true,
+        });
+        return;
+      }
 
       // Check standard stations first, then custom stations (Ultimate only)
       let key = resolveStation(stations, requested);
@@ -6637,6 +6684,25 @@ class BotRuntime {
       if (!guild) {
         await interaction.reply({ content: t("Guild konnte nicht ermittelt werden.", "Could not resolve guild."), ephemeral: true });
         return;
+      }
+
+      let explicitFallback = null;
+      if (fallbackRequested) {
+        explicitFallback = this.resolveStationForGuild(guildId, fallbackRequested, language);
+        if (!explicitFallback.ok) {
+          await interaction.reply({ content: explicitFallback.message, ephemeral: true });
+          return;
+        }
+        if (explicitFallback.key === key) {
+          await interaction.reply({
+            content: t(
+              "Fallback und Hauptstation muessen unterschiedlich sein.",
+              "Fallback and primary station must be different."
+            ),
+            ephemeral: true,
+          });
+          return;
+        }
       }
 
       // ---- Commander Mode: Delegate to Worker ----
@@ -6709,7 +6775,11 @@ class BotRuntime {
         const selectedStation = stations.stations[key];
         log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} -> delegating to ${worker.config.name}`);
         worker.clearScheduledEventPlaybackInGuild(guildId);
-        const result = await worker.playInGuild(guildId, channelId, key, stations, state.volume || 100);
+        const workerState = worker.getState(guildId);
+        workerState.currentFallbackKey = explicitFallback?.key || null;
+        const result = await worker.playInGuild(guildId, channelId, key, stations, state.volume || 100, {
+          fallbackKey: explicitFallback?.key || null,
+        });
         if (!result.ok) {
           await interaction.editReply(t(`Fehler: ${result.error}`, `Error: ${result.error}`));
           return;
@@ -6739,6 +6809,7 @@ class BotRuntime {
       }
       state.shouldReconnect = true;
       this.clearScheduledEventPlayback(state);
+      state.currentFallbackKey = explicitFallback?.key || null;
 
       try {
         await this.playStation(state, stations, key, guildId);
@@ -6749,15 +6820,15 @@ class BotRuntime {
         log("ERROR", `[${this.config.name}] Play error: ${err.message}`);
         state.lastStreamErrorAt = new Date().toISOString();
 
-        const allowFallback = !isCustom && !isYouTubeUrl(selectedStation?.url || "");
-        const fallbackKey = allowFallback ? getFallbackKey(stations, key) : null;
-        if (fallbackKey && fallbackKey !== key && stations.stations[fallbackKey]) {
+        const fallback = this.resolvePlaybackFallback(guildId, key, explicitFallback?.key || state.currentFallbackKey, language);
+        if (fallback?.ok) {
           try {
-            await this.playStation(state, stations, fallbackKey, guildId);
+            await this.playStation(state, fallback.stations, fallback.key, guildId);
+            state.currentFallbackKey = fallback.key;
             await interaction.editReply(
               t(
-                `Fehler bei ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`,
-                `Error on ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`
+                `Fehler bei ${selectedStation?.name || key}. Fallback: ${fallback.station?.name || fallback.key}`,
+                `Error on ${selectedStation?.name || key}. Fallback: ${fallback.station?.name || fallback.key}`
               )
             );
             return;
@@ -6768,6 +6839,7 @@ class BotRuntime {
         }
 
         state.shouldReconnect = false;
+        state.currentFallbackKey = null;
         this.syncVoiceChannelStatus(guildId, "").catch(() => null);
         this.clearNowPlayingTimer(state);
         this.queueDeleteNowPlayingMessage(guildId, state);
@@ -6778,6 +6850,7 @@ class BotRuntime {
           state.connection = null;
         }
         state.currentStationKey = null;
+        state.currentFallbackKey = null;
         state.currentStationName = null;
         state.currentMeta = null;
         state.nowPlayingSignature = null;
@@ -6803,6 +6876,7 @@ class BotRuntime {
       state.volume = volume;
       state.shouldReconnect = true;
       state.lastChannelId = channelId;
+      state.currentFallbackKey = options?.fallbackKey || null;
       if (options?.scheduledEventId) {
         this.markScheduledEventPlayback(state, options.scheduledEventId, options?.scheduledEventStopAtMs || 0);
       } else {
@@ -6842,6 +6916,7 @@ class BotRuntime {
 
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     state.shouldReconnect = false;
+    state.currentFallbackKey = null;
     this.clearScheduledEventPlayback(state);
     this.flushListeningStatsSample(guildId, state);
     this.clearReconnectTimer(state);
@@ -6856,6 +6931,7 @@ class BotRuntime {
     }
 
     state.currentStationKey = null;
+    state.currentFallbackKey = null;
     state.currentStationName = null;
     state.currentMeta = null;
     state.nowPlayingSignature = null;
@@ -7067,6 +7143,7 @@ class BotRuntime {
         state.shouldReconnect = true;
         state.lastChannelId = data.channelId;
         state.currentStationKey = restoredStation.key;
+        state.currentFallbackKey = data.fallbackKey || null;
         state.currentStationName = restoredStation.station.name || restoredStation.key;
         this.markScheduledEventPlayback(
           state,
@@ -7109,6 +7186,7 @@ class BotRuntime {
     for (const [guildId, state] of this.guildState.entries()) {
       this.syncVoiceChannelStatus(guildId, "").catch(() => null);
       state.shouldReconnect = false;
+      state.currentFallbackKey = null;
       this.flushListeningStatsSample(guildId, state);
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
@@ -7120,6 +7198,7 @@ class BotRuntime {
         state.connection = null;
       }
       state.currentStationKey = null;
+      state.currentFallbackKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
       state.nowPlayingSignature = null;
