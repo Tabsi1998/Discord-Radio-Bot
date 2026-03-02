@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Crown, Shield, X, Zap } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { buildApiUrl } from '../lib/api';
 
-const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 const PLAN_ORDER = ['free', 'pro', 'ultimate'];
 const PLAN_META = {
   free: { color: '#A1A1AA', icon: Shield },
@@ -32,10 +32,6 @@ const BASE_FALLBACK_PRICING = {
     },
   },
 };
-
-function buildApiUrl(path) {
-  return `${API_BASE}${path}`;
-}
 
 function parsePriceNumber(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;

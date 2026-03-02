@@ -10,8 +10,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
-
-const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
+import { buildApiUrl } from '../lib/api';
 
 const ROLE_COLORS = {
   commander: { accent: '#00F0FF', bg: 'rgba(0, 240, 255, 0.06)', border: 'rgba(0, 240, 255, 0.2)', glow: 'rgba(0, 240, 255, 0.12)' },
@@ -178,7 +177,7 @@ function WorkerDashboard() {
 
   const fetchWorkers = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/workers`, { cache: 'no-store' });
+      const response = await fetch(buildApiUrl('/api/workers'), { cache: 'no-store' });
       if (response.ok) {
         const payload = await response.json();
         if (mountedRef.current) setData(payload);

@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, BarChart3, CalendarDays, Crown, Lock, LogOut, ShieldCheck, Users } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { buildApiUrl } from '../lib/api';
 
-const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 const PERMISSION_COMMANDS = [
   'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',
 ];
-
-function buildApiUrl(path) {
-  return `${API_BASE}${path}`;
-}
+const EMPTY_SESSION = {
+  authenticated: false,
+  oauthConfigured: null,
+  user: null,
+  guilds: [],
+};
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(buildApiUrl(path), {
@@ -54,6 +56,32 @@ function resolveAuthErrorMessage(authError, t) {
     default:
       return String(authError || '').trim();
   }
+}
+
+function normalizeOauthConfigured(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  return null;
+}
+
+function resolveSessionLoadErrorMessage(err, t) {
+  const message = String(err?.message || '').trim();
+  if (!message) {
+    return t('Session konnte nicht geladen werden.', 'Session could not be loaded.');
+  }
+  if (/api route not found/i.test(message) || message === 'HTTP 404') {
+    return t(
+      'Dashboard-API auf diesem Host nicht gefunden. Pruefe, ob das Node-Webbackend laeuft und ob das Frontend auf die richtige API-URL zeigt.',
+      'Dashboard API was not found on this host. Check that the Node web backend is running and that the frontend points to the correct API URL.',
+    );
+  }
+  if (/failed to fetch/i.test(message)) {
+    return t(
+      'Dashboard-API ist nicht erreichbar. Pruefe Backend-URL, Port und CORS/Proxy-Konfiguration.',
+      'Dashboard API is unreachable. Check backend URL, port, and CORS/proxy configuration.',
+    );
+  }
+  return message;
 }
 
 function DashboardShell({ children, sidebar, topbar }) {
@@ -160,7 +188,7 @@ export default function DashboardPortal() {
   const authErrorMessage = useMemo(() => resolveAuthErrorMessage(authError, t), [authError, t]);
 
   const [loadingSession, setLoadingSession] = useState(true);
-  const [session, setSession] = useState({ authenticated: false, oauthConfigured: false, user: null, guilds: [] });
+  const [session, setSession] = useState(EMPTY_SESSION);
   const [selectedGuildId, setSelectedGuildId] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
   const [loadingData, setLoadingData] = useState(false);
@@ -199,7 +227,7 @@ export default function DashboardPortal() {
       const payload = await apiRequest('/api/auth/session', { method: 'GET' });
       setSession({
         authenticated: payload.authenticated === true,
-        oauthConfigured: payload.oauthConfigured === true,
+        oauthConfigured: normalizeOauthConfigured(payload.oauthConfigured),
         user: payload.user || null,
         guilds: Array.isArray(payload.guilds) ? payload.guilds : [],
       });
@@ -211,12 +239,12 @@ export default function DashboardPortal() {
       setSelectedGuildId(selected?.id || '');
       setError(payload.authenticated === true ? '' : authErrorMessage);
     } catch (err) {
-      setError(err.message || 'Session konnte nicht geladen werden.');
-      setSession({ authenticated: false, oauthConfigured: false, user: null, guilds: [] });
+      setError(resolveSessionLoadErrorMessage(err, t));
+      setSession(EMPTY_SESSION);
     } finally {
       setLoadingSession(false);
     }
-  }, [authErrorMessage]);
+  }, [authErrorMessage, t]);
 
   useEffect(() => {
     if (!session.authenticated) {
@@ -433,7 +461,7 @@ export default function DashboardPortal() {
             </div>
           )}
 
-          {!session.oauthConfigured && (
+          {session.oauthConfigured === false && (
             <div
               data-testid="dashboard-oauth-not-configured"
               style={{ marginTop: 14, color: '#FDE68A', border: '1px solid rgba(253,230,138,0.35)', padding: '10px 12px', background: 'rgba(120,53,15,0.2)' }}
@@ -445,6 +473,7 @@ export default function DashboardPortal() {
           <button
             data-testid="dashboard-discord-login-button"
             onClick={startDiscordLogin}
+            disabled={session.oauthConfigured === false}
             style={{
               marginTop: 20,
               height: 48,
@@ -453,7 +482,8 @@ export default function DashboardPortal() {
               background: '#5865F2',
               color: '#fff',
               fontWeight: 700,
-              cursor: 'pointer',
+              cursor: session.oauthConfigured === false ? 'not-allowed' : 'pointer',
+              opacity: session.oauthConfigured === false ? 0.55 : 1,
               letterSpacing: '0.03em',
             }}
           >

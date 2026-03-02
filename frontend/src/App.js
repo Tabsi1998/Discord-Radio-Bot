@@ -14,12 +14,7 @@ import PlanMatrix from './components/PlanMatrix';
 import CommandMatrix from './components/CommandMatrix';
 import DashboardPortal from './components/DashboardPortal';
 import { I18nProvider } from './i18n';
-
-const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
-
-function buildApiUrl(path) {
-  return `${API_BASE}${path}`;
-}
+import { buildApiUrl } from './lib/api';
 
 async function fetchJson(path, signal) {
   const res = await fetch(buildApiUrl(path), {
