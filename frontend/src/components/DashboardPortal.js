@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BarChart3, CalendarDays, Crown, Lock, LogOut, ShieldCheck, TrendingUp, Radio, Settings, ListMusic } from 'lucide-react';
+import { BarChart3, CalendarDays, Crown, Lock, LogOut, ShieldCheck, TrendingUp, Radio, Settings, ListMusic, CreditCard, ArrowLeft } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { buildApiUrl } from '../lib/api';
 import DashboardOverview from './DashboardOverview';
@@ -7,6 +7,7 @@ import DashboardStatsPanel from './DashboardStats';
 import DashboardEvents from './DashboardEvents';
 import DashboardCustomStations from './DashboardCustomStations';
 import DashboardSettings from './DashboardSettings';
+import DashboardSubscription from './DashboardSubscription';
 
 const PERMISSION_COMMANDS = [
   'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',
@@ -311,6 +312,7 @@ export default function DashboardPortal() {
     { key: 'stations', label: t('Custom Stations', 'Custom stations'), icon: ListMusic },
     { key: 'perms', label: t('Berechtigungen', 'Permissions'), icon: ShieldCheck },
     { key: 'stats', label: t('Statistiken', 'Statistics'), icon: TrendingUp, ultimateOnly: true },
+    { key: 'subscription', label: t('Abo', 'Subscription'), icon: CreditCard },
     { key: 'settings', label: t('Einstellungen', 'Settings'), icon: Settings },
   ];
 
@@ -362,13 +364,38 @@ export default function DashboardPortal() {
       </div>
 
       {selectedGuild && (
-        <div style={{ marginTop: 20, padding: '12px', border: '1px solid #1A1A2E', background: '#050505' }}>
+        <button
+          data-testid="sidebar-plan-box"
+          onClick={() => setActiveTab('subscription')}
+          style={{
+            marginTop: 20, padding: '12px', border: '1px solid #1A1A2E', background: '#050505',
+            width: '100%', cursor: 'pointer', textAlign: 'left', transition: 'border-color 0.15s',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.borderColor = '#5865F2'}
+          onMouseLeave={(e) => e.currentTarget.style.borderColor = '#1A1A2E'}
+        >
           <div style={{ fontSize: 10, color: '#52525B', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{t('Aktueller Plan', 'Current plan')}</div>
-          <div style={{ marginTop: 4, fontFamily: "'Outfit', sans-serif", fontSize: 18, color: selectedGuild.tier === 'ultimate' ? '#8B5CF6' : selectedGuild.tier === 'pro' ? '#10B981' : '#71717A' }}>
+          <div style={{ marginTop: 4, fontFamily: "'Outfit', sans-serif", fontSize: 18, color: selectedGuild.tier === 'ultimate' ? '#8B5CF6' : selectedGuild.tier === 'pro' ? '#10B981' : '#71717A', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             {String(selectedGuild.tier || 'free').toUpperCase()}
+            <CreditCard size={14} color="#52525B" />
           </div>
-        </div>
+        </button>
       )}
+
+      <a
+        href="/"
+        data-testid="sidebar-back-to-main"
+        style={{
+          marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
+          border: '1px solid #1A1A2E', background: 'transparent', color: '#71717A', textDecoration: 'none',
+          fontSize: 12, transition: 'all 0.15s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#5865F2'; e.currentTarget.style.color = '#fff'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1A1A2E'; e.currentTarget.style.color = '#71717A'; }}
+      >
+        <ArrowLeft size={14} />
+        {t('Zurueck zur Hauptseite', 'Back to main site')}
+      </a>
     </>
   );
 
@@ -395,7 +422,7 @@ export default function DashboardPortal() {
       {error && <div data-testid="dashboard-global-error" style={{ border: '1px solid rgba(252,165,165,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', fontSize: 13 }}>{error}</div>}
       {message && <div data-testid="dashboard-global-message" style={{ border: '1px solid rgba(16,185,129,0.25)', background: 'rgba(6,95,70,0.12)', padding: '10px 12px', color: '#6EE7B7', fontSize: 13 }}>{message}</div>}
 
-      {!dashboardEnabled && (
+      {!dashboardEnabled && activeTab !== 'subscription' && (
         <div data-testid="dashboard-pro-gate" style={{ border: '1px solid #1A1A2E', background: '#080808', padding: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Lock size={22} color="#F59E0B" />
@@ -411,6 +438,10 @@ export default function DashboardPortal() {
             <Crown size={14} /> {t('Zu PRO / Ultimate', 'Upgrade to PRO / Ultimate')}
           </a>
         </div>
+      )}
+
+      {activeTab === 'subscription' && (
+        <DashboardSubscription apiRequest={apiRequest} selectedGuildId={selectedGuildId} t={t} />
       )}
 
       {dashboardEnabled && (

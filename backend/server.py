@@ -2173,6 +2173,53 @@ async def dashboard_perms_put(request: Request, body: dict, serverId: str = ""):
     }
 
 
+# === Dashboard License ===
+
+@app.get("/api/dashboard/license")
+async def dashboard_license(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+
+    tier = guild.get("tier", "free")
+    lic = get_server_license(guild.get("id"))
+    tier_config = TIERS.get(tier, TIERS["free"])
+
+    result = {
+        "serverId": guild.get("id"),
+        "tier": tier,
+        "tierName": tier_config.get("name", "Free"),
+        "dashboardEnabled": guild.get("dashboardEnabled", False),
+        "ultimateEnabled": guild.get("ultimateEnabled", False),
+        "license": None,
+    }
+
+    if lic:
+        linked_servers = lic.get("linkedServerIds", [])
+        seats = max(1, int(lic.get("seats", 1) or 1))
+        result["license"] = {
+            "plan": lic.get("plan", lic.get("tier", "free")),
+            "seats": seats,
+            "seatsUsed": len(linked_servers) if isinstance(linked_servers, list) else 0,
+            "active": not bool(lic.get("expired")),
+            "expired": bool(lic.get("expired")),
+            "expiresAt": lic.get("expiresAt"),
+            "remainingDays": lic.get("remainingDays", 0),
+            "billingPeriod": lic.get("billingPeriod", "monthly"),
+            "durationMonths": lic.get("durationMonths"),
+            "emailMasked": mask_email(lic.get("email") or lic.get("contactEmail") or ""),
+        }
+
+    return result
+
+
 # === Premium API ===
 
 @app.get("/api/premium/check")
