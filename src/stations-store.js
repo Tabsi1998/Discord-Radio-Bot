@@ -21,6 +21,15 @@ function emptyStationsData() {
   return { defaultStationKey: null, stations: {}, locked: false, qualityPreset: "custom", fallbackKeys: [] };
 }
 
+function cloneStationMap(stationsInput) {
+  const out = {};
+  if (!stationsInput || typeof stationsInput !== "object") return out;
+  for (const [key, station] of Object.entries(stationsInput)) {
+    out[key] = station && typeof station === "object" ? { ...station } : station;
+  }
+  return out;
+}
+
 function sanitizeKey(raw) {
   return String(raw || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -67,11 +76,11 @@ function loadStationsFromFile() {
 
 export function loadStations() {
   const c = col();
-  if (!c) return loadStationsFromFile();
+  if (!c) return buildScopedStationsData(loadStationsFromFile());
 
   // Synchronous loading not possible with MongoDB driver; use cached version
-  if (_stationsCache) return _stationsCache;
-  return loadStationsFromFile();
+  if (_stationsCache) return buildScopedStationsData(_stationsCache);
+  return buildScopedStationsData(loadStationsFromFile());
 }
 
 let _stationsCache = null;
@@ -189,6 +198,25 @@ export function getStationsPath() { return stationsPath; }
 export function isValidQualityPreset(preset) { return QUALITY_PRESETS.has(String(preset || "").toLowerCase()); }
 export function normalizeKey(rawKey) { return sanitizeKey(rawKey); }
 
+export function buildScopedStationsData(source, scopedStations = null) {
+  const sourceData = source && typeof source === "object" ? source : emptyStationsData();
+  const stations = cloneStationMap(scopedStations ?? sourceData.stations);
+  const stationKeys = Object.keys(stations);
+  const defaultStationKey = stations[sourceData.defaultStationKey] ? sourceData.defaultStationKey : (stationKeys[0] || null);
+  const qualityPreset = String(sourceData.qualityPreset || "custom").toLowerCase();
+  const fallbackKeys = Array.isArray(sourceData.fallbackKeys)
+    ? sourceData.fallbackKeys.filter((key, idx, arr) => stations[key] && arr.indexOf(key) === idx)
+    : [];
+
+  return {
+    defaultStationKey,
+    stations,
+    locked: Boolean(sourceData.locked),
+    qualityPreset: QUALITY_PRESETS.has(qualityPreset) ? qualityPreset : "custom",
+    fallbackKeys,
+  };
+}
+
 export function resolveStation(stations, key) {
   if (!key) {
     return stations.stations[stations.defaultStationKey] ? stations.defaultStationKey : Object.keys(stations.stations)[0] || null;
@@ -212,6 +240,7 @@ export function filterStationsByTier(stations, guildTier) {
   const rank = TIER_RANK[guildTier] ?? 0;
   const filtered = {};
   for (const [key, station] of Object.entries(stations)) {
+    if (String(key || "").trim().toLowerCase().startsWith("custom:")) continue;
     const stationRank = TIER_RANK[station.tier || "free"] ?? 0;
     if (stationRank <= rank) filtered[key] = station;
   }

@@ -103,7 +103,7 @@ import {
   normalizeTrackSearchText,
 } from "../services/now-playing.js";
 import { createResource } from "../services/stream.js";
-import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier } from "../stations-store.js";
+import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier, buildScopedStationsData } from "../stations-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "../bot-state.js";
 import {
   addCustomStation,
@@ -3560,8 +3560,13 @@ class BotRuntime {
     const guildTier = getTier(guildId);
     const available = filterStationsByTier(stations.stations, guildTier);
     if (!stationRef.isCustom && available[stationRef.key]) {
-      stations.stations[stationRef.key] = available[stationRef.key];
-      return { ok: true, key: stationRef.key, station: available[stationRef.key], stations, isCustom: false };
+      return {
+        ok: true,
+        key: stationRef.key,
+        station: available[stationRef.key],
+        stations: buildScopedStationsData(stations, available),
+        isCustom: false,
+      };
     }
 
     if (guildTier === "ultimate") {
@@ -3575,8 +3580,13 @@ class BotRuntime {
         }
         const station = { name: custom.name, url: validation.url, tier: "ultimate" };
         const resolvedKey = buildCustomStationReference(stationRef.lookupKey) || stationRef.key;
-        stations.stations[resolvedKey] = station;
-        return { ok: true, key: resolvedKey, station, stations, isCustom: true };
+        return {
+          ok: true,
+          key: resolvedKey,
+          station,
+          stations: buildScopedStationsData(stations, { ...available, [resolvedKey]: station }),
+          isCustom: true,
+        };
       }
     }
 
@@ -6546,21 +6556,33 @@ class BotRuntime {
 
       const guildId = interaction.guildId;
       const guildTier = getTier(guildId);
+      const availableStations = buildScopedStationsData(stations, filterStationsByTier(stations.stations, guildTier));
+      const requestedOfficialKey = resolveStation(stations, requested);
 
       // Check standard stations first, then custom stations (Ultimate only)
-      let key = resolveStation(stations, requested);
+      let playStations = availableStations;
+      let key = resolveStation(availableStations, requested);
       let isCustom = false;
       let customUrl = null;
 
       if (key) {
         // Check tier access
-        const stationTier = stations.stations[key]?.tier || "free";
+        const stationTier = playStations.stations[key]?.tier || "free";
         const tierRank = { free: 0, pro: 1, ultimate: 2 };
         if ((tierRank[stationTier] || 0) > (tierRank[guildTier] || 0)) {
-          await interaction.reply(premiumStationEmbed(stations.stations[key].name, stationTier, language));
+          await interaction.reply(premiumStationEmbed(playStations.stations[key].name, stationTier, language));
           return;
         }
       } else {
+        if (requestedOfficialKey && !String(requestedOfficialKey).startsWith("custom:")) {
+          const stationTier = stations.stations[requestedOfficialKey]?.tier || "free";
+          const tierRank = { free: 0, pro: 1, ultimate: 2 };
+          if ((tierRank[stationTier] || 0) > (tierRank[guildTier] || 0)) {
+            await interaction.reply(premiumStationEmbed(stations.stations[requestedOfficialKey].name, stationTier, language));
+            return;
+          }
+        }
+
         // Check custom stations (Ultimate feature)
         const customStations = getGuildStations(guildId);
         const customKey = Object.keys(customStations).find(k => k === requested || customStations[k].name.toLowerCase() === (requested || "").toLowerCase());
@@ -6580,7 +6602,10 @@ class BotRuntime {
             });
             return;
           }
-          stations.stations[key] = { name: customStations[customKey].name, url: customUrlValidation.url, tier: "ultimate" };
+          playStations = buildScopedStationsData(stations, {
+            ...availableStations.stations,
+            [key]: { name: customStations[customKey].name, url: customUrlValidation.url, tier: "ultimate" },
+          });
         } else if (customKey) {
           await interaction.reply(customStationEmbed(language));
           return;
@@ -6663,10 +6688,10 @@ class BotRuntime {
           return;
         }
 
-        const selectedStation = stations.stations[key];
+        const selectedStation = playStations.stations[key];
         log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} -> delegating to ${worker.config.name}`);
         worker.clearScheduledEventPlaybackInGuild(guildId);
-        const result = await worker.playInGuild(guildId, channelId, key, stations, state.volume || 100);
+        const result = await worker.playInGuild(guildId, channelId, key, playStations, state.volume || 100);
         if (!result.ok) {
           await interaction.editReply(t(`Fehler: ${result.error}`, `Error: ${result.error}`));
           return;
@@ -6687,7 +6712,7 @@ class BotRuntime {
       // ---- Worker/Legacy Mode: Play locally ----
       log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} custom=${isCustom} tier=${guildTier}`);
 
-      const selectedStation = stations.stations[key];
+      const selectedStation = playStations.stations[key];
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const { connection, error: connectError } = await this.connectToVoice(interaction, requestedChannel, { silent: true });
       if (!connection) {
@@ -6698,7 +6723,7 @@ class BotRuntime {
       this.clearScheduledEventPlayback(state);
 
       try {
-        await this.playStation(state, stations, key, guildId);
+        await this.playStation(state, playStations, key, guildId);
         const tierConfig = getTierConfig(guildId);
         const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
         await interaction.editReply(t(`Starte: ${selectedStation?.name || key}${tierLabel}`, `Starting: ${selectedStation?.name || key}${tierLabel}`));
@@ -6706,14 +6731,14 @@ class BotRuntime {
         log("ERROR", `[${this.config.name}] Play error: ${err.message}`);
         state.lastStreamErrorAt = new Date().toISOString();
 
-        const fallbackKey = getFallbackKey(stations, key);
-        if (fallbackKey && fallbackKey !== key && stations.stations[fallbackKey]) {
+        const fallbackKey = getFallbackKey(playStations, key);
+        if (fallbackKey && fallbackKey !== key && playStations.stations[fallbackKey]) {
           try {
-            await this.playStation(state, stations, fallbackKey, guildId);
+            await this.playStation(state, playStations, fallbackKey, guildId);
             await interaction.editReply(
               t(
-                `Fehler bei ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`,
-                `Error on ${selectedStation?.name || key}. Fallback: ${stations.stations[fallbackKey].name}`
+                `Fehler bei ${selectedStation?.name || key}. Fallback: ${playStations.stations[fallbackKey].name}`,
+                `Error on ${selectedStation?.name || key}. Fallback: ${playStations.stations[fallbackKey].name}`
               )
             );
             return;

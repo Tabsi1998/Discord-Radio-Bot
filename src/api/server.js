@@ -2245,10 +2245,18 @@ function startWebServer(runtimes) {
 
       const allStations = loadStations();
       const tierStations = filterStationsByTier(allStations.stations || {}, guildInfo.tier);
-      const freeStations = filterStationsByTier(allStations.stations || {}, "free");
+      const freeStations = {};
       const proStations = {};
+      const ultimateStations = {};
       for (const [key, st] of Object.entries(tierStations)) {
-        if (!freeStations[key]) proStations[key] = st;
+        const tier = String(st?.tier || "free").toLowerCase();
+        if (tier === "ultimate") {
+          ultimateStations[key] = st;
+        } else if (tier === "pro") {
+          proStations[key] = st;
+        } else {
+          freeStations[key] = st;
+        }
       }
 
       const formatList = (obj) => Object.entries(obj).map(([key, st]) => ({
@@ -2263,6 +2271,7 @@ function startWebServer(runtimes) {
       sendJson(res, 200, {
         free: formatList(freeStations),
         pro: formatList(proStations),
+        ultimate: formatList(ultimateStations),
         custom: customList,
         tier: guildInfo.tier,
       });

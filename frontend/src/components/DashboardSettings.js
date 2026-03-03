@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Settings, Clock, Calendar, Radio, Shield, Save } from 'lucide-react';
 
 const DAYS = [
@@ -14,26 +14,49 @@ const DAYS = [
 export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUltimate }) {
   const [settings, setSettings] = useState(null);
   const [textChannels, setTextChannels] = useState([]);
-  const [stations, setStations] = useState({ free: [], pro: [], custom: [] });
+  const [stations, setStations] = useState({ free: [], pro: [], ultimate: [], custom: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const loadTokenRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!selectedGuildId) return;
+    const loadToken = ++loadTokenRef.current;
+    if (!selectedGuildId) {
+      setSettings(null);
+      setTextChannels([]);
+      setStations({ free: [], pro: [], ultimate: [], custom: [] });
+      setError('');
+      setMessage('');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setError('');
+    setMessage('');
+    setSettings(null);
+    setTextChannels([]);
+    setStations({ free: [], pro: [], ultimate: [], custom: [] });
     try {
       const [settingsResult, channelsResult, stationsResult] = await Promise.all([
         apiRequest(`/api/dashboard/settings?serverId=${encodeURIComponent(selectedGuildId)}`),
         apiRequest(`/api/dashboard/channels?serverId=${encodeURIComponent(selectedGuildId)}`),
         apiRequest(`/api/dashboard/stations?serverId=${encodeURIComponent(selectedGuildId)}`),
       ]);
+      if (loadToken !== loadTokenRef.current) return;
       setSettings(settingsResult);
       setTextChannels(channelsResult.textChannels || []);
-      setStations({ free: stationsResult.free || [], pro: stationsResult.pro || [], custom: stationsResult.custom || [] });
+      setStations({
+        free: stationsResult.free || [],
+        pro: stationsResult.pro || [],
+        ultimate: stationsResult.ultimate || [],
+        custom: stationsResult.custom || [],
+      });
     } catch (err) {
+      if (loadToken !== loadTokenRef.current) return;
       setError(err.message);
     } finally {
+      if (loadToken !== loadTokenRef.current) return;
       setLoading(false);
     }
   }, [selectedGuildId, apiRequest]);
@@ -61,6 +84,7 @@ export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUl
     ...stations.custom.map(s => ({ value: `custom:${s.key}`, label: `${s.name} (Custom)` })),
     ...stations.free.map(s => ({ value: s.key, label: s.name })),
     ...stations.pro.map(s => ({ value: s.key, label: `${s.name} (Pro)` })),
+    ...stations.ultimate.map(s => ({ value: s.key, label: `${s.name} (Ultimate)` })),
   ];
 
   return (

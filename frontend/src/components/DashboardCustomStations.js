@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Radio, Plus, Trash2, Pencil, Save, X, ExternalLink } from 'lucide-react';
 
 function StationRow({ station, onDelete, onEdit, t, testId }) {
@@ -61,16 +61,30 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
   const [addForm, setAddForm] = useState({ key: '', name: '', url: '', genre: '' });
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const loadTokenRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!selectedGuildId) return;
+    const loadToken = ++loadTokenRef.current;
+    if (!selectedGuildId) {
+      setStations([]);
+      setError('');
+      setMessage('');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setError('');
+    setMessage('');
+    setStations([]);
     try {
       const result = await apiRequest(`/api/dashboard/custom-stations?serverId=${encodeURIComponent(selectedGuildId)}`);
+      if (loadToken !== loadTokenRef.current) return;
       setStations(result.stations || []);
     } catch (err) {
+      if (loadToken !== loadTokenRef.current) return;
       setError(err.message);
     } finally {
+      if (loadToken !== loadTokenRef.current) return;
       setLoading(false);
     }
   }, [selectedGuildId, apiRequest]);

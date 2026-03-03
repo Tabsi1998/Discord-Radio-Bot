@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { buildCustomStationReference } from "../src/custom-stations.js";
 import { normalizeScheduledEventInput } from "../src/scheduled-events-store.js";
 import { buildPublicStationCatalog } from "../src/lib/public-stations.js";
+import { buildScopedStationsData, filterStationsByTier } from "../src/stations-store.js";
 import {
   buildDiscordBotListCommandsPayload,
   collectDiscordBotListStats,
@@ -80,6 +81,38 @@ test("public station catalog excludes custom and ultimate stations from public t
   assert.equal(catalog.proStations, 1);
   assert.equal(catalog.ultimateStations, 0);
   assert.deepEqual(catalog.stations.map((station) => station.key), ["lofi", "hits"]);
+});
+
+test("tier filtering excludes leaked custom station keys from official station lists", () => {
+  const filtered = filterStationsByTier({
+    lofi: { name: "LoFi", url: "https://example.com/lofi", tier: "free" },
+    hits: { name: "Hits", url: "https://example.com/hits", tier: "pro" },
+    "custom:secret": { name: "Secret", url: "https://example.com/secret", tier: "ultimate" },
+  }, "ultimate");
+
+  assert.deepEqual(Object.keys(filtered), ["lofi", "hits"]);
+});
+
+test("scoped station catalogs clone station maps instead of mutating the source catalog", () => {
+  const source = {
+    defaultStationKey: "lofi",
+    qualityPreset: "high",
+    locked: false,
+    fallbackKeys: ["lofi", "hits", "custom:secret"],
+    stations: {
+      lofi: { name: "LoFi", url: "https://example.com/lofi", tier: "free" },
+      hits: { name: "Hits", url: "https://example.com/hits", tier: "pro" },
+    },
+  };
+
+  const scoped = buildScopedStationsData(source, {
+    ...source.stations,
+    "custom:secret": { name: "Secret", url: "https://example.com/secret", tier: "ultimate" },
+  });
+
+  assert.equal(Object.prototype.hasOwnProperty.call(source.stations, "custom:secret"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(scoped.stations, "custom:secret"), true);
+  assert.deepEqual(scoped.fallbackKeys, ["lofi", "hits", "custom:secret"]);
 });
 
 test("DiscordBotList aggregate stats deduplicate guilds across runtimes", () => {

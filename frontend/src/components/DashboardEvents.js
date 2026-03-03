@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
@@ -242,22 +242,39 @@ export default function DashboardEvents({
   const [showForm, setShowForm] = useState(false);
   const [voiceChannels, setVoiceChannels] = useState([]);
   const [textChannels, setTextChannels] = useState([]);
-  const [stations, setStations] = useState({ free: [], pro: [], custom: [] });
+  const [stations, setStations] = useState({ free: [], pro: [], ultimate: [], custom: [] });
+  const loadTokenRef = useRef(0);
 
   const loadChannelsAndStations = useCallback(async () => {
-    if (!selectedGuildId) return;
+    const loadToken = ++loadTokenRef.current;
+    if (!selectedGuildId) {
+      setVoiceChannels([]);
+      setTextChannels([]);
+      setStations({ free: [], pro: [], ultimate: [], custom: [] });
+      return;
+    }
+    setVoiceChannels([]);
+    setTextChannels([]);
+    setStations({ free: [], pro: [], ultimate: [], custom: [] });
     try {
       const [channelResult, stationResult] = await Promise.all([
         apiRequest(`/api/dashboard/channels?serverId=${encodeURIComponent(selectedGuildId)}`),
         apiRequest(`/api/dashboard/stations?serverId=${encodeURIComponent(selectedGuildId)}`),
       ]);
+      if (loadToken !== loadTokenRef.current) return;
       setVoiceChannels(channelResult.voiceChannels || []);
       setTextChannels(channelResult.textChannels || []);
-      setStations({ free: stationResult.free || [], pro: stationResult.pro || [], custom: stationResult.custom || [] });
+      setStations({
+        free: stationResult.free || [],
+        pro: stationResult.pro || [],
+        ultimate: stationResult.ultimate || [],
+        custom: stationResult.custom || [],
+      });
     } catch {
+      if (loadToken !== loadTokenRef.current) return;
       setVoiceChannels([]);
       setTextChannels([]);
-      setStations({ free: [], pro: [], custom: [] });
+      setStations({ free: [], pro: [], ultimate: [], custom: [] });
     }
   }, [selectedGuildId, apiRequest]);
 
@@ -271,15 +288,17 @@ export default function DashboardEvents({
     ...stations.free.map((station) => ({ value: station.key, label: station.name })),
     ...(stations.pro.length > 0 ? [{ value: '', label: `--- ${t('Pro Stations', 'Pro Stations')} ---`, disabled: true }] : []),
     ...stations.pro.map((station) => ({ value: station.key, label: `${station.name} (Pro)` })),
-  ]), [stations.custom, stations.free, stations.pro, t]);
+    ...(stations.ultimate.length > 0 ? [{ value: '', label: `--- ${t('Ultimate Stations', 'Ultimate Stations')} ---`, disabled: true }] : []),
+    ...stations.ultimate.map((station) => ({ value: station.key, label: `${station.name} (Ultimate)` })),
+  ]), [stations.custom, stations.free, stations.pro, stations.ultimate, t]);
 
   const selectedStationLabel = useMemo(() => {
-    const directMatch = [...stations.custom, ...stations.free, ...stations.pro].find((station) => {
+    const directMatch = [...stations.custom, ...stations.free, ...stations.pro, ...stations.ultimate].find((station) => {
       if (`custom:${station.key}` === eventForm.stationKey) return true;
       return station.key === eventForm.stationKey;
     });
     return directMatch?.name || eventForm.stationKey || t('Sendername', 'Station name');
-  }, [eventForm.stationKey, stations.custom, stations.free, stations.pro, t]);
+  }, [eventForm.stationKey, stations.custom, stations.free, stations.pro, stations.ultimate, t]);
 
   const selectedVoiceName = useMemo(
     () => voiceChannels.find((channel) => channel.id === eventForm.channelId)?.name || '',
