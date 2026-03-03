@@ -357,6 +357,9 @@ class BotRuntime {
         lastReconnectAt: null,
         reconnectAttempts: 0,
         reconnectTimer: null,
+        connectingVoice: false,
+        connectingVoiceChannelId: null,
+        connectingVoiceStartedAt: 0,
         streamRestartTimer: null,
         shouldReconnect: false,
         streamErrorCount: 0,
@@ -427,6 +430,7 @@ class BotRuntime {
     const state = this.guildState.get(guildId);
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     if (state) {
+      this.finishVoiceConnectionAttempt(state);
       this.flushListeningStatsSample(guildId, state);
       this.queueDeleteNowPlayingMessage(guildId, state);
       state.shouldReconnect = false;
@@ -678,6 +682,30 @@ class BotRuntime {
     }
   }
 
+  beginVoiceConnectionAttempt(state, channelId = null) {
+    if (!state) return;
+    state.connectingVoice = true;
+    state.connectingVoiceChannelId = String(channelId || "").trim() || null;
+    state.connectingVoiceStartedAt = Date.now();
+  }
+
+  finishVoiceConnectionAttempt(state) {
+    if (!state) return;
+    state.connectingVoice = false;
+    state.connectingVoiceChannelId = null;
+    state.connectingVoiceStartedAt = 0;
+  }
+
+  isVoiceConnectionAttemptActive(state, { maxAgeMs = 35_000 } = {}) {
+    if (!state?.connectingVoice) return false;
+    const startedAt = Number.parseInt(String(state.connectingVoiceStartedAt || 0), 10);
+    if (!startedAt || (Date.now() - startedAt) <= maxAgeMs) {
+      return true;
+    }
+    this.finishVoiceConnectionAttempt(state);
+    return false;
+  }
+
   logNowPlayingIssue(guildId, state, message) {
     const now = Date.now();
     const cooldownMs = 120_000;
@@ -686,11 +714,18 @@ class BotRuntime {
     log("INFO", `[${this.config.name}] NowPlaying guild=${guildId}: ${message}`);
   }
 
-  markNowPlayingTargetDirty(state, preferredChannelId = null) {
+  markNowPlayingTargetDirty(guildId, state, preferredChannelId = null) {
     const normalizedPreferredChannelId = String(preferredChannelId || "").trim();
     const currentTargetChannelId = String(state?.nowPlayingChannelId || "").trim();
     if (normalizedPreferredChannelId && currentTargetChannelId === normalizedPreferredChannelId) {
       return false;
+    }
+
+    const hasTrackedNowPlayingMessage = Boolean(
+      String(state?.nowPlayingChannelId || "").trim() && String(state?.nowPlayingMessageId || "").trim()
+    );
+    if (hasTrackedNowPlayingMessage) {
+      this.queueDeleteNowPlayingMessage(guildId, state);
     }
 
     state.nowPlayingMessageId = null;
@@ -1768,7 +1803,7 @@ class BotRuntime {
     if (!channel) return false;
 
     if (state.nowPlayingChannelId && state.nowPlayingChannelId !== channel.id) {
-      state.nowPlayingMessageId = null;
+      this.markNowPlayingTargetDirty(guildId, state, channel.id);
     }
     state.nowPlayingChannelId = channel.id;
 
@@ -1871,6 +1906,10 @@ class BotRuntime {
     if (!state.connection) return;
     const channel = await this.resolveNowPlayingChannel(guildId, state);
     if (!channel) {
+      if (String(state.nowPlayingChannelId || "").trim() && String(state.nowPlayingMessageId || "").trim()) {
+        this.queueDeleteNowPlayingMessage(guildId, state);
+      }
+      state.nowPlayingSignature = null;
       this.logNowPlayingIssue(guildId, state, "Kein geeigneter Kanal fuer die Live-Einbettung gefunden.");
       return;
     }
@@ -2457,7 +2496,7 @@ class BotRuntime {
     // Bot hat Channel gewechselt oder ist einem beigetreten
     if (newChannelId) {
       if (state.lastChannelId !== newChannelId) {
-        this.markNowPlayingTargetDirty(state, newChannelId);
+        this.markNowPlayingTargetDirty(guildId, state, newChannelId);
       }
       state.lastChannelId = newChannelId;
       if (state.reconnectTimer) {
@@ -2498,6 +2537,7 @@ class BotRuntime {
   resetVoiceSession(guildId, state, { preservePlaybackTarget = false, clearLastChannel = false } = {}) {
     if (!state) return;
     this.clearQueuedVoiceReconcile(guildId);
+    this.finishVoiceConnectionAttempt(state);
     this.flushListeningStatsSample(guildId, state);
 
     if (state.connection) {
@@ -2510,14 +2550,16 @@ class BotRuntime {
     this.clearReconnectTimer(state);
     this.clearNowPlayingTimer(state);
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
+    if (String(state.nowPlayingChannelId || "").trim() && String(state.nowPlayingMessageId || "").trim()) {
+      this.queueDeleteNowPlayingMessage(guildId, state);
+    }
+    state.nowPlayingSignature = null;
 
     if (!preservePlaybackTarget) {
-      this.queueDeleteNowPlayingMessage(guildId, state);
       state.currentStationKey = null;
       state.currentFallbackKey = null;
       state.currentStationName = null;
       state.currentMeta = null;
-      state.nowPlayingSignature = null;
       state.nowPlayingMessageId = null;
       state.nowPlayingChannelId = null;
       this.clearScheduledEventPlayback(state);
@@ -2595,14 +2637,25 @@ class BotRuntime {
     const state = this.guildState.get(guildId);
     if (!state) return;
     if (!state.connection && !state.currentStationKey && !state.lastChannelId) return;
+    const connectAttemptActive = this.isVoiceConnectionAttemptActive(state);
 
     const { channelId: actualChannelId } = await this.fetchBotVoiceState(guildId);
     const expectedChannelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
 
     if (actualChannelId && state.lastChannelId !== actualChannelId) {
-      this.markNowPlayingTargetDirty(state, actualChannelId);
+      this.markNowPlayingTargetDirty(guildId, state, actualChannelId);
       state.lastChannelId = actualChannelId;
       this.persistState();
+    }
+
+    if (connectAttemptActive) {
+      const pendingChannelId = String(state.connectingVoiceChannelId || expectedChannelId || "").trim();
+      if (!actualChannelId) {
+        return;
+      }
+      if (!pendingChannelId || actualChannelId === pendingChannelId) {
+        return;
+      }
     }
 
     if (!actualChannelId) {
@@ -2631,7 +2684,7 @@ class BotRuntime {
         "INFO",
         `[${this.config.name}] Voice-Channel-Mismatch korrigiert (guild=${guildId}, expected=${expectedChannelId}, actual=${actualChannelId}, reason=${reason}).`
       );
-      this.markNowPlayingTargetDirty(state, actualChannelId);
+      this.markNowPlayingTargetDirty(guildId, state, actualChannelId);
       state.lastChannelId = actualChannelId;
       if (state.connection?.joinConfig?.channelId && state.connection.joinConfig.channelId !== actualChannelId) {
         this.resetVoiceSession(guildId, state, { preservePlaybackTarget: true, clearLastChannel: false });
@@ -2688,14 +2741,16 @@ class BotRuntime {
 
   attachConnectionHandlers(guildId, connection) {
     const state = this.getState(guildId);
+    const isCurrentConnection = () => state.connection === connection;
 
     const markDisconnected = () => {
-      if (state.connection === connection) {
+      if (isCurrentConnection()) {
         state.connection = null;
       }
     };
 
     connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      if (!isCurrentConnection()) return;
       if (!state.shouldReconnect) {
         markDisconnected();
         return;
@@ -2707,9 +2762,11 @@ class BotRuntime {
           entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
           entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
         ]);
+        if (!isCurrentConnection()) return;
         // Connection is recovering on its own
         log("INFO", `[${this.config.name}] Voice connection recovering for guild=${guildId}`);
       } catch {
+        if (!isCurrentConnection()) return;
         // Recovery failed - destroy connection, voiceStateUpdate will handle reconnect
         log("INFO", `[${this.config.name}] Voice connection recovery failed for guild=${guildId}, destroying`);
         markDisconnected();
@@ -2719,6 +2776,7 @@ class BotRuntime {
     });
 
     connection.on(VoiceConnectionStatus.Destroyed, () => {
+      if (!isCurrentConnection()) return;
       markDisconnected();
       if (state.shouldReconnect && state.currentStationKey && state.lastChannelId) {
         this.scheduleReconnect(guildId, { reason: "voice-destroyed" });
@@ -2726,6 +2784,7 @@ class BotRuntime {
     });
 
     connection.on("error", (err) => {
+      if (!isCurrentConnection()) return;
       log("ERROR", `[${this.config.name}] VoiceConnection error: ${err?.message || err}`);
       markDisconnected();
       if (!state.shouldReconnect) return;
@@ -4317,12 +4376,13 @@ class BotRuntime {
     const previousChannelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
     state.lastChannelId = channel.id;
     if (previousChannelId && previousChannelId !== channel.id) {
-      this.markNowPlayingTargetDirty(state, channel.id);
+      this.markNowPlayingTargetDirty(guildId, state, channel.id);
     }
 
     if (state.connection) {
       const currentChannelId = state.connection.joinConfig?.channelId;
       if (currentChannelId === channel.id) {
+        this.finishVoiceConnectionAttempt(state);
         state.shouldReconnect = true;
         if (channel.type === ChannelType.GuildStageVoice) {
           await this.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
@@ -4347,22 +4407,26 @@ class BotRuntime {
       group: this.voiceGroup,
       selfDeaf: true
     });
+    this.beginVoiceConnectionAttempt(state, channel.id);
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      this.finishVoiceConnectionAttempt(state);
       try { connection.destroy(); } catch {}
       throw new Error("Voice-Verbindung konnte nicht hergestellt werden.");
     }
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
     if (!joinedVoiceState) {
+      this.finishVoiceConnectionAttempt(state);
       try { connection.destroy(); } catch {}
       throw new Error("Voice-Verbindung ist nicht stabil genug.");
     }
 
     connection.subscribe(state.player);
     state.connection = connection;
+    this.finishVoiceConnectionAttempt(state);
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
     state.shouldReconnect = true;
@@ -5285,6 +5349,7 @@ class BotRuntime {
     if (state.connection) {
       const currentChannelId = state.connection.joinConfig?.channelId;
       if (currentChannelId === channel.id) {
+        this.finishVoiceConnectionAttempt(state);
         if (channel.type === ChannelType.GuildStageVoice) {
           await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
         }
@@ -5307,22 +5372,26 @@ class BotRuntime {
       selfDeaf: true
     });
     log("INFO", `[${this.config.name}] Join Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
+    this.beginVoiceConnectionAttempt(state, channel.id);
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      this.finishVoiceConnectionAttempt(state);
       connection.destroy();
       return sendError(t("Konnte dem Voice-Channel nicht beitreten.", "Could not join the voice channel."));
     }
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
     if (!joinedVoiceState) {
+      this.finishVoiceConnectionAttempt(state);
       try { connection.destroy(); } catch {}
       return sendError(t("Voice-Verbindung war instabil. Bitte erneut versuchen.", "Voice connection was unstable. Please try again."));
     }
 
     connection.subscribe(state.player);
     state.connection = connection;
+    this.finishVoiceConnectionAttempt(state);
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
     this.clearReconnectTimer(state);
@@ -5387,10 +5456,12 @@ class BotRuntime {
       selfDeaf: true
     });
     log("INFO", `[${this.config.name}] Rejoin Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
+    this.beginVoiceConnectionAttempt(state, channel.id);
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      this.finishVoiceConnectionAttempt(state);
       networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-timeout`, `guild=${guildId}`);
       try { connection.destroy(); } catch {}
       return;
@@ -5398,6 +5469,7 @@ class BotRuntime {
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
     if (!joinedVoiceState) {
+      this.finishVoiceConnectionAttempt(state);
       networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-ghost`, `guild=${guildId}`);
       try { connection.destroy(); } catch {}
       return;
@@ -5405,6 +5477,7 @@ class BotRuntime {
 
     connection.subscribe(state.player);
     state.connection = connection;
+    this.finishVoiceConnectionAttempt(state);
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
     this.clearReconnectTimer(state);
@@ -5448,6 +5521,7 @@ class BotRuntime {
   scheduleReconnect(guildId, options = {}) {
     const state = this.getState(guildId);
     if (!state.shouldReconnect || !state.lastChannelId) return;
+    if (this.isVoiceConnectionAttemptActive(state)) return;
     if (this.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
       this.stopInGuild(guildId);
       return;
@@ -5467,7 +5541,8 @@ class BotRuntime {
 
     const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
     if (networkCooldownMs > 0) {
-      delay = Math.max(delay, networkCooldownMs);
+      const boundedNetworkCooldownMs = Math.min(networkCooldownMs, Math.max(baseDelay * 6, 30_000));
+      delay = Math.max(delay, boundedNetworkCooldownMs);
     }
 
     delay = applyJitter(delay, 0.2);
@@ -6143,6 +6218,7 @@ class BotRuntime {
       // Worker/Legacy Mode: lokaler Stop
       this.syncVoiceChannelStatus(interaction.guildId, "").catch(() => null);
       state.shouldReconnect = false;
+      this.finishVoiceConnectionAttempt(state);
       this.clearScheduledEventPlayback(state);
       this.flushListeningStatsSample(interaction.guildId, state);
       this.clearReconnectTimer(state);
@@ -6916,6 +6992,7 @@ class BotRuntime {
 
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     state.shouldReconnect = false;
+    this.finishVoiceConnectionAttempt(state);
     state.currentFallbackKey = null;
     this.clearScheduledEventPlayback(state);
     this.flushListeningStatsSample(guildId, state);
@@ -7145,6 +7222,11 @@ class BotRuntime {
         state.currentStationKey = restoredStation.key;
         state.currentFallbackKey = data.fallbackKey || null;
         state.currentStationName = restoredStation.station.name || restoredStation.key;
+        state.nowPlayingMessageId = data.nowPlayingMessageId || null;
+        state.nowPlayingChannelId = data.nowPlayingChannelId || null;
+        if (state.nowPlayingMessageId && state.nowPlayingChannelId) {
+          this.queueDeleteNowPlayingMessage(guildId, state);
+        }
         this.markScheduledEventPlayback(
           state,
           data.scheduledEventId || null,
@@ -7186,6 +7268,7 @@ class BotRuntime {
     for (const [guildId, state] of this.guildState.entries()) {
       this.syncVoiceChannelStatus(guildId, "").catch(() => null);
       state.shouldReconnect = false;
+      this.finishVoiceConnectionAttempt(state);
       state.currentFallbackKey = null;
       this.flushListeningStatsSample(guildId, state);
       this.clearReconnectTimer(state);

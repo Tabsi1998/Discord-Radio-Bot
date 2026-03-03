@@ -52,6 +52,8 @@ function saveBotState(botId, guildStates) {
       fallbackKey: state.currentFallbackKey || null,
       stationName: state.currentStationName || null,
       volume: state.volume ?? 100,
+      nowPlayingMessageId: state.nowPlayingMessageId || null,
+      nowPlayingChannelId: state.nowPlayingChannelId || null,
       scheduledEventId: state.activeScheduledEventId || null,
       scheduledEventStopAtMs: Number.isFinite(scheduledEventStopAtMs) && scheduledEventStopAtMs > 0
         ? scheduledEventStopAtMs

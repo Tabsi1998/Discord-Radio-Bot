@@ -32,6 +32,8 @@ import {
   selectBestAcoustIdMatch,
 } from "../src/services/audio-recognition.js";
 import { getDefaultLanguage } from "../src/i18n.js";
+import { BotRuntime } from "../src/bot/runtime.js";
+import { networkRecoveryCoordinator } from "../src/core/network-recovery.js";
 
 test("seat pricing stays aligned with documented bundle totals", () => {
   assert.deepEqual(seatPricingInEuro("pro"), {
@@ -408,4 +410,191 @@ test("slash commands expose English defaults with German localizations", () => {
   assert.ok(language);
   assert.equal(language.description, "Manage the language for this server");
   assert.equal(language.description_localizations.de, "Sprache für diesen Server verwalten");
+});
+
+test("reconnect scheduling is skipped while a voice connection attempt is already in flight", async () => {
+  const runtime = new BotRuntime({
+    id: "test-runtime",
+    clientId: "123456789012345678",
+    token: "unit-test-token",
+    name: "OmniFM Test",
+    requiredTier: "free",
+  });
+
+  const state = runtime.getState("guild-voice");
+  state.shouldReconnect = true;
+  state.lastChannelId = "voice-1";
+  runtime.beginVoiceConnectionAttempt(state, "voice-1");
+  runtime.scheduleReconnect("guild-voice", { reason: "unit-test" });
+
+  assert.equal(state.reconnectTimer, null);
+  assert.equal(state.reconnectAttempts, 0);
+
+  await runtime.stop();
+});
+
+test("now playing cleanup runs before the tracked target is replaced", async () => {
+  const runtime = new BotRuntime({
+    id: "test-runtime-2",
+    clientId: "223456789012345678",
+    token: "unit-test-token",
+    name: "OmniFM Test 2",
+    requiredTier: "free",
+  });
+
+  const state = runtime.getState("guild-now-playing");
+  state.nowPlayingChannelId = "text-1";
+  state.nowPlayingMessageId = "message-1";
+
+  let cleanupCall = null;
+  runtime.queueDeleteNowPlayingMessage = (guildId, targetState) => {
+    cleanupCall = {
+      guildId,
+      channelId: targetState.nowPlayingChannelId,
+      messageId: targetState.nowPlayingMessageId,
+    };
+  };
+
+  const changed = runtime.markNowPlayingTargetDirty("guild-now-playing", state, "voice-2");
+
+  assert.equal(changed, true);
+  assert.deepEqual(cleanupCall, {
+    guildId: "guild-now-playing",
+    channelId: "text-1",
+    messageId: "message-1",
+  });
+  assert.equal(state.nowPlayingMessageId, null);
+  assert.equal(state.nowPlayingChannelId, null);
+
+  await runtime.stop();
+});
+
+test("upsert now playing cleans up the old message before posting into a different channel", async () => {
+  const runtime = new BotRuntime({
+    id: "test-runtime-3",
+    clientId: "323456789012345678",
+    token: "unit-test-token",
+    name: "OmniFM Test 3",
+    requiredTier: "free",
+  });
+
+  const state = runtime.getState("guild-upsert");
+  state.nowPlayingChannelId = "text-1";
+  state.nowPlayingMessageId = "message-1";
+
+  let cleanupCall = null;
+  runtime.queueDeleteNowPlayingMessage = (guildId, targetState) => {
+    cleanupCall = {
+      guildId,
+      channelId: targetState.nowPlayingChannelId,
+      messageId: targetState.nowPlayingMessageId,
+    };
+  };
+
+  const targetChannel = {
+    id: "text-2",
+    name: "radio-updates",
+    messages: {
+      fetch: async () => null,
+    },
+    send: async () => ({ id: "message-2" }),
+  };
+
+  const sent = await runtime.upsertNowPlayingMessage(
+    "guild-upsert",
+    state,
+    { embeds: [], components: [] },
+    targetChannel,
+  );
+
+  assert.equal(sent, true);
+  assert.deepEqual(cleanupCall, {
+    guildId: "guild-upsert",
+    channelId: "text-1",
+    messageId: "message-1",
+  });
+  assert.equal(state.nowPlayingChannelId, "text-2");
+  assert.equal(state.nowPlayingMessageId, "message-2");
+
+  await runtime.stop();
+});
+
+test("now playing cleanup runs when no suitable target channel remains", async () => {
+  const runtime = new BotRuntime({
+    id: "test-runtime-4",
+    clientId: "423456789012345678",
+    token: "unit-test-token",
+    name: "OmniFM Test 4",
+    requiredTier: "free",
+  });
+
+  const state = runtime.getState("guild-no-channel");
+  state.currentStationKey = "station-1";
+  state.connection = { joinConfig: { channelId: "voice-1" } };
+  state.nowPlayingChannelId = "text-1";
+  state.nowPlayingMessageId = "message-1";
+  state.nowPlayingSignature = "sig-1";
+
+  let cleanupCall = null;
+  runtime.resolveNowPlayingChannel = async () => null;
+  runtime.queueDeleteNowPlayingMessage = (guildId, targetState) => {
+    cleanupCall = {
+      guildId,
+      channelId: targetState.nowPlayingChannelId,
+      messageId: targetState.nowPlayingMessageId,
+    };
+    targetState.nowPlayingChannelId = null;
+    targetState.nowPlayingMessageId = null;
+  };
+  runtime.logNowPlayingIssue = () => {};
+
+  await runtime.updateNowPlayingEmbed("guild-no-channel", state);
+
+  assert.deepEqual(cleanupCall, {
+    guildId: "guild-no-channel",
+    channelId: "text-1",
+    messageId: "message-1",
+  });
+  assert.equal(state.nowPlayingSignature, null);
+
+  await runtime.stop();
+});
+
+test("voice reconnect scheduling caps excessive global network cooldown delays", async () => {
+  const runtime = new BotRuntime({
+    id: "test-runtime-5",
+    clientId: "523456789012345678",
+    token: "unit-test-token",
+    name: "OmniFM Test 5",
+    requiredTier: "free",
+  });
+
+  const state = runtime.getState("guild-network-cap");
+  state.shouldReconnect = true;
+  state.lastChannelId = "voice-1";
+
+  const originalGetRecoveryDelayMs = networkRecoveryCoordinator.getRecoveryDelayMs;
+  const originalSetTimeout = globalThis.setTimeout;
+  let capturedDelay = null;
+
+  networkRecoveryCoordinator.getRecoveryDelayMs = () => 180_000;
+  globalThis.setTimeout = (fn, delay) => {
+    capturedDelay = delay;
+    return {
+      unref() {},
+    };
+  };
+
+  try {
+    runtime.scheduleReconnect("guild-network-cap", { reason: "voice-error" });
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    networkRecoveryCoordinator.getRecoveryDelayMs = originalGetRecoveryDelayMs;
+    state.reconnectTimer = null;
+  }
+
+  assert.equal(typeof capturedDelay, "number");
+  assert.ok(capturedDelay < 60_000, `expected capped reconnect delay, got ${capturedDelay}`);
+
+  await runtime.stop();
 });
