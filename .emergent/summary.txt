@@ -1,136 +1,165 @@
 <analysis>**original_problem_statement:**
-The user wants to get a Discord Radio Bot from the GitHub repository  fully operational. The initial request was to perform a complete error analysis and fix all existing problems, as the bot was experiencing critical failures.
+The user's initial request was to fix a non-functional Discord Radio Bot from a GitHub repository (). After the bot was successfully repaired, the project's scope expanded to include major new features.
 
 **PRODUCT REQUIREMENTS:**
-1.  **Bug Fix (Completed):**
-    *   The primary issue was the  command failing with a Voice-Verbindung konnte nicht hergestellt werden (Voice connection could not be established) error.
-    *   The bot also had frequent reconnect problems and timeouts.
-    *   The repository needed to be cleaned up from temporary fix files and made ready for a clean commit to GitHub.
-
-2.  **New Feature: Advanced Statistics (P0):**
-    *   Implement a new, detailed statistics system to track listening times.
-    *   The stats must be anonymized, not tracking individual users.
-    *   Data should include total listening hours per bot/server, peak listener counts, etc.
-    *   There should be two tiers: detailed stats for Ultimate users and simplified stats for Pro users.
-    *   These new stats should be available both via a slash command and in the web dashboard.
-
-3.  **New Feature: Dashboard Overhaul (P1):**
-    *   Completely overhaul the Pro/Ultimate web dashboard.
-    *   Implement a full-featured event management system within the dashboard, mirroring all functionalities of the corresponding slash commands.
-    *   The dashboard must dynamically sync and display Discord server information like roles and channels for interactive selection.
-    *   Improve the user interface with elements like a calendar view for date selection.
-    *   Incorporate the new advanced statistics into the dashboard with visualizations.
+1.  **Bug Fix (Completed):** Resolve all critical failures, especially the  command and voice connection issues.
+2.  **Advanced Statistics (Completed):** Implement a new, detailed, and anonymized statistics system to track listening times, peak listeners, and other metrics. This system should use MongoDB for persistence.
+3.  **Dashboard Overhaul (Completed):** Completely revamp the web dashboard. This includes:
+    *   Visualizing the new statistics.
+    *   A full-featured event management system mirroring all slash command functionalities.
+    *   CRUD management for custom radio stations.
+    *   A settings page for new features.
+4.  **New Features (P0 - In Progress):**
+    *   **Dashboard Subscription (Abo) Management:** Display subscription status and expiry, and add functionality to extend the subscription from the dashboard.
+    *   **UI/UX Polish:** Review and improve the main website and dashboard for aesthetics and usability. Add a Back to Main Site button in the dashboard.
+    *   **Fallback Station:** For Ultimate tier users, allow setting a fallback radio station if a primary one fails. (Backend implemented, frontend needs verification).
+    *   **Weekly Stats Digest:** Automatically post a weekly stats summary to a configured Discord channel. (Backend implemented, frontend needs verification).
+5.  **Future Features (P1):**
+    *   **Markdown Editor:** Implement a rich text editor (Markdown, Emojis, GIFs) for creating bot messages from the dashboard.
 
 **User's preferred language**: German
 
 **what currently exists?**
-The agent has successfully repaired a non-functional Discord Radio Bot. The initial critical issues preventing the bot from connecting to voice channels have been resolved by addressing a fundamental incompatibility with Discord's new DAVE E2EE voice protocol. The codebase has been updated with necessary dependencies, Node.js version, and various bug fixes. The repository has been cleaned of all temporary files and is in a state ready for the user to commit.
+The agent has successfully repaired the Discord bot and implemented a major feature phase. The application now uses MongoDB for data persistence, migrating away from a purely file-based system. A new, comprehensive statistics system is fully operational on the backend. The web dashboard has been significantly overhauled with a tabbed interface for viewing detailed stats (with charts), managing scheduled events with all advanced options, managing custom radio stations, and configuring settings for a new weekly stats digest and a fallback station feature. The backend logic for these new features is complete.
 
 **Last working item**:
-*   **Last item agent was working:** The agent has just completed the full repair of the bot's core functionality. The user has verified that the  command and voice connections are now working correctly. Following the user's confirmation, the agent analyzed the codebase to prepare for the next set of tasks: implementing a new statistics system and overhauling the web dashboard.
-*   **Status:** USER VERIFICATION PENDING (For the bug fixes, the user confirmed it's working. Now starting new features).
+*   **Last item agent was working:** The agent just finished a large-scale implementation of several new features simultaneously: a full-featured event manager, custom station manager, and a settings panel in the dashboard, along with their corresponding backend APIs, a weekly stats digest cron job, and a stream fallback mechanism.
+*   **Status:** USER VERIFICATION PENDING
 *   **Agent Testing Done:** Y
 *   **Which testing method agent to use?** both
-*   **User Testing Done:** Y
+*   **User Testing Done:** N
 
 **All Pending/In progress Issue list**:
-There are no pending issues from the initial bug-fixing phase. All reported and discovered problems have been resolved.
+There are no known bugs or issues. The focus is on implementing the user's latest feature requests.
 
 **In progress Task List**:
-No tasks are currently in progress. The previous bug-fixing task is complete.
+No tasks are partially completed. The agent finished a large batch of work.
 
 **Upcoming and Future Tasks**
-*   **Upcoming Tasks (P0 - Phase 1: Stats Rework):**
-    1.  **(P0) Implement New Statistics Tracking System:**
-        *   **Goal:** Create a backend system to track anonymized, aggregated listening hours per bot and per guild.
-        *   **Files to modify/create:** A new file  to manage data persistence (similar to existing stores), modify  to capture listening data, and update  to display the new metrics.
-    2.  **(P1) Create API Endpoint for Stats:**
-        *   **Goal:** Expose the new statistics data via a secure API endpoint for the web dashboard.
-        *   **File to modify:**  will need a new route, e.g., .
+*   **Upcoming Tasks (P0):**
+    1.  **(P0) Dashboard UI/UX Polish:**
+        *   **Goal:** Review the entire web dashboard and main site () for any UI inconsistencies, unclear text, or areas for improvement. Add a Back to Main Site button in the dashboard.
+        *   **Files to check:** All files under .
+    2.  **(P0) Dashboard Subscription (Abo) Management:**
+        *   **Goal:** Integrate Stripe or the existing licensing system to show the user's subscription tier and expiration date in the dashboard. Add a button or link to allow users to extend their subscription.
+        *   **Files to modify/create:**  and a new component for subscription details. A new API endpoint in  might be needed to fetch license data.
 
-*   **Future Tasks (P1 - Phase 2: Dashboard Overhaul):**
-    1.  **(P1) Redesign Dashboard UI:**
-        *   **Goal:** Revamp the frontend dashboard to visualize the new statistics using charts and modern UI components.
-        *   **Files to modify:**  directory, especially pages related to the dashboard.
-    2.  **(P2) Implement Dashboard Event Management:**
-        *   **Goal:** Build a full CRUD (Create, Read, Update, Delete) interface for scheduled events in the dashboard, replicating the functionality of the slash commands.
-        *   **Files to modify/create:** New API endpoints in  and new React components in the  directory.
+*   **Future Tasks (P1):**
+    1.  **(P1) Nachrichten-Editor (Message Editor):**
+        *   **Goal:** Replace plain text areas for bot messages in the dashboard's event creator with a rich editor that supports Markdown, server emojis, and GIFs, including a live preview.
+        *   **Files to modify/create:**  and potentially add a new React Markdown/Editor library.
+    2.  **(P2) Lifetime Stats Verification:**
+        *   **Goal:** Confirm with the user that the new MongoDB-based statistics system provides the lifetime tracking they requested (data persists unless the bot is removed). This is likely already the case, but it needs to be explicitly verified and communicated.
 
 **Completed work in this session**
-- **Complete Bot Repair:**
-  - **Root Cause Identified & Fixed:** Resolved a critical failure caused by incompatibility with Discord's mandatory DAVE E2EE voice protocol.
-    - Upgraded Node.js from v20 to v22 in .
-    - Added required voice encryption dependencies (, , ) in .
-    - Implemented a crucial workaround in  for a  bug that caused voice connections to hang in a signalling state.
-- **General Bug Fixes & Improvements:**
-  - Fixed a  for an undefined  variable in .
-  - Replaced over 140 instances of the deprecated  with the modern  syntax.
-  - Improved voice connection timeout and reconnect logic in .
-  - Hardened the application by adding auto-repair for corrupted JSON files () and validation checks on startup ().
-- **Dependency & Repository Management:**
-  - Updated all key dependencies, including  (14.17.3 → 14.25.1) and  (0.18.0 → 0.19.0), as requested by the user.
-  - Cleaned the entire repository of temporary files ( directory,  files) to prepare for a clean commit to the user's GitHub.
+- **MongoDB Integration:**
+  - Added MongoDB service to .
+  - Created  for database connection and schema initialization.
+  - Updated  to wait for MongoDB readiness.
+- **Advanced Statistics System:**
+  - Rewrote  to use MongoDB, tracking sessions, listener counts, commands, connection events, and more, with a JSON fallback.
+  - Implemented a one-time migration script in  to move old JSON stats to MongoDB.
+  - Heavily modified  to record detailed session and event data.
+  - Created comprehensive unit and integration tests () for the new stats system, achieving 31/31 passing tests.
+- **Dashboard & API Overhaul:**
+  - Created new API endpoints in  for CRUD operations on events, custom stations, and fetching detailed stats and guild settings (roles/channels).
+  - Overhauled  with a tabbed interface.
+  - Created new React components for the dashboard: , , , and .
+  - The  component now includes a form with all advanced options available in the  slash command (e.g., message types, scheduling, announcements).
+- **New Features (Backend & Frontend):**
+  - **Weekly Stats Digest:** Implemented a cron job in  to automatically post weekly stats.
+  - **Fallback Station:** Enhanced stream error handling in  to use a user-configurable fallback station for Ultimate-tier users.
+  - **Settings Panel:** Created a frontend and backend to manage settings for the weekly digest and fallback station.
+- **Project Maintenance:**
+  - Updated the user's  script to be MongoDB-aware (health checks, status reports).
+  - Installed  for data visualization on the frontend.
+  - Performed syntax and build checks across the entire codebase.
 
 **Earlier issues found/mentioned but not fixed**
-- None. All identified issues were resolved.
+- None.
 
 **Known issue recurrence from previous fork**
 - N/A
 
 **Code Architecture**
-- **Frameworks:** Node.js backend with Discord.js and Express.js (for the API). React frontend.
-- **Persistence:** File-based system using JSON files. MongoDB support exists but is currently disabled.
-- **Deployment:** A Dockerized, scalable multi-bot architecture using a Commander/Worker pattern, managed via .
+- **Frameworks:** Node.js, Express.js, Discord.js, React.
+- **Database:** MongoDB is now the primary data store for statistics and settings. A flat-file JSON system remains for some configurations and as a fallback.
+- **Deployment:** Dockerized multi-bot architecture (Commander/Worker) managed via .
 
 **Key Technical Concepts**
-- **Discord.js & @discordjs/voice:** The core libraries for bot functionality and voice channel interaction.
-- **DAVE E2EE Protocol:** A mandatory Discord voice protocol. The bot is now fully compliant.
-- **Commander/Worker Pattern:** A design for scalability where a central Commander bot delegates tasks to multiple Worker bots.
-- **Docker:** The application is fully containerized for a consistent and reproducible environment.
+- **Discord.js & @discordjs/voice:** Core libraries for bot and voice functionality.
+- **MongoDB:** Used for persistent, scalable storage of statistics and settings.
+- **Commander/Worker Pattern:** Scalable architecture with a central bot delegating tasks.
+- **Docker:** Containerized environment for consistent deployment.
+- **Recharts:** Frontend library used for displaying stat charts.
 
 **key DB schema**
-- The application uses flat-file JSON for storage. No formal DB schema exists. Important files include , , and the to-be-created .
+- **:**
+  - : string
+  - : Map<date, {totalMinutes, peakListeners, ...}>
+  - : Array<{botId, stationName, start, end, duration, listeners}>
+  - : Map<commandName, count>
+  - : Array<{type, timestamp}>
+- **:**
+  - : string
+  - : {enabled: boolean, channelId: string}
+  - : {enabled: boolean, stationId: string}
 
 **changes in tech stack**
-- **Node.js:** Upgraded from version 20 to 22.
-- **New Dependencies:** Added , , and  to support the DAVE protocol.
+- **Added:** MongoDB as the primary database.
+- **Added:**  library on the frontend.
 
 **All files of reference**
-- : Updated to use  and install .
-- : Updated with new voice dependencies and upgraded versions of existing packages.
-- : The most heavily modified file, containing fixes for voice connection, bugs, and deprecated code.
-- : Modified to add a voice dependency report on startup.
-- : The location for future API endpoints for stats and dashboard features.
-- : The directory for all future dashboard UI work.
+*   : Modified to include the  service.
+*   : Modified to add a MongoDB readiness check.
+*   : Modified to include MongoDB in health checks and status commands.
+*   : New file for MongoDB connection management and schema setup.
+*   : Completely rewritten to use MongoDB.
+*   : Heavily modified to integrate detailed stats tracking, weekly digest cron, and fallback stream logic.
+*   : Heavily modified with new CRUD endpoints for events, custom stations, settings, and fetching guild data.
+*   : Updated to display the new, richer stats from MongoDB.
+*   : Rewritten to support a tabbed layout and manage state for new features.
+*   : New component for displaying statistics with charts.
+*   : New component for full CRUD management of scheduled events.
+*   : New component for CRUD management of custom stations.
+*   : New component for managing weekly digest and fallback station settings.
+*   : New comprehensive test file for the statistics module.
+
+**Areas that need refactoring**:
+- None identified. The new frontend components are modular.
 
 **key api endpoints**
-*The following endpoints need to be created for the upcoming tasks:*
--   
--   
--   
--   
--   
+*   : Gets detailed statistics for charts and tables.
+*   : Fetches server roles and channels for UI selectors.
+*   : Lists custom stations.
+*   : Adds a new custom station.
+*   : Updates a custom station.
+*   : Deletes a custom station.
+*   : Gets settings for weekly digest/fallback.
+*   : Updates settings.
+*    for .
 
 **Critical Info for New Agent**
-- The bot's core functionality is **FIXED and VERIFIED** by the user. Do not re-investigate the old voice connection issues.
-- The next tasks are **new features**, not bug fixes. The user wants to start with the **statistics system first**, followed by the dashboard overhaul.
-- The repository at  is clean and reflects the code that should be on GitHub. All temporary files have been removed. The user is now able to use the Save to Github feature.
+- The application has undergone a major architectural change by integrating MongoDB. All new persistent data should use the database via .
+- A very large batch of features was just implemented. The next step is to get user feedback and address the newest requests, which focus on UI/UX polish and subscription management in the dashboard.
+- The user has seen the startup logs and confirmed they look correct, indicating the MongoDB connection and data migration are working on their end.
+- When working on the dashboard, fetch dynamic Discord data (roles, channels) from the new  endpoint to avoid hardcoding IDs.
 
 **documents and test reports created in this job**
-- : Detailed analysis of the initial bugs and their solutions.
-- : Outlines the project requirements and work done.
+- 
+-  (updated)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** Bot is working perfectly! Now, let's overhaul the dashboard and stats. I want detailed, anonymized listening stats and a full-featured event manager in the web UI. (Status: Addressed, new plan is being made).
-2.  **User:** Start with stats, then the dashboard. Stats must be anonymous. The logs look clean now. (Status: Acknowledged, stats are the P0 task).
-3.  **User:** Clean up the repository. I don't want a  folder. I want to save to GitHub and run my update script. (Status: Completed).
-4.  **User:** Please update these specific npm packages to the latest versions. (Status: Completed).
-5.  **User:** I DON'T NEED THE  FOLDER!! Make it standard. (Status: Completed).
-6.  **Agent:** Confirmed the repository is clean and ready. (Status: Completed).
-7.  **User:** It works perfectly now! Please review the entire bot for any other possible improvements or errors. (Status: Acknowledged, analysis for new features started).
-8.  **User:** I want a clean repo, no temporary files. The fixes should be integrated directly. I will deploy using my  script. (Status: Completed).
-9.  **User:** The play command still isn't working even after applying fixes. (Status: Resolved, user was applying fixes incorrectly).
-10. **Agent:** Provided exact commands to copy the fixed files to the correct directory and rebuild the Docker container. (Status: Completed, this solved the user's issue).
+1.  **User (LATEST):** Requested UI/UX polish on the main website, asked for subscription status/renewal in the dashboard, and a back to main site button. Also confirmed that stats should be lifetime and that a database is the preferred solution. (Status: New tasks for the next agent).
+2.  **Agent:** Proposed the plan for the full dashboard overhaul, weekly digest, and fallback station. (Status: Plan was approved).
+3.  **User:** Approved the agent's plan and added a new request for a fallback station feature for Ultimate subscribers. (Status: Implemented).
+4.  **Agent:** Presented a detailed plan to implement the full-featured dashboard, including the event manager, custom station manager, settings page, and other improvements requested by the user. (Status: Awaiting approval).
+5.  **User:** Provided detailed requirements for the dashboard event page, custom station management, and requested a weekly stats digest. Also asked for general improvements. (Status: Addressed in the agent's plan).
+6.  **Agent:** Finished the dashboard stats/chart implementation and informed the user that the backend syntax and frontend build are clean. (Status: Completed).
+7.  **User:** Acknowledged the successful implementation of the stats system and requested the agent proceed with P1 (Dashboard UI) and P2 (Dashboard Features). (Status: Addressed).
+8.  **Agent:** Finished the comprehensive statistics system, confirmed all tests passed (31/31), and provided a summary of the completed work. (Status: Completed).
+9.  **User:** Provided logs showing the bot successfully starting up with the new MongoDB integration and all bots coming online. (Status: Acknowledged).
+10. **Agent:** Updated the  script to be aware of the new MongoDB service. (Status: Completed).
 
 **Project Health Check:**
 - **Broken:** None
@@ -138,17 +167,18 @@ No tasks are currently in progress. The previous bug-fixing task is complete.
 
 **3rd Party Integrations**
 -   Discord API (via )
--   Stripe (for premium features)
+-   Stripe (for premium features/licensing)
 -   DiscordBotList (for bot stats reporting)
+-   MongoDB (for statistics and settings persistence)
 
 **Testing status**
 -   **Testing agent used after significant changes:** NO
 -   **Troubleshoot agent used after agent stuck in loop:** NO
--   **Test files created:** None
+-   **Test files created:** []
 -   **Known regressions:** None
 
 **Credentials to test flow:**
-N/A. User provides logs for verification.
+N/A. User provides logs and feedback for verification.
 
 **What agent forgot to execute**
-None. The agent successfully addressed a series of complex, evolving user requests, from critical bug fixing to codebase cleanup and preparation for new feature development.</analysis>
+The agent has successfully executed all planned tasks. The next steps are based on new user requests that came in after the last implementation phase was completed.</analysis>
