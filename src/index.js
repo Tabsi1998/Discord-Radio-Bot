@@ -36,6 +36,7 @@ import {
 
 const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
 const AUTO_RESTORE_STAGGER_MS = Math.max(0, Number.parseInt(String(process.env.AUTO_RESTORE_STAGGER_MS || "2500"), 10) || 2500);
+const AUTO_RESTORE_READY_GRACE_MS = Math.max(0, Number.parseInt(String(process.env.AUTO_RESTORE_READY_GRACE_MS || "2000"), 10) || 2000);
 
 // ---- Optional MongoDB-Verbindung ----
 const mongoUrlConfigured = String(process.env.MONGO_URL || "").trim().length > 0;
@@ -127,25 +128,28 @@ if (!startResults.some(Boolean)) {
 
 // ---- Auto-Restore ----
 const stations = loadStations();
+const autoRestoreBaseAtMs = Date.now() + AUTO_RESTORE_READY_GRACE_MS;
 for (const [runtimeIndex, runtime] of startedRuntimes.entries()) {
-  const restoreDelayMs = runtimeIndex * AUTO_RESTORE_STAGGER_MS;
-  const doRestore = () => {
-    if (restoreDelayMs > 0) {
-      log("INFO", `[${runtime.config.name}] Starte Auto-Restore nach ${restoreDelayMs}ms Staffelung...`);
-    } else {
-      log("INFO", `[${runtime.config.name}] Starte Auto-Restore...`);
-    }
-    runtime.restoreState(stations).catch((err) => {
-      log("ERROR", `[${runtime.config.name}] Auto-Restore fehlgeschlagen: ${err?.message || err}`);
-    });
+  const scheduledRestoreAtMs = autoRestoreBaseAtMs + (runtimeIndex * AUTO_RESTORE_STAGGER_MS);
+  const scheduleRestore = () => {
+    const restoreDelayMs = Math.max(0, scheduledRestoreAtMs - Date.now());
+    const doRestore = () => {
+      if (restoreDelayMs > 0) {
+        log("INFO", `[${runtime.config.name}] Starte Auto-Restore nach ${restoreDelayMs}ms Staffelung...`);
+      } else {
+        log("INFO", `[${runtime.config.name}] Starte Auto-Restore...`);
+      }
+      runtime.restoreState(stations).catch((err) => {
+        log("ERROR", `[${runtime.config.name}] Auto-Restore fehlgeschlagen: ${err?.message || err}`);
+      });
+    };
+    setTimeout(doRestore, restoreDelayMs);
   };
 
   if (runtime.client.isReady()) {
-    setTimeout(doRestore, restoreDelayMs);
+    scheduleRestore();
   } else {
-    runtime.client.once("clientReady", () => {
-      setTimeout(doRestore, 2000 + restoreDelayMs);
-    });
+    runtime.client.once("clientReady", scheduleRestore);
   }
 }
 

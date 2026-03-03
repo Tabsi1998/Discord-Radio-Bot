@@ -646,3 +646,55 @@ test("voice lost keeps an already queued reconnect timer instead of replacing it
 
   await runtime.stop();
 });
+
+test("guild voice join lock serializes concurrent join attempts across runtimes", async () => {
+  const runtimeA = new BotRuntime({
+    id: "test-runtime-7",
+    clientId: "723456789012345678",
+    token: "unit-test-token",
+    name: "OmniFM Test 7A",
+    requiredTier: "free",
+  });
+  const runtimeB = new BotRuntime({
+    id: "test-runtime-8",
+    clientId: "823456789012345678",
+    token: "unit-test-token",
+    name: "OmniFM Test 7B",
+    requiredTier: "free",
+  });
+
+  const steps = [];
+  let releaseFirstJoin = null;
+  const firstJoin = runtimeA.withGuildVoiceJoinLock(
+    "guild-voice-lock",
+    async () => {
+      steps.push("join-a-start");
+      await new Promise((resolve) => {
+        releaseFirstJoin = resolve;
+      });
+      steps.push("join-a-end");
+    },
+    { reason: "test", cooldownMs: 0 },
+  );
+
+  await Promise.resolve();
+
+  const secondJoin = runtimeB.withGuildVoiceJoinLock(
+    "guild-voice-lock",
+    async () => {
+      steps.push("join-b-start");
+    },
+    { reason: "test", cooldownMs: 0 },
+  );
+
+  await Promise.resolve();
+  assert.deepEqual(steps, ["join-a-start"]);
+
+  releaseFirstJoin();
+  await Promise.all([firstJoin, secondJoin]);
+
+  assert.deepEqual(steps, ["join-a-start", "join-a-end", "join-b-start"]);
+
+  await runtimeA.stop();
+  await runtimeB.stop();
+});
