@@ -1398,6 +1398,39 @@ function startWebServer(runtimes) {
       return;
     }
 
+    // --- Dashboard: Stats Reset ---
+    if (requestUrl.pathname === "/api/dashboard/stats/reset") {
+      if (req.method !== "DELETE") { methodNotAllowed(res, ["DELETE"]); return; }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+
+      const gid = guild.id;
+      const deletedCounts = {};
+      try {
+        const { getDb } = await import("../lib/db.js");
+        const db = getDb();
+        if (db) {
+          for (const coll of ["daily_stats", "listening_sessions", "listener_snapshots"]) {
+            const r = await db.collection(coll).deleteMany({ guildId: gid });
+            deletedCounts[coll] = r.deletedCount || 0;
+          }
+          const r2 = await db.collection("guild_stats").deleteMany({ guildId: gid });
+          deletedCounts["guild_stats"] = r2.deletedCount || 0;
+        }
+        // Reset in-memory stats
+        const { resetGuildStats } = await import("../listening-stats-store.js");
+        if (typeof resetGuildStats === "function") resetGuildStats(gid);
+      } catch (err) {
+        console.error(`[stats-reset] Error for guild ${gid}: ${err.message}`);
+        sendJson(res, 500, { error: `Fehler beim Zuruecksetzen: ${err.message}` });
+        return;
+      }
+      sendJson(res, 200, { success: true, serverId: gid, deleted: deletedCounts });
+      return;
+    }
+
     // Enhanced stats endpoint with daily, session, connection, timeline data
     if (requestUrl.pathname === "/api/dashboard/stats/detail") {
       if (req.method !== "GET") {

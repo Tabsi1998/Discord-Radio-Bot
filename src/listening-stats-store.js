@@ -778,3 +778,27 @@ export async function migrateJsonToMongo() {
   log("INFO", `JSON -> MongoDB Migration: ${migrated}/${guilds.length} Guilds migriert.`);
   return { migrated: true, count: migrated, total: guilds.length };
 }
+
+// ============================================================
+// Reset guild stats (in-memory + optionally called after DB wipe)
+// ============================================================
+export function resetGuildStats(guildId) {
+  const gid = normalizeGuildId(guildId);
+  if (!gid) return;
+
+  // Clear in-memory state
+  const state = ensureState();
+  if (state.guilds && state.guilds[gid]) {
+    delete state.guilds[gid];
+  }
+
+  // Clear any active sessions for this guild
+  for (const [key, session] of activeSessions.entries()) {
+    if (session.guildId === gid) {
+      activeSessions.delete(key);
+    }
+  }
+
+  log("INFO", `Stats fuer Guild ${gid} zurueckgesetzt (in-memory).`);
+}
+

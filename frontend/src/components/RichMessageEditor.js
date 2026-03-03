@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Bold, Italic, Underline, Strikethrough, Code, List, Link2, Eye, PenLine, Smile, X, Search } from 'lucide-react';
+import EMOJI_CATEGORIES from './emojiData';
 
 const PLACEHOLDERS = ['{event}', '{station}', '{voice}', '{time}'];
 
@@ -42,26 +43,56 @@ function ToolbarButton({ icon: Icon, label, onClick, active, testId }) {
   );
 }
 
-function EmojiPicker({ emojis, loading, onSelect, onClose, t }) {
+function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, onClose, t }) {
   const [search, setSearch] = useState('');
-  const filtered = search
-    ? emojis.filter(e => e.name.toLowerCase().includes(search.toLowerCase()))
-    : emojis;
+  const [activeTab, setActiveTab] = useState('server');
+  const isDE = t('de', 'en') === 'de';
+
+  const hasServer = serverEmojis.length > 0;
+
+  const tabs = [
+    ...(hasServer ? [{ id: 'server', label: t('Server', 'Server') }] : []),
+    ...EMOJI_CATEGORIES.map(c => ({ id: c.id, label: isDE ? c.label.de : c.label.en })),
+  ];
+
+  // Set default tab
+  useEffect(() => {
+    if (!hasServer && activeTab === 'server') {
+      setActiveTab(EMOJI_CATEGORIES[0]?.id || 'people');
+    }
+  }, [hasServer, activeTab]);
+
+  // Search across all categories
+  const searchLower = search.toLowerCase();
+  let filteredServer = serverEmojis;
+  let filteredCategories = EMOJI_CATEGORIES;
+  if (search) {
+    filteredServer = serverEmojis.filter(e => e.name.toLowerCase().includes(searchLower));
+    filteredCategories = EMOJI_CATEGORIES.map(c => ({
+      ...c,
+      emojis: c.emojis, // Unicode emojis can't be searched by name easily, so show all when in category view
+    }));
+  }
+
+  const isSearchMode = search.length > 0;
 
   return (
     <div data-testid="emoji-picker-panel" style={{
       position: 'absolute', top: '100%', right: 0, zIndex: 50, marginTop: 4,
-      width: 320, maxHeight: 340, background: '#0A0A0A', border: '1px solid #1A1A2E',
+      width: 360, maxHeight: 420, background: '#0A0A0A', border: '1px solid #1A1A2E',
       display: 'flex', flexDirection: 'column', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
     }}>
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderBottom: '1px solid #1A1A2E' }}>
         <span style={{ fontSize: 12, color: '#71717A', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          {t('Server Emojis', 'Server emojis')}
+          Emojis
         </span>
         <button data-testid="emoji-picker-close" onClick={onClose} style={{ border: 'none', background: 'transparent', color: '#71717A', cursor: 'pointer', padding: 2 }}>
           <X size={14} />
         </button>
       </div>
+
+      {/* Search */}
       <div style={{ padding: '6px 10px', borderBottom: '1px solid #1A1A2E' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #1A1A2E', background: '#050505', padding: '0 8px', height: 32 }}>
           <Search size={12} color="#52525B" />
@@ -70,39 +101,121 @@ function EmojiPicker({ emojis, loading, onSelect, onClose, t }) {
             placeholder={t('Emoji suchen...', 'Search emoji...')}
             style={{ flex: 1, border: 'none', background: 'transparent', color: '#fff', fontSize: 12, outline: 'none' }}
           />
+          {search && (
+            <button onClick={() => setSearch('')} style={{ border: 'none', background: 'transparent', color: '#52525B', cursor: 'pointer', padding: 0 }}>
+              <X size={12} />
+            </button>
+          )}
         </div>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
-        {loading && <div style={{ color: '#52525B', fontSize: 12, textAlign: 'center', padding: 20 }}>{t('Lade Emojis...', 'Loading emojis...')}</div>}
-        {!loading && filtered.length === 0 && (
-          <div style={{ color: '#52525B', fontSize: 12, textAlign: 'center', padding: 20 }}>
-            {emojis.length === 0
-              ? t('Keine Server-Emojis gefunden. Emojis werden vom Discord-Server geladen.', 'No server emojis found. Emojis are loaded from the Discord server.')
-              : t('Kein Emoji passt zur Suche.', 'No emoji matches your search.')}
-          </div>
-        )}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {filtered.map((emoji) => (
+
+      {/* Category Tabs */}
+      {!isSearchMode && (
+        <div style={{ display: 'flex', overflowX: 'auto', borderBottom: '1px solid #1A1A2E', padding: '0 4px', gap: 1, scrollbarWidth: 'none' }}>
+          {tabs.map(tab => (
             <button
-              key={emoji.id} data-testid={`emoji-btn-${emoji.name}`}
-              onClick={() => onSelect(emoji)}
-              title={`:${emoji.name}:`}
+              key={tab.id}
+              data-testid={`emoji-tab-${tab.id}`}
+              onClick={() => setActiveTab(tab.id)}
               style={{
-                border: '1px solid transparent', background: 'transparent', cursor: 'pointer',
-                width: 36, height: 36, display: 'grid', placeItems: 'center', borderRadius: 4,
-                transition: 'all 0.1s',
+                border: 'none', background: 'transparent', cursor: 'pointer',
+                padding: '6px 8px', fontSize: 11, whiteSpace: 'nowrap',
+                color: activeTab === tab.id ? '#5865F2' : '#52525B',
+                borderBottom: activeTab === tab.id ? '2px solid #5865F2' : '2px solid transparent',
+                fontWeight: activeTab === tab.id ? 600 : 400,
+                transition: 'all 0.12s',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#1A1A2E'; e.currentTarget.style.borderColor = '#5865F2'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
             >
-              <img
-                src={emoji.url} alt={`:${emoji.name}:`}
-                style={{ width: 24, height: 24, objectFit: 'contain' }}
-                loading="lazy"
-              />
+              {tab.label}
             </button>
           ))}
         </div>
+      )}
+
+      {/* Emoji Grid */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: 8, minHeight: 180 }}>
+        {loading && <div style={{ color: '#52525B', fontSize: 12, textAlign: 'center', padding: 20 }}>{t('Lade...', 'Loading...')}</div>}
+
+        {/* Search mode: show server emojis + matching category name for context */}
+        {isSearchMode && !loading && (
+          <>
+            {filteredServer.length > 0 && (
+              <>
+                <div style={{ fontSize: 10, color: '#52525B', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '4px 2px 6px', fontWeight: 600 }}>
+                  {t('Server Emojis', 'Server Emojis')}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 10 }}>
+                  {filteredServer.map(emoji => (
+                    <button
+                      key={emoji.id} data-testid={`emoji-btn-${emoji.name}`}
+                      onClick={() => onSelectCustom(emoji)} title={`:${emoji.name}:`}
+                      style={{ border: '1px solid transparent', background: 'transparent', cursor: 'pointer', width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 4, transition: 'all 0.1s' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#1A1A2E'; e.currentTarget.style.borderColor = '#5865F2'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                    >
+                      <img src={emoji.url} alt={`:${emoji.name}:`} style={{ width: 22, height: 22, objectFit: 'contain' }} loading="lazy" />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {filteredServer.length === 0 && serverEmojis.length === 0 && (
+              <div style={{ color: '#3F3F46', fontSize: 12, textAlign: 'center', padding: 12 }}>
+                {t('Tipp: Waehle eine Kategorie oder tippe einen Emoji ein.', 'Tip: Select a category or type an emoji.')}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Normal mode: show active tab content */}
+        {!isSearchMode && !loading && activeTab === 'server' && (
+          <>
+            {serverEmojis.length === 0 ? (
+              <div style={{ color: '#52525B', fontSize: 12, textAlign: 'center', padding: 20 }}>
+                {t('Keine Server-Emojis vorhanden.', 'No server emojis available.')}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                {serverEmojis.map(emoji => (
+                  <button
+                    key={emoji.id} data-testid={`emoji-btn-${emoji.name}`}
+                    onClick={() => onSelectCustom(emoji)} title={`:${emoji.name}:`}
+                    style={{ border: '1px solid transparent', background: 'transparent', cursor: 'pointer', width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 4, transition: 'all 0.1s' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#1A1A2E'; e.currentTarget.style.borderColor = '#5865F2'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                  >
+                    <img src={emoji.url} alt={`:${emoji.name}:`} style={{ width: 22, height: 22, objectFit: 'contain' }} loading="lazy" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {!isSearchMode && !loading && activeTab !== 'server' && (
+          <>
+            {EMOJI_CATEGORIES.filter(c => c.id === activeTab).map(cat => (
+              <div key={cat.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                {cat.emojis.map((emoji, i) => (
+                  <button
+                    key={`${cat.id}-${i}`}
+                    data-testid={`emoji-unicode-${cat.id}-${i}`}
+                    onClick={() => onSelectUnicode(emoji)}
+                    style={{
+                      border: '1px solid transparent', background: 'transparent', cursor: 'pointer',
+                      width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 4,
+                      fontSize: 20, lineHeight: 1, transition: 'all 0.1s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#1A1A2E'; e.currentTarget.style.borderColor = '#5865F2'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );
@@ -111,20 +224,20 @@ function EmojiPicker({ emojis, loading, onSelect, onClose, t }) {
 export default function RichMessageEditor({ value, onChange, t, testId, apiRequest, selectedGuildId }) {
   const [mode, setMode] = useState('edit');
   const [showEmojis, setShowEmojis] = useState(false);
-  const [emojis, setEmojis] = useState([]);
+  const [serverEmojis, setServerEmojis] = useState([]);
   const [emojisLoading, setEmojisLoading] = useState(false);
   const [emojisLoaded, setEmojisLoaded] = useState(false);
   const textareaRef = useRef(null);
   const containerRef = useRef(null);
 
-  const loadEmojis = useCallback(async () => {
+  const loadServerEmojis = useCallback(async () => {
     if (emojisLoaded || !apiRequest || !selectedGuildId) return;
     setEmojisLoading(true);
     try {
       const result = await apiRequest(`/api/dashboard/emojis?serverId=${encodeURIComponent(selectedGuildId)}`);
-      setEmojis(result.emojis || []);
+      setServerEmojis(result.emojis || []);
     } catch {
-      setEmojis([]);
+      setServerEmojis([]);
     } finally {
       setEmojisLoading(false);
       setEmojisLoaded(true);
@@ -132,7 +245,7 @@ export default function RichMessageEditor({ value, onChange, t, testId, apiReque
   }, [apiRequest, selectedGuildId, emojisLoaded]);
 
   const toggleEmojis = () => {
-    if (!showEmojis) loadEmojis();
+    if (!showEmojis) loadServerEmojis();
     setShowEmojis(!showEmojis);
   };
 
@@ -175,10 +288,15 @@ export default function RichMessageEditor({ value, onChange, t, testId, apiReque
     }
   };
 
-  const insertEmoji = (emoji) => {
+  const insertCustomEmoji = (emoji) => {
     const prefix = emoji.animated ? 'a' : '';
     const emojiText = `<${prefix}:${emoji.name}:${emoji.id}>`;
     insertAtCursor(emojiText);
+    setShowEmojis(false);
+  };
+
+  const insertUnicodeEmoji = (emoji) => {
+    insertAtCursor(emoji);
     setShowEmojis(false);
   };
 
@@ -227,8 +345,12 @@ export default function RichMessageEditor({ value, onChange, t, testId, apiReque
               <ToolbarButton icon={Smile} label={t('Emoji', 'Emoji')} onClick={toggleEmojis} active={showEmojis} testId="fmt-emoji" />
               {showEmojis && (
                 <EmojiPicker
-                  emojis={emojis} loading={emojisLoading}
-                  onSelect={insertEmoji} onClose={() => setShowEmojis(false)} t={t}
+                  serverEmojis={serverEmojis}
+                  loading={emojisLoading}
+                  onSelectUnicode={insertUnicodeEmoji}
+                  onSelectCustom={insertCustomEmoji}
+                  onClose={() => setShowEmojis(false)}
+                  t={t}
                 />
               )}
             </div>

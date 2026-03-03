@@ -1998,6 +1998,373 @@ async def dashboard_stats(request: Request, serverId: str = ""):
     }
 
 
+@app.delete("/api/dashboard/stats/reset")
+async def dashboard_stats_reset(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+
+    gid = guild.get("id", "")
+    if not gid:
+        return json_error(400, "Ungueltige Server-ID.")
+
+    deleted_counts = {}
+    if db is not None:
+        try:
+            for coll_name in ["daily_stats", "listening_sessions", "listener_snapshots"]:
+                r = db[coll_name].delete_many({"guildId": gid})
+                deleted_counts[coll_name] = r.deleted_count
+            r = db.guild_stats.delete_many({"guildId": gid})
+            deleted_counts["guild_stats"] = r.deleted_count
+        except Exception as e:
+            return json_error(500, f"Fehler beim Zuruecksetzen: {str(e)}")
+
+    return {"success": True, "serverId": gid, "deleted": deleted_counts}
+
+
+@app.get("/api/dashboard/stats/detail")
+async def dashboard_stats_detail(request: Request, serverId: str = "", days: int = 30):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    if guild.get("tier") != "ultimate":
+        return json_error(403, "Detaillierte Statistiken sind nur fuer Ultimate verfuegbar.")
+
+    gid = guild.get("id", "")
+    days = max(1, min(90, days))
+    result = {
+        "serverId": gid, "tier": "ultimate",
+        "listeningStats": {}, "dailyStats": [], "sessionHistory": [],
+        "connectionHealth": {"connects": 0, "reconnects": 0, "errors": 0, "events": []},
+        "listenerTimeline": [], "activeSessions": [],
+    }
+    if db is not None:
+        try:
+            from datetime import timedelta
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+            daily = list(db.daily_stats.find(
+                {"guildId": gid, "date": {"$gte": cutoff}},
+                {"_id": 0}
+            ).sort("date", -1).limit(days))
+            result["dailyStats"] = daily
+
+            sessions = list(db.listening_sessions.find(
+                {"guildId": gid}, {"_id": 0}
+            ).sort("startedAt", -1).limit(20))
+            result["sessionHistory"] = [{
+                "stationKey": s.get("stationKey", ""),
+                "stationName": s.get("stationName", ""),
+                "startedAt": s.get("startedAt").isoformat() if hasattr(s.get("startedAt", ""), "isoformat") else str(s.get("startedAt", "")),
+                "durationMs": s.get("humanListeningMs", s.get("durationMs", 0)),
+                "peakListeners": s.get("peakListeners", 0),
+                "avgListeners": s.get("avgListeners", 0),
+            } for s in sessions]
+
+            guild_stat = db.guild_stats.find_one({"guildId": gid}, {"_id": 0})
+            if guild_stat:
+                result["listeningStats"] = {
+                    "totalListeningMs": guild_stat.get("totalListeningMs", 0),
+                    "totalSessions": guild_stat.get("totalSessions", 0),
+                    "avgSessionMs": guild_stat.get("avgSessionMs", 0),
+                    "longestSessionMs": guild_stat.get("longestSessionMs", 0),
+                    "totalStarts": guild_stat.get("totalStarts", 0),
+                    "peakListeners": guild_stat.get("peakListeners", 0),
+                    "stationStarts": guild_stat.get("stationStarts", {}),
+                    "stationListeningMs": guild_stat.get("stationListeningMs", {}),
+                    "stationNames": guild_stat.get("stationNames", {}),
+                    "hours": guild_stat.get("hours", {}),
+                    "daysOfWeek": guild_stat.get("daysOfWeek", {}),
+                    "commands": guild_stat.get("commands", {}),
+                    "voiceChannels": guild_stat.get("voiceChannels", {}),
+                }
+
+            snapshots = list(db.listener_snapshots.find(
+                {"guildId": gid}, {"_id": 0}
+            ).sort("timestamp", -1).limit(288))
+            result["listenerTimeline"] = [{
+                "timestamp": s.get("timestamp").isoformat() if hasattr(s.get("timestamp", ""), "isoformat") else str(s.get("timestamp", "")),
+                "listeners": s.get("listeners", 0),
+            } for s in reversed(snapshots)]
+        except Exception:
+            pass
+    return result
+
+
+@app.get("/api/dashboard/settings")
+async def dashboard_settings_get(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+
+    gid = guild.get("id", "")
+    settings = {}
+    if db is not None:
+        try:
+            settings = db.guild_settings.find_one({"guildId": gid}, {"_id": 0}) or {}
+        except Exception:
+            pass
+    return {
+        "guildId": gid,
+        "tier": guild.get("tier", "free"),
+        "weeklyDigest": settings.get("weeklyDigest", {"enabled": False, "channelId": "", "dayOfWeek": 1, "hour": 9, "language": "de"}),
+        "fallbackStation": settings.get("fallbackStation", ""),
+    }
+
+
+@app.put("/api/dashboard/settings")
+async def dashboard_settings_put(request: Request, body: dict, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+
+    gid = guild.get("id", "")
+    if db is None:
+        return json_error(503, "MongoDB nicht verbunden.")
+
+    updates = {"guildId": gid}
+    wd = body.get("weeklyDigest")
+    if wd and isinstance(wd, dict):
+        updates["weeklyDigest"] = {
+            "enabled": wd.get("enabled") is True,
+            "channelId": str(wd.get("channelId", "")).strip(),
+            "dayOfWeek": max(0, min(6, int(wd.get("dayOfWeek", 1) or 1))),
+            "hour": max(0, min(23, int(wd.get("hour", 9) or 9))),
+            "language": str(wd.get("language", "de"))[:5],
+        }
+
+    fs = body.get("fallbackStation")
+    if fs is not None:
+        if guild.get("tier") != "ultimate":
+            return json_error(403, "Fallback-Station ist nur fuer Ultimate verfuegbar.")
+        updates["fallbackStation"] = str(fs or "").strip().lower()[:120]
+
+    try:
+        db.guild_settings.update_one({"guildId": gid}, {"$set": updates}, upsert=True)
+    except Exception as e:
+        return json_error(500, f"Fehler: {str(e)}")
+    return {"success": True, **updates}
+
+
+@app.get("/api/dashboard/channels")
+async def dashboard_channels(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    return {"voiceChannels": [], "textChannels": []}
+
+
+@app.get("/api/dashboard/roles")
+async def dashboard_roles(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+    return {"roles": []}
+
+
+@app.get("/api/dashboard/stations")
+async def dashboard_stations_all(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+
+    gid = guild.get("id", "")
+    tier = guild.get("tier", "free")
+    file_data = load_stations_from_file()
+    all_stations = file_data.get("stations", {})
+
+    free_list, pro_list = [], []
+    for key, val in all_stations.items():
+        if key.startswith("custom:"):
+            continue
+        st_tier = (val.get("tier", "free") or "free").lower()
+        entry = {"key": key, "name": val.get("name", key), "url": val.get("url", ""), "genre": val.get("genre", ""), "country": val.get("country", "")}
+        if st_tier == "free":
+            free_list.append(entry)
+        elif st_tier == "pro" and tier in ("pro", "ultimate"):
+            pro_list.append(entry)
+    free_list.sort(key=lambda s: s["name"])
+    pro_list.sort(key=lambda s: s["name"])
+
+    custom_list = []
+    if db is not None and tier == "ultimate":
+        try:
+            for doc in db.custom_stations.find({"guildId": gid}, {"_id": 0}):
+                custom_list.append({"key": doc.get("key", ""), "name": doc.get("name", ""), "url": doc.get("url", ""), "genre": doc.get("genre", ""), "custom": True})
+        except Exception:
+            pass
+
+    return {"free": free_list, "pro": pro_list, "custom": custom_list, "tier": tier}
+
+
+@app.get("/api/dashboard/custom-stations")
+async def dashboard_custom_stations_get(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff.")
+
+    gid = guild.get("id", "")
+    tier = guild.get("tier", "free")
+    stations = []
+    if db is not None:
+        try:
+            for doc in db.custom_stations.find({"guildId": gid}, {"_id": 0}):
+                stations.append({"key": doc.get("key", ""), "name": doc.get("name", ""), "url": doc.get("url", ""), "genre": doc.get("genre", "")})
+        except Exception:
+            pass
+    stations.sort(key=lambda s: s.get("name", ""))
+    return {"stations": stations, "tier": tier}
+
+
+@app.post("/api/dashboard/custom-stations")
+async def dashboard_custom_stations_create(request: Request, body: dict, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff.")
+    if guild.get("tier") != "ultimate":
+        return json_error(403, "Custom Stations sind nur fuer Ultimate verfuegbar.")
+
+    gid = guild.get("id", "")
+    import re
+    key = re.sub(r"[^a-z0-9_-]", "", str(body.get("key", "")).strip().lower()[:80])
+    name = str(body.get("name", "")).strip()[:120]
+    url = str(body.get("url", "")).strip()[:500]
+    genre = str(body.get("genre", "")).strip()[:80]
+    if not key or not name or not url:
+        return json_error(400, "Key, Name und URL sind erforderlich.")
+
+    if db is None:
+        return json_error(503, "MongoDB nicht verbunden.")
+
+    count = db.custom_stations.count_documents({"guildId": gid})
+    if count >= 50:
+        return json_error(400, "Maximale Anzahl von 50 Custom Stations erreicht.")
+
+    existing = db.custom_stations.find_one({"guildId": gid, "key": key})
+    if existing:
+        return json_error(400, f"Station mit Key '{key}' existiert bereits.")
+
+    db.custom_stations.insert_one({"guildId": gid, "key": key, "name": name, "url": url, "genre": genre})
+    return {"success": True, "station": {"key": key, "name": name, "url": url, "genre": genre}}
+
+
+@app.put("/api/dashboard/custom-stations")
+async def dashboard_custom_stations_update(request: Request, body: dict, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff.")
+    if guild.get("tier") != "ultimate":
+        return json_error(403, "Custom Stations sind nur fuer Ultimate verfuegbar.")
+
+    gid = guild.get("id", "")
+    key = str(body.get("key", "")).strip().lower()[:80]
+    if not key:
+        return json_error(400, "Station Key fehlt.")
+
+    if db is None:
+        return json_error(503, "MongoDB nicht verbunden.")
+
+    existing = db.custom_stations.find_one({"guildId": gid, "key": key})
+    if not existing:
+        return json_error(404, "Station nicht gefunden.")
+
+    updates = {}
+    if body.get("name"):
+        updates["name"] = str(body["name"]).strip()[:120]
+    if body.get("url"):
+        updates["url"] = str(body["url"]).strip()[:500]
+    if "genre" in body:
+        updates["genre"] = str(body["genre"]).strip()[:80]
+
+    if updates:
+        db.custom_stations.update_one({"guildId": gid, "key": key}, {"$set": updates})
+
+    return {"success": True, "station": {"key": key, **updates}}
+
+
+@app.delete("/api/dashboard/custom-stations")
+async def dashboard_custom_stations_delete(request: Request, serverId: str = "", key: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "write")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff.")
+
+    if not key:
+        return json_error(400, "Station Key fehlt.")
+
+    gid = guild.get("id", "")
+    if db is not None:
+        r = db.custom_stations.delete_one({"guildId": gid, "key": key})
+        return {"success": r.deleted_count > 0, "key": key}
+    return {"success": False, "key": key}
+
+
 @app.post("/api/dashboard/telemetry")
 async def dashboard_upsert_telemetry(request: Request, body: dict, serverId: str = ""):
     rate_limited = enforce_api_rate_limit(request, "write")

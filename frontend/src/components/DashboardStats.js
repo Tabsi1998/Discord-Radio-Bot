@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area,
 } from 'recharts';
+import { RotateCcw } from 'lucide-react';
 
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const DAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -37,11 +38,23 @@ function Section({ title, testId, children }) {
   );
 }
 
-export default function DashboardStatsPanel({ stats, detailStats, t, formatDate }) {
+export default function DashboardStatsPanel({ stats, detailStats, t, formatDate, onResetStats }) {
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const basic = stats?.basic || {};
   const detail = detailStats || {};
   const isDE = t('de', 'en') === 'de';
   const dayNames = isDE ? DAYS_DE : DAYS_EN;
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      if (onResetStats) await onResetStats();
+    } finally {
+      setResetting(false);
+      setShowResetConfirm(false);
+    }
+  };
 
   const ls = detail.listeningStats || {};
 
@@ -93,6 +106,57 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
 
   return (
     <section data-testid="dashboard-stats-detail-panel" style={{ display: 'grid', gap: 12 }}>
+      {/* Stats Reset */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        {!showResetConfirm ? (
+          <button
+            data-testid="stats-reset-btn"
+            onClick={() => setShowResetConfirm(true)}
+            style={{
+              border: '1px solid #27272A', background: 'transparent', color: '#71717A',
+              padding: '6px 14px', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6,
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#EF4444'; e.currentTarget.style.color = '#EF4444'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#27272A'; e.currentTarget.style.color = '#71717A'; }}
+          >
+            <RotateCcw size={13} />
+            {t('Statistiken zuruecksetzen', 'Reset statistics')}
+          </button>
+        ) : (
+          <div data-testid="stats-reset-confirm" style={{
+            display: 'flex', alignItems: 'center', gap: 10, background: '#1A0505', border: '1px solid #7F1D1D',
+            padding: '8px 14px',
+          }}>
+            <span style={{ fontSize: 12, color: '#FCA5A5' }}>
+              {t('Alle Statistiken fuer diesen Server unwiderruflich loeschen?', 'Permanently delete all statistics for this server?')}
+            </span>
+            <button
+              data-testid="stats-reset-confirm-yes"
+              onClick={handleReset}
+              disabled={resetting}
+              style={{
+                border: '1px solid #EF4444', background: '#EF4444', color: '#fff',
+                padding: '4px 12px', cursor: resetting ? 'wait' : 'pointer', fontSize: 12, fontWeight: 600,
+                opacity: resetting ? 0.6 : 1,
+              }}
+            >
+              {resetting ? t('Loesche...', 'Deleting...') : t('Ja, loeschen', 'Yes, delete')}
+            </button>
+            <button
+              data-testid="stats-reset-confirm-no"
+              onClick={() => setShowResetConfirm(false)}
+              style={{
+                border: '1px solid #27272A', background: 'transparent', color: '#A1A1AA',
+                padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+              }}
+            >
+              {t('Abbrechen', 'Cancel')}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Daily listening hours trend */}
       {dailyData.length > 0 && (
         <Section title={t('Hoerzeit-Verlauf (Tage)', 'Listening hours trend (days)')} testId="stats-daily-hours">

@@ -490,7 +490,13 @@ export default function DashboardPortal() {
           )}
 
           {activeTab === 'stats' && isUltimate && (
-            <DashboardStatsPanel stats={stats} detailStats={detailStats} t={t} formatDate={formatDate} />
+            <DashboardStatsPanel stats={stats} detailStats={detailStats} t={t} formatDate={formatDate}
+              onResetStats={async () => {
+                await apiRequest(`/api/dashboard/stats/reset?serverId=${encodeURIComponent(selectedGuildId)}`, { method: 'DELETE' });
+                setStats(null);
+                setDetailStats(null);
+              }}
+            />
           )}
 
           {activeTab === 'stats' && !isUltimate && (
