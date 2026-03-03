@@ -4043,22 +4043,28 @@ class BotRuntime {
       group: this.voiceGroup,
       selfDeaf: true
     });
+    state.connection = connection;
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      if (state.connection === connection) {
+        state.connection = null;
+      }
       try { connection.destroy(); } catch {}
       throw new Error("Voice-Verbindung konnte nicht hergestellt werden.");
     }
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
     if (!joinedVoiceState) {
+      if (state.connection === connection) {
+        state.connection = null;
+      }
       try { connection.destroy(); } catch {}
       throw new Error("Voice-Verbindung ist nicht stabil genug.");
     }
 
     connection.subscribe(state.player);
-    state.connection = connection;
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
     state.shouldReconnect = true;
@@ -4977,6 +4983,8 @@ class BotRuntime {
     const guildId = interaction.guildId;
     const state = this.getState(guildId);
     state.lastChannelId = channel.id;
+    this.clearReconnectTimer(state);
+    state.reconnectAttempts = 0;
 
     if (state.connection) {
       const currentChannelId = state.connection.joinConfig?.channelId;
@@ -5003,22 +5011,28 @@ class BotRuntime {
       selfDeaf: true
     });
     log("INFO", `[${this.config.name}] Join Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
+    state.connection = connection;
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      if (state.connection === connection) {
+        state.connection = null;
+      }
       connection.destroy();
       return sendError(t("Konnte dem Voice-Channel nicht beitreten.", "Could not join the voice channel."));
     }
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
     if (!joinedVoiceState) {
+      if (state.connection === connection) {
+        state.connection = null;
+      }
       try { connection.destroy(); } catch {}
       return sendError(t("Voice-Verbindung war instabil. Bitte erneut versuchen.", "Voice connection was unstable. Please try again."));
     }
 
     connection.subscribe(state.player);
-    state.connection = connection;
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
     this.clearReconnectTimer(state);
@@ -5083,10 +5097,14 @@ class BotRuntime {
       selfDeaf: true
     });
     log("INFO", `[${this.config.name}] Rejoin Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
+    state.connection = connection;
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      if (state.connection === connection) {
+        state.connection = null;
+      }
       networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-timeout`, `guild=${guildId}`);
       try { connection.destroy(); } catch {}
       return;
@@ -5094,13 +5112,15 @@ class BotRuntime {
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
     if (!joinedVoiceState) {
+      if (state.connection === connection) {
+        state.connection = null;
+      }
       networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-ghost`, `guild=${guildId}`);
       try { connection.destroy(); } catch {}
       return;
     }
 
     connection.subscribe(state.player);
-    state.connection = connection;
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
     this.clearReconnectTimer(state);
