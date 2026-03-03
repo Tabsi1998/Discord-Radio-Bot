@@ -207,6 +207,74 @@ test("public bot status omits guild details while dashboard status keeps them", 
   });
 });
 
+test("commander live playback snapshots include the commander's own stream and worker streams", () => {
+  const workerRuntime = {
+    config: { id: "bot-worker" },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "worker-station",
+        currentStationName: "Worker FM",
+        lastChannelId: "voice-2",
+        connection: { joinConfig: { channelId: "voice-2" } },
+      }],
+    ]),
+    getState(guildId) {
+      return this.guildState.get(guildId);
+    },
+    getGuildInfo(guildId) {
+      const state = this.guildState.get(guildId);
+      return {
+        stationKey: state.currentStationKey,
+        stationName: state.currentStationName,
+        channelId: state.lastChannelId,
+      };
+    },
+    getCurrentListenerCount() {
+      return 4;
+    },
+  };
+  const fakeRuntime = {
+    role: "commander",
+    workerManager: {
+      getStreamingWorkers() {
+        return [workerRuntime];
+      },
+    },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "commander-station",
+        currentStationName: "Commander FM",
+        lastChannelId: "voice-1",
+        connection: { joinConfig: { channelId: "voice-1" } },
+      }],
+    ]),
+    getGuildInfo(guildId) {
+      const state = this.guildState.get(guildId);
+      return {
+        stationKey: state.currentStationKey,
+        stationName: state.currentStationName,
+        channelId: state.lastChannelId,
+      };
+    },
+    getCurrentListenerCount(guildId, state) {
+      return state.lastChannelId === "voice-1" ? 2 : 0;
+    },
+  };
+
+  fakeRuntime.buildLocalLivePlaybackSnapshot = BotRuntime.prototype.buildLocalLivePlaybackSnapshot;
+
+  const snapshot = BotRuntime.prototype.getLiveGuildPlaybackSnapshot.call(fakeRuntime, "guild-1");
+
+  assert.equal(snapshot.length, 2);
+  assert.deepEqual(
+    snapshot.map((entry) => ({ stationName: entry.stationName, listenerCount: entry.listenerCount })),
+    [
+      { stationName: "Commander FM", listenerCount: 2 },
+      { stationName: "Worker FM", listenerCount: 4 },
+    ]
+  );
+});
+
 test("worker manager can reuse a bot that is still connected in the target channel", async () => {
   const connectedWorker = {
     config: { index: 2 },

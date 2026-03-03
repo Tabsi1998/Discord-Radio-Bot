@@ -186,10 +186,12 @@ export default function DashboardPortal() {
 
   useEffect(() => { if (!session.authenticated) setError((c) => c || authErrorMessage); }, [authErrorMessage, session.authenticated]);
 
-  const refreshDashboardData = useCallback(async () => {
+  const refreshDashboardData = useCallback(async ({ silent = false } = {}) => {
     if (!selectedGuildId || !dashboardEnabled) return;
-    setLoadingData(true);
-    setMessage('');
+    if (!silent) {
+      setLoadingData(true);
+      setMessage('');
+    }
     setError('');
     try {
       const requests = [
@@ -220,13 +222,22 @@ export default function DashboardPortal() {
     } catch (err) {
       setError(err.message || 'Dashboard-Daten konnten nicht geladen werden.');
     } finally {
-      setLoadingData(false);
+      if (!silent) {
+        setLoadingData(false);
+      }
     }
   }, [selectedGuildId, dashboardEnabled, selectedGuild?.tier, isUltimate]);
 
   useEffect(() => { refreshSession(); }, [refreshSession]);
   useEffect(() => { if (selectedGuildId) window.localStorage.setItem('omnifm.dashboard.guildId', selectedGuildId); }, [selectedGuildId]);
   useEffect(() => { if (session.authenticated && selectedGuildId && dashboardEnabled) refreshDashboardData(); }, [session.authenticated, selectedGuildId, dashboardEnabled, refreshDashboardData]);
+  useEffect(() => {
+    if (!session.authenticated || !selectedGuildId || !dashboardEnabled) return undefined;
+    const timer = window.setInterval(() => {
+      refreshDashboardData({ silent: true });
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [session.authenticated, selectedGuildId, dashboardEnabled, refreshDashboardData]);
   useEffect(() => {
     setEditingEventId('');
     setEventForm(buildEmptyEventForm());

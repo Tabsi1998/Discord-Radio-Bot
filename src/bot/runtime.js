@@ -151,7 +151,8 @@ import {
   recordCommandUsage,
   recordStationStart,
   recordStationStop,
-  recordListenerSample,
+  recordGuildListenerSample,
+  recordSessionListenerSample,
   recordConnectionEvent,
   getGuildListeningStats,
   getTopGuildsByActivity,
@@ -230,6 +231,7 @@ const VOICE_CHANNEL_STATUS_MAX_LENGTH = Math.max(1, Math.min(100, toPositiveInt(
 const ONBOARDING_MESSAGE_ENABLED = String(process.env.ONBOARDING_MESSAGE_ENABLED ?? "1") !== "0";
 const VOICE_STATE_RECONCILE_ENABLED = String(process.env.VOICE_STATE_RECONCILE_ENABLED ?? "1") !== "0";
 const VOICE_STATE_RECONCILE_MS = Math.max(15_000, toPositiveInt(process.env.VOICE_STATE_RECONCILE_MS, 30_000));
+const LISTENER_STATS_POLL_MS = Math.max(15_000, toPositiveInt(process.env.LISTENER_STATS_POLL_MS, 30_000));
 
 
 class BotRuntime {
@@ -250,6 +252,7 @@ class BotRuntime {
     this.startError = null;
     this.eventSchedulerTimer = null;
     this.voiceHealthTimer = null;
+    this.listenerStatsTimer = null;
     this.pendingVoiceReconcileTimers = new Map();
     this.scheduledEventInFlight = new Set();
     this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered(() => {
@@ -275,6 +278,7 @@ class BotRuntime {
           log("ERROR", `[${this.config.name}] Guild-Command-Sync fehlgeschlagen: ${err?.message || err}`);
         });
         this.startEventScheduler();
+        this.startListenerStatsSampler();
       } else {
         this.clearGuildCommandsForWorker().catch((err) => {
           log("ERROR", `[${this.config.name}] Worker-Command-Cleanup fehlgeschlagen: ${err?.message || err}`);
@@ -674,6 +678,89 @@ class BotRuntime {
     }
   }
 
+  stopListenerStatsSampler() {
+    if (this.listenerStatsTimer) {
+      clearInterval(this.listenerStatsTimer);
+      this.listenerStatsTimer = null;
+    }
+  }
+
+  buildLocalLivePlaybackSnapshot(guildId) {
+    const normalizedGuildId = String(guildId || "").trim();
+    if (!normalizedGuildId) return [];
+    const state = this.guildState.get(normalizedGuildId);
+    if (!state?.currentStationKey || !state?.connection) return [];
+    const info = this.getGuildInfo(normalizedGuildId) || {};
+    return [{
+      runtime: this,
+      state,
+      stationKey: info.stationKey || state.currentStationKey || null,
+      stationName: info.stationName || state.currentStationName || null,
+      channelId: info.channelId || state.lastChannelId || null,
+      listenerCount: this.getCurrentListenerCount(normalizedGuildId, state),
+    }];
+  }
+
+  collectGuildIdsForListenerStats() {
+    const guildIds = new Set();
+
+    for (const [guildId, state] of this.guildState.entries()) {
+      if (state?.currentStationKey && state?.connection) {
+        guildIds.add(guildId);
+      }
+    }
+
+    if (this.role === "commander" && this.workerManager) {
+      for (const worker of this.workerManager.workers || []) {
+        for (const [guildId, state] of worker.guildState.entries()) {
+          if (state?.currentStationKey && state?.connection) {
+            guildIds.add(guildId);
+          }
+        }
+      }
+    }
+
+    return [...guildIds.values()];
+  }
+
+  sampleListenerStatsForActiveGuilds() {
+    const now = Date.now();
+    const guildIds = this.collectGuildIdsForListenerStats();
+
+    for (const guildId of guildIds) {
+      const liveStreams = this.getLiveGuildPlaybackSnapshot(guildId);
+      if (!liveStreams.length) continue;
+
+      const totalListeners = liveStreams.reduce((sum, stream) => sum + (Number(stream.listenerCount) || 0), 0);
+      recordGuildListenerSample(guildId, totalListeners, now);
+
+      for (const stream of liveStreams) {
+        recordSessionListenerSample(guildId, {
+          botId: stream.runtime?.config?.id || "",
+          listenerCount: stream.listenerCount,
+          timestampMs: now,
+        });
+      }
+    }
+  }
+
+  startListenerStatsSampler() {
+    if (this.role !== "commander") return;
+    this.stopListenerStatsSampler();
+
+    const sample = () => {
+      try {
+        this.sampleListenerStatsForActiveGuilds();
+      } catch (err) {
+        log("WARN", `[${this.config.name}] Listener-Stats-Sampling fehlgeschlagen: ${err?.message || err}`);
+      }
+    };
+
+    sample();
+    this.listenerStatsTimer = setInterval(sample, LISTENER_STATS_POLL_MS);
+    this.listenerStatsTimer?.unref?.();
+  }
+
   logNowPlayingIssue(guildId, state, message) {
     const now = Date.now();
     const cooldownMs = 120_000;
@@ -889,32 +976,24 @@ class BotRuntime {
     const normalizedGuildId = String(guildId || "").trim();
     if (!normalizedGuildId) return [];
 
+    const snapshots = this.buildLocalLivePlaybackSnapshot(normalizedGuildId);
     if (this.role === "commander" && this.workerManager) {
-      return this.workerManager.getStreamingWorkers(normalizedGuildId).map((runtime) => {
+      for (const runtime of this.workerManager.getStreamingWorkers(normalizedGuildId)) {
         const state = runtime.getState(normalizedGuildId);
         const info = runtime.getGuildInfo(normalizedGuildId) || {};
-        return {
+        snapshots.push({
           runtime,
           state,
           stationKey: info.stationKey || state?.currentStationKey || null,
           stationName: info.stationName || state?.currentStationName || null,
           channelId: info.channelId || state?.lastChannelId || null,
           listenerCount: runtime.getCurrentListenerCount(normalizedGuildId, state),
-        };
-      });
+        });
+      }
+      return snapshots;
     }
 
-    const state = this.getState(normalizedGuildId);
-    if (!state?.currentStationKey) return [];
-    const info = this.getGuildInfo(normalizedGuildId) || {};
-    return [{
-      runtime: this,
-      state,
-      stationKey: info.stationKey || state.currentStationKey || null,
-      stationName: info.stationName || state.currentStationName || null,
-      channelId: info.channelId || state.lastChannelId || null,
-      listenerCount: this.getCurrentListenerCount(normalizedGuildId, state),
-    }];
+    return snapshots;
   }
 
   formatStatsHourBucket(hour, language = "de") {
@@ -1749,11 +1828,6 @@ class BotRuntime {
       const sent = await this.upsertNowPlayingMessage(guildId, state, payload, channel);
       if (sent) {
         state.nowPlayingSignature = signature;
-        const now = Date.now();
-        if (!state.lastListenerStatsSampleAt || (now - state.lastListenerStatsSampleAt) >= Math.max(60_000, NOW_PLAYING_POLL_MS)) {
-          recordListenerSample(guildId, listenerCount, now);
-          state.lastListenerStatsSampleAt = now;
-        }
       }
     } catch (err) {
       this.logNowPlayingIssue(guildId, state, clipText(err?.message || String(err), 200));
@@ -7110,12 +7184,14 @@ class BotRuntime {
     }
     this.stopEventScheduler();
     this.stopVoiceStateReconciler();
+    this.stopListenerStatsSampler();
+    const sessionStopPromises = [];
 
     for (const [guildId, state] of this.guildState.entries()) {
       this.syncVoiceChannelStatus(guildId, "").catch(() => null);
       // End all active listening sessions on shutdown
       if (state.currentStationKey) {
-        recordStationStop(guildId, { botId: this.config.id || "" });
+        sessionStopPromises.push(recordStationStop(guildId, { botId: this.config.id || "" }));
       }
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
@@ -7131,6 +7207,10 @@ class BotRuntime {
       state.currentMeta = null;
       state.nowPlayingSignature = null;
       state.streamErrorCount = 0;
+    }
+
+    if (sessionStopPromises.length) {
+      await Promise.allSettled(sessionStopPromises);
     }
 
     try {

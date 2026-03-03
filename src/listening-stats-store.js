@@ -206,6 +206,157 @@ function todayDateString(timestampMs) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+const SESSION_SAMPLE_MIN_INTERVAL_MS = 30_000;
+const MAX_SESSION_SAMPLES = 4_320;
+
+function normalizeSampleEntries(samples, startedAtMs, endedAtMs) {
+  const startMs = normalizeTimestamp(startedAtMs) || Date.now();
+  const endMs = Math.max(startMs, normalizeTimestamp(endedAtMs) || startMs);
+  const entries = [];
+
+  for (const sample of Array.isArray(samples) ? samples : []) {
+    const timestamp = Math.min(endMs, Math.max(startMs, normalizeTimestamp(sample?.t) || startMs));
+    const listeners = normalizeCount(sample?.n);
+    const previous = entries[entries.length - 1];
+    if (previous && previous.t === timestamp) {
+      previous.n = listeners;
+    } else {
+      entries.push({ t: timestamp, n: listeners });
+    }
+  }
+
+  entries.sort((a, b) => a.t - b.t);
+
+  const collapsed = [];
+  for (const entry of entries) {
+    const previous = collapsed[collapsed.length - 1];
+    if (previous && previous.t === entry.t) {
+      previous.n = entry.n;
+    } else {
+      collapsed.push(entry);
+    }
+  }
+
+  if (!collapsed.length) {
+    return [{ t: startMs, n: 0 }];
+  }
+
+  if (collapsed[0].t > startMs) {
+    collapsed.unshift({ t: startMs, n: collapsed[0].n });
+  } else if (collapsed[0].t < startMs) {
+    collapsed[0] = { ...collapsed[0], t: startMs };
+  }
+
+  return collapsed;
+}
+
+export function buildSessionListenerSegments({
+  samples = [],
+  startedAtMs = Date.now(),
+  endedAtMs = Date.now(),
+} = {}) {
+  const startMs = normalizeTimestamp(startedAtMs) || Date.now();
+  const endMs = Math.max(startMs, normalizeTimestamp(endedAtMs) || startMs);
+  if (endMs <= startMs) return [];
+
+  const normalizedSamples = normalizeSampleEntries(samples, startMs, endMs);
+  const segments = [];
+
+  for (let index = 0; index < normalizedSamples.length; index += 1) {
+    const current = normalizedSamples[index];
+    const next = normalizedSamples[index + 1];
+    const segmentStartMs = Math.min(endMs, Math.max(startMs, current.t));
+    const segmentEndMs = next
+      ? Math.min(endMs, Math.max(segmentStartMs, next.t))
+      : endMs;
+    if (segmentEndMs <= segmentStartMs) continue;
+
+    segments.push({
+      startAtMs: segmentStartMs,
+      endAtMs: segmentEndMs,
+      durationMs: segmentEndMs - segmentStartMs,
+      listeners: normalizeCount(current.n),
+    });
+  }
+
+  return segments;
+}
+
+export function summarizeSessionListeners({
+  samples = [],
+  startedAtMs = Date.now(),
+  endedAtMs = Date.now(),
+} = {}) {
+  const startMs = normalizeTimestamp(startedAtMs) || Date.now();
+  const endMs = Math.max(startMs, normalizeTimestamp(endedAtMs) || startMs);
+  const segments = buildSessionListenerSegments({ samples, startedAtMs: startMs, endedAtMs: endMs });
+  const durationMs = Math.max(0, endMs - startMs);
+
+  let humanListeningMs = 0;
+  let weightedListenerMs = 0;
+  let peakListeners = 0;
+
+  for (const segment of segments) {
+    peakListeners = Math.max(peakListeners, normalizeCount(segment.listeners));
+    weightedListenerMs += segment.durationMs * normalizeCount(segment.listeners);
+    if (segment.listeners > 0) {
+      humanListeningMs += segment.durationMs;
+    }
+  }
+
+  return {
+    durationMs,
+    peakListeners,
+    humanListeningMs: Math.min(humanListeningMs, durationMs),
+    avgListeners: durationMs > 0 ? Math.round(weightedListenerMs / durationMs) : 0,
+    segments,
+  };
+}
+
+export function buildDailyListeningBreakdown({
+  samples = [],
+  startedAtMs = Date.now(),
+  endedAtMs = Date.now(),
+} = {}) {
+  const summary = summarizeSessionListeners({ samples, startedAtMs, endedAtMs });
+  const days = new Map();
+
+  for (const segment of summary.segments) {
+    let cursorMs = segment.startAtMs;
+    while (cursorMs < segment.endAtMs) {
+      const cursorDate = new Date(cursorMs);
+      const nextMidnightMs = new Date(
+        cursorDate.getFullYear(),
+        cursorDate.getMonth(),
+        cursorDate.getDate() + 1,
+        0, 0, 0, 0
+      ).getTime();
+      const sliceEndMs = Math.min(segment.endAtMs, nextMidnightMs);
+      const sliceDurationMs = Math.max(0, sliceEndMs - cursorMs);
+      const date = todayDateString(cursorMs);
+      const current = days.get(date) || {
+        date,
+        totalListeningMs: 0,
+        peakListeners: 0,
+      };
+
+      if (segment.listeners > 0) {
+        current.totalListeningMs += sliceDurationMs;
+      }
+      current.peakListeners = Math.max(current.peakListeners, segment.listeners);
+      days.set(date, current);
+      cursorMs = sliceEndMs;
+    }
+  }
+
+  if (!days.size) {
+    const date = todayDateString(startedAtMs);
+    days.set(date, { date, totalListeningMs: 0, peakListeners: 0 });
+  }
+
+  return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ============================================================
 // MongoDB Operations
 // ============================================================
@@ -277,6 +428,14 @@ export function startListeningSession(guildId, {
 }
 
 export function updateSessionListeners(guildId, { botId = "", listenerCount = 0 } = {}) {
+  return recordSessionListenerSample(guildId, { botId, listenerCount });
+}
+
+export function recordSessionListenerSample(guildId, {
+  botId = "",
+  listenerCount = 0,
+  timestampMs = Date.now(),
+} = {}) {
   const gid = normalizeGuildId(guildId);
   if (!gid) return;
 
@@ -285,15 +444,15 @@ export function updateSessionListeners(guildId, { botId = "", listenerCount = 0 
   if (!session) return;
 
   const count = normalizeCount(listenerCount);
+  const sampleAtMs = Number(timestampMs) || Date.now();
   session.peakListeners = Math.max(session.peakListeners, count);
 
-  // Sample at most every 60s
+  // Capture changes immediately and otherwise keep a regular sample cadence.
   const lastSample = session.listenerSamples[session.listenerSamples.length - 1];
-  if (!lastSample || (Date.now() - lastSample.t) >= 60_000) {
-    session.listenerSamples.push({ t: Date.now(), n: count });
-    // Keep max 1440 samples (24h at 1/min)
-    if (session.listenerSamples.length > 1440) {
-      session.listenerSamples = session.listenerSamples.slice(-1440);
+  if (!lastSample || lastSample.n !== count || (sampleAtMs - lastSample.t) >= SESSION_SAMPLE_MIN_INTERVAL_MS) {
+    session.listenerSamples.push({ t: sampleAtMs, n: count });
+    if (session.listenerSamples.length > MAX_SESSION_SAMPLES) {
+      session.listenerSamples = session.listenerSamples.slice(-MAX_SESSION_SAMPLES);
     }
   }
 }
@@ -309,27 +468,21 @@ export async function endListeningSession(guildId, { botId = "" } = {}) {
   activeSessions.delete(sessionKey);
 
   const endedAt = Date.now();
-  const durationMs = Math.max(0, endedAt - session.startedAt);
-
-  // Calculate human listening time: only count intervals where at least 1 human was present
   const samples = session.listenerSamples || [];
-  let humanListeningMs = 0;
-  if (samples.length > 0) {
-    for (let i = 0; i < samples.length; i++) {
-      if (samples[i].n > 0) {
-        const intervalEnd = i + 1 < samples.length ? samples[i + 1].t : endedAt;
-        humanListeningMs += Math.max(0, intervalEnd - samples[i].t);
-      }
-    }
-  }
-  // Never exceed total session duration
-  humanListeningMs = Math.min(humanListeningMs, durationMs);
-
-  // Compute average listeners (only from non-zero samples)
-  const nonZeroSamples = samples.filter((s) => s.n > 0);
-  const avgListeners = nonZeroSamples.length > 0
-    ? Math.round(nonZeroSamples.reduce((sum, s) => sum + s.n, 0) / nonZeroSamples.length)
-    : 0;
+  const summary = summarizeSessionListeners({
+    samples,
+    startedAtMs: session.startedAt,
+    endedAtMs: endedAt,
+  });
+  const dailyBreakdown = buildDailyListeningBreakdown({
+    samples,
+    startedAtMs: session.startedAt,
+    endedAtMs: endedAt,
+  });
+  const durationMs = summary.durationMs;
+  const humanListeningMs = summary.humanListeningMs;
+  const avgListeners = summary.avgListeners;
+  const peakListeners = Math.max(session.peakListeners || 0, summary.peakListeners || 0);
 
   const completedSession = {
     guildId: gid,
@@ -341,7 +494,7 @@ export async function endListeningSession(guildId, { botId = "" } = {}) {
     endedAt: new Date(endedAt),
     durationMs,
     humanListeningMs,
-    peakListeners: session.peakListeners,
+    peakListeners,
     avgListeners,
   };
 
@@ -353,6 +506,7 @@ export async function endListeningSession(guildId, { botId = "" } = {}) {
     stats.totalStops += 1;
     stats.lastStoppedAt = endedAt;
     stats.longestSessionMs = Math.max(stats.longestSessionMs || 0, humanListeningMs);
+    stats.peakListeners = Math.max(stats.peakListeners || 0, peakListeners);
     // Rolling average session duration (based on human listening time)
     if (stats.totalSessions > 0) {
       stats.avgSessionMs = Math.round(stats.totalListeningMs / stats.totalSessions);
@@ -365,25 +519,30 @@ export async function endListeningSession(guildId, { botId = "" } = {}) {
     // Store completed session (without raw samples for space)
     await db.collection("listening_sessions").insertOne(completedSession);
 
-    // Update daily stats with human listening time only
-    const dateStr = todayDateString(session.startedAt);
-    await db.collection("daily_stats").updateOne(
-      { guildId: gid, date: dateStr },
-      {
-        $inc: {
-          totalStarts: 0, // don't double-count, just ensure doc exists
-          totalListeningMs: humanListeningMs,
-          totalSessions: 1,
+    for (const day of dailyBreakdown) {
+      const isStartDay = day.date === todayDateString(session.startedAt);
+      // eslint-disable-next-line no-await-in-loop
+      await db.collection("daily_stats").updateOne(
+        { guildId: gid, date: day.date },
+        {
+          $inc: {
+            totalStarts: 0,
+            totalListeningMs: day.totalListeningMs,
+            totalSessions: isStartDay ? 1 : 0,
+          },
+          $max: { peakListeners: day.peakListeners },
+          $setOnInsert: { guildId: gid, date: day.date, createdAt: new Date() },
         },
-        $max: { peakListeners: session.peakListeners },
-        $setOnInsert: { guildId: gid, date: dateStr, createdAt: new Date() },
-      },
-      { upsert: true }
-    );
+        { upsert: true }
+      );
+    }
   });
 
-  // Persist to file
-  saveStateToFile();
+  if (stats) {
+    await persistGuildStats(gid, stats);
+  } else {
+    saveStateToFile();
+  }
 
   return completedSession;
 }
@@ -395,22 +554,18 @@ export function getActiveSessionsForGuild(guildId) {
   const now = Date.now();
   for (const [key, session] of activeSessions.entries()) {
     if (session.guildId === gid) {
-      // Calculate human listening time for active session
-      const samples = session.listenerSamples || [];
-      let humanMs = 0;
-      for (let i = 0; i < samples.length; i++) {
-        if (samples[i].n > 0) {
-          const intervalEnd = i + 1 < samples.length ? samples[i + 1].t : now;
-          humanMs += Math.max(0, intervalEnd - samples[i].t);
-        }
-      }
+      const summary = summarizeSessionListeners({
+        samples: session.listenerSamples || [],
+        startedAtMs: session.startedAt,
+        endedAtMs: now,
+      });
+      const lastSample = session.listenerSamples?.[session.listenerSamples.length - 1] || null;
       result.push({
         ...session,
-        currentDurationMs: now - session.startedAt,
-        currentHumanListeningMs: Math.min(humanMs, now - session.startedAt),
-        currentListeners: samples.length > 0
-          ? samples[samples.length - 1].n
-          : 0,
+        currentDurationMs: summary.durationMs,
+        currentHumanListeningMs: summary.humanListeningMs,
+        currentAvgListeners: summary.avgListeners,
+        currentListeners: lastSample ? lastSample.n : 0,
       });
     }
   }
@@ -519,23 +674,16 @@ export function recordStationStart(guildId, {
 }
 
 export function recordStationStop(guildId, { botId = "" } = {}) {
-  endListeningSession(guildId, { botId });
+  return endListeningSession(guildId, { botId });
 }
 
-export function recordListenerSample(guildId, listenerCount, timestampMs = Date.now()) {
+export function recordGuildListenerSample(guildId, listenerCount, timestampMs = Date.now()) {
   const stats = ensureGuildStatsLocal(guildId);
   if (!stats) return { saved: false, reason: "invalid-guild" };
   const count = normalizeCount(listenerCount);
+  const atMs = Number(timestampMs) || Date.now();
   stats.peakListeners = Math.max(stats.peakListeners, count);
-  stats.lastCommandAt = Math.max(stats.lastCommandAt, Number(timestampMs) || Date.now());
   saveStateToFile();
-
-  // Update active session
-  for (const [, session] of activeSessions.entries()) {
-    if (session.guildId === normalizeGuildId(guildId)) {
-      updateSessionListeners(guildId, { botId: session.botId, listenerCount: count });
-    }
-  }
 
   // Async MongoDB snapshot
   mongoSafe(async (db) => {
@@ -543,7 +691,7 @@ export function recordListenerSample(guildId, listenerCount, timestampMs = Date.
     await db.collection("listener_snapshots").insertOne({
       guildId: gid,
       listeners: count,
-      timestamp: new Date(Number(timestampMs) || Date.now()),
+      timestamp: new Date(atMs),
     });
     await db.collection("guild_stats").updateOne(
       { guildId: gid },
@@ -556,6 +704,10 @@ export function recordListenerSample(guildId, listenerCount, timestampMs = Date.
   });
 
   return { saved: true };
+}
+
+export function recordListenerSample(guildId, listenerCount, timestampMs = Date.now()) {
+  return recordGuildListenerSample(guildId, listenerCount, timestampMs);
 }
 
 export function recordConnectionEvent(guildId, {
@@ -801,4 +953,3 @@ export function resetGuildStats(guildId) {
 
   log("INFO", `Stats fuer Guild ${gid} zurueckgesetzt (in-memory).`);
 }
-

@@ -626,6 +626,13 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
       map.set(key, current);
       return map;
     }, new Map());
+  const telemetryStationBreakdown = Array.isArray(telemetry.stationBreakdown) ? telemetry.stationBreakdown : [];
+  const telemetryStationPeakMap = telemetryStationBreakdown.reduce((map, entry) => {
+    const key = clipText(entry?.name || "", 120);
+    if (!key) return map;
+    map.set(key, Math.max(map.get(key) || 0, Number(entry?.peakListeners || 0) || 0));
+    return map;
+  }, new Map());
 
   const stationBreakdown = Object.entries(listeningStats.stationStarts || {})
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -633,13 +640,13 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     .map(([name, starts]) => ({
       name: listeningStats.stationNames?.[name] || name,
       starts: Number(starts || 0) || 0,
-      peakListeners: 0,
+      peakListeners: telemetryStationPeakMap.get(listeningStats.stationNames?.[name] || name) || 0,
     }));
 
   const liveTopStation = liveRows
     .slice()
     .sort((a, b) => b.listeners - a.listeners || String(a.stationName).localeCompare(String(b.stationName)))[0];
-  const historicalTopStation = stationBreakdown[0];
+  const historicalTopStation = stationBreakdown[0] || telemetryStationBreakdown[0] || null;
   const topStation = liveTopStation
     ? { name: liveTopStation.stationName || "-", listeners: liveTopStation.listeners || 0 }
     : telemetry.topStation?.name && telemetry.topStation.name !== "-"
