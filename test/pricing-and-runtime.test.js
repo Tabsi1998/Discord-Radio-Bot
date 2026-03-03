@@ -33,7 +33,6 @@ import {
 } from "../src/services/audio-recognition.js";
 import { getDefaultLanguage } from "../src/i18n.js";
 import { BotRuntime } from "../src/bot/runtime.js";
-import { networkRecoveryCoordinator } from "../src/core/network-recovery.js";
 
 test("seat pricing stays aligned with documented bundle totals", () => {
   assert.deepEqual(seatPricingInEuro("pro"), {
@@ -412,27 +411,6 @@ test("slash commands expose English defaults with German localizations", () => {
   assert.equal(language.description_localizations.de, "Sprache für diesen Server verwalten");
 });
 
-test("reconnect scheduling is skipped while a voice connection attempt is already in flight", async () => {
-  const runtime = new BotRuntime({
-    id: "test-runtime",
-    clientId: "123456789012345678",
-    token: "unit-test-token",
-    name: "OmniFM Test",
-    requiredTier: "free",
-  });
-
-  const state = runtime.getState("guild-voice");
-  state.shouldReconnect = true;
-  state.lastChannelId = "voice-1";
-  runtime.beginVoiceConnectionAttempt(state, "voice-1");
-  runtime.scheduleReconnect("guild-voice", { reason: "unit-test" });
-
-  assert.equal(state.reconnectTimer, null);
-  assert.equal(state.reconnectAttempts, 0);
-
-  await runtime.stop();
-});
-
 test("now playing cleanup runs before the tracked target is replaced", async () => {
   const runtime = new BotRuntime({
     id: "test-runtime-2",
@@ -558,143 +536,4 @@ test("now playing cleanup runs when no suitable target channel remains", async (
   assert.equal(state.nowPlayingSignature, null);
 
   await runtime.stop();
-});
-
-test("voice reconnect scheduling caps excessive global network cooldown delays", async () => {
-  const runtime = new BotRuntime({
-    id: "test-runtime-5",
-    clientId: "523456789012345678",
-    token: "unit-test-token",
-    name: "OmniFM Test 5",
-    requiredTier: "free",
-  });
-
-  const state = runtime.getState("guild-network-cap");
-  state.shouldReconnect = true;
-  state.lastChannelId = "voice-1";
-
-  const originalGetRecoveryDelayMs = networkRecoveryCoordinator.getRecoveryDelayMs;
-  const originalSetTimeout = globalThis.setTimeout;
-  let capturedDelay = null;
-
-  networkRecoveryCoordinator.getRecoveryDelayMs = () => 180_000;
-  globalThis.setTimeout = (fn, delay) => {
-    capturedDelay = delay;
-    return {
-      unref() {},
-    };
-  };
-
-  try {
-    runtime.scheduleReconnect("guild-network-cap", { reason: "voice-error" });
-  } finally {
-    globalThis.setTimeout = originalSetTimeout;
-    networkRecoveryCoordinator.getRecoveryDelayMs = originalGetRecoveryDelayMs;
-    state.reconnectTimer = null;
-  }
-
-  assert.equal(typeof capturedDelay, "number");
-  assert.ok(capturedDelay < 60_000, `expected capped reconnect delay, got ${capturedDelay}`);
-
-  await runtime.stop();
-});
-
-test("voice lost keeps an already queued reconnect timer instead of replacing it", async () => {
-  const runtime = new BotRuntime({
-    id: "test-runtime-6",
-    clientId: "623456789012345678",
-    token: "unit-test-token",
-    name: "OmniFM Test 6",
-    requiredTier: "free",
-  });
-
-  runtime.client.user = {
-    id: "bot-user",
-    setPresence() {},
-  };
-
-  const state = runtime.getState("guild-voice-lost");
-  state.shouldReconnect = true;
-  state.currentStationKey = "station-1";
-  state.lastChannelId = "voice-1";
-  state.connection = {
-    joinConfig: { channelId: "voice-1" },
-    destroy() {},
-  };
-
-  const existingTimer = setTimeout(() => {}, 60_000);
-  state.reconnectTimer = existingTimer;
-
-  let scheduleCalls = 0;
-  runtime.scheduleReconnect = () => {
-    scheduleCalls += 1;
-  };
-  runtime.persistState = () => {};
-  runtime.syncVoiceChannelStatus = () => Promise.resolve();
-
-  runtime.handleBotVoiceStateUpdate(
-    { channelId: "voice-1" },
-    {
-      id: "bot-user",
-      guild: { id: "guild-voice-lost" },
-      channelId: null,
-    },
-  );
-
-  assert.equal(state.reconnectTimer, existingTimer);
-  assert.equal(scheduleCalls, 0);
-
-  await runtime.stop();
-});
-
-test("guild voice join lock serializes concurrent join attempts across runtimes", async () => {
-  const runtimeA = new BotRuntime({
-    id: "test-runtime-7",
-    clientId: "723456789012345678",
-    token: "unit-test-token",
-    name: "OmniFM Test 7A",
-    requiredTier: "free",
-  });
-  const runtimeB = new BotRuntime({
-    id: "test-runtime-8",
-    clientId: "823456789012345678",
-    token: "unit-test-token",
-    name: "OmniFM Test 7B",
-    requiredTier: "free",
-  });
-
-  const steps = [];
-  let releaseFirstJoin = null;
-  const firstJoin = runtimeA.withGuildVoiceJoinLock(
-    "guild-voice-lock",
-    async () => {
-      steps.push("join-a-start");
-      await new Promise((resolve) => {
-        releaseFirstJoin = resolve;
-      });
-      steps.push("join-a-end");
-    },
-    { reason: "test", cooldownMs: 0 },
-  );
-
-  await Promise.resolve();
-
-  const secondJoin = runtimeB.withGuildVoiceJoinLock(
-    "guild-voice-lock",
-    async () => {
-      steps.push("join-b-start");
-    },
-    { reason: "test", cooldownMs: 0 },
-  );
-
-  await Promise.resolve();
-  assert.deepEqual(steps, ["join-a-start"]);
-
-  releaseFirstJoin();
-  await Promise.all([firstJoin, secondJoin]);
-
-  assert.deepEqual(steps, ["join-a-start", "join-a-end", "join-b-start"]);
-
-  await runtimeA.stop();
-  await runtimeB.stop();
 });
