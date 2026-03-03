@@ -150,20 +150,20 @@ function buildPurchaseEmail(data) {
   const ultimateBots = Array.isArray(inviteOverview?.ultimateBots) ? inviteOverview.ultimateBots : [];
 
   const heading = isUpgrade
-    ? (isDe ? `OmniFM ${tierName} - Upgrade bestaetigt` : `OmniFM ${tierName} - Upgrade confirmed`)
+    ? (isDe ? `OmniFM ${tierName} - Upgrade bestätigt` : `OmniFM ${tierName} - Upgrade confirmed`)
     : isRenewal
-      ? (isDe ? `OmniFM ${tierName} - Verlaengerung bestaetigt` : `OmniFM ${tierName} - Renewal confirmed`)
+      ? (isDe ? `OmniFM ${tierName} - Verlängerung bestätigt` : `OmniFM ${tierName} - Renewal confirmed`)
       : (isDe ? `OmniFM ${tierName} - Dein Lizenz-Key` : `OmniFM ${tierName} - Your license key`);
   const keyTitle = isRenewal || isUpgrade
     ? (isDe ? "Dein bestehender Lizenz-Key" : "Your existing license key")
     : (isDe ? "Dein Lizenz-Key" : "Your license key");
   const keyHint = isRenewal || isUpgrade
-    ? (isDe ? "Dieser Key bleibt unveraendert und wurde verlaengert." : "This key stays unchanged and was extended.")
+    ? (isDe ? "Dieser Key bleibt unverändert und wurde verlängert." : "This key stays unchanged and was extended.")
     : (isDe ? "Bewahre diesen Key sicher auf!" : "Keep this key in a safe place.");
   const planLabel = isDe ? "Plan" : "Plan";
   const seatsLabel = isDe ? "Server-Slots" : "Server seats";
   const durationLabel = isDe ? "Laufzeit" : "Duration";
-  const validUntilLabel = isDe ? "Gueltig bis" : "Valid until";
+  const validUntilLabel = isDe ? "Gültig bis" : "Valid until";
   const paidLabel = isDe ? "Bezahlt" : "Paid";
   const discountLabel = isDe ? "Rabatt" : "Discount";
   const codeLabel = isDe ? "Code" : "Code";
@@ -226,7 +226,7 @@ function buildPurchaseEmail(data) {
 
   const benefitsTitle = isDe ? "Was dein Abo bringt" : "What your plan includes";
   const activationCommand = `/license activate ${licenseKey || (isDe ? "<dein-key>" : "<your-key>")}`;
-  const nextStepsTitle = isDe ? "Naechste Schritte - Lizenz aktivieren" : "Next steps - activate your license";
+  const nextStepsTitle = isDe ? "Nächste Schritte - Lizenz aktivieren" : "Next steps - activate your license";
   const nextStep1 = isDe
     ? "Lade einen OmniFM Bot auf deinen Ziel-Server ein (falls noch nicht geschehen)."
     : "Invite an OmniFM bot to your target server (if not done yet).";
@@ -235,7 +235,7 @@ function buildPurchaseEmail(data) {
       ? "Wenn dein Lizenz-Key bereits auf den Ziel-Servern aktiv ist, musst du nichts weiter tun."
       : "If your license key is already active on your target servers, no further action is required.")
     : (isDe
-      ? `Fuehre auf jedem Ziel-Server den Command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> aus.`
+      ? `Führe auf jedem Ziel-Server den Command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> aus.`
       : `Run the command <code style="color:#fff;background:#111;padding:2px 6px;border-radius:6px">${activationCommand}</code> on each target server.`);
   const nextStep3 = isDe
     ? `Aktiviere den Key auf bis zu ${seatCount} Server${seatCount > 1 ? "n" : ""} (${seatCount} Slot${seatCount > 1 ? "s" : ""}).`
@@ -247,11 +247,11 @@ function buildPurchaseEmail(data) {
   const emailSupportLabel = isDe ? "E-Mail Support" : "Email support";
   const websiteLabel = isDe ? "OmniFM Website" : "OmniFM website";
   const footerNote = isDe
-    ? `Server wechseln oder Aktivierungsproblem? Schreib uns jederzeit per E-Mail oder Discord${tier === "ultimate" ? " (Priority-Support fuer Ultimate)" : ""}.`
+    ? `Server wechseln oder Aktivierungsproblem? Schreib uns jederzeit per E-Mail oder Discord${tier === "ultimate" ? " (Priority-Support für Ultimate)" : ""}.`
     : `Need to switch servers or have activation issues? Contact us any time via email or Discord${tier === "ultimate" ? " (priority support for Ultimate)" : ""}.`;
   const inviteTitle = isDe ? "Direkte Bot-Invite-Links" : "Direct bot invite links";
   const inviteHint = isDe
-    ? "Diese Links funktionieren sofort fuer dein freigeschaltetes Paket."
+    ? "Diese Links funktionieren sofort für dein freigeschaltetes Paket."
     : "These links work immediately for your unlocked plan.";
   const freeBotsHint = isDe
     ? "Free-Bots findest du auf der Website."
@@ -409,7 +409,7 @@ function buildInvoiceEmail(data) {
   const lineText = isUpgrade
     ? (isDe ? `Upgrade auf ${tierName} (${tier})` : `Upgrade to ${tierName} (${tier})`)
     : isRenewal
-      ? (isDe ? `Verlaengerung ${tierName} (${tier}) - ${months} Monat${months > 1 ? "e" : ""}` : `Renewal ${tierName} (${tier}) - ${months} month${months > 1 ? "s" : ""}`)
+      ? (isDe ? `Verlängerung ${tierName} (${tier}) - ${months} Monat${months > 1 ? "e" : ""}` : `Renewal ${tierName} (${tier}) - ${months} month${months > 1 ? "s" : ""}`)
       : `${tierName} (${tier}) - ${months} ${isDe ? `Monat${months > 1 ? "e" : ""}` : `month${months > 1 ? "s" : ""}`}`;
 
   const title = isDe ? "Kaufbeleg / Rechnung" : "Invoice / Receipt";
@@ -420,7 +420,7 @@ function buildInvoiceEmail(data) {
   const emailLabel = isDe ? "E-Mail" : "Email";
   const serverLabel = isDe ? "Server ID" : "Server ID";
   const licenseLabel = isDe ? "Lizenz-Key" : "License key";
-  const validUntilLabel = isDe ? "Gueltig bis" : "Valid until";
+  const validUntilLabel = isDe ? "Gültig bis" : "Valid until";
   const sessionLabel = isDe ? "Session" : "Session";
   const discountLabel = isDe ? "Rabatt" : "Discount";
   const codeLabel = isDe ? "Code" : "Code";
@@ -429,7 +429,7 @@ function buildInvoiceEmail(data) {
   const amountLabel = isDe ? "Betrag" : "Amount";
   const totalLabel = isDe ? "Gesamt" : "Total";
   const hint = isDe
-    ? "Hinweis: Automatisch erstellter Kaufbeleg fuer den Premium-Service."
+    ? "Hinweis: Automatisch erstellter Kaufbeleg für den Premium-Service."
     : "Note: Automatically generated invoice for the premium service.";
 
   return `
@@ -484,14 +484,14 @@ function buildExpiryWarningEmail(data) {
   const locale = getLocaleForLanguage(lang);
   const expDate = new Date(expiresAt).toLocaleDateString(locale, { day: "2-digit", month: "2-digit", year: "numeric" });
 
-  const title = isDe ? "Premium laeuft bald ab!" : "Premium is expiring soon!";
+  const title = isDe ? "Premium läuft bald ab!" : "Premium is expiring soon!";
   const text1 = isDe
-    ? `Dein <strong>${tierName}</strong>-Abo fuer Server <code>${serverId}</code> laeuft in <strong>${daysLeft} Tagen</strong> ab (${expDate}).`
+    ? `Dein <strong>${tierName}</strong>-Abo für Server <code>${serverId}</code> läuft in <strong>${daysLeft} Tagen</strong> ab (${expDate}).`
     : `Your <strong>${tierName}</strong> plan for server <code>${serverId}</code> expires in <strong>${daysLeft} days</strong> (${expDate}).`;
   const text2 = isDe
     ? "Nach Ablauf werden Premium-Bots und Custom-Stationen deaktiviert."
     : "After expiry, premium bots and custom stations will be disabled.";
-  const action = isDe ? "Jetzt verlaengern &rarr;" : "Renew now &rarr;";
+  const action = isDe ? "Jetzt verlängern &rarr;" : "Renew now &rarr;";
 
   return `
     <div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:16px;overflow:hidden">
@@ -515,10 +515,10 @@ function buildExpiryEmail(data) {
 
   const title = isDe ? "Premium abgelaufen" : "Premium expired";
   const text1 = isDe
-    ? `Dein <strong>${tierName}</strong>-Abo fuer Server <code>${serverId}</code> ist abgelaufen.`
+    ? `Dein <strong>${tierName}</strong>-Abo für Server <code>${serverId}</code> ist abgelaufen.`
     : `Your <strong>${tierName}</strong> plan for server <code>${serverId}</code> has expired.`;
   const text2 = isDe
-    ? "Premium-Bots und Custom-Stationen sind jetzt deaktiviert. Invite-Links sind nicht mehr gueltig."
+    ? "Premium-Bots und Custom-Stationen sind jetzt deaktiviert. Invite-Links sind nicht mehr gültig."
     : "Premium bots and custom stations are now disabled. Invite links are no longer valid.";
   const action = isDe ? "Abo erneuern &rarr;" : "Renew plan &rarr;";
 

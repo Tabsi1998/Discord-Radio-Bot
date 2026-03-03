@@ -121,7 +121,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
   const fallbackLanguage = normalizeLanguage(session?.metadata?.language, getDefaultLanguage());
   const t = (de, en) => (fallbackLanguage === "de" ? de : en);
   if (!session || session.payment_status !== "paid" || !session.metadata) {
-    return { success: false, status: 400, message: t("Zahlung nicht abgeschlossen oder ungueltig.", "Payment not completed or invalid.") };
+    return { success: false, status: 400, message: t("Zahlung nicht abgeschlossen oder ungültig.", "Payment not completed or invalid.") };
   }
 
   const sessionId = String(session.id || "").trim();
@@ -181,7 +181,7 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
       success: false,
       status: 400,
       message: customerLanguage === "de"
-        ? "Session-Metadaten sind ungueltig (email oder tier fehlt)."
+        ? "Session-Metadaten sind ungültig (E-Mail oder Tier fehlt)."
         : "Session metadata is invalid (email or tier missing).",
     };
   }
@@ -289,11 +289,11 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     let purchaseSubject;
     if (isUpgrade) {
       purchaseSubject = customerLanguage === "de"
-        ? `OmniFM ${tierConfig.name} - Upgrade bestaetigt`
+        ? `OmniFM ${tierConfig.name} - Upgrade bestätigt`
         : `OmniFM ${tierConfig.name} - Upgrade confirmed`;
     } else if (isRenewal) {
       purchaseSubject = customerLanguage === "de"
-        ? `OmniFM ${tierConfig.name} - Verlaengerung bestaetigt`
+        ? `OmniFM ${tierConfig.name} - Verlängerung bestätigt`
         : `OmniFM ${tierConfig.name} - Renewal confirmed`;
     } else {
       purchaseSubject = customerLanguage === "de"
@@ -376,30 +376,30 @@ async function activatePaidStripeSession(session, runtimes, source = "verify") {
     }
   } else if (!emailDelivery.smtpConfigured) {
     emailDelivery.errors.push("smtp_not_configured");
-    log("ERROR", `[Email] SMTP nicht konfiguriert - keine Kauf-E-Mail fuer ${customerEmail} moeglich.`);
+    log("ERROR", `[Email] SMTP nicht konfiguriert - keine Kauf-E-Mail für ${customerEmail} möglich.`);
   } else {
     emailDelivery.errors.push("customer_email_missing");
-    log("ERROR", "[Email] Kunden-E-Mail fehlt - keine Kauf-E-Mail moeglich.");
+    log("ERROR", "[Email] Kunden-E-Mail fehlt - keine Kauf-E-Mail möglich.");
   }
 
   log(
     "INFO",
-    `[License] ${licenseChange?.created ? "Erstellt" : isUpgrade ? "Upgrade+Verlaengerung" : "Verlaengert"}: ${license.id} fuer ${customerEmail} (${effectiveTier}, ${effectiveSeats} Seats, +${durationMonths}mo, paid=${amountPaid}, discount=${discountCents}, code=${appliedOfferCode || "-"}, ref=${referralCode || "-"}) via ${source} | email purchase=${emailDelivery.purchaseSent} invoice=${emailDelivery.invoiceSent} admin=${emailDelivery.adminSent}`
+    `[License] ${licenseChange?.created ? "Erstellt" : isUpgrade ? "Upgrade+Verlängerung" : "Verlängert"}: ${license.id} für ${customerEmail} (${effectiveTier}, ${effectiveSeats} Seats, +${durationMonths}mo, paid=${amountPaid}, discount=${discountCents}, code=${appliedOfferCode || "-"}, ref=${referralCode || "-"}) via ${source} | email purchase=${emailDelivery.purchaseSent} invoice=${emailDelivery.invoiceSent} admin=${emailDelivery.adminSent}`
   );
 
   const tierNameForMessage = TIERS[effectiveTier]?.name || TIERS[cleanTier]?.name || "Premium";
   let message;
   if (isUpgrade) {
     message = customerLanguage === "de"
-      ? `Upgrade auf ${tierNameForMessage} abgeschlossen! Dein Lizenz-Key bleibt: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+      ? `Upgrade auf ${tierNameForMessage} abgeschlossen! Dein Lizenz-Key bleibt: ${license.id} - Prüfe deine E-Mail (${customerEmail}).`
       : `Upgrade to ${tierNameForMessage} completed! Your license key remains: ${license.id} - Check your email (${customerEmail}).`;
   } else if (isRenewal) {
     message = customerLanguage === "de"
-      ? `${tierNameForMessage} verlaengert! Dein bestehender Lizenz-Key bleibt: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+      ? `${tierNameForMessage} verlängert! Dein bestehender Lizenz-Key bleibt: ${license.id} - Prüfe deine E-Mail (${customerEmail}).`
       : `${tierNameForMessage} renewed! Your existing license key remains: ${license.id} - Check your email (${customerEmail}).`;
   } else {
     message = customerLanguage === "de"
-      ? `${tierNameForMessage} aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+      ? `${tierNameForMessage} aktiviert! Lizenz-Key: ${license.id} - Prüfe deine E-Mail (${customerEmail}).`
       : `${tierNameForMessage} activated! License key: ${license.id} - Check your email (${customerEmail}).`;
   }
 
@@ -472,7 +472,7 @@ async function activateProTrial({ email, language, runtimes, source = "trial" })
       success: false,
       status: 400,
       message: t(
-        "Bitte eine gueltige E-Mail-Adresse eingeben.",
+        "Bitte eine gültige E-Mail-Adresse eingeben.",
         "Please enter a valid email address."
       ),
     };
@@ -501,7 +501,7 @@ async function activateProTrial({ email, language, runtimes, source = "trial" })
       success: false,
       status: 409,
       message: t(
-        "Der Pro-Testmonat wurde fuer diese E-Mail bereits genutzt.",
+        "Der Pro-Testmonat wurde für diese E-Mail bereits genutzt.",
         "The Pro trial month has already been used for this email."
       ),
     };
@@ -525,7 +525,7 @@ async function activateProTrial({ email, language, runtimes, source = "trial" })
       success: false,
       status: 500,
       message: t(
-        "Der Pro-Testmonat konnte nicht erstellt werden. Bitte spaeter erneut versuchen.",
+        "Der Pro-Testmonat konnte nicht erstellt werden. Bitte später erneut versuchen.",
         "Could not create the Pro trial month. Please try again later."
       ),
       detail: err?.message || String(err),
@@ -613,16 +613,16 @@ async function activateProTrial({ email, language, runtimes, source = "trial" })
     }
   } else {
     emailDelivery.errors.push("smtp_not_configured");
-    log("ERROR", `[Email] SMTP nicht konfiguriert - keine Trial-E-Mail fuer ${customerEmail} moeglich.`);
+    log("ERROR", `[Email] SMTP nicht konfiguriert - keine Trial-E-Mail für ${customerEmail} möglich.`);
   }
 
   log(
     "INFO",
-    `[Trial] Pro-Test aktiviert: ${license.id} fuer ${customerEmail} | email purchase=${emailDelivery.purchaseSent} admin=${emailDelivery.adminSent}`
+    `[Trial] Pro-Test aktiviert: ${license.id} für ${customerEmail} | email purchase=${emailDelivery.purchaseSent} admin=${emailDelivery.adminSent}`
   );
 
   let message = customerLanguage === "de"
-    ? `Pro-Testmonat aktiviert! Lizenz-Key: ${license.id} - Pruefe deine E-Mail (${customerEmail}).`
+    ? `Pro-Testmonat aktiviert! Lizenz-Key: ${license.id} - Prüfe deine E-Mail (${customerEmail}).`
     : `Pro trial month activated! License key: ${license.id} - Check your email (${customerEmail}).`;
 
   if (!emailDelivery.smtpConfigured) {

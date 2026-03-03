@@ -104,7 +104,7 @@ const LOCALE_MESSAGES = {
         },
         {
           title: 'HQ Audio',
-          desc: 'Opus-Transcoding mit bis zu 320k Bitrate fuer klare, stabile Streams.',
+          desc: 'Opus-Transcoding mit bis zu 320k Bitrate für klare, stabile Streams.',
         },
         {
           title: 'Auto-Reconnect',
@@ -213,7 +213,7 @@ const LOCALE_MESSAGES = {
         play: 'Startet einen Radio-Stream in deinem Voice-Channel.',
         pause: 'Pausiert die aktuelle Wiedergabe.',
         resume: 'Setzt die aktuelle Wiedergabe fort.',
-        stop: 'Stoppt die Wiedergabe und verlaesst den Channel.',
+        stop: 'Stoppt die Wiedergabe und verlässt den Channel.',
         stations: 'Zeigt alle für deinen Plan verfügbaren Stationen.',
         list: 'Listet Stationen paginiert auf.',
         setvolume: 'Setzt die Lautstärke des Streams.',
