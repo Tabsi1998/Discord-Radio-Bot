@@ -1,0 +1,141 @@
+{
+  "version": 2,
+  "guilds": {
+    "999888777666555444": {
+      "guildId": "999888777666555444",
+      "totalStarts": 1,
+      "totalStops": 1,
+      "totalListeningMs": 106,
+      "totalSessions": 1,
+      "peakListeners": 8,
+      "peakConcurrentStreams": 0,
+      "lastStartedAt": 1772535893836,
+      "lastStoppedAt": 1772535893943,
+      "lastCommandAt": 1772535893841,
+      "firstSeenAt": 1772535893836,
+      "stationStarts": {
+        "Test FM Radio": 1
+      },
+      "stationListeningMs": {
+        "test-fm": 106
+      },
+      "stationNames": {
+        "test-fm": "Test FM Radio"
+      },
+      "voiceChannels": {
+        "111222333444555666": 1
+      },
+      "commands": {
+        "play": 2,
+        "stats": 1
+      },
+      "hours": {
+        "0": 0,
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0,
+        "7": 0,
+        "8": 0,
+        "9": 0,
+        "10": 0,
+        "11": 1,
+        "12": 0,
+        "13": 0,
+        "14": 0,
+        "15": 0,
+        "16": 0,
+        "17": 0,
+        "18": 0,
+        "19": 0,
+        "20": 0,
+        "21": 0,
+        "22": 0,
+        "23": 0
+      },
+      "daysOfWeek": {
+        "0": 0,
+        "1": 0,
+        "2": 1,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0
+      },
+      "totalConnections": 1,
+      "totalReconnects": 0,
+      "totalConnectionErrors": 0,
+      "avgSessionMs": 106,
+      "longestSessionMs": 106
+    },
+    "888777666555444333": {
+      "guildId": "888777666555444333",
+      "totalStarts": 1,
+      "totalStops": 0,
+      "totalListeningMs": 0,
+      "totalSessions": 0,
+      "peakListeners": 6,
+      "peakConcurrentStreams": 0,
+      "lastStartedAt": 1772535978001,
+      "lastStoppedAt": 0,
+      "lastCommandAt": 1772535978007,
+      "firstSeenAt": 1772535978001,
+      "stationStarts": {
+        "Rock FM": 1
+      },
+      "stationListeningMs": {},
+      "stationNames": {
+        "rock-fm": "Rock FM"
+      },
+      "voiceChannels": {
+        "1234": 1
+      },
+      "commands": {
+        "play": 2,
+        "stats": 1
+      },
+      "hours": {
+        "0": 0,
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0,
+        "7": 0,
+        "8": 0,
+        "9": 0,
+        "10": 0,
+        "11": 1,
+        "12": 0,
+        "13": 0,
+        "14": 0,
+        "15": 0,
+        "16": 0,
+        "17": 0,
+        "18": 0,
+        "19": 0,
+        "20": 0,
+        "21": 0,
+        "22": 0,
+        "23": 0
+      },
+      "daysOfWeek": {
+        "0": 0,
+        "1": 0,
+        "2": 1,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0
+      },
+      "totalConnections": 1,
+      "totalReconnects": 1,
+      "totalConnectionErrors": 1,
+      "avgSessionMs": 0,
+      "longestSessionMs": 0
+    }
+  }
+}

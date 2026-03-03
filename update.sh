@@ -658,6 +658,13 @@ run_system_doctor() {
     doctor_warn "Container omnifm laeuft aktuell nicht."
   fi
 
+  # 6) MongoDB status
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "mongodb"; then
+    doctor_ok "MongoDB Container laeuft."
+  else
+    doctor_warn "MongoDB Container laeuft nicht. Listening-Stats nutzen JSON-Fallback."
+  fi
+
   echo ""
   echo -e "  ${BOLD}Doctor Ergebnis:${NC}"
   echo -e "    ${GREEN}OK:${NC} ${ok_count}"
@@ -935,6 +942,8 @@ ensure_env_default "DISCORD_OAUTH_STATE_TTL_SECONDS" "600"
 ensure_env_default "DISCORD_CLIENT_ID" ""
 ensure_env_default "DISCORD_CLIENT_SECRET" ""
 ensure_env_default "DISCORD_REDIRECT_URI" ""
+ensure_env_default "MONGO_URL" "mongodb://mongodb:27017"
+ensure_env_default "DB_NAME" "radio_bot"
 
 # Einmalige Migration: fruehere Defaults hatten CLEAN_GUILD_COMMANDS_ON_BOOT=1.
 # Das kann bei transienten API-Fehlern Commands entfernen.
@@ -1028,9 +1037,17 @@ if [[ "$MODE" == "--status" ]]; then
   echo ""
   docker compose ps 2>/dev/null || warn "Kein Container aktiv."
   echo ""
-  echo -e "  ${BOLD}Letzte 20 Log-Zeilen:${NC}"
+  echo -e "  ${BOLD}Letzte 20 Log-Zeilen (omnifm):${NC}"
   echo ""
   docker compose logs --tail=20 omnifm 2>/dev/null || warn "Keine Logs verfuegbar."
+  echo ""
+  echo -e "  ${BOLD}MongoDB Status:${NC}"
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "mongodb"; then
+    echo -e "    ${GREEN}MongoDB laeuft.${NC}"
+    docker compose exec -T mongodb mongosh --eval "db.stats()" --quiet 2>/dev/null | head -10 || true
+  else
+    echo -e "    ${YELLOW}MongoDB laeuft nicht. JSON-Fallback aktiv.${NC}"
+  fi
   show_storage_overview
   echo ""
   echo -e "  ${DIM}Tipp: Fuer Live-Logs: docker compose logs -f omnifm${NC}"

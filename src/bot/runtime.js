@@ -150,9 +150,12 @@ import {
 import {
   recordCommandUsage,
   recordStationStart,
+  recordStationStop,
   recordListenerSample,
+  recordConnectionEvent,
   getGuildListeningStats,
   getTopGuildsByActivity,
+  getActiveSessionsForGuild,
 } from "../listening-stats-store.js";
 import {
   listAllEvents,
@@ -924,6 +927,16 @@ class BotRuntime {
     return `${String(safeHour).padStart(2, "0")}:00-${String(nextHour).padStart(2, "0")}:00`;
   }
 
+  formatDurationMs(ms, language = "de") {
+    const totalMinutes = Math.floor(ms / 60_000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0) {
+      return language === "de" ? `${hours}h ${minutes}m` : `${hours}h ${minutes}m`;
+    }
+    return language === "de" ? `${minutes}m` : `${minutes}m`;
+  }
+
   buildListeningStatsEmbed(guildId, language = "de") {
     const t = (de, en) => languagePick(language, de, en);
     const guild = this.client.guilds.cache.get(guildId) || null;
@@ -934,6 +947,11 @@ class BotRuntime {
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || null;
     const topHourEntry = Object.entries(stats?.hours || {})
       .sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0] || null;
+    const topDayEntry = Object.entries(stats?.daysOfWeek || {})
+      .sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0] || null;
+    const dayNames = language === "de"
+      ? ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"]
+      : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const topChannels = Object.entries(stats?.voiceChannels || {})
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, 3)
@@ -949,51 +967,106 @@ class BotRuntime {
       ? liveStreams.map((item) => {
         const stationName = clipText(item.stationName || item.stationKey || "-", 80);
         const voiceLabel = item.channelId ? `<#${item.channelId}>` : t("unbekannt", "unknown");
-        return `**${stationName}** - ${voiceLabel} - ${item.listenerCount} ${t("Zuhörer", "listeners")}`;
+        return `**${stationName}** - ${voiceLabel} - ${item.listenerCount} ${t("Zuhoerer", "listeners")}`;
       }).join("\n")
       : t("Aktuell laeuft auf diesem Server kein Stream.", "No stream is currently running on this server.");
 
+    // Calculate total listening time (including active sessions)
+    const totalListeningMs = stats?.currentTotalListeningMs || stats?.totalListeningMs || 0;
+    const totalListeningText = totalListeningMs > 0
+      ? this.formatDurationMs(totalListeningMs, language)
+      : t("Noch keine Daten", "No data yet");
+
+    // Connection health
+    const totalConnections = stats?.totalConnections || 0;
+    const totalReconnects = stats?.totalReconnects || 0;
+    const totalErrors = stats?.totalConnectionErrors || 0;
+    const reliability = totalConnections > 0
+      ? Math.round(((totalConnections - totalErrors) / totalConnections) * 100)
+      : 100;
+
+    // Session stats
+    const avgSessionText = stats?.avgSessionMs > 0
+      ? this.formatDurationMs(stats.avgSessionMs, language)
+      : "-";
+    const longestSessionText = stats?.longestSessionMs > 0
+      ? this.formatDurationMs(stats.longestSessionMs, language)
+      : "-";
+
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
-      .setTitle(t("📊 Listening-Stats", "📊 Listening stats"))
+      .setTitle(t("Listening-Stats", "Listening stats"))
       .setDescription(
         t(
-          `Server: **${guild?.name || guildId}**\nLive-Zuhörer jetzt: **${totalLiveListeners}**`,
+          `Server: **${guild?.name || guildId}**\nLive-Zuhoerer jetzt: **${totalLiveListeners}**`,
           `Server: **${guild?.name || guildId}**\nLive listeners now: **${totalLiveListeners}**`
         )
       )
       .addFields(
         {
-          name: t("🎧 Live gerade", "🎧 Live now"),
+          name: t("Live gerade", "Live now"),
           value: clipText(liveStationsText, 900),
           inline: false,
         },
         {
-          name: t("📻 Meist gespielte Station", "📻 Most played station"),
+          name: t("Gesamte Hoerzeit", "Total listening time"),
+          value: totalListeningText,
+          inline: true,
+        },
+        {
+          name: t("Sessions gesamt", "Total sessions"),
+          value: String(stats?.totalSessions || 0),
+          inline: true,
+        },
+        {
+          name: t("Peak-Zuhoerer", "Peak listeners"),
+          value: String(Number(stats?.peakListeners || 0)),
+          inline: true,
+        },
+        {
+          name: t("Meist gespielte Station", "Most played station"),
           value: topStationEntry
-            ? `${clipText(topStationEntry[0], 100)} (${topStationEntry[1]})`
+            ? `${clipText(topStationEntry[0], 100)} (${topStationEntry[1]}x)`
             : t("Noch keine Daten", "No data yet"),
           inline: true,
         },
         {
-          name: t("⏰ Peak-Zeit", "⏰ Peak time"),
+          name: t("Peak-Stunde", "Peak hour"),
           value: topHourEntry && Number(topHourEntry[1]) > 0
             ? `${this.formatStatsHourBucket(topHourEntry[0], language)} (${topHourEntry[1]})`
             : t("Noch keine Daten", "No data yet"),
           inline: true,
         },
         {
-          name: t("🔥 Peak-Zuhörer", "🔥 Peak listeners"),
-          value: String(Number(stats?.peakListeners || 0)),
+          name: t("Aktivster Tag", "Busiest day"),
+          value: topDayEntry && Number(topDayEntry[1]) > 0
+            ? `${dayNames[Number(topDayEntry[0])] || "?"} (${topDayEntry[1]})`
+            : t("Noch keine Daten", "No data yet"),
           inline: true,
         },
         {
-          name: t("🗣 Aktivste Voice-Channels", "🗣 Most active voice channels"),
+          name: t("Aktivste Voice-Channels", "Most active voice channels"),
           value: topChannels.length ? clipText(topChannels.join("\n"), 900) : t("Noch keine Daten", "No data yet"),
           inline: false,
         },
         {
-          name: t("📈 Server gesamt", "Server totals"),
+          name: t("Session-Daten", "Session data"),
+          value: t(
+            `Durchschnitt: **${avgSessionText}** | Laengste: **${longestSessionText}**`,
+            `Average: **${avgSessionText}** | Longest: **${longestSessionText}**`
+          ),
+          inline: false,
+        },
+        {
+          name: t("Verbindung", "Connection"),
+          value: t(
+            `Verbindungen: **${totalConnections}** | Reconnects: **${totalReconnects}** | Zuverlaessigkeit: **${reliability}%**`,
+            `Connections: **${totalConnections}** | Reconnects: **${totalReconnects}** | Reliability: **${reliability}%**`
+          ),
+          inline: false,
+        },
+        {
+          name: t("Server gesamt", "Server totals"),
           value: t(
             `Starts: **${Number(stats?.totalStarts || 0)}**\nLetzter Start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`,
             `Starts: **${Number(stats?.totalStarts || 0)}**\nLast start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`
@@ -1001,7 +1074,7 @@ class BotRuntime {
           inline: true,
         },
         {
-          name: t("🌍 Top-Server global", "Top server global"),
+          name: t("Top-Server global", "Top server global"),
           value: topGuild
             ? `${clipText(topGuildName, 80)} (${topGuild.totalStarts} ${t("Starts", "starts")})`
             : t("Noch keine Daten", "No data yet"),
@@ -1907,6 +1980,7 @@ class BotRuntime {
       channelId: state.connection?.joinConfig?.channelId || state.lastChannelId || "",
       listenerCount: this.getCurrentListenerCount(guildId, state),
       timestampMs: state.lastStreamStartAt,
+      botId: this.config.id || "",
     });
 
     fetchStreamInfo(station.url)
@@ -2229,6 +2303,11 @@ class BotRuntime {
     if (!state) return;
     this.clearQueuedVoiceReconcile(guildId);
 
+    // End active listening session before cleanup
+    if (!preservePlaybackTarget && state.currentStationKey) {
+      recordStationStop(guildId, { botId: this.config.id || "" });
+    }
+
     if (state.connection) {
       try { state.connection.destroy(); } catch {}
       state.connection = null;
@@ -2427,6 +2506,12 @@ class BotRuntime {
     });
 
     connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      recordConnectionEvent(guildId, {
+        botId: this.config.id || "",
+        eventType: "disconnect",
+        channelId: state.lastChannelId || "",
+        details: "VoiceConnectionStatus.Disconnected",
+      });
       if (!state.shouldReconnect) {
         markDisconnected();
         return;
@@ -2458,6 +2543,12 @@ class BotRuntime {
 
     connection.on("error", (err) => {
       log("ERROR", `[${this.config.name}] VoiceConnection error: ${err?.message || err}`);
+      recordConnectionEvent(guildId, {
+        botId: this.config.id || "",
+        eventType: "error",
+        channelId: state.lastChannelId || "",
+        details: String(err?.message || err).slice(0, 200),
+      });
       markDisconnected();
       if (!state.shouldReconnect) return;
       this.scheduleReconnect(guildId, { reason: "voice-error" });
@@ -5089,6 +5180,12 @@ class BotRuntime {
     state.lastReconnectAt = new Date().toISOString();
     this.clearReconnectTimer(state);
     networkRecoveryCoordinator.noteSuccess(`${this.config.name} voice-ready guild=${guildId}`);
+    recordConnectionEvent(guildId, {
+      botId: this.config.id || "",
+      eventType: "connect",
+      channelId: channel.id || "",
+      details: "Voice connection ready",
+    });
 
     this.attachConnectionHandlers(guildId, connection);
     if (channel.type === ChannelType.GuildStageVoice) {
@@ -5269,6 +5366,12 @@ class BotRuntime {
 
     delay = applyJitter(delay, 0.2);
     const reason = String(options.reason || "auto");
+    recordConnectionEvent(guildId, {
+      botId: this.config.id || "",
+      eventType: "reconnect",
+      channelId: state.lastChannelId || "",
+      details: `attempt=${attempt} reason=${reason}`,
+    });
 
     log(
       "INFO",
@@ -6945,6 +7048,10 @@ class BotRuntime {
 
     for (const [guildId, state] of this.guildState.entries()) {
       this.syncVoiceChannelStatus(guildId, "").catch(() => null);
+      // End all active listening sessions on shutdown
+      if (state.currentStationKey) {
+        recordStationStop(guildId, { botId: this.config.id || "" });
+      }
       state.shouldReconnect = false;
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);

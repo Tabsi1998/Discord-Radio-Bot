@@ -1,9 +1,27 @@
 services:
+  mongodb:
+    image: mongo:7
+    container_name: omnifm-mongodb
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      - MONGO_INITDB_DATABASE=radio_bot
+
   omnifm:
     build: .
     container_name: omnifm
     env_file:
       - .env
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=radio_bot
     ports:
       - "${WEB_PORT:-8081}:${WEB_INTERNAL_PORT:-8080}"
     volumes:
@@ -20,3 +38,9 @@ services:
       - ./coupons.json:/app/coupons.json
       - ./logs:/app/logs
     restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+volumes:
+  mongodb_data:

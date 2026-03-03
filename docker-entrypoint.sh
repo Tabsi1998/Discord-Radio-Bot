@@ -76,6 +76,28 @@ if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
 
+# === MongoDB-Verfuegbarkeit pruefen ===
+if [ -n "$MONGO_URL" ]; then
+  MONGO_WAIT_SECONDS="${MONGO_WAIT_SECONDS:-30}"
+  echo "[INFO] Warte auf MongoDB ($MONGO_URL) fuer maximal ${MONGO_WAIT_SECONDS}s..."
+  WAITED=0
+  while [ "$WAITED" -lt "$MONGO_WAIT_SECONDS" ]; do
+    if node -e "
+      const { MongoClient } = require('mongodb');
+      const c = new MongoClient('$MONGO_URL', { serverSelectionTimeoutMS: 2000, connectTimeoutMS: 2000 });
+      c.connect().then(() => { c.close(); process.exit(0); }).catch(() => process.exit(1));
+    " 2>/dev/null; then
+      echo "[INFO] MongoDB ist erreichbar."
+      break
+    fi
+    WAITED=$((WAITED + 2))
+    sleep 2
+  done
+  if [ "$WAITED" -ge "$MONGO_WAIT_SECONDS" ]; then
+    echo "[WARN] MongoDB nicht erreichbar nach ${MONGO_WAIT_SECONDS}s. Starte trotzdem mit Datei-basierten Stores."
+  fi
+fi
+
 if [ "${REGISTER_COMMANDS_ON_BOOT:-1}" = "1" ]; then
   echo "[INFO] Registriere Discord-Commands..."
   node /app/src/deploy-commands.js || echo "[WARN] Command-Registrierung fehlgeschlagen (ueberspringe)"

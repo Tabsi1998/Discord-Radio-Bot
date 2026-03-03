@@ -52,6 +52,12 @@ if (mongoEnabled) {
   try {
     await connectDb();
     log("INFO", "MongoDB-Verbindung fuer Node.js Bot hergestellt.");
+    // Migrate legacy JSON data to MongoDB
+    const { migrateJsonToMongo } = await import("./listening-stats-store.js");
+    const migration = await migrateJsonToMongo();
+    if (migration.migrated) {
+      log("INFO", `Listening-Stats JSON -> MongoDB Migration: ${migration.count}/${migration.total} Guilds migriert.`);
+    }
   } catch (err) {
     log("WARN", `MongoDB-Verbindung fehlgeschlagen: ${err.message}. Datei-basierte Stores bleiben aktiv.`);
   }

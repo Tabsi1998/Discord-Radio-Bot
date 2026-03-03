@@ -98,7 +98,15 @@ import {
   deleteScheduledEvent,
   getScheduledEvent,
 } from "../scheduled-events-store.js";
-import { getGuildListeningStats } from "../listening-stats-store.js";
+import {
+  getGuildListeningStats,
+  getGuildDailyStats,
+  getGuildSessionHistory,
+  getGuildConnectionHealth,
+  getGuildListenerTimeline,
+  getGlobalStats,
+  getActiveSessionsForGuild,
+} from "../listening-stats-store.js";
 import {
   getDiscordBotListStatus,
   handleDiscordBotListVoteWebhook,
@@ -641,6 +649,14 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     eventsConfigured: events.length,
     eventsActive: events.filter((item) => item?.enabled !== false).length,
     permRules: Object.keys(permissionRules || {}).length,
+    totalStarts: Number(listeningStats.totalStarts || 0),
+    totalSessions: Number(listeningStats.totalSessions || 0),
+    totalListeningMs: Number(listeningStats.currentTotalListeningMs || listeningStats.totalListeningMs || 0),
+    avgSessionMs: Number(listeningStats.avgSessionMs || 0),
+    longestSessionMs: Number(listeningStats.longestSessionMs || 0),
+    totalConnections: Number(listeningStats.totalConnections || 0),
+    totalReconnects: Number(listeningStats.totalReconnects || 0),
+    totalConnectionErrors: Number(listeningStats.totalConnectionErrors || 0),
     updatedAt: telemetry.updatedAt || new Date().toISOString(),
   };
 
@@ -654,6 +670,12 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
       : telemetry.listenersByChannel,
     dailyReport: telemetry.dailyReport,
     stationBreakdown: stationBreakdown.length ? stationBreakdown : telemetry.stationBreakdown,
+    hours: listeningStats.hours || {},
+    daysOfWeek: listeningStats.daysOfWeek || {},
+    stationListeningMs: listeningStats.stationListeningMs || {},
+    commands: listeningStats.commands || {},
+    voiceChannels: listeningStats.voiceChannels || {},
+    firstSeenAt: listeningStats.firstSeenAt || 0,
   };
 
   return { basic, advanced };
@@ -1337,6 +1359,105 @@ function startWebServer(runtimes) {
         basic: statsPayload.basic,
         advanced: guild.tier === "ultimate" ? statsPayload.advanced : null,
       });
+      return;
+    }
+
+    // Enhanced stats endpoint with daily, session, connection, timeline data
+    if (requestUrl.pathname === "/api/dashboard/stats/detail") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        return;
+      }
+
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) {
+        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        return;
+      }
+      if (guild.tier !== "ultimate") {
+        sendJson(res, 403, { error: "Detaillierte Statistiken sind nur fuer Ultimate verfuegbar." });
+        return;
+      }
+
+      try {
+        const days = Math.min(90, Math.max(1, Number.parseInt(String(requestUrl.searchParams.get("days") || "30"), 10) || 30));
+        const [dailyStats, sessionHistory, connectionHealth, listenerTimeline, activeSessions] = await Promise.all([
+          getGuildDailyStats(guild.id, days),
+          getGuildSessionHistory(guild.id, 20),
+          getGuildConnectionHealth(guild.id, 7),
+          getGuildListenerTimeline(guild.id, 24),
+          Promise.resolve(getActiveSessionsForGuild(guild.id)),
+        ]);
+
+        const listeningStats = getGuildListeningStats(guild.id) || {};
+
+        sendJson(res, 200, {
+          serverId: guild.id,
+          tier: guild.tier,
+          listeningStats: {
+            totalListeningMs: listeningStats.currentTotalListeningMs || listeningStats.totalListeningMs || 0,
+            totalSessions: listeningStats.totalSessions || 0,
+            avgSessionMs: listeningStats.avgSessionMs || 0,
+            longestSessionMs: listeningStats.longestSessionMs || 0,
+            totalStarts: listeningStats.totalStarts || 0,
+            peakListeners: listeningStats.peakListeners || 0,
+            stationStarts: listeningStats.stationStarts || {},
+            stationListeningMs: listeningStats.stationListeningMs || {},
+            stationNames: listeningStats.stationNames || {},
+            hours: listeningStats.hours || {},
+            daysOfWeek: listeningStats.daysOfWeek || {},
+            commands: listeningStats.commands || {},
+            voiceChannels: listeningStats.voiceChannels || {},
+            firstSeenAt: listeningStats.firstSeenAt || 0,
+          },
+          dailyStats,
+          sessionHistory: sessionHistory.map((s) => ({
+            stationKey: s.stationKey,
+            stationName: s.stationName,
+            channelId: s.channelId,
+            startedAt: s.startedAt,
+            endedAt: s.endedAt,
+            durationMs: s.durationMs,
+            peakListeners: s.peakListeners,
+            avgListeners: s.avgListeners,
+          })),
+          connectionHealth,
+          listenerTimeline,
+          activeSessions: activeSessions.map((s) => ({
+            botId: s.botId,
+            stationKey: s.stationKey,
+            stationName: s.stationName,
+            channelId: s.channelId,
+            currentDurationMs: s.currentDurationMs,
+            currentListeners: s.currentListeners,
+            peakListeners: s.peakListeners,
+          })),
+        });
+      } catch (err) {
+        log("ERROR", `Dashboard detail stats error: ${err?.message || err}`);
+        sendJson(res, 500, { error: "Detaillierte Statistiken konnten nicht geladen werden." });
+      }
+      return;
+    }
+
+    // Global stats endpoint (public, anonymized)
+    if (requestUrl.pathname === "/api/stats/global") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      try {
+        const globalStats = await getGlobalStats();
+        sendJson(res, 200, globalStats);
+      } catch (err) {
+        log("ERROR", `Global stats error: ${err?.message || err}`);
+        sendJson(res, 500, { error: "Globale Statistiken konnten nicht geladen werden." });
+      }
       return;
     }
 
