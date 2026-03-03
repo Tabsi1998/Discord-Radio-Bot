@@ -5,6 +5,8 @@ import hmac
 import time
 import string
 import secrets
+import socket
+import ipaddress
 import requests
 from pathlib import Path
 from urllib.parse import urlparse, urlencode
@@ -24,6 +26,7 @@ DB_NAME = os.environ.get("DB_NAME")
 
 STATIONS_FILE = Path(__file__).parent.parent / "stations.json"
 PREMIUM_FILE = Path(__file__).parent.parent / "premium.json"
+COUPONS_FILE = Path(__file__).parent.parent / "coupons.json"
 DASHBOARD_FILE = Path(__file__).parent.parent / "dashboard.json"
 
 BOT_IMAGES = ["/img/bot-1.png", "/img/bot-2.png", "/img/bot-3.png", "/img/bot-4.png"]
@@ -189,6 +192,142 @@ def clip_text(value, max_len=300):
     if len(text) <= max_len:
         return text
     return text[: max_len - 3] + "..."
+
+
+def empty_premium_state():
+    return {
+        "licenses": {},
+        "serverEntitlements": {},
+        "processedSessions": {},
+        "trialClaims": {},
+        "offers": {},
+        "discordBotListState": {},
+        "recentRedemptions": [],
+    }
+
+
+def ensure_premium_state(data):
+    normalized = dict(data) if isinstance(data, dict) else {}
+    defaults = empty_premium_state()
+    for key, default_value in defaults.items():
+        value = normalized.get(key)
+        if isinstance(default_value, dict):
+            normalized[key] = value if isinstance(value, dict) else {}
+        elif isinstance(default_value, list):
+            normalized[key] = value if isinstance(value, list) else []
+        else:
+            normalized[key] = value if value is not None else default_value
+    return normalized
+
+
+def legacy_host_to_ipv4(hostname):
+    host = str(hostname or "").strip().lower()
+    if not host:
+        return None
+    try:
+        if host.isdigit():
+            value = int(host, 10)
+        elif host.startswith("0x"):
+            value = int(host, 16)
+        elif re.fullmatch(r"0[0-7]+", host) and host != "0":
+            value = int(host[1:], 8)
+        else:
+            return None
+    except Exception:
+        return None
+
+    if value < 0 or value > 0xFFFFFFFF:
+        return None
+
+    return ".".join(str((value >> shift) & 0xFF) for shift in (24, 16, 8, 0))
+
+
+def is_private_or_local_host(hostname_input):
+    hostname = str(hostname_input or "").strip().lower().rstrip(".")
+    if not hostname:
+        return True
+    if hostname in {"localhost", "0.0.0.0"}:
+        return True
+    if hostname.endswith(".nip.io") or hostname.endswith(".sslip.io"):
+        return True
+    if hostname.endswith(".local") or hostname.endswith(".internal") or hostname.endswith(".lan") or hostname.endswith(".home"):
+        return True
+
+    legacy_ipv4 = legacy_host_to_ipv4(hostname)
+    if legacy_ipv4:
+        hostname = legacy_ipv4
+
+    try:
+        ip_value = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+
+    return (
+        ip_value.is_private
+        or ip_value.is_loopback
+        or ip_value.is_link_local
+        or ip_value.is_unspecified
+        or ip_value.is_reserved
+        or ip_value.is_multicast
+    )
+
+
+def validate_custom_station_url(raw_url):
+    value = str(raw_url or "").strip()
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return {"ok": False, "error": "URL-Format ungültig."}
+    if parsed.username or parsed.password:
+        return {"ok": False, "error": "URLs mit Benutzername/Passwort sind nicht erlaubt."}
+    if is_private_or_local_host(parsed.hostname):
+        return {"ok": False, "error": "Lokale/private Hosts sind nicht erlaubt."}
+
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, None, type=socket.SOCK_STREAM)
+    except OSError:
+        return {"ok": False, "error": "Host konnte nicht aufgelöst werden."}
+
+    if not infos:
+        return {"ok": False, "error": "Host konnte nicht aufgelöst werden."}
+
+    for info in infos:
+        try:
+            address = str(info[4][0]).strip()
+        except Exception:
+            continue
+        if address and is_private_or_local_host(address):
+            return {"ok": False, "error": "Lokale/private Hosts sind nicht erlaubt."}
+
+    return {"ok": True, "url": value}
+
+
+def list_recent_redemptions(limit=100):
+    safe_limit = max(1, min(500, int(limit)))
+
+    try:
+        if COUPONS_FILE.exists():
+            payload = json.loads(COUPONS_FILE.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                rows = payload.get("redemptions", {})
+                if isinstance(rows, dict):
+                    parsed_rows = []
+                    for session_id, redemption in rows.items():
+                        if not isinstance(redemption, dict):
+                            continue
+                        parsed_rows.append({
+                            "sessionId": str(redemption.get("sessionId") or session_id).strip(),
+                            **redemption,
+                        })
+                    parsed_rows.sort(key=lambda item: str(item.get("processedAt") or ""), reverse=True)
+                    return parsed_rows[:safe_limit]
+    except Exception:
+        pass
+
+    data = load_premium()
+    rows = data.get("recentRedemptions", [])
+    if not isinstance(rows, list):
+        return []
+    return rows[:safe_limit]
 
 
 def is_discord_oauth_configured():
@@ -964,7 +1103,7 @@ def seed_premium_if_needed():
         return
     try:
         if db.licenses.count_documents({}) == 0 and PREMIUM_FILE.exists():
-            data = json.loads(PREMIUM_FILE.read_text(encoding="utf-8"))
+            data = ensure_premium_state(json.loads(PREMIUM_FILE.read_text(encoding="utf-8")))
             if isinstance(data, dict):
                 licenses = data.get("licenses", {})
                 for lic_id, lic in licenses.items():
@@ -981,6 +1120,13 @@ def seed_premium_if_needed():
                     if isinstance(sess, dict):
                         sess["_sessionId"] = sess_id
                         db.processed_sessions.replace_one({"_sessionId": sess_id}, sess, upsert=True)
+                extra_state = {
+                    "trialClaims": data.get("trialClaims", {}),
+                    "offers": data.get("offers", {}),
+                    "discordBotListState": data.get("discordBotListState", {}),
+                    "recentRedemptions": data.get("recentRedemptions", []),
+                }
+                db.premium_state.replace_one({"_id": "meta"}, {"_id": "meta", **extra_state}, upsert=True)
     except Exception:
         pass
 
@@ -1007,40 +1153,85 @@ def load_premium():
                 sess_id = doc.pop("_sessionId", None)
                 if sess_id:
                     processed[sess_id] = doc
-            return {"licenses": licenses, "serverEntitlements": server_ents, "processedSessions": processed}
+            meta = db.premium_state.find_one({"_id": "meta"}, {"_id": 0}) or {}
+            return ensure_premium_state({
+                **meta,
+                "licenses": licenses,
+                "serverEntitlements": server_ents,
+                "processedSessions": processed,
+            })
         except Exception:
             pass
     try:
         if PREMIUM_FILE.exists():
-            data = json.loads(PREMIUM_FILE.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                return {"licenses": {}, "processedSessions": {}}
-            if "licenses" not in data or not isinstance(data.get("licenses"), dict):
-                data["licenses"] = {}
-            if "processedSessions" not in data or not isinstance(data.get("processedSessions"), dict):
-                data["processedSessions"] = {}
-            return data
-        return {"licenses": {}, "processedSessions": {}}
+            return ensure_premium_state(json.loads(PREMIUM_FILE.read_text(encoding="utf-8")))
+        return empty_premium_state()
     except Exception:
-        return {"licenses": {}, "processedSessions": {}}
+        return empty_premium_state()
 
 
 def save_premium(data):
+    safe_data = ensure_premium_state(data)
     if db is not None:
         try:
-            for lic_id, lic in data.get("licenses", {}).items():
+            license_ids = []
+            for lic_id, lic in safe_data.get("licenses", {}).items():
                 if isinstance(lic, dict):
                     doc = {**lic, "_licenseId": lic_id}
                     db.licenses.replace_one({"_licenseId": lic_id}, doc, upsert=True)
-            for srv_id, ent in data.get("serverEntitlements", {}).items():
+                    license_ids.append(lic_id)
+            if license_ids:
+                db.licenses.delete_many({"_licenseId": {"$nin": license_ids}})
+            else:
+                db.licenses.delete_many({})
+
+            server_ids = []
+            for srv_id, ent in safe_data.get("serverEntitlements", {}).items():
                 if isinstance(ent, dict):
                     doc = {**ent, "_serverId": srv_id}
                     db.server_entitlements.replace_one({"_serverId": srv_id}, doc, upsert=True)
-            for sess_id, sess in data.get("processedSessions", {}).items():
+                    server_ids.append(srv_id)
+            if server_ids:
+                db.server_entitlements.delete_many({"_serverId": {"$nin": server_ids}})
+            else:
+                db.server_entitlements.delete_many({})
+
+            session_ids = []
+            for sess_id, sess in safe_data.get("processedSessions", {}).items():
                 if isinstance(sess, dict):
                     doc = {**sess, "_sessionId": sess_id}
                     db.processed_sessions.replace_one({"_sessionId": sess_id}, doc, upsert=True)
+                    session_ids.append(sess_id)
+            if session_ids:
+                db.processed_sessions.delete_many({"_sessionId": {"$nin": session_ids}})
+            else:
+                db.processed_sessions.delete_many({})
+
+            db.premium_state.replace_one(
+                {"_id": "meta"},
+                {
+                    "_id": "meta",
+                    "trialClaims": safe_data.get("trialClaims", {}),
+                    "offers": safe_data.get("offers", {}),
+                    "discordBotListState": safe_data.get("discordBotListState", {}),
+                    "recentRedemptions": safe_data.get("recentRedemptions", []),
+                },
+                upsert=True,
+            )
             return
+        except Exception:
+            pass
+    tmp_file = PREMIUM_FILE.with_suffix(PREMIUM_FILE.suffix + ".tmp")
+    payload = json.dumps(safe_data, ensure_ascii=False, indent=2) + "\n"
+    try:
+        tmp_file.write_text(payload, encoding="utf-8")
+        tmp_file.replace(PREMIUM_FILE)
+    except Exception:
+        PREMIUM_FILE.write_text(payload, encoding="utf-8")
+    finally:
+        try:
+            if tmp_file.exists():
+                tmp_file.unlink()
         except Exception:
             pass
 
@@ -1320,19 +1511,6 @@ def get_discordbotlist_status(vote_limit=20):
             },
         },
     }
-    tmp_file = PREMIUM_FILE.with_suffix(PREMIUM_FILE.suffix + ".tmp")
-    payload = json.dumps(data, indent=2) + "\n"
-    try:
-        tmp_file.write_text(payload, encoding="utf-8")
-        tmp_file.replace(PREMIUM_FILE)
-    except Exception:
-        PREMIUM_FILE.write_text(payload, encoding="utf-8")
-    finally:
-        try:
-            if tmp_file.exists():
-                tmp_file.unlink()
-        except Exception:
-            pass
 
 
 def get_processed_session(session_id):
@@ -2277,16 +2455,20 @@ async def dashboard_custom_stations_create(request: Request, body: dict, serverI
     if not guild:
         return json_error(403, "Kein Zugriff.")
     if guild.get("tier") != "ultimate":
-        return json_error(403, "Custom Stations sind nur fuer Ultimate verfuegbar.")
+        return json_error(403, "Custom Stations sind nur für Ultimate verfügbar.")
 
     gid = guild.get("id", "")
-    import re
     key = re.sub(r"[^a-z0-9_-]", "", str(body.get("key", "")).strip().lower()[:80])
     name = str(body.get("name", "")).strip()[:120]
     url = str(body.get("url", "")).strip()[:500]
     genre = str(body.get("genre", "")).strip()[:80]
     if not key or not name or not url:
         return json_error(400, "Key, Name und URL sind erforderlich.")
+
+    validation = validate_custom_station_url(url)
+    if not validation.get("ok"):
+        return json_error(400, validation.get("error") or "URL-Format ungültig.")
+    url = validation["url"]
 
     if db is None:
         return json_error(503, "MongoDB nicht verbunden.")
@@ -2315,12 +2497,12 @@ async def dashboard_custom_stations_update(request: Request, body: dict, serverI
     if not guild:
         return json_error(403, "Kein Zugriff.")
     if guild.get("tier") != "ultimate":
-        return json_error(403, "Custom Stations sind nur fuer Ultimate verfuegbar.")
+        return json_error(403, "Custom Stations sind nur für Ultimate verfügbar.")
 
     gid = guild.get("id", "")
-    key = str(body.get("key", "")).strip().lower()[:80]
+    key = re.sub(r"[^a-z0-9_-]", "", str(body.get("key", "")).strip().lower()[:80])
     if not key:
-        return json_error(400, "Station Key fehlt.")
+        return json_error(400, "Station-Key fehlt.")
 
     if db is None:
         return json_error(503, "MongoDB nicht verbunden.")
@@ -2332,15 +2514,27 @@ async def dashboard_custom_stations_update(request: Request, body: dict, serverI
     updates = {}
     if body.get("name"):
         updates["name"] = str(body["name"]).strip()[:120]
+    next_url = str(body.get("url", existing.get("url", ""))).strip()[:500]
+    validation = validate_custom_station_url(next_url)
+    if not validation.get("ok"):
+        return json_error(400, validation.get("error") or "URL-Format ungültig.")
     if body.get("url"):
-        updates["url"] = str(body["url"]).strip()[:500]
+        updates["url"] = validation["url"]
     if "genre" in body:
         updates["genre"] = str(body["genre"]).strip()[:80]
 
     if updates:
         db.custom_stations.update_one({"guildId": gid, "key": key}, {"$set": updates})
 
-    return {"success": True, "station": {"key": key, **updates}}
+    return {
+        "success": True,
+        "station": {
+            "key": key,
+            "name": updates.get("name", existing.get("name", "")),
+            "url": updates.get("url", existing.get("url", "")),
+            "genre": updates.get("genre", existing.get("genre", "")),
+        },
+    }
 
 
 @app.delete("/api/dashboard/custom-stations")
@@ -2356,7 +2550,7 @@ async def dashboard_custom_stations_delete(request: Request, serverId: str = "",
         return json_error(403, "Kein Zugriff.")
 
     if not key:
-        return json_error(400, "Station Key fehlt.")
+        return json_error(400, "Station-Key fehlt.")
 
     gid = guild.get("id", "")
     if db is not None:
@@ -2972,12 +3166,7 @@ async def premium_redemptions(request: Request, limit: int = 100):
         return rate_limited
     if not is_admin_request(request):
         return json_error(401, "Unauthorized. API admin token required.")
-    safe_limit = max(1, min(500, int(limit)))
-    data = load_premium()
-    rows = data.get("recentRedemptions", [])
-    if not isinstance(rows, list):
-        rows = []
-    return {"redemptions": rows[:safe_limit]}
+    return {"redemptions": list_recent_redemptions(limit)}
 
 
 @app.get("/api/premium/pricing")

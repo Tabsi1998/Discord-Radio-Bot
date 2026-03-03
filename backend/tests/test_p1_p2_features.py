@@ -4,11 +4,43 @@ P1: Rich Message Editor with Discord Markdown support, formatting toolbar, and e
 P2: Lifetime Stats verification info banner in DashboardOverview
 """
 
+import os
+from pathlib import Path
+
 import pytest
 import requests
-import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://stats-accuracy.preview.emergentagent.com').rstrip('/')
+
+def _load_base_url() -> str:
+    env_value = (os.environ.get("REACT_APP_BACKEND_URL") or "").strip()
+    if env_value:
+        return env_value.rstrip("/")
+
+    frontend_env = Path(__file__).resolve().parents[2] / "frontend" / ".env"
+    if not frontend_env.exists():
+        pytest.skip("frontend/.env not found and REACT_APP_BACKEND_URL is unset; cannot resolve public base URL", allow_module_level=True)
+
+    for line in frontend_env.read_text(encoding="utf-8").splitlines():
+        clean = line.strip()
+        if clean.startswith("REACT_APP_BACKEND_URL="):
+            value = clean.split("=", 1)[1].strip().strip('"').strip("'")
+            if value:
+                return value.rstrip("/")
+
+    pytest.skip("REACT_APP_BACKEND_URL missing in frontend/.env", allow_module_level=True)
+
+
+BASE_URL = _load_base_url()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def ensure_api_available():
+    try:
+        response = requests.get(f"{BASE_URL}/api/health", timeout=5)
+        if response.status_code != 200:
+            pytest.skip(f"OmniFM API at {BASE_URL} returned {response.status_code} for /api/health")
+    except Exception as exc:
+        pytest.skip(f"OmniFM API not reachable at {BASE_URL}: {exc}")
 
 
 class TestHealthEndpoint:

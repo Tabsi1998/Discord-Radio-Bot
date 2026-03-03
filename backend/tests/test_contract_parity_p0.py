@@ -1,3 +1,4 @@
+import os
 import time
 from pathlib import Path
 
@@ -6,19 +7,24 @@ import requests
 
 
 # Contract parity and security guard tests for legal/privacy/workers/premium/admin endpoints
-FRONTEND_ENV_PATH = Path("/app/frontend/.env")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FRONTEND_ENV_PATH = REPO_ROOT / "frontend" / ".env"
 
 
 def _load_base_url() -> str:
+    env_value = (os.environ.get("REACT_APP_BACKEND_URL") or "").strip()
+    if env_value:
+        return env_value.rstrip("/")
+
     if not FRONTEND_ENV_PATH.exists():
-        pytest.skip("frontend/.env not found; cannot resolve public base URL")
+        pytest.skip("frontend/.env not found and REACT_APP_BACKEND_URL is unset; cannot resolve public base URL", allow_module_level=True)
     for line in FRONTEND_ENV_PATH.read_text(encoding="utf-8").splitlines():
         clean = line.strip()
         if clean.startswith("REACT_APP_BACKEND_URL="):
             value = clean.split("=", 1)[1].strip().strip('"').strip("'")
             if value:
                 return value.rstrip("/")
-    pytest.skip("REACT_APP_BACKEND_URL missing in frontend/.env")
+    pytest.skip("REACT_APP_BACKEND_URL missing in frontend/.env", allow_module_level=True)
 
 
 BASE_URL = _load_base_url()

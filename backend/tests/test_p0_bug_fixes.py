@@ -1,3 +1,9 @@
+import os
+from pathlib import Path
+
+import pytest
+import requests
+
 """
 P0 Bug Fix Tests - Station Count & Dashboard License
 Tests the fixes for three critical P0 bugs:
@@ -7,11 +13,28 @@ Tests the fixes for three critical P0 bugs:
 
 Date: 2026-03-03
 """
-import pytest
-import requests
-import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL').rstrip('/')
+
+def _load_base_url() -> str:
+    env_value = (os.environ.get("REACT_APP_BACKEND_URL") or "").strip()
+    if env_value:
+        return env_value.rstrip("/")
+
+    frontend_env = Path(__file__).resolve().parents[2] / "frontend" / ".env"
+    if not frontend_env.exists():
+        pytest.skip("frontend/.env not found and REACT_APP_BACKEND_URL is unset; cannot resolve public base URL", allow_module_level=True)
+
+    for line in frontend_env.read_text(encoding="utf-8").splitlines():
+        clean = line.strip()
+        if clean.startswith("REACT_APP_BACKEND_URL="):
+            value = clean.split("=", 1)[1].strip().strip('"').strip("'")
+            if value:
+                return value.rstrip("/")
+
+    pytest.skip("REACT_APP_BACKEND_URL missing in frontend/.env", allow_module_level=True)
+
+
+BASE_URL = _load_base_url()
 
 
 class TestStationsEndpoint:
