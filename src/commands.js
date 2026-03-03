@@ -95,7 +95,6 @@ export function buildCommandBuilders() {
     "Startet einen Radio-Stream in deinem Voice-Channel"
   );
   withStringOption(play, "station", "Station name or ID", "Stationsname oder ID", { autocomplete: true });
-  withStringOption(play, "fallback", "[Ultimate] Fallback station name or ID", "[Ultimate] Fallback-Station oder ID", { autocomplete: true });
   withChannelOption(
     play,
     "voice",

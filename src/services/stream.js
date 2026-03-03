@@ -17,21 +17,14 @@ import {
   isLikelyNetworkFailureLine,
 } from "../lib/helpers.js";
 import { networkRecoveryCoordinator } from "../core/network-recovery.js";
-import { resolveYouTubeLiveStream } from "./youtube-live.js";
 
 async function createResource(url, volume, qualityPreset, botName, bitrateOverride) {
-  const resolvedSource = await resolveYouTubeLiveStream(url);
-  const inputUrl = resolvedSource.playbackUrl || url;
   const preset = qualityPreset || "custom";
   const presetBitrate =
     preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
   const profile = buildTranscodeProfile({ bitrateOverride, qualityPreset: preset });
 
-  const transcode =
-    Boolean(resolvedSource.forceTranscode)
-    || String(process.env.TRANSCODE || "0") === "1"
-    || preset !== "custom"
-    || !!bitrateOverride;
+  const transcode = String(process.env.TRANSCODE || "0") === "1" || preset !== "custom" || !!bitrateOverride;
   if (transcode) {
     const mode = String(process.env.TRANSCODE_MODE || "opus").toLowerCase();
     const args = [
@@ -50,7 +43,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       "-reconnect_on_http_error", "4xx,5xx",
       "-rw_timeout", profile.rwTimeoutUs,
       "-timeout", profile.ioTimeoutUs,
-      "-i", inputUrl,
+      "-i", url,
       "-ar", "48000",
       "-ac", "2",
       "-vn",
@@ -133,7 +126,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
     return { resource, process: ffmpeg };
   }
 
-  const res = await fetch(inputUrl, {
+  const res = await fetch(url, {
     redirect: "follow",
     headers: { "User-Agent": "OmniFM/3.0" },
     signal: AbortSignal.timeout(10_000)

@@ -20,7 +20,6 @@ RUN set -eux; \
   fi; \
   apt-get install -y --no-install-recommends \
     ffmpeg \
-    yt-dlp \
     "${CHROMAPRINT_PKG}" \
     ca-certificates \
     libopus0 \
@@ -30,7 +29,6 @@ RUN set -eux; \
     g++ \
     pkg-config; \
   command -v ffmpeg; \
-  command -v yt-dlp; \
   command -v fpcalc; \
   rm -rf /var/lib/apt/lists/*
 
