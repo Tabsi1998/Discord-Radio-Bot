@@ -5,26 +5,31 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const STATE_FILE = path.join(rootDir, "bot-state.json");
+const STATE_BACKUP_FILE = `${STATE_FILE}.bak`;
+
+function readStateFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    if (fs.statSync(filePath).isDirectory()) {
+      console.warn(`[bot-state] ${filePath} ist ein Verzeichnis (Docker-Mount Problem). Nutze leeren State.`);
+      return null;
+    }
+    const raw = fs.readFileSync(filePath, "utf8");
+    if (!raw || raw.trim().length === 0) return {};
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error(`[bot-state] Fehler beim Laden von ${filePath}: ${err.message}`);
+    return null;
+  }
+}
 
 function loadState() {
-  try {
-    if (fs.existsSync(STATE_FILE)) {
-      // Docker-Mount: Wenn es ein Verzeichnis ist, koennen wir nicht lesen
-      if (fs.statSync(STATE_FILE).isDirectory()) {
-        console.warn(`[bot-state] ${STATE_FILE} ist ein Verzeichnis (Docker-Mount Problem). Nutze leeren State.`);
-        return {};
-      }
-      const raw = fs.readFileSync(STATE_FILE, "utf8");
-      if (!raw || raw.trim().length === 0) return {};
-      return JSON.parse(raw);
-    }
-  } catch (err) {
-    console.error(`[bot-state] Fehler beim Laden von ${STATE_FILE}: ${err.message}`);
-  }
-  return {};
+  return readStateFile(STATE_FILE) || readStateFile(STATE_BACKUP_FILE) || {};
 }
 
 function saveState(state) {
+  const payload = JSON.stringify(state, null, 2);
+  const tmpFile = `${STATE_FILE}.tmp-${process.pid}-${Date.now()}`;
   try {
     // Docker-Mount: Wenn es ein Verzeichnis ist, NICHT versuchen zu loeschen
     // (schlaegt fehl mit "Device or resource busy")
@@ -33,9 +38,29 @@ function saveState(state) {
       console.warn(`[bot-state] Fix: echo '{}' > ./bot-state.json && docker compose up -d`);
       return;
     }
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
+
+    if (fs.existsSync(STATE_FILE)) {
+      try {
+        fs.copyFileSync(STATE_FILE, STATE_BACKUP_FILE);
+      } catch {
+        // ignore backup errors
+      }
+    }
+
+    fs.writeFileSync(tmpFile, payload, "utf8");
+    try {
+      fs.renameSync(tmpFile, STATE_FILE);
+    } catch {
+      fs.writeFileSync(STATE_FILE, payload, "utf8");
+    }
   } catch (err) {
     console.error(`[bot-state] Fehler beim Speichern: ${err.message}`);
+  } finally {
+    try {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    } catch {
+      // ignore cleanup errors
+    }
   }
 }
 

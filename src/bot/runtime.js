@@ -6539,11 +6539,11 @@ class BotRuntime {
    * Returns { ok, error? }
    */
   async playInGuild(guildId, channelId, stationKey, stationsData, volume = 100, options = {}) {
+    const state = this.getState(guildId);
     try {
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
 
-      const state = this.getState(guildId);
       state.volume = volume;
       state.shouldReconnect = true;
       state.lastChannelId = channelId;
@@ -6572,6 +6572,7 @@ class BotRuntime {
 
       return { ok: true, workerName: this.config.name };
     } catch (err) {
+      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
       log("ERROR", `[${this.config.name}] playInGuild error: ${err?.message || err}`);
       return { ok: false, error: err?.message || String(err) };
     }

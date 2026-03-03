@@ -391,7 +391,50 @@ ensure_json_file() {
   fi
   if [[ ! -f "$fp" ]]; then
     echo "$content" > "$fp"
+    return
   fi
+  if ! json_file_is_valid "$fp"; then
+    repair_json_file "$fp" "$content"
+  fi
+}
+
+json_file_is_valid() {
+  local fp="$1"
+  [[ -f "$fp" ]] || return 1
+  python3 - "$fp" <<'PY' >/dev/null 2>&1
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    json.load(handle)
+PY
+}
+
+repair_json_file() {
+  local fp="$1" content="${2:-{}}"
+  local stamp corrupt_copy latest_backup backup_file
+
+  mkdir -p .update-backups
+  stamp="$(date +%Y%m%d%H%M%S)"
+  corrupt_copy=".update-backups/${fp}.corrupt.${stamp}"
+  cp "$fp" "$corrupt_copy" 2>/dev/null || true
+
+  backup_file="${fp}.bak"
+  if [[ -s "$backup_file" ]] && json_file_is_valid "$backup_file"; then
+    cp "$backup_file" "$fp"
+    warn "JSON repariert aus Backup: ${fp}"
+    return
+  fi
+
+  latest_backup="$(ls -t ".update-backups/${fp}."* 2>/dev/null | head -1 || true)"
+  if [[ -n "$latest_backup" ]] && [[ -s "$latest_backup" ]] && json_file_is_valid "$latest_backup"; then
+    cp "$latest_backup" "$fp"
+    warn "JSON repariert aus Update-Backup: ${fp}"
+    return
+  fi
+
+  echo "$content" > "$fp"
+  warn "JSON zurueckgesetzt: ${fp} (kein gueltiges Backup gefunden)"
 }
 
 ensure_all_json_files() {
@@ -601,12 +644,7 @@ run_system_doctor() {
       doctor_fail "Datei fehlt: ${json_file}"
       continue
     fi
-    if python3 - <<PY >/dev/null 2>&1
-import json
-with open("$json_file", "r", encoding="utf-8") as f:
-    json.load(f)
-PY
-    then
+    if json_file_is_valid "$json_file"; then
       doctor_ok "JSON ok: ${json_file}"
     else
       doctor_fail "JSON fehlerhaft: ${json_file}"

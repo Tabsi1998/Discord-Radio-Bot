@@ -5,6 +5,7 @@ import { getDefaultLanguage, normalizeLanguage } from "./i18n.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE_FILE = path.resolve(__dirname, "..", "guild-languages.json");
+const BACKUP_FILE = `${STORE_FILE}.bak`;
 
 function emptyState() {
   return {
@@ -35,17 +36,22 @@ function normalizeState(input) {
   };
 }
 
-function loadState() {
+function readState(filePath) {
   try {
-    if (!fs.existsSync(STORE_FILE)) return emptyState();
-    const stat = fs.statSync(STORE_FILE);
-    if (!stat.isFile()) return emptyState();
-    const raw = fs.readFileSync(STORE_FILE, "utf8").trim();
+    if (!fs.existsSync(filePath)) return null;
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    const raw = fs.readFileSync(filePath, "utf8").trim();
     if (!raw) return emptyState();
     return normalizeState(JSON.parse(raw));
-  } catch {
-    return emptyState();
+  } catch (err) {
+    console.error(`[guild-languages] Load error (${filePath}): ${err.message}`);
+    return null;
   }
+}
+
+function loadState() {
+  return readState(STORE_FILE) || readState(BACKUP_FILE) || emptyState();
 }
 
 function saveState(state) {
@@ -53,6 +59,13 @@ function saveState(state) {
   const payload = `${JSON.stringify(normalized, null, 2)}\n`;
   const tmpFile = `${STORE_FILE}.tmp-${process.pid}-${Date.now()}`;
   try {
+    if (fs.existsSync(STORE_FILE)) {
+      try {
+        fs.copyFileSync(STORE_FILE, BACKUP_FILE);
+      } catch {
+        // ignore backup errors
+      }
+    }
     fs.writeFileSync(tmpFile, payload, "utf8");
     try {
       fs.renameSync(tmpFile, STORE_FILE);
