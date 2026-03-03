@@ -1810,6 +1810,37 @@ function startWebServer(runtimes) {
       return;
     }
 
+    // --- Dashboard: Guild Emojis ---
+    if (requestUrl.pathname === "/api/dashboard/emojis") {
+      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+
+      const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
+      if (!guild) { sendJson(res, 200, { emojis: [] }); return; }
+
+      try { await guild.emojis.fetch(); } catch {}
+      const emojis = [];
+      for (const [, emoji] of guild.emojis.cache) {
+        emojis.push({
+          id: emoji.id,
+          name: emoji.name || "",
+          animated: !!emoji.animated,
+          url: emoji.animated
+            ? `https://cdn.discordapp.com/emojis/${emoji.id}.gif?size=48`
+            : `https://cdn.discordapp.com/emojis/${emoji.id}.webp?size=48`,
+          requiresColons: emoji.requiresColons !== false,
+          managed: !!emoji.managed,
+          available: emoji.available !== false,
+        });
+      }
+      emojis.sort((a, b) => a.name.localeCompare(b.name));
+      sendJson(res, 200, { emojis });
+      return;
+    }
+
     // --- Dashboard: All Stations (Free + Pro + Custom) ---
     if (requestUrl.pathname === "/api/dashboard/stations") {
       if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }

@@ -2220,6 +2220,53 @@ async def dashboard_license(request: Request, serverId: str = ""):
     return result
 
 
+@app.get("/api/dashboard/emojis")
+async def dashboard_emojis(request: Request, serverId: str = ""):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    session, _ = get_dashboard_session(request)
+    if not session:
+        return json_error(401, "Nicht eingeloggt.")
+
+    guild = resolve_session_guild_for_server(session, serverId)
+    if not guild:
+        return json_error(403, "Kein Zugriff auf diesen Server.")
+
+    bot_token = (os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("BOT_1_TOKEN") or "").strip()
+    if not bot_token:
+        return {"emojis": []}
+
+    try:
+        resp = requests.get(
+            f"https://discord.com/api/v10/guilds/{guild.get('id')}/emojis",
+            headers={"Authorization": f"Bot {bot_token}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return {"emojis": []}
+        raw = resp.json() if resp.content else []
+        emojis = []
+        for e in (raw if isinstance(raw, list) else []):
+            if not isinstance(e, dict):
+                continue
+            eid = str(e.get("id") or "").strip()
+            if not eid:
+                continue
+            animated = bool(e.get("animated"))
+            emojis.append({
+                "id": eid,
+                "name": str(e.get("name") or "").strip(),
+                "animated": animated,
+                "url": f"https://cdn.discordapp.com/emojis/{eid}.gif?size=48" if animated else f"https://cdn.discordapp.com/emojis/{eid}.webp?size=48",
+                "available": e.get("available") is not False,
+            })
+        emojis.sort(key=lambda x: x.get("name", "").lower())
+        return {"emojis": emojis}
+    except Exception:
+        return {"emojis": []}
+
+
 # === Premium API ===
 
 @app.get("/api/premium/check")

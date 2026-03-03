@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { CalendarDays, Trash2, Power, PowerOff, Plus, ChevronDown, ChevronUp, Repeat, Clock, Hash, MessageSquare, Eye } from 'lucide-react';
+import { CalendarDays, Trash2, Power, PowerOff, Plus, ChevronDown, ChevronUp, Repeat, Clock, Hash } from 'lucide-react';
+import RichMessageEditor from './RichMessageEditor';
 
 const REPEAT_OPTIONS = [
   { value: 'none', de: 'Keine Wiederholung', en: 'No repeat' },
@@ -13,8 +14,6 @@ const TIMEZONE_OPTIONS = [
   'Europe/Vienna', 'Europe/Berlin', 'Europe/Zurich', 'Europe/London',
   'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo', 'UTC',
 ];
-
-const PLACEHOLDERS = ['{event}', '{station}', '{voice}', '{time}'];
 
 function InputRow({ label, children, testId }) {
   return (
@@ -41,47 +40,6 @@ function TextInput({ value, onChange, placeholder, testId, type = 'text' }) {
     <input data-testid={testId} type={type} value={value} onChange={onChange} placeholder={placeholder} style={{
       width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
     }} />
-  );
-}
-
-function MessageEditor({ value, onChange, t, testId }) {
-  const [showPreview, setShowPreview] = useState(false);
-  return (
-    <div data-testid={testId}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <label style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          {t('Nachricht (Markdown)', 'Message (Markdown)')}
-        </label>
-        <button onClick={() => setShowPreview(!showPreview)} style={{
-          border: '1px solid #1A1A2E', background: showPreview ? 'rgba(88,101,242,0.15)' : 'transparent',
-          color: '#A1A1AA', height: 24, padding: '0 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11,
-        }}>
-          <Eye size={12} /> {showPreview ? t('Editor', 'Editor') : t('Vorschau', 'Preview')}
-        </button>
-      </div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-        {PLACEHOLDERS.map(p => (
-          <button key={p} onClick={() => onChange(value + p)} style={{
-            border: '1px solid #1A1A2E', background: '#080808', color: '#8B5CF6', padding: '2px 8px',
-            cursor: 'pointer', fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
-          }}>{p}</button>
-        ))}
-      </div>
-      {showPreview ? (
-        <div data-testid="message-preview" style={{
-          minHeight: 100, border: '1px solid #1A1A2E', background: '#050505', padding: 10, color: '#D4D4D8', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6,
-        }}>
-          {(value || '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1') || t('Keine Nachricht', 'No message')}
-        </div>
-      ) : (
-        <textarea data-testid="message-editor-textarea" value={value} onChange={(e) => onChange(e.target.value)} rows={4} placeholder={t(
-          'z.B. **{event}** startet jetzt auf {voice} mit {station}!',
-          'e.g. **{event}** is starting now on {voice} with {station}!'
-        )} style={{
-          width: '100%', padding: 10, border: '1px solid #1A1A2E', background: '#050505', color: '#fff', resize: 'vertical', fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit',
-        }} />
-      )}
-    </div>
   );
 }
 
@@ -288,7 +246,7 @@ export default function DashboardEvents({
               </div>
             </div>
 
-            <MessageEditor testId="event-message-editor" value={eventForm.announceMessage || ''} onChange={(v) => setEventForm(c => ({ ...c, announceMessage: v }))} t={t} />
+            <RichMessageEditor testId="event-message-editor" value={eventForm.announceMessage || ''} onChange={(v) => setEventForm(c => ({ ...c, announceMessage: v }))} t={t} apiRequest={apiRequest} selectedGuildId={selectedGuildId} />
 
             <button data-testid="event-create-btn" onClick={() => { onCreateEvent(); setShowForm(false); }} style={{
               height: 42, border: 'none', background: '#5865F2', color: '#fff', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.02em', fontSize: 14,

@@ -105,6 +105,22 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
 
   return (
     <section data-testid="dashboard-overview-panel" style={{ display: 'grid', gap: 14 }}>
+      {/* Lifetime Stats Info */}
+      <div data-testid="lifetime-stats-info" style={{
+        background: '#0A0A0A', border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px',
+        display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: '#A1A1AA',
+      }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" style={{ flexShrink: 0 }}>
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+        <span>
+          {t(
+            'Lifetime-Statistiken: Alle Daten werden dauerhaft in der MongoDB gespeichert und gehen nicht verloren, solange die Datenbank aktiv ist. Die Stats werden ueber alle Sessions und Tage akkumuliert.',
+            'Lifetime statistics: All data is permanently stored in MongoDB and will not be lost as long as the database is active. Stats are accumulated across all sessions and days.'
+          )}
+        </span>
+      </div>
+
       {/* Row 1: Key metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
         <StatCard testId="metric-listeners" label={t('Live Zuhoerer', 'Live listeners')} value={basic.listenersNow ?? 0} accent="#00F0FF" />
