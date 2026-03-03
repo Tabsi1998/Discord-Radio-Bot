@@ -1,19 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { CalendarDays, Trash2, Power, PowerOff, Plus, ChevronDown, ChevronUp, Repeat, Clock, Hash } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  AlertTriangle,
+  CalendarDays,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Hash,
+  PencilLine,
+  Plus,
+  Power,
+  PowerOff,
+  Repeat,
+  Trash2,
+} from 'lucide-react';
 import RichMessageEditor from './RichMessageEditor';
-
-const REPEAT_OPTIONS = [
-  { value: 'none', de: 'Keine Wiederholung', en: 'No repeat' },
-  { value: 'daily', de: 'Taeglich', en: 'Daily' },
-  { value: 'weekdays', de: 'Werktags (Mo-Fr)', en: 'Weekdays (Mon-Fri)' },
-  { value: 'weekends', de: 'Wochenende (Sa-So)', en: 'Weekends (Sat-Sun)' },
-  { value: 'weekly', de: 'Woechentlich', en: 'Weekly' },
-];
-
-const TIMEZONE_OPTIONS = [
-  'Europe/Vienna', 'Europe/Berlin', 'Europe/Zurich', 'Europe/London',
-  'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo', 'UTC',
-];
+import {
+  buildDiscordEventDescriptionPreview,
+  DASHBOARD_EVENT_REPEAT_OPTIONS,
+  DASHBOARD_EVENT_TIMEZONE_OPTIONS,
+  renderDiscordMarkdown,
+  renderEventTemplate,
+} from '../lib/dashboardEvents';
 
 function InputRow({ label, children, testId }) {
   return (
@@ -30,7 +37,7 @@ function SelectInput({ value, onChange, options, testId, placeholder }) {
       width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
     }}>
       {placeholder && <option value="">{placeholder}</option>}
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
   );
 }
@@ -43,13 +50,85 @@ function TextInput({ value, onChange, placeholder, testId, type = 'text' }) {
   );
 }
 
+function resolveRepeatLabel(repeat, t) {
+  const option = DASHBOARD_EVENT_REPEAT_OPTIONS.find((entry) => entry.value === (repeat || 'none'));
+  return option ? t(option.de, option.en) : (repeat || 'none');
+}
+
+function getDiscordSyncState(event, t) {
+  if (!event?.createDiscordEvent) {
+    return { label: t('Aus', 'Off'), color: '#71717A' };
+  }
+  if (event?.discordSyncError) {
+    return { label: t('Fehlgeschlagen', 'Failed'), color: '#FCA5A5' };
+  }
+  if (event?.discordEventSynced) {
+    return { label: t('Synchronisiert', 'Synced'), color: '#10B981' };
+  }
+  if (event?.enabled === false) {
+    return { label: t('Wird beim Aktivieren erstellt', 'Will sync when enabled'), color: '#F59E0B' };
+  }
+  return { label: t('Ausstehend', 'Pending'), color: '#06B6D4' };
+}
+
+function buildEventPreviewValues(eventLike, voiceName, formatDate, t) {
+  const fallbackStart = t('05.03.2026 20:00', 'Mar 5, 2026 8:00 PM');
+  const fallbackEnd = t('05.03.2026 22:00', 'Mar 5, 2026 10:00 PM');
+  const timeZone = eventLike?.timezone || 'Europe/Vienna';
+  const voiceLabel = voiceName ? `#${voiceName}` : '#radio-lounge';
+
+  let time = fallbackStart;
+  let end = fallbackEnd;
+  if (eventLike?.startsAt) {
+    const parsed = new Date(eventLike.startsAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      time = formatDate(parsed, {
+        timeZone,
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const durationMs = Number(eventLike?.durationMs || 0) || 0;
+      if (durationMs > 0) {
+        end = formatDate(new Date(parsed.getTime() + durationMs), {
+          timeZone,
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } else {
+        end = '-';
+      }
+    }
+  }
+
+  return {
+    event: eventLike?.title || t('OmniFM Event', 'OmniFM Event'),
+    station: eventLike?.stationName || eventLike?.stationKey || t('Sendername', 'Station name'),
+    voice: voiceLabel,
+    time,
+    end,
+    timeZone,
+  };
+}
+
 function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChannels, textChannels }) {
   const [expanded, setExpanded] = useState(false);
   const isActive = event.enabled !== false;
   const isPast = event.startsAt && new Date(event.startsAt) < new Date();
-  const repeatLabel = REPEAT_OPTIONS.find(o => o.value === (event.repeat || 'none'));
-  const voiceName = voiceChannels?.find(c => c.id === event.channelId)?.name || event.channelId || '-';
-  const textName = textChannels?.find(c => c.id === event.textChannelId)?.name || event.textChannelId || '';
+  const voiceName = voiceChannels?.find((channel) => channel.id === event.channelId)?.name || event.channelId || '-';
+  const textName = textChannels?.find((channel) => channel.id === event.textChannelId)?.name || event.textChannelId || '';
+  const syncState = getDiscordSyncState(event, t);
+  const previewValues = buildEventPreviewValues({
+    ...event,
+    stationName: event.stationName || event.stationKey,
+  }, voiceName, formatDate, t);
+  const announcementPreview = renderEventTemplate(event.announceMessage, previewValues);
+  const descriptionPreview = buildDiscordEventDescriptionPreview(event.description, previewValues.station);
 
   return (
     <div data-testid={`event-card-${event.id}`} style={{
@@ -64,14 +143,19 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
           </strong>
           {isPast && <span style={{ fontSize: 10, color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)', padding: '2px 6px', flexShrink: 0 }}>{t('Vergangen', 'Past')}</span>}
           {event.repeat && event.repeat !== 'none' && (
-            <span style={{ fontSize: 10, color: '#06B6D4', border: '1px solid rgba(6,182,212,0.3)', padding: '2px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Repeat size={10} /> {repeatLabel?.[t('de','en') === 'de' ? 'de' : 'en'] || event.repeat}
+            <span style={{ fontSize: 10, color: '#06B6D4', border: '1px solid rgba(6,182,212,0.3)', padding: '2px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Repeat size={10} /> {resolveRepeatLabel(event.repeat, t)}
             </span>
           )}
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          <button data-testid={`event-expand-${event.id}`} onClick={() => setExpanded(!expanded)} style={{ border: '1px solid #1A1A2E', background: 'transparent', color: '#A1A1AA', width: 30, height: 30, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+          <button data-testid={`event-expand-${event.id}`} onClick={() => setExpanded((current) => !current)} style={{ border: '1px solid #1A1A2E', background: 'transparent', color: '#A1A1AA', width: 30, height: 30, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+          <button data-testid={`event-edit-${event.id}`} onClick={() => onEdit(event)} style={{
+            border: '1px solid rgba(88,101,242,0.4)', background: 'rgba(88,101,242,0.1)', color: '#A5B4FC', width: 30, height: 30, cursor: 'pointer', display: 'grid', placeItems: 'center',
+          }}>
+            <PencilLine size={14} />
           </button>
           <button data-testid={`event-toggle-${event.id}`} onClick={() => onToggle(event.id, !isActive)} style={{
             border: '1px solid', borderColor: isActive ? 'rgba(16,185,129,0.4)' : '#27272A',
@@ -86,33 +170,52 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
           </button>
         </div>
       </div>
+
       <div style={{ marginTop: 8, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: '#71717A' }}>
         <span>Station: <span style={{ color: '#A1A1AA' }}>{event.stationKey || '-'}</span></span>
         <span><Hash size={11} style={{ verticalAlign: '-1px' }} /> <span style={{ color: '#A1A1AA' }}>{voiceName}</span></span>
-        <span><Clock size={11} style={{ verticalAlign: '-1px' }} /> <span style={{ color: '#A1A1AA' }}>{event.startsAt ? formatDate(event.startsAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</span></span>
+        <span>
+          <Clock size={11} style={{ verticalAlign: '-1px' }} />{' '}
+          <span style={{ color: '#A1A1AA' }}>
+            {event.startsAt ? formatDate(event.startsAt, { timeZone: event.timezone || undefined, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+          </span>
+        </span>
         {event.durationMs > 0 && <span>{t('Dauer', 'Duration')}: <span style={{ color: '#A1A1AA' }}>{Math.round(event.durationMs / 60000)}min</span></span>}
       </div>
+
       {expanded && (
-        <div style={{ marginTop: 10, padding: '10px 0 0', borderTop: '1px solid #1A1A2E', fontSize: 13, display: 'grid', gap: 8 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div style={{ marginTop: 10, padding: '10px 0 0', borderTop: '1px solid #1A1A2E', fontSize: 13, display: 'grid', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
             <div><span style={{ color: '#52525B' }}>ID:</span> <span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#A1A1AA', fontSize: 11 }}>{event.id}</span></div>
             <div><span style={{ color: '#52525B' }}>Timezone:</span> <span style={{ color: '#A1A1AA' }}>{event.timezone || '-'}</span></div>
             {textName && <div><span style={{ color: '#52525B' }}>{t('Text-Channel', 'Text channel')}:</span> <span style={{ color: '#A1A1AA' }}>#{textName}</span></div>}
-            <div><span style={{ color: '#52525B' }}>Discord-Event:</span> <span style={{ color: event.createDiscordEvent ? '#10B981' : '#71717A' }}>{event.createDiscordEvent ? 'Ja' : 'Nein'}</span></div>
+            <div><span style={{ color: '#52525B' }}>{t('Discord-Sync', 'Discord sync')}:</span> <span style={{ color: syncState.color }}>{syncState.label}</span></div>
+            {event.discordScheduledEventId && <div><span style={{ color: '#52525B' }}>Discord Event ID:</span> <span style={{ color: '#A1A1AA', fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{event.discordScheduledEventId}</span></div>}
             {event.stageTopic && <div><span style={{ color: '#52525B' }}>Stage Topic:</span> <span style={{ color: '#A1A1AA' }}>{event.stageTopic}</span></div>}
           </div>
+
+          {event.discordSyncError && (
+            <div style={{ border: '1px solid rgba(252,165,165,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>{event.discordSyncError}</span>
+            </div>
+          )}
+
           {event.announceMessage && (
             <div>
-              <span style={{ color: '#52525B' }}>{t('Nachricht', 'Message')}:</span>
-              <div style={{ marginTop: 4, background: '#050505', border: '1px solid #1A1A2E', padding: '8px 10px', color: '#D4D4D8', whiteSpace: 'pre-wrap' }}>
-                {event.announceMessage}
+              <span style={{ color: '#52525B' }}>{t('Nachrichten-Vorschau', 'Message preview')}:</span>
+              <div style={{ marginTop: 4, background: '#050505', border: '1px solid #1A1A2E', padding: '10px 12px', color: '#D4D4D8' }}>
+                <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(announcementPreview) }} />
               </div>
             </div>
           )}
+
           {event.description && (
             <div>
-              <span style={{ color: '#52525B' }}>{t('Beschreibung', 'Description')}:</span>
-              <div style={{ marginTop: 4, color: '#A1A1AA', whiteSpace: 'pre-wrap' }}>{event.description}</div>
+              <span style={{ color: '#52525B' }}>{t('Discord-Event Beschreibung', 'Discord event description')}:</span>
+              <div style={{ marginTop: 4, background: '#050505', border: '1px solid #1A1A2E', padding: '10px 12px', color: '#A1A1AA', whiteSpace: 'pre-wrap' }}>
+                {descriptionPreview}
+              </div>
             </div>
           )}
         </div>
@@ -122,8 +225,19 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
 }
 
 export default function DashboardEvents({
-  events, eventForm, setEventForm, onCreateEvent, onToggleEvent, onDeleteEvent,
-  t, formatDate, apiRequest, selectedGuildId,
+  events,
+  eventForm,
+  setEventForm,
+  editingEventId,
+  onSaveEvent,
+  onToggleEvent,
+  onDeleteEvent,
+  onStartEditEvent,
+  onCancelEditEvent,
+  t,
+  formatDate,
+  apiRequest,
+  selectedGuildId,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [voiceChannels, setVoiceChannels] = useState([]);
@@ -133,79 +247,145 @@ export default function DashboardEvents({
   const loadChannelsAndStations = useCallback(async () => {
     if (!selectedGuildId) return;
     try {
-      const [chResult, stResult] = await Promise.all([
+      const [channelResult, stationResult] = await Promise.all([
         apiRequest(`/api/dashboard/channels?serverId=${encodeURIComponent(selectedGuildId)}`),
         apiRequest(`/api/dashboard/stations?serverId=${encodeURIComponent(selectedGuildId)}`),
       ]);
-      setVoiceChannels(chResult.voiceChannels || []);
-      setTextChannels(chResult.textChannels || []);
-      setStations({ free: stResult.free || [], pro: stResult.pro || [], custom: stResult.custom || [] });
-    } catch {}
+      setVoiceChannels(channelResult.voiceChannels || []);
+      setTextChannels(channelResult.textChannels || []);
+      setStations({ free: stationResult.free || [], pro: stationResult.pro || [], custom: stationResult.custom || [] });
+    } catch {
+      setVoiceChannels([]);
+      setTextChannels([]);
+      setStations({ free: [], pro: [], custom: [] });
+    }
   }, [selectedGuildId, apiRequest]);
 
   useEffect(() => { loadChannelsAndStations(); }, [loadChannelsAndStations]);
+  useEffect(() => { if (editingEventId) setShowForm(true); }, [editingEventId]);
 
-  const stationOptions = [
+  const stationOptions = useMemo(() => ([
     ...(stations.custom.length > 0 ? [{ value: '', label: `--- ${t('Custom Stations', 'Custom Stations')} ---`, disabled: true }] : []),
-    ...stations.custom.map(s => ({ value: `custom:${s.key}`, label: `${s.name} (Custom)` })),
+    ...stations.custom.map((station) => ({ value: `custom:${station.key}`, label: `${station.name} (Custom)` })),
     { value: '', label: `--- ${t('Free Stations', 'Free Stations')} ---`, disabled: true },
-    ...stations.free.map(s => ({ value: s.key, label: s.name })),
+    ...stations.free.map((station) => ({ value: station.key, label: station.name })),
     ...(stations.pro.length > 0 ? [{ value: '', label: `--- ${t('Pro Stations', 'Pro Stations')} ---`, disabled: true }] : []),
-    ...stations.pro.map(s => ({ value: s.key, label: `${s.name} (Pro)` })),
-  ];
+    ...stations.pro.map((station) => ({ value: station.key, label: `${station.name} (Pro)` })),
+  ]), [stations.custom, stations.free, stations.pro, t]);
+
+  const selectedStationLabel = useMemo(() => {
+    const directMatch = [...stations.custom, ...stations.free, ...stations.pro].find((station) => {
+      if (`custom:${station.key}` === eventForm.stationKey) return true;
+      return station.key === eventForm.stationKey;
+    });
+    return directMatch?.name || eventForm.stationKey || t('Sendername', 'Station name');
+  }, [eventForm.stationKey, stations.custom, stations.free, stations.pro, t]);
+
+  const selectedVoiceName = useMemo(
+    () => voiceChannels.find((channel) => channel.id === eventForm.channelId)?.name || '',
+    [eventForm.channelId, voiceChannels]
+  );
+
+  const previewValues = useMemo(() => {
+    const startInput = String(eventForm.startsAt || '').trim();
+    const durationMinutes = Math.max(0, Number(eventForm.durationMinutes || 0) || 0);
+    const startsAt = startInput ? `${startInput}:00` : '';
+    return buildEventPreviewValues({
+      title: eventForm.title || t('OmniFM Event', 'OmniFM Event'),
+      stationName: selectedStationLabel,
+      startsAt,
+      timezone: eventForm.timezone,
+      durationMs: durationMinutes > 0 ? durationMinutes * 60000 : 0,
+    }, selectedVoiceName, formatDate, t);
+  }, [eventForm.durationMinutes, eventForm.startsAt, eventForm.timezone, eventForm.title, formatDate, selectedStationLabel, selectedVoiceName, t]);
+
+  const descriptionPreview = useMemo(
+    () => buildDiscordEventDescriptionPreview(eventForm.description, selectedStationLabel),
+    [eventForm.description, selectedStationLabel]
+  );
+
+  const handleSave = useCallback(async () => {
+    const result = await onSaveEvent();
+    if (result?.ok) {
+      setShowForm(false);
+    }
+  }, [onSaveEvent]);
+
+  const handleCancel = useCallback(() => {
+    onCancelEditEvent();
+    setShowForm(false);
+  }, [onCancelEditEvent]);
+
+  const isEditing = Boolean(editingEventId);
 
   return (
     <section data-testid="dashboard-events-panel" style={{ display: 'grid', gap: 14 }}>
       <div style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>
             {t('Events', 'Events')} <span style={{ color: '#52525B', fontSize: 14 }}>({events.length})</span>
           </h3>
-          <button data-testid="event-toggle-form-btn" onClick={() => setShowForm(!showForm)} style={{
+          <button data-testid="event-toggle-form-btn" onClick={() => {
+            if (showForm && !isEditing) {
+              handleCancel();
+              return;
+            }
+            setShowForm((current) => !current || isEditing);
+          }} style={{
             border: '1px solid #5865F2', background: showForm ? 'rgba(88,101,242,0.15)' : 'transparent',
             color: '#fff', height: 36, padding: '0 14px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13,
           }}>
-            <Plus size={14} /> {showForm ? t('Abbrechen', 'Cancel') : t('Neues Event', 'New event')}
+            <Plus size={14} /> {showForm ? t('Formular offen', 'Form open') : t('Neues Event', 'New event')}
           </button>
         </div>
 
         {showForm && (
           <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ color: '#A1A1AA', fontSize: 13 }}>
+                {isEditing ? t('Event bearbeiten', 'Edit event') : t('Neues Event anlegen', 'Create new event')}
+              </div>
+              <div style={{ color: '#52525B', fontSize: 12 }}>
+                {t('Das Discord-Server-Event wird jetzt direkt beim Speichern synchronisiert.', 'The Discord server event is now synced directly on save.')}
+              </div>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
               <InputRow label={t('Titel', 'Title')}>
-                <TextInput testId="event-title-input" value={eventForm.title} onChange={(e) => setEventForm(c => ({ ...c, title: e.target.value }))} placeholder={t('z.B. Abend-Radio', 'e.g. Evening Radio')} />
+                <TextInput testId="event-title-input" value={eventForm.title} onChange={(e) => setEventForm((current) => ({ ...current, title: e.target.value }))} placeholder={t('z.B. Abend-Radio', 'e.g. Evening Radio')} />
               </InputRow>
 
               <InputRow label={t('Station', 'Station')}>
-                <select data-testid="event-station-select" value={eventForm.stationKey} onChange={(e) => setEventForm(c => ({ ...c, stationKey: e.target.value }))} style={{
+                <select data-testid="event-station-select" value={eventForm.stationKey} onChange={(e) => setEventForm((current) => ({ ...current, stationKey: e.target.value }))} style={{
                   width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
                 }}>
                   <option value="">{t('Station waehlen...', 'Select station...')}</option>
-                  {stationOptions.map((o, i) => o.disabled
-                    ? <option key={i} disabled style={{ color: '#52525B' }}>{o.label}</option>
-                    : <option key={o.value} value={o.value}>{o.label}</option>
-                  )}
+                  {stationOptions.map((option, index) => (
+                    option.disabled
+                      ? <option key={`${option.label}-${index}`} disabled style={{ color: '#52525B' }}>{option.label}</option>
+                      : <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </InputRow>
 
               <InputRow label={t('Voice Channel', 'Voice channel')}>
-                <select data-testid="event-voice-select" value={eventForm.channelId} onChange={(e) => setEventForm(c => ({ ...c, channelId: e.target.value }))} style={{
+                <select data-testid="event-voice-select" value={eventForm.channelId} onChange={(e) => setEventForm((current) => ({ ...current, channelId: e.target.value }))} style={{
                   width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
                 }}>
                   <option value="">{t('Voice Channel waehlen...', 'Select voice channel...')}</option>
-                  {voiceChannels.map(ch => (
-                    <option key={ch.id} value={ch.id}>{ch.parentName ? `${ch.parentName} / ` : ''}{ch.name} {ch.type === 'stage' ? '(Stage)' : ''}</option>
+                  {voiceChannels.map((channel) => (
+                    <option key={channel.id} value={channel.id}>{channel.parentName ? `${channel.parentName} / ` : ''}{channel.name} {channel.type === 'stage' ? '(Stage)' : ''}</option>
                   ))}
                 </select>
               </InputRow>
 
               <InputRow label={t('Text Channel (Ankuendigung)', 'Text channel (announcement)')}>
-                <select data-testid="event-text-channel-select" value={eventForm.textChannelId || ''} onChange={(e) => setEventForm(c => ({ ...c, textChannelId: e.target.value }))} style={{
+                <select data-testid="event-text-channel-select" value={eventForm.textChannelId || ''} onChange={(e) => setEventForm((current) => ({ ...current, textChannelId: e.target.value }))} style={{
                   width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
                 }}>
                   <option value="">{t('Kein Ankuendigungs-Channel', 'No announcement channel')}</option>
-                  {textChannels.map(ch => (
-                    <option key={ch.id} value={ch.id}>{ch.parentName ? `${ch.parentName} / ` : ''}#{ch.name}</option>
+                  {textChannels.map((channel) => (
+                    <option key={channel.id} value={channel.id}>{channel.parentName ? `${channel.parentName} / ` : ''}#{channel.name}</option>
                   ))}
                 </select>
               </InputRow>
@@ -213,46 +393,73 @@ export default function DashboardEvents({
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
               <InputRow label={t('Startzeit', 'Start time')}>
-                <TextInput testId="event-starts-at-input" type="datetime-local" value={eventForm.startsAt} onChange={(e) => setEventForm(c => ({ ...c, startsAt: e.target.value }))} />
+                <TextInput testId="event-starts-at-input" type="datetime-local" value={eventForm.startsAt} onChange={(e) => setEventForm((current) => ({ ...current, startsAt: e.target.value }))} />
               </InputRow>
 
               <InputRow label={t('Dauer (Minuten, 0=unbegrenzt)', 'Duration (minutes, 0=unlimited)')}>
-                <TextInput testId="event-duration-input" type="number" value={eventForm.durationMinutes || ''} onChange={(e) => setEventForm(c => ({ ...c, durationMinutes: e.target.value }))} placeholder="0" />
+                <TextInput testId="event-duration-input" type="number" value={eventForm.durationMinutes || ''} onChange={(e) => setEventForm((current) => ({ ...current, durationMinutes: e.target.value }))} placeholder="0" />
               </InputRow>
 
               <InputRow label={t('Wiederholung', 'Repeat')}>
-                <SelectInput testId="event-repeat-select" value={eventForm.repeat || 'none'} onChange={(e) => setEventForm(c => ({ ...c, repeat: e.target.value }))} options={REPEAT_OPTIONS.map(o => ({ value: o.value, label: t(o.de, o.en) }))} />
+                <SelectInput testId="event-repeat-select" value={eventForm.repeat || 'none'} onChange={(e) => setEventForm((current) => ({ ...current, repeat: e.target.value }))} options={DASHBOARD_EVENT_REPEAT_OPTIONS.map((option) => ({ value: option.value, label: t(option.de, option.en) }))} />
               </InputRow>
 
               <InputRow label="Timezone">
-                <SelectInput testId="event-timezone-select" value={eventForm.timezone || 'Europe/Vienna'} onChange={(e) => setEventForm(c => ({ ...c, timezone: e.target.value }))} options={TIMEZONE_OPTIONS.map(tz => ({ value: tz, label: tz }))} />
+                <SelectInput testId="event-timezone-select" value={eventForm.timezone || 'Europe/Vienna'} onChange={(e) => setEventForm((current) => ({ ...current, timezone: e.target.value }))} options={DASHBOARD_EVENT_TIMEZONE_OPTIONS.map((timeZone) => ({ value: timeZone, label: timeZone }))} />
               </InputRow>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
               <InputRow label="Stage Topic">
-                <TextInput testId="event-stage-topic-input" value={eventForm.stageTopic || ''} onChange={(e) => setEventForm(c => ({ ...c, stageTopic: e.target.value }))} placeholder={t('Optional', 'Optional')} />
-              </InputRow>
-
-              <InputRow label={t('Beschreibung (Discord Event)', 'Description (Discord event)')}>
-                <TextInput testId="event-description-input" value={eventForm.description || ''} onChange={(e) => setEventForm(c => ({ ...c, description: e.target.value }))} placeholder={t('Optional', 'Optional')} />
+                <TextInput testId="event-stage-topic-input" value={eventForm.stageTopic || ''} onChange={(e) => setEventForm((current) => ({ ...current, stageTopic: e.target.value }))} placeholder={t('Optional, Platzhalter wie {event} oder {station} sind erlaubt', 'Optional, placeholders like {event} or {station} are supported')} />
               </InputRow>
 
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, padding: '0 0 4px' }}>
                 <label data-testid="event-discord-event-toggle" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-                  <input type="checkbox" checked={eventForm.createDiscordEvent || false} onChange={(e) => setEventForm(c => ({ ...c, createDiscordEvent: e.target.checked }))} style={{ width: 16, height: 16, accentColor: '#5865F2' }} />
+                  <input type="checkbox" checked={eventForm.createDiscordEvent || false} onChange={(e) => setEventForm((current) => ({ ...current, createDiscordEvent: e.target.checked }))} style={{ width: 16, height: 16, accentColor: '#5865F2' }} />
                   {t('Discord Server-Event erstellen', 'Create Discord server event')}
                 </label>
               </div>
             </div>
 
-            <RichMessageEditor testId="event-message-editor" value={eventForm.announceMessage || ''} onChange={(v) => setEventForm(c => ({ ...c, announceMessage: v }))} t={t} apiRequest={apiRequest} selectedGuildId={selectedGuildId} />
+            <RichMessageEditor
+              testId="event-message-editor"
+              value={eventForm.announceMessage || ''}
+              onChange={(nextValue) => setEventForm((current) => ({ ...current, announceMessage: nextValue }))}
+              t={t}
+              apiRequest={apiRequest}
+              selectedGuildId={selectedGuildId}
+              previewValues={previewValues}
+            />
 
-            <button data-testid="event-create-btn" onClick={() => { onCreateEvent(); setShowForm(false); }} style={{
-              height: 42, border: 'none', background: '#5865F2', color: '#fff', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.02em', fontSize: 14,
-            }}>
-              {t('Event speichern', 'Save event')}
-            </button>
+            <RichMessageEditor
+              testId="event-description-editor"
+              value={eventForm.description || ''}
+              onChange={(nextValue) => setEventForm((current) => ({ ...current, description: nextValue }))}
+              t={t}
+              apiRequest={apiRequest}
+              selectedGuildId={selectedGuildId}
+              label={t('Beschreibung (Discord Event)', 'Description (Discord event)')}
+              placeholderText={t('Beschreibung fuer das Discord-Server-Event. Diese Vorschau zeigt auch den automatisch angehaengten Stations-Hinweis.', 'Description for the Discord server event. This preview also shows the automatically appended station note.')}
+              previewText={descriptionPreview}
+              previewAsMarkdown={false}
+              placeholders={[]}
+              showToolbar={false}
+              emptyPreviewText={t('Keine Beschreibung', 'No description')}
+            />
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button data-testid="event-create-btn" onClick={handleSave} style={{
+                height: 42, border: 'none', background: '#5865F2', color: '#fff', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.02em', fontSize: 14, padding: '0 18px',
+              }}>
+                {isEditing ? t('Event aktualisieren', 'Update event') : t('Event speichern', 'Save event')}
+              </button>
+              <button data-testid="event-cancel-btn" onClick={handleCancel} style={{
+                height: 42, border: '1px solid #1A1A2E', background: 'transparent', color: '#A1A1AA', cursor: 'pointer', letterSpacing: '0.02em', fontSize: 14, padding: '0 18px',
+              }}>
+                {t('Abbrechen', 'Cancel')}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -265,7 +472,17 @@ export default function DashboardEvents({
           </div>
         )}
         {events.map((event) => (
-          <EventCard key={event.id} event={event} onToggle={onToggleEvent} onDelete={onDeleteEvent} t={t} formatDate={formatDate} voiceChannels={voiceChannels} textChannels={textChannels} />
+          <EventCard
+            key={event.id}
+            event={event}
+            onToggle={onToggleEvent}
+            onDelete={onDeleteEvent}
+            onEdit={onStartEditEvent}
+            t={t}
+            formatDate={formatDate}
+            voiceChannels={voiceChannels}
+            textChannels={textChannels}
+          />
         ))}
       </div>
     </section>

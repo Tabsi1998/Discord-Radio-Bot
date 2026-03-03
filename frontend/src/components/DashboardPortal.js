@@ -13,6 +13,57 @@ const PERMISSION_COMMANDS = [
   'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',
 ];
 const EMPTY_SESSION = { authenticated: false, oauthConfigured: null, user: null, guilds: [] };
+const EMPTY_EVENT_FORM = Object.freeze({
+  title: '',
+  stationKey: '',
+  startsAt: '',
+  timezone: 'Europe/Vienna',
+  channelId: '',
+  textChannelId: '',
+  repeat: 'none',
+  durationMinutes: '',
+  announceMessage: '',
+  description: '',
+  stageTopic: '',
+  createDiscordEvent: false,
+  enabled: true,
+});
+
+function buildEmptyEventForm() {
+  return { ...EMPTY_EVENT_FORM };
+}
+
+function sortDashboardEvents(rows) {
+  return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+    const aMs = Date.parse(a?.startsAt || '') || 0;
+    const bMs = Date.parse(b?.startsAt || '') || 0;
+    return aMs - bMs || String(a?.title || '').localeCompare(String(b?.title || ''));
+  });
+}
+
+function upsertDashboardEvent(rows, nextEvent) {
+  const list = Array.isArray(rows) ? rows : [];
+  const filtered = list.filter((entry) => entry.id !== nextEvent?.id);
+  return sortDashboardEvents([...filtered, nextEvent].filter(Boolean));
+}
+
+function toEventFormState(event) {
+  return {
+    title: event?.title || '',
+    stationKey: event?.stationKey || '',
+    startsAt: event?.startsAtLocal || '',
+    timezone: event?.timezone || 'Europe/Vienna',
+    channelId: event?.channelId || '',
+    textChannelId: event?.textChannelId || '',
+    repeat: event?.repeat || 'none',
+    durationMinutes: Number(event?.durationMs || 0) > 0 ? String(Math.round(Number(event.durationMs) / 60000)) : '',
+    announceMessage: event?.announceMessage || '',
+    description: event?.description || '',
+    stageTopic: event?.stageTopic || '',
+    createDiscordEvent: event?.createDiscordEvent === true,
+    enabled: event?.enabled !== false,
+  };
+}
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(buildApiUrl(path), {
@@ -95,11 +146,8 @@ export default function DashboardPortal() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState(authErrorMessage);
   const [events, setEvents] = useState([]);
-  const [eventForm, setEventForm] = useState({
-    title: '', stationKey: '', startsAt: '', timezone: 'Europe/Vienna', channelId: '',
-    textChannelId: '', repeat: 'none', durationMinutes: '', announceMessage: '',
-    description: '', stageTopic: '', createDiscordEvent: false, enabled: true,
-  });
+  const [eventForm, setEventForm] = useState(() => buildEmptyEventForm());
+  const [editingEventId, setEditingEventId] = useState('');
   const [permsDraft, setPermsDraft] = useState(() => {
     const base = {};
     PERMISSION_COMMANDS.forEach((c) => { base[c] = ''; });
@@ -161,7 +209,7 @@ export default function DashboardPortal() {
 
       setStats({ tier: statsPayload.tier || selectedGuild?.tier || 'free', basic: statsPayload.basic || null, advanced: statsPayload.advanced || null });
       setDetailStats(detailPayload);
-      setEvents(Array.isArray(eventsPayload.events) ? eventsPayload.events : []);
+      setEvents(sortDashboardEvents(Array.isArray(eventsPayload.events) ? eventsPayload.events : []));
 
       const nextDraft = {};
       PERMISSION_COMMANDS.forEach((c) => {
@@ -179,6 +227,15 @@ export default function DashboardPortal() {
   useEffect(() => { refreshSession(); }, [refreshSession]);
   useEffect(() => { if (selectedGuildId) window.localStorage.setItem('omnifm.dashboard.guildId', selectedGuildId); }, [selectedGuildId]);
   useEffect(() => { if (session.authenticated && selectedGuildId && dashboardEnabled) refreshDashboardData(); }, [session.authenticated, selectedGuildId, dashboardEnabled, refreshDashboardData]);
+  useEffect(() => {
+    setEditingEventId('');
+    setEventForm(buildEmptyEventForm());
+  }, [selectedGuildId]);
+
+  const resetEventEditor = useCallback(() => {
+    setEditingEventId('');
+    setEventForm(buildEmptyEventForm());
+  }, []);
 
   const startDiscordLogin = async () => {
     setError('');
@@ -197,48 +254,64 @@ export default function DashboardPortal() {
     } catch (err) { setError(err.message || 'Logout fehlgeschlagen.'); }
   };
 
-  const createEvent = async () => {
+  const saveEvent = useCallback(async () => {
     if (!selectedGuildId) return;
     setError(''); setMessage('');
     try {
-      const startsAtIso = eventForm.startsAt ? new Date(eventForm.startsAt).toISOString() : '';
       const durationMs = eventForm.durationMinutes ? Number(eventForm.durationMinutes) * 60000 : 0;
-      const payload = await apiRequest(`/api/dashboard/events?serverId=${encodeURIComponent(selectedGuildId)}`, {
-        method: 'POST', body: JSON.stringify({
+      const requestPath = editingEventId
+        ? `/api/dashboard/events/${encodeURIComponent(editingEventId)}?serverId=${encodeURIComponent(selectedGuildId)}`
+        : `/api/dashboard/events?serverId=${encodeURIComponent(selectedGuildId)}`;
+      const payload = await apiRequest(requestPath, {
+        method: editingEventId ? 'PATCH' : 'POST',
+        body: JSON.stringify({
           ...eventForm,
-          startsAt: startsAtIso,
+          startsAtLocal: eventForm.startsAt,
           durationMs,
         }),
       });
-      setEvents((c) => [payload.event, ...c]);
-      setEventForm({
-        title: '', stationKey: '', startsAt: '', timezone: 'Europe/Vienna', channelId: '',
-        textChannelId: '', repeat: 'none', durationMinutes: '', announceMessage: '',
-        description: '', stageTopic: '', createDiscordEvent: false, enabled: true,
-      });
-      setMessage(t('Event gespeichert.', 'Event saved.'));
-    } catch (err) { setError(err.message); }
-  };
+      setEvents((current) => upsertDashboardEvent(current, payload.event));
+      resetEventEditor();
+      setMessage(editingEventId ? t('Event aktualisiert.', 'Event updated.') : t('Event gespeichert.', 'Event saved.'));
+      return { ok: true, event: payload.event };
+    } catch (err) {
+      setError(err.message);
+      return { ok: false, error: err };
+    }
+  }, [apiRequest, editingEventId, eventForm, resetEventEditor, selectedGuildId, t]);
 
-  const toggleEvent = async (eventId, enabled) => {
+  const toggleEvent = useCallback(async (eventId, enabled) => {
     if (!selectedGuildId) return;
     setError('');
     try {
-      await apiRequest(`/api/dashboard/events/${encodeURIComponent(eventId)}?serverId=${encodeURIComponent(selectedGuildId)}`, {
+      const payload = await apiRequest(`/api/dashboard/events/${encodeURIComponent(eventId)}?serverId=${encodeURIComponent(selectedGuildId)}`, {
         method: 'PATCH', body: JSON.stringify({ enabled }),
       });
-      setEvents((c) => c.map((e) => (e.id === eventId ? { ...e, enabled } : e)));
+      setEvents((current) => upsertDashboardEvent(current, payload.event));
+      if (editingEventId === eventId && payload.event) {
+        setEventForm(toEventFormState(payload.event));
+      }
     } catch (err) { setError(err.message); }
-  };
+  }, [apiRequest, editingEventId, selectedGuildId]);
 
-  const deleteEvent = async (eventId) => {
+  const deleteEvent = useCallback(async (eventId) => {
     if (!selectedGuildId) return;
     setError('');
     try {
       await apiRequest(`/api/dashboard/events/${encodeURIComponent(eventId)}?serverId=${encodeURIComponent(selectedGuildId)}`, { method: 'DELETE' });
       setEvents((c) => c.filter((e) => e.id !== eventId));
+      if (editingEventId === eventId) {
+        resetEventEditor();
+      }
     } catch (err) { setError(err.message); }
-  };
+  }, [apiRequest, editingEventId, resetEventEditor, selectedGuildId]);
+
+  const startEditingEvent = useCallback((event) => {
+    setEditingEventId(event?.id || '');
+    setEventForm(toEventFormState(event));
+    setError('');
+    setMessage('');
+  }, []);
 
   const savePerms = async () => {
     if (!selectedGuildId) return;
@@ -453,7 +526,12 @@ export default function DashboardPortal() {
           {activeTab === 'events' && (
             <DashboardEvents
               events={events} eventForm={eventForm} setEventForm={setEventForm}
-              onCreateEvent={createEvent} onToggleEvent={toggleEvent} onDeleteEvent={deleteEvent}
+              editingEventId={editingEventId}
+              onSaveEvent={saveEvent}
+              onToggleEvent={toggleEvent}
+              onDeleteEvent={deleteEvent}
+              onStartEditEvent={startEditingEvent}
+              onCancelEditEvent={resetEventEditor}
               t={t} formatDate={formatDate} apiRequest={apiRequest} selectedGuildId={selectedGuildId}
             />
           )}

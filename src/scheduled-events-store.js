@@ -241,10 +241,12 @@ function normalizeEvent(raw) {
   const timeZone = sanitizeTimeZone(raw.timeZone);
   const createDiscordEvent = sanitizeBoolean(raw.createDiscordEvent, false);
   const discordScheduledEventId = sanitizeDiscordId(raw.discordScheduledEventId);
+  const discordSyncError = sanitizeText(raw.discordSyncError, 300);
   const durationMs = sanitizeDurationMs(raw.durationMs);
   const activeUntilMs = sanitizeRunAtMs(raw.activeUntilMs) || 0;
   const lastStopAtMs = sanitizeLastRunAtMs(raw.lastStopAtMs);
   const deleteAfterStop = sanitizeBoolean(raw.deleteAfterStop, false);
+  const updatedAt = sanitizeText(raw.updatedAt, 64) || createdAt;
 
   if (!id || !guildId || !voiceChannelId || !stationKey || !botId || !name || !runAtMs) {
     return null;
@@ -264,11 +266,13 @@ function normalizeEvent(raw) {
     timeZone: timeZone || null,
     createDiscordEvent,
     discordScheduledEventId: discordScheduledEventId || null,
+    discordSyncError: discordSyncError || null,
     repeat,
     runAtMs,
     durationMs,
     activeUntilMs,
     createdAt,
+    updatedAt,
     createdByUserId: createdByUserId || null,
     enabled: raw.enabled !== false,
     lastRunAtMs: sanitizeLastRunAtMs(raw.lastRunAtMs),
@@ -374,10 +378,12 @@ function listScheduledEvents({ guildId = null, botId = null, includeDisabled = t
 
 function createScheduledEvent(input) {
   const state = loadRawState();
+  const nowIso = new Date().toISOString();
   const event = normalizeEvent({
     id: buildEventId(),
     ...input,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
+    updatedAt: nowIso,
     enabled: true,
     lastRunAtMs: 0,
   });
@@ -422,7 +428,14 @@ function patchScheduledEvent(id, patch) {
   if (index < 0) return { ok: false, message: "Event nicht gefunden." };
 
   const current = state.events[index];
-  const next = normalizeEvent({ ...current, ...patch, id: current.id, guildId: current.guildId, botId: current.botId });
+  const next = normalizeEvent({
+    ...current,
+    ...patch,
+    id: current.id,
+    guildId: current.guildId,
+    botId: current.botId,
+    updatedAt: new Date().toISOString(),
+  });
   if (!next) return { ok: false, message: "Event-Update ist ungueltig." };
 
   state.events[index] = next;
