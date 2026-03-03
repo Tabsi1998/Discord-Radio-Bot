@@ -35,6 +35,7 @@ import {
 } from "./services/discordbotlist.js";
 
 const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
+const AUTO_RESTORE_STAGGER_MS = Math.max(0, Number.parseInt(String(process.env.AUTO_RESTORE_STAGGER_MS || "2500"), 10) || 2500);
 
 // ---- Optional MongoDB-Verbindung ----
 const mongoUrlConfigured = String(process.env.MONGO_URL || "").trim().length > 0;
@@ -126,19 +127,24 @@ if (!startResults.some(Boolean)) {
 
 // ---- Auto-Restore ----
 const stations = loadStations();
-for (const runtime of startedRuntimes) {
+for (const [runtimeIndex, runtime] of startedRuntimes.entries()) {
+  const restoreDelayMs = runtimeIndex * AUTO_RESTORE_STAGGER_MS;
   const doRestore = () => {
-    log("INFO", `[${runtime.config.name}] Starte Auto-Restore...`);
+    if (restoreDelayMs > 0) {
+      log("INFO", `[${runtime.config.name}] Starte Auto-Restore nach ${restoreDelayMs}ms Staffelung...`);
+    } else {
+      log("INFO", `[${runtime.config.name}] Starte Auto-Restore...`);
+    }
     runtime.restoreState(stations).catch((err) => {
       log("ERROR", `[${runtime.config.name}] Auto-Restore fehlgeschlagen: ${err?.message || err}`);
     });
   };
 
   if (runtime.client.isReady()) {
-    doRestore();
+    setTimeout(doRestore, restoreDelayMs);
   } else {
     runtime.client.once("clientReady", () => {
-      setTimeout(doRestore, 2000);
+      setTimeout(doRestore, 2000 + restoreDelayMs);
     });
   }
 }

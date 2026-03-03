@@ -2512,13 +2512,22 @@ class BotRuntime {
     if (!oldChannelId) return;
 
     const shouldAutoReconnect = Boolean(state.shouldReconnect && state.currentStationKey && state.lastChannelId);
+    const preserveReconnectTimer = Boolean(shouldAutoReconnect && state.reconnectTimer);
     this.resetVoiceSession(guildId, state, {
       preservePlaybackTarget: shouldAutoReconnect,
       clearLastChannel: !shouldAutoReconnect,
+      preserveReconnectTimer,
     });
 
     // Auto-reconnect: schedule if we should reconnect and had an active station
     if (shouldAutoReconnect) {
+      if (state.reconnectTimer) {
+        log(
+          "INFO",
+          `[${this.config.name}] Voice lost (Guild ${guildId}, Channel ${oldChannelId}). Reconnect bereits geplant.`
+        );
+        return;
+      }
       log("INFO",
         `[${this.config.name}] Voice lost (Guild ${guildId}, Channel ${oldChannelId}). Scheduling auto-reconnect...`
       );
@@ -2534,7 +2543,11 @@ class BotRuntime {
     this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
   }
 
-  resetVoiceSession(guildId, state, { preservePlaybackTarget = false, clearLastChannel = false } = {}) {
+  resetVoiceSession(
+    guildId,
+    state,
+    { preservePlaybackTarget = false, clearLastChannel = false, preserveReconnectTimer = false } = {},
+  ) {
     if (!state) return;
     this.clearQueuedVoiceReconcile(guildId);
     this.finishVoiceConnectionAttempt(state);
@@ -2547,7 +2560,15 @@ class BotRuntime {
 
     state.player.stop();
     this.clearCurrentProcess(state);
-    this.clearReconnectTimer(state);
+    if (preserveReconnectTimer) {
+      if (state.streamRestartTimer) {
+        clearTimeout(state.streamRestartTimer);
+        state.streamRestartTimer = null;
+      }
+      this.clearStreamStabilityTimer(state);
+    } else {
+      this.clearReconnectTimer(state);
+    }
     this.clearNowPlayingTimer(state);
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     if (String(state.nowPlayingChannelId || "").trim() && String(state.nowPlayingMessageId || "").trim()) {
@@ -4357,7 +4378,12 @@ class BotRuntime {
     return scheduledEvent || null;
   }
 
-  async ensureVoiceConnectionForChannel(guildId, channelId, state) {
+  async ensureVoiceConnectionForChannel(
+    guildId,
+    channelId,
+    state,
+    { readyTimeoutMs = 20_000, confirmTimeoutMs = 8_000, confirmIntervalMs = 700 } = {},
+  ) {
     const { guild, channel } = await this.resolveGuildVoiceChannel(guildId, channelId);
     if (!guild) throw new Error("Guild nicht gefunden.");
     if (!channel) throw new Error("Voice- oder Stage-Channel nicht gefunden.");
@@ -4410,14 +4436,17 @@ class BotRuntime {
     this.beginVoiceConnectionAttempt(state, channel.id);
 
     try {
-      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+      await entersState(connection, VoiceConnectionStatus.Ready, readyTimeoutMs);
     } catch {
       this.finishVoiceConnectionAttempt(state);
       try { connection.destroy(); } catch {}
       throw new Error("Voice-Verbindung konnte nicht hergestellt werden.");
     }
 
-    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
+    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, {
+      timeoutMs: confirmTimeoutMs,
+      intervalMs: confirmIntervalMs,
+    });
     if (!joinedVoiceState) {
       this.finishVoiceConnectionAttempt(state);
       try { connection.destroy(); } catch {}
@@ -7234,7 +7263,11 @@ class BotRuntime {
         );
 
         try {
-          await this.ensureVoiceConnectionForChannel(guildId, channel.id, state);
+          await this.ensureVoiceConnectionForChannel(guildId, channel.id, state, {
+            readyTimeoutMs: 30_000,
+            confirmTimeoutMs: 12_000,
+            confirmIntervalMs: 900,
+          });
         } catch (err) {
           log("ERROR", `[${this.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen: ${err?.message || err}`);
           networkRecoveryCoordinator.noteFailure(`${this.config.name} restore-voice-timeout`, `guild=${guildId}`);

@@ -598,3 +598,51 @@ test("voice reconnect scheduling caps excessive global network cooldown delays",
 
   await runtime.stop();
 });
+
+test("voice lost keeps an already queued reconnect timer instead of replacing it", async () => {
+  const runtime = new BotRuntime({
+    id: "test-runtime-6",
+    clientId: "623456789012345678",
+    token: "unit-test-token",
+    name: "OmniFM Test 6",
+    requiredTier: "free",
+  });
+
+  runtime.client.user = {
+    id: "bot-user",
+    setPresence() {},
+  };
+
+  const state = runtime.getState("guild-voice-lost");
+  state.shouldReconnect = true;
+  state.currentStationKey = "station-1";
+  state.lastChannelId = "voice-1";
+  state.connection = {
+    joinConfig: { channelId: "voice-1" },
+    destroy() {},
+  };
+
+  const existingTimer = setTimeout(() => {}, 60_000);
+  state.reconnectTimer = existingTimer;
+
+  let scheduleCalls = 0;
+  runtime.scheduleReconnect = () => {
+    scheduleCalls += 1;
+  };
+  runtime.persistState = () => {};
+  runtime.syncVoiceChannelStatus = () => Promise.resolve();
+
+  runtime.handleBotVoiceStateUpdate(
+    { channelId: "voice-1" },
+    {
+      id: "bot-user",
+      guild: { id: "guild-voice-lost" },
+      channelId: null,
+    },
+  );
+
+  assert.equal(state.reconnectTimer, existingTimer);
+  assert.equal(scheduleCalls, 0);
+
+  await runtime.stop();
+});
