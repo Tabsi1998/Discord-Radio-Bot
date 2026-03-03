@@ -825,7 +825,12 @@ var STATIONS_PER_PAGE = 8;
 var stationsDisplayCount = STATIONS_PER_PAGE;
 
 function renderStations(stations) {
-  allStations = stations || [];
+  // IMPORTANT: Only show official stations (free + pro). NEVER show custom stations.
+  allStations = (stations || []).filter(function(s) {
+    if (s.key && s.key.indexOf('custom:') === 0) return false;
+    var tier = (s.tier || 'free').toLowerCase();
+    return tier === 'free' || tier === 'pro';
+  });
   var freeCount = allStations.filter(function(s) { return (s.tier || 'free') === 'free'; }).length;
   var proCount = allStations.filter(function(s) { return (s.tier || 'free') === 'pro'; }).length;
   document.getElementById('stationCount').textContent = APP_IS_DE
@@ -1489,10 +1494,11 @@ async function refresh() {
 
     renderBots(bots);
     renderStations(stations);
-    renderFooterStats({ ...totals, bots: bots.length, stations: stationsRes.total || stations.length });
+    // Use allStations.length (filtered in renderStations) for accurate count
+    renderFooterStats({ ...totals, bots: bots.length, stations: allStations.length });
 
     document.getElementById('statServers').textContent = fmtInt(totals.servers);
-    document.getElementById('statStations').textContent = fmtInt(stationsRes.total || stations.length);
+    document.getElementById('statStations').textContent = fmtInt(allStations.length);
     document.getElementById('statBots').textContent = fmtInt(bots.length);
   } catch (e) {
     console.error(tr('API Fehler:', 'API error:'), e);

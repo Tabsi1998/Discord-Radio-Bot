@@ -311,10 +311,24 @@ export async function endListeningSession(guildId, { botId = "" } = {}) {
   const endedAt = Date.now();
   const durationMs = Math.max(0, endedAt - session.startedAt);
 
-  // Compute average listeners
+  // Calculate human listening time: only count intervals where at least 1 human was present
   const samples = session.listenerSamples || [];
-  const avgListeners = samples.length > 0
-    ? Math.round(samples.reduce((sum, s) => sum + s.n, 0) / samples.length)
+  let humanListeningMs = 0;
+  if (samples.length > 0) {
+    for (let i = 0; i < samples.length; i++) {
+      if (samples[i].n > 0) {
+        const intervalEnd = i + 1 < samples.length ? samples[i + 1].t : endedAt;
+        humanListeningMs += Math.max(0, intervalEnd - samples[i].t);
+      }
+    }
+  }
+  // Never exceed total session duration
+  humanListeningMs = Math.min(humanListeningMs, durationMs);
+
+  // Compute average listeners (only from non-zero samples)
+  const nonZeroSamples = samples.filter((s) => s.n > 0);
+  const avgListeners = nonZeroSamples.length > 0
+    ? Math.round(nonZeroSamples.reduce((sum, s) => sum + s.n, 0) / nonZeroSamples.length)
     : 0;
 
   const completedSession = {
@@ -326,23 +340,24 @@ export async function endListeningSession(guildId, { botId = "" } = {}) {
     startedAt: new Date(session.startedAt),
     endedAt: new Date(endedAt),
     durationMs,
+    humanListeningMs,
     peakListeners: session.peakListeners,
     avgListeners,
   };
 
-  // Update aggregate stats with duration
+  // Update aggregate stats with human listening time only (not bot-alone time)
   const stats = ensureGuildStatsLocal(gid);
   if (stats) {
-    stats.totalListeningMs += durationMs;
+    stats.totalListeningMs += humanListeningMs;
     stats.totalSessions += 1;
     stats.totalStops += 1;
     stats.lastStoppedAt = endedAt;
-    stats.longestSessionMs = Math.max(stats.longestSessionMs || 0, durationMs);
-    // Rolling average session duration
+    stats.longestSessionMs = Math.max(stats.longestSessionMs || 0, humanListeningMs);
+    // Rolling average session duration (based on human listening time)
     if (stats.totalSessions > 0) {
       stats.avgSessionMs = Math.round(stats.totalListeningMs / stats.totalSessions);
     }
-    incrementBucket(stats.stationListeningMs, session.stationKey, durationMs, 120);
+    incrementBucket(stats.stationListeningMs, session.stationKey, humanListeningMs, 120);
   }
 
   // Save to MongoDB
@@ -350,14 +365,14 @@ export async function endListeningSession(guildId, { botId = "" } = {}) {
     // Store completed session (without raw samples for space)
     await db.collection("listening_sessions").insertOne(completedSession);
 
-    // Update daily stats
+    // Update daily stats with human listening time only
     const dateStr = todayDateString(session.startedAt);
     await db.collection("daily_stats").updateOne(
       { guildId: gid, date: dateStr },
       {
         $inc: {
           totalStarts: 0, // don't double-count, just ensure doc exists
-          totalListeningMs: durationMs,
+          totalListeningMs: humanListeningMs,
           totalSessions: 1,
         },
         $max: { peakListeners: session.peakListeners },
@@ -377,13 +392,24 @@ export function getActiveSessionsForGuild(guildId) {
   const gid = normalizeGuildId(guildId);
   if (!gid) return [];
   const result = [];
+  const now = Date.now();
   for (const [key, session] of activeSessions.entries()) {
     if (session.guildId === gid) {
+      // Calculate human listening time for active session
+      const samples = session.listenerSamples || [];
+      let humanMs = 0;
+      for (let i = 0; i < samples.length; i++) {
+        if (samples[i].n > 0) {
+          const intervalEnd = i + 1 < samples.length ? samples[i + 1].t : now;
+          humanMs += Math.max(0, intervalEnd - samples[i].t);
+        }
+      }
       result.push({
         ...session,
-        currentDurationMs: Date.now() - session.startedAt,
-        currentListeners: session.listenerSamples.length > 0
-          ? session.listenerSamples[session.listenerSamples.length - 1].n
+        currentDurationMs: now - session.startedAt,
+        currentHumanListeningMs: Math.min(humanMs, now - session.startedAt),
+        currentListeners: samples.length > 0
+          ? samples[samples.length - 1].n
           : 0,
       });
     }
@@ -574,7 +600,7 @@ export function getGuildListeningStats(guildId) {
   // Enrich with active sessions
   const activeSess = getActiveSessionsForGuild(gid);
   result.activeSessions = activeSess.length;
-  result.activeListeningMs = activeSess.reduce((sum, s) => sum + s.currentDurationMs, 0);
+  result.activeListeningMs = activeSess.reduce((sum, s) => sum + (s.currentHumanListeningMs || 0), 0);
   result.currentTotalListeningMs = result.totalListeningMs + result.activeListeningMs;
 
   return result;

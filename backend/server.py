@@ -1708,7 +1708,8 @@ async def get_stations():
     stations_list = []
     if db is not None:
         try:
-            for doc in db.stations.find({}, {"_id": 0}):
+            # IMPORTANT: Only include official stations (free + pro). NEVER include custom stations.
+            for doc in db.stations.find({"key": {"$not": {"$regex": "^custom:"}}, "tier": {"$in": ["free", "pro"]}}, {"_id": 0}):
                 stations_list.append({
                     "key": doc.get("key", ""),
                     "name": doc.get("name", doc.get("key", "")),
@@ -1721,13 +1722,16 @@ async def get_stations():
         file_data = load_stations_from_file()
         file_stations = file_data.get("stations", {})
         for key, val in file_stations.items():
+            tier = (val.get("tier", "free") or "free").lower()
+            if key.startswith("custom:") or tier not in ("free", "pro"):
+                continue
             stations_list.append({
                 "key": key,
                 "name": val.get("name", key),
                 "url": val.get("url", ""),
-                "tier": val.get("tier", "free"),
+                "tier": tier,
             })
-    tier_order = {"free": 0, "pro": 1, "ultimate": 2}
+    tier_order = {"free": 0, "pro": 1}
     stations_list.sort(key=lambda s: (tier_order.get(s["tier"], 0), s["name"]))
     default_key = None
     if db is not None:
@@ -1781,15 +1785,18 @@ async def get_stats():
     pro_count = 0
     if db is not None:
         try:
-            station_count = db.stations.count_documents({})
-            free_count = db.stations.count_documents({"tier": "free"})
+            # IMPORTANT: Only count official stations (free + pro). NEVER count custom stations.
+            station_count = db.stations.count_documents({"key": {"$not": {"$regex": "^custom:"}}, "tier": {"$in": ["free", "pro"]}})
+            free_count = db.stations.count_documents({"key": {"$not": {"$regex": "^custom:"}}, "tier": "free"})
             pro_count = station_count - free_count
         except Exception:
             pass
     if station_count == 0:
         file_data = load_stations_from_file()
-        station_count = len(file_data.get("stations", {}))
-        free_count = sum(1 for s in file_data.get("stations", {}).values() if s.get("tier", "free") == "free")
+        # Only count official stations (free + pro), exclude custom stations
+        official = {k: v for k, v in file_data.get("stations", {}).items() if not k.startswith("custom:") and (v.get("tier", "free") or "free").lower() in ("free", "pro")}
+        station_count = len(official)
+        free_count = sum(1 for s in official.values() if (s.get("tier", "free") or "free").lower() == "free")
         pro_count = station_count - free_count
     totals = {"servers": 0, "users": 0, "connections": 0, "listeners": 0, "bots": len(bots), "stations": station_count, "freeStations": free_count, "proStations": pro_count}
     for bot in bots:

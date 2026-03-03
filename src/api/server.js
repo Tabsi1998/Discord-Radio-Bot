@@ -1014,14 +1014,21 @@ function startWebServer(runtimes) {
         return;
       }
       const stations = loadStations();
-      const stationArr = Object.entries(stations.stations).map(([key, value]) => ({
-        key,
-        name: value.name,
-        url: value.url,
-        tier: value.tier || "free",
-      }));
-      // Sort: free first, then pro, then ultimate
-      const tierOrder = { free: 0, pro: 1, ultimate: 2 };
+      // IMPORTANT: Only include official stations (free + pro). NEVER include custom stations.
+      const stationArr = Object.entries(stations.stations)
+        .filter(([key, value]) => {
+          if (key.startsWith("custom:")) return false;
+          const tier = (value.tier || "free").toLowerCase();
+          return tier === "free" || tier === "pro";
+        })
+        .map(([key, value]) => ({
+          key,
+          name: value.name,
+          url: value.url,
+          tier: value.tier || "free",
+        }));
+      // Sort: free first, then pro
+      const tierOrder = { free: 0, pro: 1 };
       stationArr.sort((a, b) => (tierOrder[a.tier] || 0) - (tierOrder[b.tier] || 0) || a.name.localeCompare(b.name));
       sendJson(res, 200, {
         defaultStationKey: stations.defaultStationKey,
@@ -1960,6 +1967,50 @@ function startWebServer(runtimes) {
       }
       roles.sort((a, b) => b.position - a.position);
       sendJson(res, 200, { roles });
+      return;
+    }
+
+    // --- Dashboard: License / Subscription Info ---
+    if (requestUrl.pathname === "/api/dashboard/license") {
+      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+
+      const license = getLicense(guildInfo.id);
+      const result = {
+        serverId: guildInfo.id,
+        tier: guildInfo.tier,
+        tierName: guildInfo.tier === "ultimate" ? "Ultimate" : guildInfo.tier === "pro" ? "Pro" : "Free",
+        dashboardEnabled: guildInfo.dashboardEnabled,
+        ultimateEnabled: guildInfo.ultimateEnabled,
+        license: null,
+      };
+
+      if (license) {
+        const linkedServers = Array.isArray(license.linkedServerIds) ? license.linkedServerIds : [];
+        const seats = Math.max(1, Number(license.seats || 1) || 1);
+        const email = license.email || license.contactEmail || "";
+        const emailParts = email.split("@");
+        const maskedEmail = emailParts.length === 2
+          ? emailParts[0].slice(0, 2) + "***@" + emailParts[1]
+          : "";
+        result.license = {
+          plan: license.plan || license.tier || "free",
+          seats,
+          seatsUsed: linkedServers.length,
+          active: Boolean(license.active) && !Boolean(license.expired),
+          expired: Boolean(license.expired),
+          expiresAt: license.expiresAt || null,
+          remainingDays: Number.isFinite(license.remainingDays) ? license.remainingDays : 0,
+          billingPeriod: license.billingPeriod || "monthly",
+          durationMonths: license.durationMonths || null,
+          emailMasked: maskedEmail,
+        };
+      }
+
+      sendJson(res, 200, result);
       return;
     }
 
