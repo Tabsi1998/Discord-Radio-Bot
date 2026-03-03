@@ -1,24 +1,45 @@
 # OmniFM Discord Radio Bot - Komplette Fehleranalyse & Fixes
 
-## Datum: 2026-01-XX
+## Datum: 2026-03-03
 ## Repository: https://github.com/Tabsi1998/Discord-Radio-Bot
 ## Version: OmniFM v3.0
-## Geaenderte Dateien: 3 (207 Einfuegungen, 146 Loeschungen)
+## Geaenderte Dateien: 6 (222 Einfuegungen, 148 Loeschungen)
 
 ---
 
-## Zusammenfassung der Symptome (vom Benutzer gemeldet)
+## ROOT CAUSE: Discord DAVE Protokoll seit 1. Maerz 2026 PFLICHT!
 
-1. **`/play` startet keinen Voice-Kanal mehr** - Fehlermeldung: `Voice-Verbindung konnte nicht hergestellt werden.`
-2. **Morgens Reconnect-Probleme** - Bot geht immer in Timeout
-3. **`guild-languages.json` Parse-Fehler** - `Unexpected non-whitespace character after JSON at position 25`
-4. **Deprecation Warning** - `Supplying "ephemeral" for interaction response options is deprecated`
+Am 1-2. Maerz 2026 hat Discord das **DAVE End-to-End Encryption Protokoll** fuer ALLE Voice-Verbindungen verpflichtend gemacht. Bots die DAVE nicht unterstuetzen koennen sich NICHT MEHR in Voice-Channels verbinden.
+
+**Der Bot crasht am 3. Maerz 2026 - genau 2 Tage nach dem Enforcement.**
+
+### 3 Kritische fehlende Abhaengigkeiten:
+1. **Node.js 20 im Dockerfile** -> `@discordjs/voice@0.18.0` braucht **Node.js 22.12.0+**
+2. **`@snazzah/davey` fehlt** -> Pflicht-Library fuer DAVE E2EE Protokoll
+3. **Keine Encryption-Library** -> `sodium-native` + `libsodium-wrappers` fehlen komplett
 
 ---
 
-## Gefundene Fehler & Angewendete Fixes
+## Alle Fixes (Zusammenfassung)
 
-### FIX 1: KRITISCH - `album` undefiniert in `buildNowPlayingEmbedLegacy()` [BEHOBEN]
+### FIX 0: SHOW-STOPPER - DAVE Protokoll + Node.js Version [BEHOBEN]
+
+**Dateien:** `Dockerfile`, `package.json`, `src/index.js`
+
+**Problem:** Discord erzwingt seit 1. Maerz 2026 das DAVE E2EE-Protokoll. Ohne die richtigen Libraries kann der Bot KEINE Voice-Verbindung mehr herstellen. Das erklaert exakt das Timeout nach 20s - die DAVE-Handshake schlaegt fehl.
+
+**Fixes angewendet:**
+
+| Datei | Aenderung |
+|-------|-----------|
+| `Dockerfile` | `node:20-slim` -> **`node:22-slim`** (beide Stages) |
+| `Dockerfile` | `libsodium-dev` hinzugefuegt (fuer sodium-native Kompilierung) |
+| `package.json` | **`@snazzah/davey: ^0.1.6`** hinzugefuegt (DAVE E2EE Protokoll) |
+| `package.json` | **`sodium-native: ^3.3.0`** hinzugefuegt (beste Performance) |
+| `package.json` | **`libsodium-wrappers: ^0.7.9`** hinzugefuegt (Fallback) |
+| `src/index.js` | Voice-Dependency-Report beim Start (zeigt ob alles korrekt geladen) |
+
+---
 **Datei:** `src/bot/runtime.js`, Zeile 1207
 **Problem:** Die Variable `album` wird in Zeile 1207 verwendet, aber nirgends in `buildNowPlayingEmbedLegacy()` deklariert. 
 **Impact:** `ReferenceError: album is not defined` wenn Legacy-Embed mit Album-Daten aufgerufen wird.
