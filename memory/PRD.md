@@ -1,93 +1,77 @@
 # PRD - OmniFM Discord Radio Bot
 
 ## Original Problem Statement
-Der User moechte den Discord Radio Bot (https://github.com/Tabsi1998/Discord-Radio-Bot) vollstaendig betriebsbereit machen. Initiale Anfrage war eine komplette Fehleranalyse und Behebung aller Probleme.
-
-## Neue Features angefragt:
-1. **Erweitertes Statistik-System** (P0) - anonymisiert, DSGVO-konform
-2. **Dashboard-Ueberarbeitung** (P1) - Statistik-Visualisierung, Event-Management
-3. **Markdown-Editor** fuer Nachrichten im Dashboard (P2)
+Der User moechte den Discord Radio Bot (https://github.com/Tabsi1998/Discord-Radio-Bot) vollstaendig betriebsbereit machen und mit erweiterten Features ausstatten.
 
 ## Architektur
 - **Backend:** Node.js + Express.js + Discord.js
-- **Datenbank:** MongoDB (neu, mit JSON-Fallback)
-- **Deployment:** Docker (docker-compose.yml mit MongoDB Service)
-- **Frontend:** React (Dashboard, unter /frontend)
+- **Datenbank:** MongoDB 7 (Docker-Service, mit JSON-Fallback)
+- **Frontend:** React 18 + Recharts (Dashboard)
+- **Deployment:** Docker Compose mit MongoDB + OmniFM Services
+- **Pattern:** Commander/Worker (1 Commander + 16 Worker Bots)
 
 ## Abgeschlossene Arbeiten
 
 ### Phase 0: Bot-Reparatur (ABGESCHLOSSEN)
-- DAVE E2EE Protocol Kompatibilitaet hergestellt
-- Node.js 20 -> 22 Upgrade in Dockerfile
-- Voice-Verbindungsprobleme behoben
-- Dependency-Updates (discord.js 14.25.1, @discordjs/voice 0.19.0)
-- 140+ deprecated ephemeral-Syntax ersetzt
-- Repository bereinigt (keine temporaeren Dateien)
+- DAVE E2EE Protocol, Node.js 22, Voice-Fixes, Dependency-Updates
 
-### Phase 1: Statistik-System (ABGESCHLOSSEN - 2026-03-03)
+### Phase 1: Statistik-System mit MongoDB (ABGESCHLOSSEN - 2026-03-03)
 **MongoDB-Integration:**
-- MongoDB Service zu docker-compose.yml hinzugefuegt (mit persistentem Volume)
-- src/lib/db.js komplett ueberarbeitet: Auto-Init, Collections, Indexes, Reconnect
-- docker-entrypoint.sh: MongoDB-Readiness-Check vor App-Start
-- Automatische JSON->MongoDB Migration bei erster Verbindung
+- MongoDB Service in docker-compose.yml mit persistentem Volume
+- Auto-Init aller Collections/Indizes bei Startup
 - JSON-Fallback bleibt immer aktiv als Backup
+- Automatische JSON->MongoDB Migration
 
-**Neue Dateien/Aenderungen:**
-- `src/listening-stats-store.js` - Komplett neugeschrieben fuer MongoDB
-- `src/lib/db.js` - Erweitert mit Auto-Init fuer 5 Collections
-- `src/bot/runtime.js` - Session-Tracking, Connection-Events
-- `src/api/server.js` - 2 neue API-Endpunkte
-- `docker-compose.yml` - MongoDB Service hinzugefuegt
-- `docker-entrypoint.sh` - MongoDB Readiness-Check
-- `update.sh` - MongoDB Status in Doctor/Status, MONGO_URL/DB_NAME Defaults
+**Erfasste Metriken (32, DSGVO-konform):**
+- Hoerzeit (Gesamt/Durchschnitt/Laengste Session)
+- Session-Tracking (Start/Ende/Dauer/Peak/Avg Listeners)
+- Station-Popularitaet (Starts + Hoerzeit)
+- Stunden/Wochentag-Verteilung
+- Voice-Channel-Nutzung, Command-Usage
+- Verbindungsgesundheit (Connects/Reconnects/Errors/%)
+- Listener-Snapshots, Taegliche Aggregate, Globale Stats
 
-**Erfasste Statistiken (anonymisiert, DSGVO-konform):**
-- Hoerzeit pro Guild (Gesamt, Durchschnitt, Laengste Session)
-- Session-Tracking (Start, Ende, Dauer, Peak/Avg Listeners)
-- Stations-Popularitaet (nach Starts UND Hoerzeit)
-- Stundenverteilung (wann wird am meisten gehoert)
-- Wochentag-Verteilung
-- Voice-Channel-Nutzung
-- Command-Usage-Tracking
-- Verbindungsgesundheit (Connects, Reconnects, Errors, Zuverlaessigkeit %)
-- Listener-Snapshots (Zeitverlauf)
-- Taegliche Aggregate (MongoDB)
-- Globale Statistiken (uebergreifend)
+**MongoDB Collections:** guild_stats, daily_stats, listening_sessions (TTL 180d), connection_events (TTL 90d), listener_snapshots (TTL 30d)
+
+### Phase 2: Dashboard-Ueberarbeitung (ABGESCHLOSSEN - 2026-03-03)
+**Neue Dashboard-Komponenten:**
+- `DashboardOverview.js` - 6 Metrikkarten + 4 Charts (Stunde, Wochentag, Station-Pie, Daily-Trend) + Active Sessions + Session-Details
+- `DashboardStats.js` - Ultimate-only: Hoerzeit-Verlauf, Station-Ranking, Command-Usage, Listener-Timeline, Session-History-Tabelle, Connection-Health, Channel-Usage
+- `DashboardEvents.js` - Verbesserte Event-Verwaltung mit Toggle-Form, expandierbare Event-Cards, Status-Badges
+- `DashboardPortal.js` - Schlankerer Shell mit neuen Tab-Routing
+
+**Installierte Pakete:** recharts (Charts)
 
 **Neue API-Endpunkte:**
-- `GET /api/dashboard/stats/detail` - Detaillierte Stats (Ultimate-only, mit daily/session/connection/timeline)
-- `GET /api/stats/global` - Oeffentliche globale Statistiken
-
-**MongoDB Collections:**
-- `guild_stats` - Aggregierte Stats pro Guild
-- `daily_stats` - Taegliche Aggregate (TTL: unbegrenzt)
-- `listening_sessions` - Abgeschlossene Sessions (TTL: 180 Tage)
-- `connection_events` - Verbindungsereignisse (TTL: 90 Tage)
-- `listener_snapshots` - Listener-Zaehlung ueber Zeit (TTL: 30 Tage)
-
-**Tests:** 32/32 bestanden (MongoDB + JSON fallback + Syntax)
+- `GET /api/dashboard/stats/detail` - Ultimate: daily/session/connection/timeline
+- `GET /api/stats/global` - Oeffentliche globale Stats
 
 ## Naechste Aufgaben
 
-### Phase 2: Dashboard-Ueberarbeitung (P1)
-1. Dashboard-UI komplett ueberarbeiten
-2. Statistik-Visualisierung mit Charts (Hoerzeit, Listener-Verlauf, Station-Ranking)
-3. Stundenverteilung und Wochentag-Diagramme
-4. Connection-Health Dashboard
-5. Live-Status Anzeige
-
-### Phase 3: Event-Management im Dashboard (P2)
-1. CRUD-Interface fuer Scheduled Events
-2. Kalenderansicht
-3. Discord-Server-Sync (Rollen, Channels)
-
-### Phase 4: Nachrichten-Editor (P2)
+### Phase 3: Nachrichten-Editor (P2)
 1. Markdown-Editor fuer Event-Nachrichten
 2. Emoji-Picker (Server-Emojis, Standard-Emojis)
 3. GIF-Integration
 4. Vorschau-Funktion
 
-## Backlog
-- Tier-basierte Stats-Anzeige (Pro vs Ultimate) im /stats Command und Dashboard
-- Export-Funktion fuer Stats (CSV/JSON)
+### Backlog
+- Tier-basierte Stats im /stats Slash-Command (Pro vs Ultimate)
+- Stats-Export (CSV/JSON)
 - Webhook-Benachrichtigungen bei Meilensteinen
+- Woechentlicher Auto-Report als Discord-Embed
+- Discord-Server-Sync (Rollen/Channels im Dashboard anzeigen)
+
+## Geaenderte Dateien
+- `docker-compose.yml` - MongoDB Service + Volume
+- `docker-entrypoint.sh` - MongoDB Readiness-Check
+- `src/lib/db.js` - Auto-Init Collections/Indizes
+- `src/listening-stats-store.js` - MongoDB + Session-Tracking
+- `src/bot/runtime.js` - Session/Connection-Events
+- `src/api/server.js` - Neue Stats-Endpunkte
+- `src/index.js` - Migration JSON->MongoDB
+- `update.sh` - MongoDB Status/Doctor/Defaults
+- `frontend/src/components/DashboardPortal.js` - Neugeschrieben
+- `frontend/src/components/DashboardOverview.js` - NEU
+- `frontend/src/components/DashboardStats.js` - NEU
+- `frontend/src/components/DashboardEvents.js` - NEU
+- `frontend/package.json` - recharts hinzugefuegt
