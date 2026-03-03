@@ -66,7 +66,30 @@ Discord Radio Bot reparieren, erweitern und ein Dashboard bereitstellen.
   - Info-Banner in DashboardOverview mit Erklaerung der dauerhaften MongoDB-Speicherung
   - data-testid="lifetime-stats-info"
 
+### Phase 8 - P0 Critical Bugfixes (03.03.2026)
+- **Custom Station Leak Fix:**
+  - /api/stations filtert jetzt NUR free + pro Stationen (keine custom: Prefix, kein Ultimate)
+  - /api/stats zaehlt nur offizielle Stationen
+  - Frontend filtert zusaetzlich client-seitig als Defense-in-Depth
+  - Fix in: backend/server.py, src/api/server.js, web/app.js
+- **License API 404 Fix:**
+  - /api/dashboard/license Endpoint in Node.js Production Server (src/api/server.js) hinzugefuegt
+  - Gibt Tier, License-Info, maskierte E-Mail, Seats etc. zurueck
+  - Konsistent mit FastAPI-Implementation in backend/server.py
+- **Hoerzeit-Berechnung Fix:**
+  - endListeningSession() berechnet jetzt nur humanListeningMs (Zeit mit mind. 1 menschl. Zuhoerer)
+  - getActiveSessionsForGuild() gibt currentHumanListeningMs zurueck
+  - Aggregate stats (totalListeningMs, daily_stats) nutzen humanListeningMs statt durationMs
+  - Bot-allein-Zeit wird nicht mehr gezaehlt
+- **Log-Review:**
+  - AcoustID no matches: Erwartetes Verhalten (Song-Erkennung)
+  - Stream idle restart: Auto-Reconnect funktioniert korrekt
+  - EBUSY atomic rename: Fallback auf direkten Write, nicht kritisch
+
 ## Offene Tasks
+
+### P1
+- TypeScript-Migration Empfehlung evaluieren
 
 ### Backlog
 - Stats-Export
@@ -76,6 +99,8 @@ Discord Radio Bot reparieren, erweitern und ein Dashboard bereitstellen.
 ## Schluessel-API-Endpunkte
 - GET /api/health
 - GET /api/bots, /api/workers
+- GET /api/stations (nur free + pro, KEINE custom)
+- GET /api/stats (nur offizielle Stationen gezaehlt)
 - GET /api/dashboard/guilds
 - GET /api/dashboard/stats?serverId=X
 - GET /api/dashboard/license?serverId=X
@@ -109,3 +134,5 @@ Discord Radio Bot reparieren, erweitern und ein Dashboard bereitstellen.
 - src/lib/db.js - MongoDB Verbindung
 - src/listening-stats-store.js - Statistik-Store
 - src/bot/runtime.js - Bot Runtime
+- web/app.js - Hauptseite Frontend
+- web/index.html - Hauptseite HTML
