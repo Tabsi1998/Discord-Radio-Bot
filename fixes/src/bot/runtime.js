@@ -2421,6 +2421,11 @@ class BotRuntime {
       }
     };
 
+    // Workaround: configureNetworking() when connection drops from Ready to Connecting
+    connection.on(VoiceConnectionStatus.Connecting, () => {
+      try { connection.configureNetworking(); } catch {}
+    });
+
     connection.on(VoiceConnectionStatus.Disconnected, async () => {
       if (!state.shouldReconnect) {
         markDisconnected();
@@ -4036,13 +4041,48 @@ class BotRuntime {
       state.shouldReconnect = previousShouldReconnect;
     }
 
+    // Custom adapter creator wrapper with sendPayload verification
+    const originalAdapter = guild.voiceAdapterCreator;
+    const botName = this.config.name;
+    const wrappedAdapter = (methods) => {
+      const adapter = originalAdapter(methods);
+      const originalSendPayload = adapter.sendPayload.bind(adapter);
+      adapter.sendPayload = (data) => {
+        const result = originalSendPayload(data);
+        if (!result) {
+          log("WARN", `[${botName}] Voice sendPayload returned false for guild=${guildId} (shard not ready?)`);
+        }
+        return result;
+      };
+      return adapter;
+    };
+
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
+      adapterCreator: wrappedAdapter,
       group: this.voiceGroup,
-      selfDeaf: true
+      selfDeaf: true,
+      debug: true
     });
+
+    // Debug + state change logging for voice connection diagnostics
+    connection.on("stateChange", (oldState, newState) => {
+      log("INFO", `[${botName}] VoiceState: ${oldState.status} -> ${newState.status} guild=${guildId}`);
+      // Workaround: Force networking reconfiguration when connection drops from Ready to Connecting
+      if (
+        newState.status === VoiceConnectionStatus.Connecting &&
+        (oldState.status === VoiceConnectionStatus.Ready || oldState.status === VoiceConnectionStatus.Signalling)
+      ) {
+        try { connection.configureNetworking(); } catch {}
+      }
+    });
+    connection.on("debug", (msg) => {
+      if (msg.includes("error") || msg.includes("Error") || msg.includes("timeout") || msg.includes("close") || msg.includes("destroy")) {
+        log("DEBUG", `[${botName}] VoiceDebug guild=${guildId}: ${msg}`);
+      }
+    });
+
     state.connection = connection;
 
     try {
@@ -5101,13 +5141,41 @@ class BotRuntime {
       state.connection = null;
     }
 
+    // Custom adapter creator wrapper (same as ensureVoiceConnection)
+    const originalAdapter = guild.voiceAdapterCreator;
+    const botName = this.config.name;
+    const wrappedAdapter = (methods) => {
+      const adapter = originalAdapter(methods);
+      const originalSendPayload = adapter.sendPayload.bind(adapter);
+      adapter.sendPayload = (data) => {
+        const result = originalSendPayload(data);
+        if (!result) {
+          log("WARN", `[${botName}] Reconnect sendPayload returned false for guild=${guildId}`);
+        }
+        return result;
+      };
+      return adapter;
+    };
+
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
+      adapterCreator: wrappedAdapter,
       group: this.voiceGroup,
-      selfDeaf: true
+      selfDeaf: true,
+      debug: true
     });
+
+    connection.on("stateChange", (oldState, newState) => {
+      log("INFO", `[${botName}] ReconnectVoiceState: ${oldState.status} -> ${newState.status} guild=${guildId}`);
+      if (
+        newState.status === VoiceConnectionStatus.Connecting &&
+        (oldState.status === VoiceConnectionStatus.Ready || oldState.status === VoiceConnectionStatus.Signalling)
+      ) {
+        try { connection.configureNetworking(); } catch {}
+      }
+    });
+
     log("INFO", `[${this.config.name}] Rejoin Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
     state.connection = connection;
 

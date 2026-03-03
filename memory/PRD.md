@@ -1,24 +1,40 @@
-# PRD - OmniFM Discord Radio Bot Fehleranalyse
+# PRD - OmniFM Discord Radio Bot
 
 ## Original Problem Statement
-Repo klonen (https://github.com/Tabsi1998/Discord-Radio-Bot) und komplette Fehleranalyse durchfuehren.
-Hauptprobleme: /play funktioniert nicht, Reconnect-Timeouts, guild-languages.json Parse-Fehler, ephemeral Deprecation.
+Discord Radio Bot: /play funktioniert nicht, Voice-Timeouts, Reconnect-Probleme.
 
-## ROOT CAUSE
-Discord hat am 1-2. Maerz 2026 das DAVE E2EE-Protokoll fuer alle Voice-Verbindungen verpflichtend gemacht.
-Dem Bot fehlten: Node.js 22+, @snazzah/davey, sodium-native, libsodium-wrappers.
+## ROOT CAUSE (2 Probleme)
+1. Discord DAVE E2EE Protokoll seit 01.03.2026 Pflicht -> Fehlende Dependencies
+2. Voice Connection stuck at "signalling" -> sendPayload/configureNetworking Bug in Multi-Bot Setup
 
-## Implementierte Fixes
-- FIX 0: DAVE Protokoll Support (Node.js 22, @snazzah/davey, sodium-native, libsodium-wrappers)
-- FIX 1-7: album Bug, ephemeral->MessageFlags (133x), Voice-Timeout, Auto-Reconnect, guild-language Auto-Repair, JSON-Validierung, setEmoji Bug
+## Implementierte Fixes (finale Version - 1 sauberer Commit)
 
-## Delivery
-- apply-fixes.sh Script erstellt und getestet gegen frischen Klon
-- 147 Aenderungen in 6 Dateien, alle Syntax-Checks bestanden
-- Script liegt unter /app/fixes/apply-fixes.sh
+### Voice Connection (Hauptproblem)
+- Custom voiceAdapterCreator Wrapper mit sendPayload-Logging
+- configureNetworking() Workaround fuer Signalling->Connecting Transitions
+- Debug-Logging fuer alle Voice State-Transitions
+- Timeout 20s->30s, Auto-Reconnect bei Timeout statt harter Reset
 
-## Naechste Schritte
-1. User muss apply-fixes.sh auf Server kopieren und ausfuehren
-2. docker compose build --no-cache && docker compose up -d
-3. Voice-Dependencies Report im Log pruefen
-4. /play testen
+### DAVE E2EE Support
+- Dockerfile: node:20->22 + libsodium-dev
+- package.json: @snazzah/davey, sodium-native, libsodium-wrappers, discord.js ^14.18
+
+### Weitere Fixes
+- 133x ephemeral->MessageFlags.Ephemeral
+- album undefined in buildNowPlayingEmbedLegacy
+- guild-language-store Auto-Repair
+- docker-entrypoint.sh JSON-Validierung
+- Triple setEmoji Bug
+
+## Geaenderte Dateien (6 Dateien, 295+, 153-)
+- Dockerfile, package.json, docker-entrypoint.sh
+- src/index.js, src/guild-language-store.js, src/bot/runtime.js
+
+## Code-Qualitaet
+- 38 JS-Dateien geprueft: ALLE Syntax OK
+- Keine offenen TODO/FIXME/BUG Marker
+- Frontend App.js: Syntax OK
+
+## Status
+- Fixes bereit zum Deployment
+- Voice-Debug-Logging aktiviert fuer Diagnose falls "signalling" weiterhin haengt
