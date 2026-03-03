@@ -1,0 +1,1405 @@
+From 2d264a2191fd2c1944e1d0f3ad0c5cc730501259 Mon Sep 17 00:00:00 2001
+From: emergent-agent-e1 <github@emergent.sh>
+Date: Tue, 3 Mar 2026 09:49:36 +0000
+Subject: [PATCH] fix: DAVE E2EE Protokoll Support + 7 weitere Bugfixes
+
+BREAKING: Discord erzwingt seit 01.03.2026 DAVE E2EE fuer Voice.
+
+Kritische Fixes:
+- Dockerfile: node:20 -> node:22 + libsodium-dev
+- package.json: @snazzah/davey, sodium-native, libsodium-wrappers
+- index.js: Voice-Dependency-Report beim Start
+- runtime.js: ephemeral->MessageFlags (133x), album undefined fix,
+  Voice-Timeout 20s->30s, Auto-Reconnect bei Voice-Timeout,
+  Triple setEmoji fix
+- guild-language-store.js: Auto-Repair bei korrupter JSON
+- docker-entrypoint.sh: JSON-Validierung beim Container-Start
+---
+ Dockerfile                  |   5 +-
+ docker-entrypoint.sh        |   9 +
+ package.json                |   3 +
+ src/bot/runtime.js          | 317 +++++++++++++++++++-----------------
+ src/guild-language-store.js |  27 ++-
+ src/index.js                |   9 +
+ 6 files changed, 222 insertions(+), 148 deletions(-)
+
+diff --git a/Dockerfile b/Dockerfile
+index a394edf..3e99aa1 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,6 +1,6 @@
+ # escape=\
+ 
+-FROM node:20-slim AS frontend-builder
++FROM node:22-slim AS frontend-builder
+ 
+ WORKDIR /frontend
+ 
+@@ -10,7 +10,7 @@ RUN npm install
+ COPY frontend/ ./
+ RUN npm run build
+ 
+-FROM node:20-slim
++FROM node:22-slim
+ 
+ RUN set -eux; \
+   apt-get update; \
+@@ -24,6 +24,7 @@ RUN set -eux; \
+     ca-certificates \
+     libopus0 \
+     libopus-dev \
++    libsodium-dev \
+     python3 \
+     make \
+     g++ \
+diff --git a/docker-entrypoint.sh b/docker-entrypoint.sh
+index 0e98265..cc2de6d 100755
+--- a/docker-entrypoint.sh
++++ b/docker-entrypoint.sh
+@@ -33,6 +33,15 @@ init_json_file() {
+   if [ -f "$filepath" ] && [ ! -s "$filepath" ]; then
+     echo '{}' > "$filepath" 2>/dev/null || true
+   fi
++
++  # Validate JSON content
++  if [ -f "$filepath" ] && [ -s "$filepath" ]; then
++    if ! node -e "JSON.parse(require('fs').readFileSync('$filepath','utf8'))" 2>/dev/null; then
++      echo "[WARN] $filename enthaelt ungueltiges JSON. Erstelle Backup und initialisiere neu."
++      cp "$filepath" "${filepath}.corrupt-$(date +%s)" 2>/dev/null || true
++      echo '{}' > "$filepath" 2>/dev/null || true
++    fi
++  fi
+ }
+ 
+ init_json_file "/app/bot-state.json"
+diff --git a/package.json b/package.json
+index 11e36a7..d701a6e 100644
+--- a/package.json
++++ b/package.json
+@@ -20,10 +20,13 @@
+     "@discordjs/opus": "^0.10.0",
+     "@discordjs/rest": "^2.4.2",
+     "@discordjs/voice": "^0.18.0",
++    "@snazzah/davey": "^0.1.6",
+     "discord.js": "^14.17.3",
+     "dotenv": "^16.4.7",
++    "libsodium-wrappers": "^0.7.9",
+     "mongodb": "^7.1.0",
+     "nodemailer": "^8.0.1",
++    "sodium-native": "^3.3.0",
+     "stripe": "^17.0.0"
+   }
+ }
+diff --git a/src/bot/runtime.js b/src/bot/runtime.js
+index 00d88fa..d21b160 100644
+--- a/src/bot/runtime.js
++++ b/src/bot/runtime.js
+@@ -21,6 +21,7 @@ import {
+   Routes,
+   GuildScheduledEventPrivacyLevel,
+   GuildScheduledEventEntityType,
++  MessageFlags,
+ } from "discord.js";
+ import { REST } from "@discordjs/rest";
+ import {
+@@ -300,7 +301,7 @@ class BotRuntime {
+             if (interaction.deferred || interaction.replied) {
+               await interaction.editReply({ content: errorMessage });
+             } else {
+-              await interaction.reply({ content: errorMessage, ephemeral: true });
++              await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
+             }
+           } catch {
+             // ignore secondary reply failures
+@@ -763,9 +764,7 @@ class BotRuntime {
+         .setStyle(ButtonStyle.Link)
+         .setLabel("▶ YouTube")
+         .setEmoji("\u25b6")
+-        .setEmoji("\u25b6")
+-        .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`)
+-        .setEmoji("\u25b6"),
++        .setURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`),
+       new ButtonBuilder()
+         .setStyle(ButtonStyle.Link)
+         .setLabel("♫ Spotify")
+@@ -1089,6 +1088,7 @@ class BotRuntime {
+     const stationName = clipText(station?.name || meta?.name || "-", 120) || "-";
+     const artist = clipText(this.normalizeNowPlayingValue(meta?.artist, station, meta, 120), 120);
+     const title = clipText(this.normalizeNowPlayingValue(meta?.title, station, meta, 140), 140);
++    const album = clipText(this.normalizeNowPlayingValue(meta?.album, station, meta, 140), 140);
+     const trackLabel = clipText(
+       this.normalizeNowPlayingValue(meta?.displayTitle || meta?.streamTitle, station, meta, 180)
+       || ([artist, title].filter(Boolean).join(" - ")),
+@@ -2840,7 +2840,7 @@ class BotRuntime {
+     const { t } = this.createInteractionTranslator(interaction);
+     if (this.role !== "commander" || !this.workerManager) {
+       if (interaction.isRepliable?.()) {
+-        await interaction.reply({ content: t("Nur der Commander kann dieses Menue bedienen.", "Only the commander can use this menu."), ephemeral: true });
++        await interaction.reply({ content: t("Nur der Commander kann dieses Menue bedienen.", "Only the commander can use this menu."), flags: MessageFlags.Ephemeral });
+       }
+       return true;
+     }
+@@ -2848,7 +2848,7 @@ class BotRuntime {
+     if (!interaction.guildId) {
+       await interaction.reply({
+         content: t("Dieses Menue funktioniert nur auf Servern.", "This menu only works in servers."),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return true;
+     }
+@@ -2880,7 +2880,7 @@ class BotRuntime {
+     if (interaction.customId.startsWith(INVITE_COMPONENT_PREFIX)) {
+       await interaction.reply({
+         content: t("Diese Aktion ist nicht mehr gueltig. Bitte aktualisiere das Menue.", "This action is no longer valid. Please refresh the menu."),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return true;
+     }
+@@ -2986,7 +2986,7 @@ class BotRuntime {
+       if (interaction.isRepliable?.()) {
+         await interaction.reply({
+           content: t("Nur der Commander kann dieses Menue bedienen.", "Only the commander can use this menu."),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+       }
+       return true;
+@@ -2995,7 +2995,7 @@ class BotRuntime {
+     if (!interaction.guildId) {
+       await interaction.reply({
+         content: t("Dieses Menue funktioniert nur auf Servern.", "This menu only works in servers."),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return true;
+     }
+@@ -3009,7 +3009,7 @@ class BotRuntime {
+     if (interaction.customId.startsWith(WORKERS_COMPONENT_PREFIX)) {
+       await interaction.reply({
+         content: t("Diese Aktion ist nicht mehr gueltig. Bitte aktualisiere die Ansicht.", "This action is no longer valid. Please refresh the view."),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return true;
+     }
+@@ -3039,7 +3039,7 @@ class BotRuntime {
+           "Aktion fehlgeschlagen. Bitte aktualisiere die Ansicht und versuche es erneut.",
+           "Action failed. Please refresh the view and try again."
+         ),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       };
+       try {
+         if (interaction.deferred || interaction.replied) {
+@@ -3284,7 +3284,7 @@ class BotRuntime {
+           "Du brauchst die Berechtigung `Server verwalten` fuer `/perm`.",
+           "You need the `Manage Server` permission for `/perm`."
+         ),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -3293,7 +3293,7 @@ class BotRuntime {
+     if (!feature.ok) {
+       await interaction.reply({
+         content: `${getFeatureRequirementMessage(feature, language)}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -3307,7 +3307,7 @@ class BotRuntime {
+           `Unbekannter Command: \`${rawCommand}\``,
+           `Unknown command: \`${rawCommand}\``
+         ),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -3317,7 +3317,7 @@ class BotRuntime {
+       const result = setCommandRolePermission(guildId, command, role.id, sub);
+       if (!result.ok) {
+         const storeMessage = translatePermissionStoreMessage(result.message, language);
+-        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), ephemeral: true });
++        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       await this.respondLongInteraction(
+@@ -3325,7 +3325,7 @@ class BotRuntime {
+         `${t("Rolle", "Role")} ${role.toString()} ${t("ist jetzt fuer", "is now")} \`/${command}\` ${sub === "allow" ? t("erlaubt", "allowed") : t("gesperrt", "blocked")}.\n` +
+           `Allow: ${this.formatPermissionRoleMentions(result.rule.allowRoleIds)}\n` +
+           `Deny: ${this.formatPermissionRoleMentions(result.rule.denyRoleIds)}`,
+-        { ephemeral: true }
++        { flags: MessageFlags.Ephemeral }
+       );
+       return;
+     }
+@@ -3335,7 +3335,7 @@ class BotRuntime {
+       const result = removeCommandRolePermission(guildId, command, role.id);
+       if (!result.ok) {
+         const storeMessage = translatePermissionStoreMessage(result.message, language);
+-        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), ephemeral: true });
++        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       await this.respondLongInteraction(
+@@ -3343,7 +3343,7 @@ class BotRuntime {
+         `${t("Regel fuer", "Rule for")} ${role.toString()} ${t("bei", "on")} \`/${command}\` ${result.changed ? t("entfernt", "removed") : t("war nicht gesetzt", "was not set")}.\n` +
+           `Allow: ${this.formatPermissionRoleMentions(result.rule.allowRoleIds)}\n` +
+           `Deny: ${this.formatPermissionRoleMentions(result.rule.denyRoleIds)}`,
+-        { ephemeral: true }
++        { flags: MessageFlags.Ephemeral }
+       );
+       return;
+     }
+@@ -3352,7 +3352,7 @@ class BotRuntime {
+       const result = resetCommandPermissions(guildId, command || null);
+       if (!result.ok) {
+         const storeMessage = translatePermissionStoreMessage(result.message, language);
+-        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), ephemeral: true });
++        await interaction.reply({ content: t(`Fehler: ${storeMessage}`, `Error: ${storeMessage}`), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -3361,14 +3361,14 @@ class BotRuntime {
+           content: result.changed
+             ? t(`Regeln fuer \`/${command}\` wurden zurueckgesetzt.`, `Rules for \`/${command}\` were reset.`)
+             : t(`Fuer \`/${command}\` waren keine Regeln gesetzt.`, `No rules were configured for \`/${command}\`.`),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+       } else {
+         await interaction.reply({
+           content: result.changed
+             ? t("Alle Command-Regeln fuer diesen Server wurden zurueckgesetzt.", "All command rules for this server were reset.")
+             : t("Es waren keine Command-Regeln gesetzt.", "No command rules were configured."),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+       }
+       return;
+@@ -3394,7 +3394,7 @@ class BotRuntime {
+           content: command
+             ? t(`Fuer \`/${command}\` sind keine Rollenregeln gesetzt.`, `No role rules are configured for \`/${command}\`.`)
+             : t("Keine Command-Rollenregeln gesetzt.", "No command role rules are configured."),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -3402,11 +3402,11 @@ class BotRuntime {
+       const header = command
+         ? t(`Regeln fuer \`/${command}\`:`, `Rules for \`/${command}\`:`)
+         : t(`Aktive Command-Rollenregeln (${lines.length}):`, `Active command role rules (${lines.length}):`);
+-      await this.respondLongInteraction(interaction, `${header}\n${lines.join("\n")}`, { ephemeral: true });
++      await this.respondLongInteraction(interaction, `${header}\n${lines.join("\n")}`, { flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+-    await interaction.reply({ content: t("Unbekannte /perm Aktion.", "Unknown /perm action."), ephemeral: true });
++    await interaction.reply({ content: t("Unbekannte /perm Aktion.", "Unknown /perm action."), flags: MessageFlags.Ephemeral });
+   }
+ 
+   normalizeStationReference(rawStationKey) {
+@@ -4046,17 +4046,20 @@ class BotRuntime {
+     state.connection = connection;
+ 
+     try {
+-      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
++      await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+     } catch {
++      log("WARN", `[${this.config.name}] Voice-Timeout: guild=${guildId} channel=${channel.id} (${channel.name || "-"}) state=${connection.state?.status || "unknown"}`);
+       if (state.connection === connection) {
+         state.connection = null;
+       }
+       try { connection.destroy(); } catch {}
++      networkRecoveryCoordinator.noteFailure(`${this.config.name} voice-connect-timeout`, `guild=${guildId} channel=${channel.id}`);
+       throw new Error("Voice-Verbindung konnte nicht hergestellt werden.");
+     }
+ 
+-    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
++    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 10_000, intervalMs: 700 });
+     if (!joinedVoiceState) {
++      log("WARN", `[${this.config.name}] Voice-Confirm fehlgeschlagen: guild=${guildId} channel=${channel.id} (${channel.name || "-"})`);
+       if (state.connection === connection) {
+         state.connection = null;
+       }
+@@ -4381,7 +4384,7 @@ class BotRuntime {
+           "Du brauchst die Berechtigung `Server verwalten` fuer `/event`.",
+           "You need the `Manage Server` permission for `/event`."
+         ),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -4390,7 +4393,7 @@ class BotRuntime {
+     if (!feature.ok) {
+       await interaction.reply({
+         content: `${getFeatureRequirementMessage(feature, language)}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -4402,7 +4405,7 @@ class BotRuntime {
+     if (!guild || !me) {
+       await interaction.reply({
+         content: t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load the bot member in this server."),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -4466,7 +4469,7 @@ class BotRuntime {
+       const description = this.normalizeClearableText(interaction.options.getString("description"), 800);
+ 
+       if (!name) {
+-        await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), ephemeral: true });
++        await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -4475,13 +4478,13 @@ class BotRuntime {
+         createDiscordEvent,
+       });
+       if (voiceError) {
+-        await interaction.reply({ content: voiceError, ephemeral: true });
++        await interaction.reply({ content: voiceError, flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+       const textError = validateTextChannel(textChannel);
+       if (textError) {
+-        await interaction.reply({ content: textError, ephemeral: true });
++        await interaction.reply({ content: textError, flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -4491,7 +4494,7 @@ class BotRuntime {
+             "Bitte gib eine Startzeit an. Nutze entweder `start` oder die Kombination aus `startdate` + `starttime`.",
+             "Please provide a start time. Use either `start` or the `startdate` + `starttime` combination."
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -4507,7 +4510,7 @@ class BotRuntime {
+         allowImmediate: !createDiscordEvent,
+       });
+       if (!parsedWindow.ok) {
+-        await interaction.reply({ content: parsedWindow.message, ephemeral: true });
++        await interaction.reply({ content: parsedWindow.message, flags: MessageFlags.Ephemeral });
+         return;
+       }
+       if (createDiscordEvent && parsedWindow.runAtMs < Date.now() + 60_000) {
+@@ -4516,14 +4519,14 @@ class BotRuntime {
+             "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
+             "With `serverevent`, start time must be at least 60 seconds in the future."
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+ 
+       const station = this.resolveStationForGuild(guildId, stationRaw, language);
+       if (!station.ok) {
+-        await interaction.reply({ content: station.message, ephemeral: true });
++        await interaction.reply({ content: station.message, flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -4536,7 +4539,7 @@ class BotRuntime {
+               "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit `/invite worker:1` einladen.",
+               "No eligible worker bot is invited on this server. Please invite one first with `/invite worker:1`."
+             ),
+-            ephemeral: true,
++            flags: MessageFlags.Ephemeral,
+           });
+           return;
+         }
+@@ -4565,7 +4568,7 @@ class BotRuntime {
+ 
+       if (!created.ok) {
+         const storeMessage = translateScheduledEventStoreMessage(created.message, language);
+-        await interaction.reply({ content: t(`Event konnte nicht gespeichert werden: ${storeMessage}`, `Could not save event: ${storeMessage}`), ephemeral: true });
++        await interaction.reply({ content: t(`Event konnte nicht gespeichert werden: ${storeMessage}`, `Could not save event: ${storeMessage}`), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -4596,7 +4599,7 @@ class BotRuntime {
+           inline: false,
+         });
+       }
+-      await interaction.reply({ embeds: [embed], ephemeral: true });
++      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+       if (replyEvent.runAtMs <= Date.now() + 5_000) {
+         this.queueImmediateScheduledEventTick(250);
+       }
+@@ -4607,7 +4610,7 @@ class BotRuntime {
+       const id = interaction.options.getString("id", true);
+       const existing = getScheduledEvent(id);
+       if (!existing || existing.guildId !== guildId || existing.botId !== this.config.id) {
+-        await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), ephemeral: true });
++        await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -4650,7 +4653,7 @@ class BotRuntime {
+         : existing.description;
+ 
+       if (!nextName) {
+-        await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), ephemeral: true });
++        await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -4659,13 +4662,13 @@ class BotRuntime {
+         createDiscordEvent: nextCreateDiscordEvent,
+       });
+       if (voiceError) {
+-        await interaction.reply({ content: voiceError, ephemeral: true });
++        await interaction.reply({ content: voiceError, flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+       const textError = validateTextChannel(nextTextChannel);
+       if (textError) {
+-        await interaction.reply({ content: textError, ephemeral: true });
++        await interaction.reply({ content: textError, flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -4684,7 +4687,7 @@ class BotRuntime {
+         allowImmediate: !nextCreateDiscordEvent,
+       });
+       if (!parsedWindow.ok) {
+-        await interaction.reply({ content: parsedWindow.message, ephemeral: true });
++        await interaction.reply({ content: parsedWindow.message, flags: MessageFlags.Ephemeral });
+         return;
+       }
+       if (nextCreateDiscordEvent && (hasStartChange || serverEventRaw === true) && parsedWindow.runAtMs < Date.now() + 60_000) {
+@@ -4693,7 +4696,7 @@ class BotRuntime {
+             "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
+             "With `serverevent`, start time must be at least 60 seconds in the future."
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -4702,7 +4705,7 @@ class BotRuntime {
+       if (stationRaw) {
+         resolvedStation = this.resolveStationForGuild(guildId, stationRaw, language);
+         if (!resolvedStation.ok) {
+-          await interaction.reply({ content: resolvedStation.message, ephemeral: true });
++          await interaction.reply({ content: resolvedStation.message, flags: MessageFlags.Ephemeral });
+           return;
+         }
+       } else if (!resolvedStation.ok) {
+@@ -4733,7 +4736,7 @@ class BotRuntime {
+       if (!updated.ok) {
+         await interaction.reply({
+           content: translateScheduledEventStoreMessage(updated.message, language),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -4769,7 +4772,7 @@ class BotRuntime {
+           inline: false,
+         });
+       }
+-      await interaction.reply({ embeds: [embed], ephemeral: true });
++      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+       if (replyEvent.enabled && replyEvent.runAtMs <= Date.now() + 5_000) {
+         this.queueImmediateScheduledEventTick(250);
+       }
+@@ -4784,13 +4787,13 @@ class BotRuntime {
+       });
+ 
+       if (!events.length) {
+-        await interaction.reply({ content: t("Keine geplanten Events.", "No scheduled events."), ephemeral: true });
++        await interaction.reply({ content: t("Keine geplanten Events.", "No scheduled events."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+       await interaction.reply({
+         embeds: [this.buildScheduledEventsListEmbed(events, guildId, language)],
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -4799,7 +4802,7 @@ class BotRuntime {
+       const id = interaction.options.getString("id", true);
+       const existing = getScheduledEvent(id);
+       if (!existing || existing.guildId !== guildId || existing.botId !== this.config.id) {
+-        await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), ephemeral: true });
++        await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -4815,17 +4818,17 @@ class BotRuntime {
+       }
+       const removed = deleteScheduledEvent(id, { guildId, botId: this.config.id });
+       if (!removed.ok) {
+-        await interaction.reply({ content: translateScheduledEventStoreMessage(removed.message, language), ephemeral: true });
++        await interaction.reply({ content: translateScheduledEventStoreMessage(removed.message, language), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       await interaction.reply({
+         content: `${t("Event", "Event")} \`${id}\` ${t("entfernt", "removed")}.${removedDiscordEvent ? ` ${t("Discord-Server-Event ebenfalls entfernt.", "Discord server event was removed too.")}` : ""}`,
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+ 
+-    await interaction.reply({ content: t("Unbekannte /event Aktion.", "Unknown /event action."), ephemeral: true });
++    await interaction.reply({ content: t("Unbekannte /event Aktion.", "Unknown /event action."), flags: MessageFlags.Ephemeral });
+   }
+ 
+   async handleLanguageCommand(interaction) {
+@@ -4850,7 +4853,7 @@ class BotRuntime {
+           `${t("Quelle", "Source")}: ${override ? t("Manuell gesetzt", "Manually set") : t("Discord-Server oder Client-Sprache", "Discord server or client locale")}\n` +
+           `${t("Deine Discord-Client-Sprache", "Your Discord client language")}: \`${clientLanguage}\`` +
+           suggestOverride,
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -4861,7 +4864,7 @@ class BotRuntime {
+           "Du brauchst die Berechtigung `Server verwalten` für `/language set` und `/language reset`.",
+           "You need the `Manage Server` permission for `/language set` and `/language reset`."
+         ),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -4874,7 +4877,7 @@ class BotRuntime {
+           `Sprache für diesen Server wurde auf \`${value}\` gesetzt.`,
+           `Language for this server was set to \`${value}\`.`
+         ),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -4892,25 +4895,34 @@ class BotRuntime {
+             `Es war keine manuelle Sprache gesetzt. Aktive Sprache bleibt \`${next}\`.`,
+             `No manual language override was set. Active language remains \`${next}\`.`
+           ),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+ 
+-    await interaction.reply({ content: t("Unbekannte /language Aktion.", "Unknown /language action."), ephemeral: true });
++    await interaction.reply({ content: t("Unbekannte /language Aktion.", "Unknown /language action."), flags: MessageFlags.Ephemeral });
+   }
+ 
+   async respondInteraction(interaction, payload) {
++    // Convert deprecated ephemeral to flags
++    const finalPayload = { ...payload };
++    if (finalPayload.ephemeral === true) {
++      finalPayload.flags = MessageFlags.Ephemeral;
++      delete finalPayload.ephemeral;
++    } else if (finalPayload.ephemeral === false) {
++      delete finalPayload.ephemeral;
++    }
++
+     if (interaction.deferred || interaction.replied) {
+-      const editPayload = { ...payload };
+-      delete editPayload.ephemeral;
++      const editPayload = { ...finalPayload };
++      delete editPayload.flags;
+       if (!editPayload.content && !editPayload.embeds) {
+         const { t } = this.createInteractionTranslator(interaction);
+         editPayload.content = t("Es ist ein Fehler aufgetreten.", "An error occurred.");
+       }
+       return interaction.editReply(editPayload);
+     }
+-    return interaction.reply(payload);
++    return interaction.reply(finalPayload);
+   }
+ 
+   async respondLongInteraction(interaction, content, { ephemeral = true } = {}) {
+@@ -4922,7 +4934,7 @@ class BotRuntime {
+ 
+     await this.respondInteraction(interaction, { content: chunks[0], ephemeral });
+     for (let i = 1; i < chunks.length; i++) {
+-      await interaction.followUp({ content: chunks[i], ephemeral });
++      await interaction.followUp({ content: chunks[i], flags: ephemeral ? MessageFlags.Ephemeral : 0 });
+     }
+   }
+ 
+@@ -4930,7 +4942,7 @@ class BotRuntime {
+     const { t } = this.createInteractionTranslator(interaction);
+     const sendError = async (message) => {
+       if (!silent) {
+-        await this.respondInteraction(interaction, { content: message, ephemeral: true });
++        await this.respondInteraction(interaction, { content: message, flags: MessageFlags.Ephemeral });
+       }
+       return { connection: null, error: message };
+     };
+@@ -5100,8 +5112,9 @@ class BotRuntime {
+     state.connection = connection;
+ 
+     try {
+-      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
++      await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+     } catch {
++      log("WARN", `[${this.config.name}] Reconnect Voice-Timeout: guild=${guildId} channel=${channel.id} state=${connection.state?.status || "unknown"}`);
+       if (state.connection === connection) {
+         state.connection = null;
+       }
+@@ -5110,7 +5123,7 @@ class BotRuntime {
+       return;
+     }
+ 
+-    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
++    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 10_000, intervalMs: 700 });
+     if (!joinedVoiceState) {
+       if (state.connection === connection) {
+         state.connection = null;
+@@ -5249,7 +5262,7 @@ class BotRuntime {
+               `Your server currently has **${access.guildTier.toUpperCase()}**.\n` +
+               `Upgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`
+           ),
+-        ephemeral: true
++        flags: MessageFlags.Ephemeral
+       });
+       return;
+     }
+@@ -5418,7 +5431,7 @@ class BotRuntime {
+       const isDe = resolveLanguageFromDiscordLocale(interaction?.locale, getDefaultLanguage()) === "de";
+       await interaction.reply({
+         content: isDe ? "Dieser Bot funktioniert nur auf Servern." : "This bot only works in servers.",
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -5436,7 +5449,7 @@ class BotRuntime {
+     if (interaction.commandName === "help") {
+       recordCommandUsage(interaction.guildId, interaction.commandName);
+       const payload = this.buildHelpMessage(interaction);
+-      await this.respondInteraction(interaction, { ...payload, ephemeral: true });
++      await this.respondInteraction(interaction, { ...payload, flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -5454,7 +5467,7 @@ class BotRuntime {
+ 
+     const commandPermission = this.checkCommandRolePermission(interaction, interaction.commandName);
+     if (!commandPermission.ok) {
+-      await interaction.reply({ content: commandPermission.message, ephemeral: true });
++      await interaction.reply({ content: commandPermission.message, flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -5468,7 +5481,7 @@ class BotRuntime {
+     if (interaction.commandName === "stats") {
+       await interaction.reply({
+         embeds: [this.buildListeningStatsEmbed(interaction.guildId, language)],
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -5476,7 +5489,7 @@ class BotRuntime {
+     // ---- Commander-only commands ----
+     if (interaction.commandName === "invite") {
+       if (this.role !== "commander" || !this.workerManager) {
+-        await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), ephemeral: true });
++        await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -5487,7 +5500,7 @@ class BotRuntime {
+             "Dieser Befehl funktioniert nur auf einem Discord-Server (nicht in DMs).",
+             "This command only works inside a Discord server (not in DMs)."
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -5496,7 +5509,7 @@ class BotRuntime {
+       const workerIndex = this.getIntegerOptionFlexible(interaction, ["worker", "bot"]);
+       if (!Number.isInteger(workerIndex)) {
+         const payload = await this.buildInviteMenuPayload(interaction);
+-        await interaction.reply({ ...payload, ephemeral: true });
++        await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -5504,13 +5517,13 @@ class BotRuntime {
+       const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
+ 
+       if (workerIndex < 1 || workerIndex > 16) {
+-        await interaction.reply({ content: t("Worker-Nummer muss zwischen 1 und 16 sein.", "Worker number must be between 1 and 16."), ephemeral: true });
++        await interaction.reply({ content: t("Worker-Nummer muss zwischen 1 und 16 sein.", "Worker number must be between 1 and 16."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+       const resolvedWorker = this.workerManager.resolveWorker(workerIndex);
+       if (!resolvedWorker?.worker) {
+-        await interaction.reply({ content: t(`Worker ${workerIndex} ist nicht konfiguriert.`, `Worker ${workerIndex} is not configured.`), ephemeral: true });
++        await interaction.reply({ content: t(`Worker ${workerIndex} ist nicht konfiguriert.`, `Worker ${workerIndex} is not configured.`), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       const workerSlot = Number(resolvedWorker.workerSlot || 0);
+@@ -5521,7 +5534,7 @@ class BotRuntime {
+             `Worker ${workerIndex} erfordert mindestens **${requiredTier}**. Dein Plan erlaubt Worker 1-${maxIndex}.`,
+             `Worker ${workerIndex} requires at least **${requiredTier}**. Your plan allows workers 1-${maxIndex}.`
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -5549,7 +5562,7 @@ class BotRuntime {
+             `**${worker.config.name}** is already on this server!`
+           ),
+           components: [row],
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+       } else {
+         const row = new ActionRowBuilder().addComponents(
+@@ -5568,7 +5581,7 @@ class BotRuntime {
+             `Worker **${worker.config.name}** ready to invite.`
+           ),
+           components: [row],
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+       }
+       return;
+@@ -5576,7 +5589,7 @@ class BotRuntime {
+ 
+     if (interaction.commandName === "workers") {
+       if (this.role !== "commander" || !this.workerManager) {
+-        await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), ephemeral: true });
++        await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -5587,12 +5600,12 @@ class BotRuntime {
+             "Dieser Befehl funktioniert nur auf einem Discord-Server (nicht in DMs).",
+             "This command only works inside a Discord server (not in DMs)."
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+       const payload = await this.buildWorkersStatusPayload(interaction);
+-      await interaction.reply({ ...payload, ephemeral: true });
++      await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -5611,7 +5624,7 @@ class BotRuntime {
+       const customList = Object.entries(custom).map(([k, v]) => `\`${k}\` - ${v.name} [CUSTOM]`).join("\n");
+       let content = `**${t("Verfuegbare Stationen", "Available stations")}${tierLabel} (${Object.keys(available).length}):**\n${list}`;
+       if (customList) content += `\n\n**${t("Custom Stationen", "Custom stations")} (${Object.keys(custom).length}):**\n${customList}`;
+-      await this.respondLongInteraction(interaction, content, { ephemeral: true });
++      await this.respondLongInteraction(interaction, content, { flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -5631,7 +5644,7 @@ class BotRuntime {
+             `Seite ${page} hat keine Eintraege (${totalPages} Seiten).`,
+             `Page ${page} has no entries (${totalPages} pages).`
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -5642,7 +5655,7 @@ class BotRuntime {
+       await this.respondLongInteraction(
+         interaction,
+         `**${t("Stationen", "Stations")} (${t("Seite", "Page")} ${page}/${totalPages}):**\n${list}`,
+-        { ephemeral: true }
++        { flags: MessageFlags.Ephemeral }
+       );
+       return;
+     }
+@@ -5655,7 +5668,7 @@ class BotRuntime {
+             "`/now` ist ab **Pro** verfügbar. Upgrade: https://omnifm.xyz#premium",
+             "`/now` is available with **Pro** and above. Upgrade: https://omnifm.xyz#premium"
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -5664,7 +5677,7 @@ class BotRuntime {
+       if (!playback.runtime || !playback.state) {
+         await interaction.reply({
+           content: this.getStreamingRuntimeSelectionMessage(playback.reason, language),
+-          ephemeral: true
++          flags: MessageFlags.Ephemeral
+         });
+         return;
+       }
+@@ -5674,7 +5687,7 @@ class BotRuntime {
+       const playingGuilds = activeRuntime.getPlayingGuildCount();
+       const current = activeRuntime.getResolvedCurrentStation(interaction.guildId, activeState, language);
+       if (!current?.station) {
+-        await interaction.reply({ content: t("Aktuelle Station wurde entfernt.", "Current station was removed."), ephemeral: true });
++        await interaction.reply({ content: t("Aktuelle Station wurde entfernt.", "Current station was removed."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -5699,7 +5712,7 @@ class BotRuntime {
+       await interaction.reply({
+         embeds: [embed],
+         components: activeRuntime.buildTrackLinkComponents(interaction.guildId, current.station, meta),
+-        ephemeral: true,
++        flags: MessageFlags.Ephemeral,
+       });
+       return;
+     }
+@@ -5712,7 +5725,7 @@ class BotRuntime {
+             "Song-History ist ab **Pro** verf\u00FCgbar. Upgrade: https://omnifm.xyz#premium",
+             "Song history is available with **Pro** and above. Upgrade: https://omnifm.xyz#premium"
+           ),
+-          ephemeral: true
++          flags: MessageFlags.Ephemeral
+         });
+         return;
+       }
+@@ -5723,7 +5736,7 @@ class BotRuntime {
+             "Song-History ist aktuell deaktiviert (`SONG_HISTORY_ENABLED=0`).",
+             "Song history is currently disabled (`SONG_HISTORY_ENABLED=0`)."
+           ),
+-          ephemeral: true
++          flags: MessageFlags.Ephemeral
+         });
+         return;
+       }
+@@ -5739,13 +5752,13 @@ class BotRuntime {
+             "Noch keine Song-History verfügbar. Starte zuerst eine Station mit `/play`.",
+             "No song history yet. Start a station with `/play` first."
+           ),
+-          ephemeral: true
++          flags: MessageFlags.Ephemeral
+         });
+         return;
+       }
+ 
+       const payload = this.buildSongHistoryEmbed(history, interaction.guildId, playback.runtime, language);
+-      await interaction.reply({ ...payload, ephemeral: true });
++      await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -5756,19 +5769,19 @@ class BotRuntime {
+           ? [this.workerManager.getWorkerByIndex(requestedBot)].filter(Boolean)
+           : this.workerManager.getStreamingWorkers(interaction.guildId);
+         if (workers.length === 0) {
+-          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
++          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+           return;
+         }
+         for (const w of workers) w.pauseInGuild(interaction.guildId);
+-        await interaction.reply({ content: t("Pausiert.", "Paused."), ephemeral: true });
++        await interaction.reply({ content: t("Pausiert.", "Paused."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       if (!state.currentStationKey) {
+-        await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), ephemeral: true });
++        await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       state.player.pause(true);
+-      await interaction.reply({ content: t("Pausiert.", "Paused."), ephemeral: true });
++      await interaction.reply({ content: t("Pausiert.", "Paused."), flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -5779,19 +5792,19 @@ class BotRuntime {
+           ? [this.workerManager.getWorkerByIndex(requestedBot)].filter(Boolean)
+           : this.workerManager.getStreamingWorkers(interaction.guildId);
+         if (workers.length === 0) {
+-          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
++          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+           return;
+         }
+         for (const w of workers) w.resumeInGuild(interaction.guildId);
+-        await interaction.reply({ content: t("Weiter gehts.", "Resumed."), ephemeral: true });
++        await interaction.reply({ content: t("Weiter gehts.", "Resumed."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       if (!state.currentStationKey) {
+-        await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), ephemeral: true });
++        await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       state.player.unpause();
+-      await interaction.reply({ content: t("Weiter gehts.", "Resumed."), ephemeral: true });
++      await interaction.reply({ content: t("Weiter gehts.", "Resumed."), flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -5833,14 +5846,14 @@ class BotRuntime {
+                 "Du musst in einem Voice-Channel sein oder `/stop bot:<nummer>` / `/stop all:true` nutzen.",
+                 "You must be in a voice channel or use `/stop bot:<number>` / `/stop all:true`."
+               ),
+-              ephemeral: true
++              flags: MessageFlags.Ephemeral
+             });
+             return;
+           }
+         }
+         
+         if (workers.length === 0) {
+-          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
++          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+           return;
+         }
+         
+@@ -5851,7 +5864,7 @@ class BotRuntime {
+             `Gestoppt: ${workerNames}`,
+             `Stopped: ${workerNames}`
+           ),
+-          ephemeral: true
++          flags: MessageFlags.Ephemeral
+         });
+         return;
+       }
+@@ -5879,14 +5892,14 @@ class BotRuntime {
+       this.updatePresence();
+       this.persistState();
+ 
+-      await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), ephemeral: true });
++      await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+     if (interaction.commandName === "setvolume") {
+       const value = interaction.options.getInteger("value", true);
+       if (value < 0 || value > 100) {
+-        await interaction.reply({ content: t("Wert muss zwischen 0 und 100 liegen.", "Value must be between 0 and 100."), ephemeral: true });
++        await interaction.reply({ content: t("Wert muss zwischen 0 und 100 liegen.", "Value must be between 0 and 100."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       if (this.role === "commander" && this.workerManager) {
+@@ -5903,7 +5916,7 @@ class BotRuntime {
+               offline: t(`Worker ${requestedBot} ist offline.`, `Worker ${requestedBot} is offline.`),
+               not_invited: t(`Worker ${requestedBot} ist nicht auf diesem Server eingeladen.`, `Worker ${requestedBot} is not invited on this server.`),
+             };
+-            await interaction.reply({ content: reasons[check.reason] || t("Worker nicht verfügbar.", "Worker not available."), ephemeral: true });
++            await interaction.reply({ content: reasons[check.reason] || t("Worker nicht verfügbar.", "Worker not available."), flags: MessageFlags.Ephemeral });
+             return;
+           }
+           const info = check.worker.getGuildInfo(interaction.guildId);
+@@ -5913,7 +5926,7 @@ class BotRuntime {
+                 `Worker ${requestedBot} streamt aktuell nicht auf diesem Server.`,
+                 `Worker ${requestedBot} is not currently streaming on this server.`
+               ),
+-              ephemeral: true,
++              flags: MessageFlags.Ephemeral,
+             });
+             return;
+           }
+@@ -5921,7 +5934,7 @@ class BotRuntime {
+         } else {
+           const workers = this.workerManager.getStreamingWorkers(interaction.guildId);
+           if (workers.length === 0) {
+-            await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
++            await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+             return;
+           }
+ 
+@@ -5947,14 +5960,14 @@ class BotRuntime {
+                 "Mehrere Worker streamen aktuell. Nutze `/setvolume <value> bot:<nummer>` oder tritt dem Ziel-Voice-Channel bei.",
+                 "Multiple workers are currently streaming. Use `/setvolume <value> bot:<number>` or join the target voice channel."
+               ),
+-              ephemeral: true,
++              flags: MessageFlags.Ephemeral,
+             });
+             return;
+           }
+         }
+ 
+         if (targetWorkers.length === 0) {
+-          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), ephemeral: true });
++          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+           return;
+         }
+         for (const worker of targetWorkers) {
+@@ -5966,7 +5979,7 @@ class BotRuntime {
+             `Lautstärke gesetzt: ${value} (${targetNames})`,
+             `Volume set to: ${value} (${targetNames})`
+           ),
+-          ephemeral: true
++          flags: MessageFlags.Ephemeral
+         });
+         return;
+       }
+@@ -5975,7 +5988,7 @@ class BotRuntime {
+       if (resource?.volume) {
+         resource.volume.setVolume(clampVolume(value));
+       }
+-      await interaction.reply({ content: t(`Lautstärke gesetzt: ${value}`, `Volume set to: ${value}`), ephemeral: true });
++      await interaction.reply({ content: t(`Lautstärke gesetzt: ${value}`, `Volume set to: ${value}`), flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -6011,14 +6024,14 @@ class BotRuntime {
+       } else {
+         lines.push("", "Support: https://discord.gg/UeRkfGS43R");
+       }
+-      await interaction.reply({ content: lines.join("\n"), ephemeral: true });
++      await interaction.reply({ content: lines.join("\n"), flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+     if (interaction.commandName === "health") {
+       const playback = await this.resolveStreamingRuntimeForInteraction(interaction);
+       if (!playback.runtime || !playback.state) {
+-        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), ephemeral: true });
++        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       const activeRuntime = playback.runtime;
+@@ -6036,14 +6049,14 @@ class BotRuntime {
+         `${t("Netz-Cooldown", "Network cooldown")}: ${networkHoldMs > 0 ? `${t("ja", "yes")} (${Math.round(networkHoldMs)}ms)` : t("nein", "no")}`
+       ].join("\n");
+ 
+-      await interaction.reply({ content, ephemeral: true });
++      await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+     if (interaction.commandName === "diag") {
+       const playback = await this.resolveStreamingRuntimeForInteraction(interaction);
+       if (!playback.runtime || !playback.state) {
+-        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), ephemeral: true });
++        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       const activeRuntime = playback.runtime;
+@@ -6068,14 +6081,14 @@ class BotRuntime {
+         `Netz-Cooldown: ${networkHoldMs > 0 ? `${Math.round(networkHoldMs)}ms` : "0ms"}`,
+       ].join("\n");
+ 
+-      await interaction.reply({ content, ephemeral: true });
++      await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+     if (interaction.commandName === "status") {
+       const playback = await this.resolveStreamingRuntimeForInteraction(interaction);
+       if (!playback.runtime || !playback.state) {
+-        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), ephemeral: true });
++        await interaction.reply({ content: this.getStreamingRuntimeSelectionMessage(playback.reason, language), flags: MessageFlags.Ephemeral });
+         return;
+       }
+       const activeRuntime = playback.runtime;
+@@ -6098,7 +6111,7 @@ class BotRuntime {
+         `RAM: ${mem}`
+       ].join("\n");
+ 
+-      await interaction.reply({ content, ephemeral: true });
++      await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+       return;
+     }
+ 
+@@ -6114,7 +6127,7 @@ class BotRuntime {
+       const url = interaction.options.getString("url");
+       const result = addGuildStation(guildId, key, name, url);
+       if (result.error) {
+-        await interaction.reply({ content: translateCustomStationErrorMessage(result.error, language), ephemeral: true });
++        await interaction.reply({ content: translateCustomStationErrorMessage(result.error, language), flags: MessageFlags.Ephemeral });
+       } else {
+         const count = countGuildStations(guildId);
+         await interaction.reply({
+@@ -6122,7 +6135,7 @@ class BotRuntime {
+             `Custom Station hinzugefuegt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`,
+             `Custom station added: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} slots used.`
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+       }
+       return;
+@@ -6137,9 +6150,9 @@ class BotRuntime {
+       }
+       const key = interaction.options.getString("key");
+       if (removeGuildStation(guildId, key)) {
+-        await interaction.reply({ content: t(`Station \`${key}\` entfernt.`, `Station \`${key}\` removed.`), ephemeral: true });
++        await interaction.reply({ content: t(`Station \`${key}\` entfernt.`, `Station \`${key}\` removed.`), flags: MessageFlags.Ephemeral });
+       } else {
+-        await interaction.reply({ content: t(`Station \`${key}\` nicht gefunden.`, `Station \`${key}\` was not found.`), ephemeral: true });
++        await interaction.reply({ content: t(`Station \`${key}\` nicht gefunden.`, `Station \`${key}\` was not found.`), flags: MessageFlags.Ephemeral });
+       }
+       return;
+     }
+@@ -6154,13 +6167,13 @@ class BotRuntime {
+       const custom = getGuildStations(guildId);
+       const keys = Object.keys(custom);
+       if (keys.length === 0) {
+-        await interaction.reply({ content: t("Keine Custom Stationen. Nutze `/addstation` um eine hinzuzufuegen.", "No custom stations. Use `/addstation` to add one."), ephemeral: true });
++        await interaction.reply({ content: t("Keine Custom Stationen. Nutze `/addstation` um eine hinzuzufuegen.", "No custom stations. Use `/addstation` to add one."), flags: MessageFlags.Ephemeral });
+       } else {
+         const list = keys.map(k => `\`${k}\` - ${custom[k].name}`).join("\n");
+         await this.respondLongInteraction(
+           interaction,
+           `**${t("Custom Stationen", "Custom stations")} (${keys.length}/${MAX_STATIONS_PER_GUILD}):**\n${list}`,
+-          { ephemeral: true }
++          { flags: MessageFlags.Ephemeral }
+         );
+       }
+       return;
+@@ -6177,7 +6190,7 @@ class BotRuntime {
+             "Du brauchst die Berechtigung `Server verwalten` um Lizenz-Aktionen auszufuehren.",
+             "You need the `Manage Server` permission to execute license actions."
+           ),
+-          ephemeral: true
++          flags: MessageFlags.Ephemeral
+         });
+         return;
+       }
+@@ -6196,11 +6209,11 @@ class BotRuntime {
+         }
+ 
+         if (!lic) {
+-          await interaction.reply({ content: t("Lizenz-Key nicht gefunden. Bitte pruefe den Key und versuche es erneut.", "License key not found. Please verify it and try again."), ephemeral: true });
++          await interaction.reply({ content: t("Lizenz-Key nicht gefunden. Bitte pruefe den Key und versuche es erneut.", "License key not found. Please verify it and try again."), flags: MessageFlags.Ephemeral });
+           return;
+         }
+         if (lic.expired) {
+-          await interaction.reply({ content: t("Diese Lizenz ist abgelaufen. Bitte erneuere dein Abo.", "This license has expired. Please renew your subscription."), ephemeral: true });
++          await interaction.reply({ content: t("Diese Lizenz ist abgelaufen. Bitte erneuere dein Abo.", "This license has expired. Please renew your subscription."), flags: MessageFlags.Ephemeral });
+           return;
+         }
+ 
+@@ -6214,7 +6227,7 @@ class BotRuntime {
+                 `All ${lic.seats} server seats are used. Remove a server with \`/license remove\` or upgrade to more seats first.`
+               )
+               : result.message;
+-          await interaction.reply({ content: msg, ephemeral: true });
++          await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+           return;
+         }
+ 
+@@ -6240,7 +6253,7 @@ class BotRuntime {
+             ],
+             footer: { text: t("OmniFM Premium", "OmniFM Premium") },
+           }],
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -6253,7 +6266,7 @@ class BotRuntime {
+               "Dieser Server hat keine aktive Lizenz.\nNutze `/license activate <key>` um einen Lizenz-Key zu aktivieren.",
+               "This server has no active license.\nUse `/license activate <key>` to activate one."
+             ),
+-            ephemeral: true,
++            flags: MessageFlags.Ephemeral,
+           });
+           return;
+         }
+@@ -6278,7 +6291,7 @@ class BotRuntime {
+             ],
+             footer: { text: lic.expired ? t("ABGELAUFEN", "EXPIRED") : "OmniFM Premium" },
+           }],
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -6286,13 +6299,13 @@ class BotRuntime {
+       if (sub === "remove") {
+         const lic = getServerLicense(guildId);
+         if (!lic || !lic.id) {
+-          await interaction.reply({ content: t("Dieser Server hat keine aktive Lizenz.", "This server has no active license."), ephemeral: true });
++          await interaction.reply({ content: t("Dieser Server hat keine aktive Lizenz.", "This server has no active license."), flags: MessageFlags.Ephemeral });
+           return;
+         }
+ 
+         const result = unlinkServerFromLicense(guildId, lic.id);
+         if (!result.ok) {
+-          await interaction.reply({ content: t("Fehler beim Entfernen: ", "Error while removing: ") + result.message, ephemeral: true });
++          await interaction.reply({ content: t("Fehler beim Entfernen: ", "Error while removing: ") + result.message, flags: MessageFlags.Ephemeral });
+           return;
+         }
+ 
+@@ -6301,7 +6314,7 @@ class BotRuntime {
+             "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann fuer einen anderen Server genutzt werden.\nNutze `/license activate <key>` um eine neue Lizenz zu aktivieren.",
+             "Server was unlinked from the license. The seat is now free and can be used for another server.\nUse `/license activate <key>` to activate a new license."
+           ),
+-          ephemeral: true,
++          flags: MessageFlags.Ephemeral,
+         });
+         return;
+       }
+@@ -6317,7 +6330,7 @@ class BotRuntime {
+         if (requestedVoiceChannel.guildId !== interaction.guildId) {
+           await interaction.reply({
+             content: t("Der gewaehlte Voice/Stage-Channel ist nicht in diesem Server.", "The selected voice/stage channel is not in this server."),
+-            ephemeral: true,
++            flags: MessageFlags.Ephemeral,
+           });
+           return;
+         }
+@@ -6327,7 +6340,7 @@ class BotRuntime {
+         ) {
+           await interaction.reply({
+             content: t("Bitte waehle einen Voice- oder Stage-Channel.", "Please choose a voice or stage channel."),
+-            ephemeral: true,
++            flags: MessageFlags.Ephemeral,
+           });
+           return;
+         }
+@@ -6366,7 +6379,7 @@ class BotRuntime {
+                 `Custom-Station kann nicht genutzt werden: ${translated}`,
+                 `Custom station cannot be used: ${translated}`
+               ),
+-              ephemeral: true
++              flags: MessageFlags.Ephemeral
+             });
+             return;
+           }
+@@ -6375,14 +6388,14 @@ class BotRuntime {
+           await interaction.reply(customStationEmbed(language));
+           return;
+         } else {
+-          await interaction.reply({ content: t("Unbekannte Station.", "Unknown station."), ephemeral: true });
++          await interaction.reply({ content: t("Unbekannte Station.", "Unknown station."), flags: MessageFlags.Ephemeral });
+           return;
+         }
+       }
+ 
+       const guild = interaction.guild;
+       if (!guild) {
+-        await interaction.reply({ content: t("Guild konnte nicht ermittelt werden.", "Could not resolve guild."), ephemeral: true });
++        await interaction.reply({ content: t("Guild konnte nicht ermittelt werden.", "Could not resolve guild."), flags: MessageFlags.Ephemeral });
+         return;
+       }
+ 
+@@ -6397,12 +6410,12 @@ class BotRuntime {
+         if (!channelId) {
+           await interaction.reply({
+             content: t("Du musst in einem Voice-Channel sein oder einen angeben.", "You must be in a voice channel or specify one."),
+-            ephemeral: true,
++            flags: MessageFlags.Ephemeral,
+           });
+           return;
+         }
+ 
+-        await interaction.deferReply({ ephemeral: true });
++        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+ 
+         let worker;
+         let reusingExistingWorker = false;
+@@ -6478,7 +6491,7 @@ class BotRuntime {
+       log("INFO", `[${this.config.name}] /play guild=${guildId} station=${key} custom=${isCustom} tier=${guildTier}`);
+ 
+       const selectedStation = stations.stations[key];
+-      await interaction.deferReply({ ephemeral: true });
++      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+       const { connection, error: connectError } = await this.connectToVoice(interaction, requestedChannel, { silent: true });
+       if (!connection) {
+         await interaction.editReply(connectError || t("Konnte keine Voice-Verbindung herstellen.", "Could not establish a voice connection."));
+@@ -6572,7 +6585,21 @@ class BotRuntime {
+ 
+       return { ok: true, workerName: this.config.name };
+     } catch (err) {
+-      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
++      const isVoiceTimeout = String(err?.message || "").includes("Voice-Verbindung");
++      if (isVoiceTimeout && state.lastChannelId) {
++        // Transient voice error - preserve reconnect state so auto-reconnect can try later
++        log("WARN", `[${this.config.name}] playInGuild voice timeout: guild=${guildId} channel=${channelId} - scheduling reconnect`);
++        state.shouldReconnect = true;
++        state.currentStationKey = stationKey;
++        state.currentStationName = stationsData?.stations?.[stationKey]?.name || stationKey;
++        if (state.connection) {
++          try { state.connection.destroy(); } catch {}
++          state.connection = null;
++        }
++        this.scheduleReconnect(guildId, { resetAttempts: true, reason: "play-voice-timeout" });
++      } else {
++        this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
++      }
+       log("ERROR", `[${this.config.name}] playInGuild error: ${err?.message || err}`);
+       return { ok: false, error: err?.message || String(err) };
+     }
+diff --git a/src/guild-language-store.js b/src/guild-language-store.js
+index 9912be9..07d9b75 100644
+--- a/src/guild-language-store.js
++++ b/src/guild-language-store.js
+@@ -51,7 +51,32 @@ function readState(filePath) {
+ }
+ 
+ function loadState() {
+-  return readState(STORE_FILE) || readState(BACKUP_FILE) || emptyState();
++  const primary = readState(STORE_FILE);
++  if (primary) return primary;
++
++  // Primary file is corrupt or missing - try backup
++  const backup = readState(BACKUP_FILE);
++  if (backup) {
++    // Auto-repair: restore primary from backup
++    try {
++      const payload = `${JSON.stringify(backup, null, 2)}\n`;
++      fs.writeFileSync(STORE_FILE, payload, "utf8");
++      console.log(`[guild-languages] Auto-repaired ${STORE_FILE} from backup.`);
++    } catch (repairErr) {
++      console.error(`[guild-languages] Auto-repair failed: ${repairErr.message}`);
++    }
++    return backup;
++  }
++
++  // Both corrupt/missing - start fresh and write a clean file
++  const fresh = emptyState();
++  try {
++    fs.writeFileSync(STORE_FILE, `${JSON.stringify(fresh, null, 2)}\n`, "utf8");
++    console.log(`[guild-languages] Initialized fresh ${STORE_FILE}.`);
++  } catch {
++    // ignore - will work in-memory
++  }
++  return fresh;
+ }
+ 
+ function saveState(state) {
+diff --git a/src/index.js b/src/index.js
+index f8696d3..4c7a6f7 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -36,6 +36,15 @@ import {
+ 
+ const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
+ 
++// ---- Voice-Dependencies pruefen ----
++try {
++  const { generateDependencyReport } = await import("@discordjs/voice");
++  const report = generateDependencyReport();
++  log("INFO", `Voice-Dependencies:\n${report}`);
++} catch (depErr) {
++  log("WARN", `Voice-Dependency-Check fehlgeschlagen: ${depErr.message}`);
++}
++
+ // ---- Optional MongoDB-Verbindung ----
+ const mongoUrlConfigured = String(process.env.MONGO_URL || "").trim().length > 0;
+ const mongoEnabled = String(process.env.MONGO_ENABLED || "").trim() === "1" || mongoUrlConfigured;
+-- 
+2.39.5
+
