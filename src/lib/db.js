@@ -59,6 +59,14 @@ async function initCollections(database) {
       { key: { timestamp: 1 }, name: "ttl", expireAfterSeconds: 86400 * 30 },
     ]).catch(() => null);
 
+    // guild_settings: per-guild settings (weekly digest, fallback station)
+    if (!names.has("guild_settings")) {
+      await database.createCollection("guild_settings");
+    }
+    await database.collection("guild_settings").createIndexes([
+      { key: { guildId: 1 }, name: "guild_unique", unique: true },
+    ]).catch(() => null);
+
     initialized = true;
     log("INFO", "MongoDB Kollektionen und Indizes initialisiert.");
   } catch (err) {

@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BarChart3, CalendarDays, Crown, Lock, LogOut, ShieldCheck, TrendingUp, Radio } from 'lucide-react';
+import { BarChart3, CalendarDays, Crown, Lock, LogOut, ShieldCheck, TrendingUp, Radio, Settings, ListMusic } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { buildApiUrl } from '../lib/api';
 import DashboardOverview from './DashboardOverview';
 import DashboardStatsPanel from './DashboardStats';
 import DashboardEvents from './DashboardEvents';
+import DashboardCustomStations from './DashboardCustomStations';
+import DashboardSettings from './DashboardSettings';
 
 const PERMISSION_COMMANDS = [
   'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',
@@ -92,7 +94,11 @@ export default function DashboardPortal() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState(authErrorMessage);
   const [events, setEvents] = useState([]);
-  const [eventForm, setEventForm] = useState({ title: '', stationKey: '', startsAt: '', timezone: 'Europe/Vienna', channelId: '', enabled: true });
+  const [eventForm, setEventForm] = useState({
+    title: '', stationKey: '', startsAt: '', timezone: 'Europe/Vienna', channelId: '',
+    textChannelId: '', repeat: 'none', durationMinutes: '', announceMessage: '',
+    description: '', stageTopic: '', createDiscordEvent: false, enabled: true,
+  });
   const [permsDraft, setPermsDraft] = useState(() => {
     const base = {};
     PERMISSION_COMMANDS.forEach((c) => { base[c] = ''; });
@@ -195,11 +201,20 @@ export default function DashboardPortal() {
     setError(''); setMessage('');
     try {
       const startsAtIso = eventForm.startsAt ? new Date(eventForm.startsAt).toISOString() : '';
+      const durationMs = eventForm.durationMinutes ? Number(eventForm.durationMinutes) * 60000 : 0;
       const payload = await apiRequest(`/api/dashboard/events?serverId=${encodeURIComponent(selectedGuildId)}`, {
-        method: 'POST', body: JSON.stringify({ ...eventForm, startsAt: startsAtIso }),
+        method: 'POST', body: JSON.stringify({
+          ...eventForm,
+          startsAt: startsAtIso,
+          durationMs,
+        }),
       });
       setEvents((c) => [payload.event, ...c]);
-      setEventForm({ title: '', stationKey: '', startsAt: '', timezone: 'Europe/Vienna', channelId: '', enabled: true });
+      setEventForm({
+        title: '', stationKey: '', startsAt: '', timezone: 'Europe/Vienna', channelId: '',
+        textChannelId: '', repeat: 'none', durationMinutes: '', announceMessage: '',
+        description: '', stageTopic: '', createDiscordEvent: false, enabled: true,
+      });
       setMessage(t('Event gespeichert.', 'Event saved.'));
     } catch (err) { setError(err.message); }
   };
@@ -293,8 +308,10 @@ export default function DashboardPortal() {
   const tabs = [
     { key: 'overview', label: t('Uebersicht', 'Overview'), icon: BarChart3 },
     { key: 'events', label: t('Events', 'Events'), icon: CalendarDays },
+    { key: 'stations', label: t('Custom Stations', 'Custom stations'), icon: ListMusic },
     { key: 'perms', label: t('Berechtigungen', 'Permissions'), icon: ShieldCheck },
     { key: 'stats', label: t('Statistiken', 'Statistics'), icon: TrendingUp, ultimateOnly: true },
+    { key: 'settings', label: t('Einstellungen', 'Settings'), icon: Settings },
   ];
 
   const sidebar = (
@@ -406,8 +423,12 @@ export default function DashboardPortal() {
             <DashboardEvents
               events={events} eventForm={eventForm} setEventForm={setEventForm}
               onCreateEvent={createEvent} onToggleEvent={toggleEvent} onDeleteEvent={deleteEvent}
-              t={t} formatDate={formatDate}
+              t={t} formatDate={formatDate} apiRequest={apiRequest} selectedGuildId={selectedGuildId}
             />
+          )}
+
+          {activeTab === 'stations' && (
+            <DashboardCustomStations apiRequest={apiRequest} selectedGuildId={selectedGuildId} t={t} />
           )}
 
           {activeTab === 'perms' && (
@@ -451,6 +472,10 @@ export default function DashboardPortal() {
                 {t('Detaillierte Statistiken mit Charts, Session-Verlauf und Verbindungsanalyse sind mit Ultimate verfuegbar.', 'Detailed statistics with charts, session history, and connection analysis are available with Ultimate.')}
               </p>
             </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <DashboardSettings apiRequest={apiRequest} selectedGuildId={selectedGuildId} t={t} isUltimate={isUltimate} />
           )}
         </>
       )}

@@ -357,6 +357,121 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// ---- Weekly Stats Digest ----
+import { getGuildListeningStats, getGlobalStats, getGuildDailyStats } from "./listening-stats-store.js";
+import { getDb, isConnected as isMongoConnected } from "./lib/db.js";
+
+const DIGEST_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
+
+async function getDigestSettings(guildId) {
+  if (!isMongoConnected() || !getDb()) return null;
+  try {
+    return await getDb().collection("guild_settings").findOne({ guildId }, { projection: { _id: 0 } });
+  } catch { return null; }
+}
+
+async function setDigestLastSent(guildId, timestamp) {
+  if (!isMongoConnected() || !getDb()) return;
+  try {
+    await getDb().collection("guild_settings").updateOne(
+      { guildId },
+      { $set: { weeklyDigestLastSent: timestamp } },
+      { upsert: true }
+    );
+  } catch {}
+}
+
+function formatMsDuration(ms) {
+  if (!ms || ms <= 0) return "0m";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+async function sendWeeklyDigest(runtime, guildId, channelId, language = "de") {
+  const t = (de, en) => (language === "de" ? de : en);
+  const guild = runtime.client.guilds.cache.get(guildId);
+  if (!guild) return;
+  const channel = guild.channels.cache.get(channelId);
+  if (!channel) return;
+
+  const stats = getGuildListeningStats(guildId);
+  const dailyStats = await getGuildDailyStats(guildId, 7);
+
+  const weekStarts = dailyStats.reduce((s, d) => s + (d.totalStarts || 0), 0);
+  const weekListeningMs = dailyStats.reduce((s, d) => s + (d.totalListeningMs || 0), 0);
+  const weekSessions = dailyStats.reduce((s, d) => s + (d.totalSessions || 0), 0);
+  const weekPeak = Math.max(0, ...dailyStats.map(d => d.peakListeners || 0));
+
+  const topStations = Object.entries(stats?.stationStarts || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count], i) => `${i + 1}. **${name}** (${count}x)`)
+    .join("\n") || t("Keine Daten", "No data");
+
+  const { EmbedBuilder } = await import("discord.js");
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle(t("Woechentlicher Radio-Report", "Weekly radio report"))
+    .setDescription(t(
+      `Hier ist die Zusammenfassung der letzten 7 Tage fuer **${guild.name}**:`,
+      `Here is the summary for the last 7 days on **${guild.name}**:`
+    ))
+    .addFields(
+      { name: t("Hoerzeit", "Listening time"), value: formatMsDuration(weekListeningMs), inline: true },
+      { name: t("Sessions", "Sessions"), value: String(weekSessions), inline: true },
+      { name: t("Starts", "Starts"), value: String(weekStarts), inline: true },
+      { name: t("Peak Zuhoerer", "Peak listeners"), value: String(weekPeak), inline: true },
+      { name: t("Gesamt Hoerzeit", "Total listening"), value: formatMsDuration(stats?.totalListeningMs || 0), inline: true },
+      { name: t("Gesamt Sessions", "Total sessions"), value: String(stats?.totalSessions || 0), inline: true },
+      { name: t("Top 5 Stationen", "Top 5 stations"), value: topStations, inline: false },
+    )
+    .setFooter({ text: "OmniFM Weekly Digest" })
+    .setTimestamp(new Date());
+
+  try {
+    await channel.send({ embeds: [embed] });
+    log("INFO", `[WeeklyDigest] Gesendet an ${guild.name} #${channel.name}`);
+  } catch (err) {
+    log("WARN", `[WeeklyDigest] Fehler beim Senden: ${err?.message || err}`);
+  }
+}
+
+setInterval(async () => {
+  if (!isMongoConnected() || !getDb()) return;
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
+  const hour = now.getHours();
+
+  // Only check on Monday at 9:00-10:00 (or whenever configured)
+  try {
+    const settings = await getDb().collection("guild_settings").find({ "weeklyDigest.enabled": true }).toArray();
+    for (const setting of settings) {
+      const config = setting.weeklyDigest || {};
+      const targetDay = config.dayOfWeek ?? 1; // Default Monday
+      const targetHour = config.hour ?? 9; // Default 9 AM
+
+      if (dayOfWeek !== targetDay || hour !== targetHour) continue;
+
+      const lastSent = setting.weeklyDigestLastSent ? new Date(setting.weeklyDigestLastSent) : null;
+      if (lastSent && (now - lastSent) < 23 * 3600000) continue; // Already sent today
+
+      const channelId = config.channelId;
+      if (!channelId || !setting.guildId) continue;
+
+      for (const runtime of runtimes) {
+        if (runtime.client.guilds.cache.has(setting.guildId)) {
+          await sendWeeklyDigest(runtime, setting.guildId, channelId, config.language || "de");
+          await setDigestLastSent(setting.guildId, now.toISOString());
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    log("WARN", `[WeeklyDigest] Check fehlgeschlagen: ${err?.message || err}`);
+  }
+}, DIGEST_CHECK_INTERVAL_MS);
+
 // ---- Shutdown ----
 let shuttingDown = false;
 async function shutdown(signal) {

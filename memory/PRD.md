@@ -1,77 +1,92 @@
 # PRD - OmniFM Discord Radio Bot
 
 ## Original Problem Statement
-Der User moechte den Discord Radio Bot (https://github.com/Tabsi1998/Discord-Radio-Bot) vollstaendig betriebsbereit machen und mit erweiterten Features ausstatten.
+Discord Radio Bot vollstaendig betriebsbereit machen und mit erweiterten Features ausstatten.
 
 ## Architektur
 - **Backend:** Node.js + Express.js + Discord.js
 - **Datenbank:** MongoDB 7 (Docker-Service, mit JSON-Fallback)
 - **Frontend:** React 18 + Recharts (Dashboard)
-- **Deployment:** Docker Compose mit MongoDB + OmniFM Services
+- **Deployment:** Docker Compose (MongoDB + OmniFM)
 - **Pattern:** Commander/Worker (1 Commander + 16 Worker Bots)
 
-## Abgeschlossene Arbeiten
+## Abgeschlossen
 
-### Phase 0: Bot-Reparatur (ABGESCHLOSSEN)
-- DAVE E2EE Protocol, Node.js 22, Voice-Fixes, Dependency-Updates
+### Phase 0: Bot-Reparatur
+DAVE E2EE, Node.js 22, Voice-Fixes, Dependencies
 
-### Phase 1: Statistik-System mit MongoDB (ABGESCHLOSSEN - 2026-03-03)
-**MongoDB-Integration:**
-- MongoDB Service in docker-compose.yml mit persistentem Volume
-- Auto-Init aller Collections/Indizes bei Startup
-- JSON-Fallback bleibt immer aktiv als Backup
-- Automatische JSON->MongoDB Migration
+### Phase 1: Statistik-System (2026-03-03)
+- MongoDB mit Auto-Init, JSON-Fallback, Migration
+- 32 anonymisierte Metriken, 5 Collections
+- Session-Tracking, Connection-Events, Daily Aggregates
+- API: /api/dashboard/stats/detail, /api/stats/global
 
-**Erfasste Metriken (32, DSGVO-konform):**
-- Hoerzeit (Gesamt/Durchschnitt/Laengste Session)
-- Session-Tracking (Start/Ende/Dauer/Peak/Avg Listeners)
-- Station-Popularitaet (Starts + Hoerzeit)
-- Stunden/Wochentag-Verteilung
-- Voice-Channel-Nutzung, Command-Usage
-- Verbindungsgesundheit (Connects/Reconnects/Errors/%)
-- Listener-Snapshots, Taegliche Aggregate, Globale Stats
+### Phase 2: Dashboard-Ueberarbeitung (2026-03-03)
+- DashboardOverview: 6 Metriken + 4 Charts + Active Sessions
+- DashboardStats: Ultimate-Analytics mit 7 Visualisierungen
+- recharts Bibliothek integriert
 
-**MongoDB Collections:** guild_stats, daily_stats, listening_sessions (TTL 180d), connection_events (TTL 90d), listener_snapshots (TTL 30d)
+### Phase 3: Erweiterte Features (2026-03-03)
 
-### Phase 2: Dashboard-Ueberarbeitung (ABGESCHLOSSEN - 2026-03-03)
-**Neue Dashboard-Komponenten:**
-- `DashboardOverview.js` - 6 Metrikkarten + 4 Charts (Stunde, Wochentag, Station-Pie, Daily-Trend) + Active Sessions + Session-Details
-- `DashboardStats.js` - Ultimate-only: Hoerzeit-Verlauf, Station-Ranking, Command-Usage, Listener-Timeline, Session-History-Tabelle, Connection-Health, Channel-Usage
-- `DashboardEvents.js` - Verbesserte Event-Verwaltung mit Toggle-Form, expandierbare Event-Cards, Status-Badges
-- `DashboardPortal.js` - Schlankerer Shell mit neuen Tab-Routing
+**Events-Formular komplett ueberarbeitet:**
+- Station-Dropdown (Free/Pro/Custom gruppiert, 140+ Stations)
+- Voice-Channel-Dropdown (automatisch vom Discord-Server gesynct)
+- Text-Channel-Dropdown (fuer Ankuendigungen)
+- Start + Dauer + Timezone + Repeat (Taeglich/Werktags/WE/Woechentlich)
+- Discord-Server-Event Toggle, Stage Topic, Description
+- Message-Editor mit Markdown-Vorschau + Platzhalter ({event},{station},{voice},{time})
+- Expandierbare Event-Cards mit allen Details
 
-**Installierte Pakete:** recharts (Charts)
+**Custom Stations Management (Neuer Tab):**
+- Alle Custom Stations einsehen/bearbeiten/hinzufuegen/loeschen
+- Inline-Editing mit Sofort-Speicherung
+- Key/Name/URL/Genre Felder
+
+**Woechentlicher Stats-Digest:**
+- Konfigurierbar pro Guild: Channel, Wochentag, Uhrzeit
+- Embed mit Wochen-Zusammenfassung (Hoerzeit, Sessions, Starts, Peak, Top 5 Stations)
+- Automatische Ausfuehrung per Intervall-Check
+
+**Fallback-Station (Ultimate):**
+- User-konfigurierbarer Fallback statt nur automatischer Stations-Fallback
+- Wenn eine Station nicht erreichbar ist, springt der Bot auf die Fallback-Station
+- In Einstellungen-Tab konfigurierbar
+
+**Discord-Server-Sync:**
+- API: /api/dashboard/channels (Voice + Text + Stage)
+- API: /api/dashboard/roles (sortiert nach Position)
+- Dropdowns statt manuelle ID-Eingabe
 
 **Neue API-Endpunkte:**
-- `GET /api/dashboard/stats/detail` - Ultimate: daily/session/connection/timeline
-- `GET /api/stats/global` - Oeffentliche globale Stats
+- GET /api/dashboard/channels
+- GET /api/dashboard/stations
+- GET/POST/PUT/DELETE /api/dashboard/custom-stations
+- GET /api/dashboard/roles
+- GET/PUT /api/dashboard/settings
 
-## Naechste Aufgaben
+**MongoDB Collections (neu):**
+- guild_settings (weekly digest, fallback station)
 
-### Phase 3: Nachrichten-Editor (P2)
-1. Markdown-Editor fuer Event-Nachrichten
-2. Emoji-Picker (Server-Emojis, Standard-Emojis)
-3. GIF-Integration
-4. Vorschau-Funktion
+## Dashboard-Tabs
+1. Uebersicht (Stats-Cards + Charts)
+2. Events (Vollstaendiges Event-Management)
+3. Custom Stations (CRUD)
+4. Berechtigungen (Rollenrechte pro Command)
+5. Statistiken (Ultimate-Analytics)
+6. Einstellungen (Digest + Fallback)
 
-### Backlog
+## Geaenderte Dateien (Phase 3)
+- src/api/server.js - 6 neue Endpunkte + erweiterte Event-Felder
+- src/bot/runtime.js - User-Fallback-Station
+- src/index.js - Weekly Digest Cron
+- src/lib/db.js - guild_settings Collection
+- frontend/src/components/DashboardPortal.js - 2 neue Tabs
+- frontend/src/components/DashboardEvents.js - Komplett neugeschrieben
+- frontend/src/components/DashboardCustomStations.js - NEU
+- frontend/src/components/DashboardSettings.js - NEU
+
+## Backlog
 - Tier-basierte Stats im /stats Slash-Command (Pro vs Ultimate)
 - Stats-Export (CSV/JSON)
 - Webhook-Benachrichtigungen bei Meilensteinen
-- Woechentlicher Auto-Report als Discord-Embed
-- Discord-Server-Sync (Rollen/Channels im Dashboard anzeigen)
-
-## Geaenderte Dateien
-- `docker-compose.yml` - MongoDB Service + Volume
-- `docker-entrypoint.sh` - MongoDB Readiness-Check
-- `src/lib/db.js` - Auto-Init Collections/Indizes
-- `src/listening-stats-store.js` - MongoDB + Session-Tracking
-- `src/bot/runtime.js` - Session/Connection-Events
-- `src/api/server.js` - Neue Stats-Endpunkte
-- `src/index.js` - Migration JSON->MongoDB
-- `update.sh` - MongoDB Status/Doctor/Defaults
-- `frontend/src/components/DashboardPortal.js` - Neugeschrieben
-- `frontend/src/components/DashboardOverview.js` - NEU
-- `frontend/src/components/DashboardStats.js` - NEU
-- `frontend/src/components/DashboardEvents.js` - NEU
-- `frontend/package.json` - recharts hinzugefuegt
+- Rollen-Dropdown statt Textfeld bei Berechtigungen

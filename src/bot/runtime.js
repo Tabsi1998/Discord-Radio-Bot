@@ -2060,12 +2060,38 @@ class BotRuntime {
 
       const isCustomStation = this.normalizeStationReference(key).isCustom;
       const fallbackKey = !isCustomStation ? getFallbackKey(resolvedStation.stations, resolvedStation.key) : null;
-      if (fallbackKey && resolvedStation.stations.stations[fallbackKey]) {
-        try {
-          await this.playStation(state, resolvedStation.stations, fallbackKey, guildId);
-          log("INFO", `[${this.config.name}] Fallback to ${fallbackKey} after restart failure`);
-        } catch (fallbackErr) {
-          log("ERROR", `[${this.config.name}] Fallback restart also failed: ${fallbackErr.message}`);
+
+      // Check for user-configured fallback station (Ultimate feature)
+      let userFallbackKey = null;
+      try {
+        const { getDb: getDatabase, isConnected: isDbConn } = await import("./lib/db.js");
+        if (isDbConn() && getDatabase()) {
+          const settings = await getDatabase().collection("guild_settings").findOne({ guildId }, { projection: { fallbackStation: 1 } });
+          if (settings?.fallbackStation && settings.fallbackStation !== resolvedStation.key) {
+            userFallbackKey = settings.fallbackStation;
+          }
+        }
+      } catch {}
+
+      const effectiveFallback = userFallbackKey || fallbackKey;
+      if (effectiveFallback) {
+        const fbRef = this.normalizeStationReference(effectiveFallback);
+        const fbStation = fbRef.isCustom
+          ? (getGuildStations(guildId)?.[fbRef.key] || null)
+          : (resolvedStation.stations?.stations?.[effectiveFallback] || null);
+        if (fbStation) {
+          try {
+            if (fbRef.isCustom) {
+              state.currentStationKey = `custom:${fbRef.key}`;
+              state.currentStationName = fbStation.name || fbRef.key;
+              await this.playStation(state, { stations: { [`custom:${fbRef.key}`]: fbStation } }, `custom:${fbRef.key}`, guildId);
+            } else {
+              await this.playStation(state, resolvedStation.stations, effectiveFallback, guildId);
+            }
+            log("INFO", `[${this.config.name}] Fallback to ${effectiveFallback} after restart failure`);
+          } catch (fallbackErr) {
+            log("ERROR", `[${this.config.name}] Fallback restart also failed: ${fallbackErr.message}`);
+          }
         }
       }
     }

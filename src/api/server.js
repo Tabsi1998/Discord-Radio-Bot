@@ -49,7 +49,12 @@ import {
   enforceApiRateLimit,
   getClientIp,
 } from "../lib/api-helpers.js";
-import { loadStations } from "../stations-store.js";
+import { loadStations, filterStationsByTier } from "../stations-store.js";
+import {
+  getGuildStations as getCustomStations,
+  addGuildStation as addCustomStation,
+  removeGuildStation as removeCustomStation,
+} from "../custom-stations.js";
 import { getTier, checkFeatureAccess, getServerPlanConfig } from "../core/entitlements.js";
 import {
   getServerLicense,
@@ -746,7 +751,15 @@ function buildDashboardEventResponse(eventRow) {
     startsAt: Number(eventRow?.runAtMs || 0) > 0 ? new Date(Number(eventRow.runAtMs)).toISOString() : "",
     timezone: eventRow?.timeZone || "Europe/Vienna",
     channelId: eventRow?.voiceChannelId || "",
+    textChannelId: eventRow?.textChannelId || "",
     enabled: eventRow?.enabled !== false,
+    repeat: eventRow?.repeat || "none",
+    durationMs: Number(eventRow?.durationMs || 0),
+    announceMessage: eventRow?.announceMessage || "",
+    description: eventRow?.description || "",
+    stageTopic: eventRow?.stageTopic || "",
+    createDiscordEvent: eventRow?.createDiscordEvent === true,
+    createdByUserId: eventRow?.createdByUserId || "",
     createdAt: eventRow?.createdAt || new Date().toISOString(),
     updatedAt: eventRow?.createdAt || new Date().toISOString(),
   };
@@ -757,13 +770,22 @@ function normalizeDashboardEventInput(body, guildId, botId) {
   const title = clipText(payload.title || payload.name || "OmniFM Event", 120);
   const stationKey = clipText(payload.stationKey || payload.station || "", 120).trim().toLowerCase();
   const channelId = String(payload.channelId || payload.voiceChannelId || "").trim();
+  const textChannelId = String(payload.textChannelId || "").trim();
   const startsAtRaw = String(payload.startsAt || payload.startAt || "").trim();
   const parsedRunAtMs = Date.parse(startsAtRaw);
   const timezone = clipText(payload.timezone || "Europe/Vienna", 60) || "Europe/Vienna";
+  const repeat = String(payload.repeat || "none").trim().toLowerCase();
+  const validRepeats = ["none", "daily", "weekdays", "weekends", "weekly"];
+  const durationMs = Number(payload.durationMs || 0);
+  const announceMessage = clipText(payload.announceMessage || "", 1200);
+  const description = clipText(payload.description || "", 800);
+  const stageTopic = clipText(payload.stageTopic || "", 120);
+  const createDiscordEvent = payload.createDiscordEvent === true;
 
   if (!title) return { ok: false, message: "Titel fehlt." };
   if (!stationKey) return { ok: false, message: "Station Key fehlt." };
   if (!/^\d{17,22}$/.test(channelId)) return { ok: false, message: "Voice Channel ID fehlt oder ist ungueltig." };
+  if (textChannelId && !/^\d{17,22}$/.test(textChannelId)) return { ok: false, message: "Text Channel ID ist ungueltig." };
   if (!Number.isFinite(parsedRunAtMs) || parsedRunAtMs <= 0) return { ok: false, message: "Startzeit ist ungueltig." };
   if (!botId) return { ok: false, message: "Kein geeigneter Bot fuer dieses Event gefunden." };
 
@@ -775,8 +797,15 @@ function normalizeDashboardEventInput(body, guildId, botId) {
       name: title,
       stationKey,
       voiceChannelId: channelId,
-      runAtMs: parsedRunAtMs,
+      textChannelId: textChannelId || null,
+      announceMessage: announceMessage || null,
+      description: description || null,
+      stageTopic: stageTopic || null,
       timeZone: timezone,
+      createDiscordEvent,
+      repeat: validRepeats.includes(repeat) ? repeat : "none",
+      runAtMs: parsedRunAtMs,
+      durationMs: durationMs > 0 ? durationMs : 0,
       enabled: payload.enabled !== false,
     },
   };
@@ -1617,6 +1646,17 @@ function startWebServer(runtimes) {
             patch.runAtMs = parsed;
           }
           if (body?.timezone) patch.timeZone = clipText(body.timezone, 60);
+          if (body?.repeat) {
+            const validRepeats = ["none", "daily", "weekdays", "weekends", "weekly"];
+            const repeat = String(body.repeat).trim().toLowerCase();
+            if (validRepeats.includes(repeat)) patch.repeat = repeat;
+          }
+          if (body?.durationMs !== undefined) patch.durationMs = Math.max(0, Number(body.durationMs) || 0);
+          if (body?.textChannelId !== undefined) patch.textChannelId = String(body.textChannelId || "").trim() || null;
+          if (body?.announceMessage !== undefined) patch.announceMessage = clipText(body.announceMessage || "", 1200) || null;
+          if (body?.description !== undefined) patch.description = clipText(body.description || "", 800) || null;
+          if (body?.stageTopic !== undefined) patch.stageTopic = clipText(body.stageTopic || "", 120) || null;
+          if (body?.createDiscordEvent !== undefined) patch.createDiscordEvent = Boolean(body.createDiscordEvent);
           const result = patchScheduledEvent(eventId, patch);
           if (!result?.ok || !result?.event) {
             sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
@@ -1737,6 +1777,222 @@ function startWebServer(runtimes) {
             return;
           }
           sendJson(res, 500, { error: "Berechtigungen konnten nicht gespeichert werden." });
+        }
+        return;
+      }
+
+      methodNotAllowed(res, ["GET", "PUT"]);
+      return;
+    }
+
+    // --- Dashboard: Discord Channels Sync ---
+    if (requestUrl.pathname === "/api/dashboard/channels") {
+      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+
+      const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
+      if (!guild) { sendJson(res, 200, { voiceChannels: [], textChannels: [] }); return; }
+
+      try { await guild.channels.fetch(); } catch {}
+      const voiceChannels = [];
+      const textChannels = [];
+      for (const [, ch] of guild.channels.cache) {
+        const entry = { id: ch.id, name: ch.name, position: ch.position || 0, parentName: ch.parent?.name || "" };
+        if (ch.type === 2 || ch.type === 13) voiceChannels.push({ ...entry, type: ch.type === 13 ? "stage" : "voice" });
+        else if (ch.type === 0) textChannels.push(entry);
+      }
+      voiceChannels.sort((a, b) => a.position - b.position);
+      textChannels.sort((a, b) => a.position - b.position);
+      sendJson(res, 200, { voiceChannels, textChannels });
+      return;
+    }
+
+    // --- Dashboard: All Stations (Free + Pro + Custom) ---
+    if (requestUrl.pathname === "/api/dashboard/stations") {
+      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+
+      const allStations = loadStations();
+      const tierStations = filterStationsByTier(allStations.stations || {}, guildInfo.tier);
+      const freeStations = filterStationsByTier(allStations.stations || {}, "free");
+      const proStations = {};
+      for (const [key, st] of Object.entries(tierStations)) {
+        if (!freeStations[key]) proStations[key] = st;
+      }
+
+      const formatList = (obj) => Object.entries(obj).map(([key, st]) => ({
+        key, name: st.name || key, url: st.url || "", genre: st.genre || "", country: st.country || "",
+      })).sort((a, b) => a.name.localeCompare(b.name));
+
+      const customStations = getCustomStations(guildInfo.id);
+      const customList = Object.entries(customStations).map(([key, st]) => ({
+        key, name: st.name || key, url: st.url || "", genre: st.genre || "", custom: true,
+      })).sort((a, b) => a.name.localeCompare(b.name));
+
+      sendJson(res, 200, {
+        free: formatList(freeStations),
+        pro: formatList(proStations),
+        custom: customList,
+        tier: guildInfo.tier,
+      });
+      return;
+    }
+
+    // --- Dashboard: Custom Stations CRUD ---
+    if (requestUrl.pathname === "/api/dashboard/custom-stations") {
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff." }); return; }
+
+      if (req.method === "GET") {
+        const stations = getCustomStations(guildInfo.id);
+        const list = Object.entries(stations).map(([key, st]) => ({
+          key, name: st.name || key, url: st.url || "", genre: st.genre || "",
+        })).sort((a, b) => a.name.localeCompare(b.name));
+        sendJson(res, 200, { stations: list, tier: guildInfo.tier });
+        return;
+      }
+
+      if (req.method === "POST") {
+        try {
+          const body = await readJsonBody();
+          const key = clipText(body?.key || "", 80).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+          const name = clipText(body?.name || "", 120).trim();
+          const url = clipText(body?.url || "", 500).trim();
+          if (!key || !name || !url) { sendJson(res, 400, { error: "Key, Name und URL sind erforderlich." }); return; }
+          const result = addCustomStation(guildInfo.id, key, { name, url, genre: clipText(body?.genre || "", 80) });
+          if (!result) { sendJson(res, 400, { error: "Station konnte nicht hinzugefuegt werden." }); return; }
+          sendJson(res, 201, { success: true, station: { key, name, url, genre: body?.genre || "" } });
+        } catch (err) {
+          sendJson(res, 400, { error: err?.message || "Ungueltige Anfrage." });
+        }
+        return;
+      }
+
+      if (req.method === "DELETE") {
+        const key = requestUrl.searchParams.get("key");
+        if (!key) { sendJson(res, 400, { error: "Station Key fehlt." }); return; }
+        const result = removeCustomStation(guildInfo.id, key);
+        sendJson(res, 200, { success: !!result, key });
+        return;
+      }
+
+      if (req.method === "PUT") {
+        try {
+          const body = await readJsonBody();
+          const key = clipText(body?.key || "", 80).trim().toLowerCase();
+          if (!key) { sendJson(res, 400, { error: "Station Key fehlt." }); return; }
+          const existing = getCustomStations(guildInfo.id);
+          if (!existing[key]) { sendJson(res, 404, { error: "Station nicht gefunden." }); return; }
+          const current = existing[key];
+          const updated = {
+            name: clipText(body?.name || current.name || key, 120).trim(),
+            url: clipText(body?.url || current.url || "", 500).trim(),
+            genre: clipText(body?.genre !== undefined ? body.genre : (current.genre || ""), 80),
+          };
+          removeCustomStation(guildInfo.id, key);
+          addCustomStation(guildInfo.id, key, updated);
+          sendJson(res, 200, { success: true, station: { key, ...updated } });
+        } catch (err) {
+          sendJson(res, 400, { error: err?.message || "Ungueltige Anfrage." });
+        }
+        return;
+      }
+
+      methodNotAllowed(res, ["GET", "POST", "PUT", "DELETE"]);
+      return;
+    }
+
+    // --- Dashboard: Roles Sync ---
+    if (requestUrl.pathname === "/api/dashboard/roles") {
+      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff." }); return; }
+
+      const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
+      if (!guild) { sendJson(res, 200, { roles: [] }); return; }
+
+      try { await guild.roles.fetch(); } catch {}
+      const roles = [];
+      for (const [, role] of guild.roles.cache) {
+        if (role.managed || role.name === "@everyone") continue;
+        roles.push({ id: role.id, name: role.name, color: role.hexColor || "#99AAB5", position: role.position || 0 });
+      }
+      roles.sort((a, b) => b.position - a.position);
+      sendJson(res, 200, { roles });
+      return;
+    }
+
+    // --- Dashboard: Guild Settings (Weekly Digest, Fallback Station) ---
+    if (requestUrl.pathname === "/api/dashboard/settings") {
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff." }); return; }
+
+      const { getDb: getDatabase, isConnected: isDbConnected } = await import("../lib/db.js");
+
+      if (req.method === "GET") {
+        let settings = {};
+        if (isDbConnected() && getDatabase()) {
+          try {
+            settings = await getDatabase().collection("guild_settings").findOne({ guildId: guildInfo.id }, { projection: { _id: 0 } }) || {};
+          } catch {}
+        }
+        sendJson(res, 200, {
+          guildId: guildInfo.id,
+          tier: guildInfo.tier,
+          weeklyDigest: settings.weeklyDigest || { enabled: false, channelId: "", dayOfWeek: 1, hour: 9, language: "de" },
+          fallbackStation: settings.fallbackStation || "",
+        });
+        return;
+      }
+
+      if (req.method === "PUT") {
+        if (!isDbConnected() || !getDatabase()) {
+          sendJson(res, 503, { error: "MongoDB nicht verbunden." });
+          return;
+        }
+        try {
+          const body = await readJsonBody();
+          const updates = { guildId: guildInfo.id };
+
+          if (body?.weeklyDigest && typeof body.weeklyDigest === "object") {
+            const wd = body.weeklyDigest;
+            updates.weeklyDigest = {
+              enabled: wd.enabled === true,
+              channelId: String(wd.channelId || "").trim(),
+              dayOfWeek: Math.max(0, Math.min(6, Number(wd.dayOfWeek) || 1)),
+              hour: Math.max(0, Math.min(23, Number(wd.hour) || 9)),
+              language: String(wd.language || "de").slice(0, 5),
+            };
+          }
+
+          if (body?.fallbackStation !== undefined) {
+            if (guildInfo.tier !== "ultimate") {
+              sendJson(res, 403, { error: "Fallback-Station ist nur fuer Ultimate verfuegbar." });
+              return;
+            }
+            updates.fallbackStation = clipText(body.fallbackStation || "", 120).trim().toLowerCase();
+          }
+
+          await getDatabase().collection("guild_settings").updateOne(
+            { guildId: guildInfo.id },
+            { $set: updates },
+            { upsert: true }
+          );
+          sendJson(res, 200, { success: true, ...updates });
+        } catch (err) {
+          sendJson(res, 400, { error: err?.message || "Ungueltige Anfrage." });
         }
         return;
       }
