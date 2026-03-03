@@ -2653,6 +2653,46 @@ class BotRuntime {
     }
   }
 
+  async clearRemoteBotVoiceState(guildId, { reason = "voice-reset", timeoutMs = 5_000 } = {}) {
+    const { guild, voiceState, channelId } = await this.fetchBotVoiceState(guildId);
+    const activeChannelId = String(channelId || "").trim();
+    if (!guild || !activeChannelId) return false;
+
+    log(
+      "INFO",
+      `[${this.config.name}] Bereinige haengenden Voice-State guild=${guildId} channel=${activeChannelId} (${reason}).`
+    );
+
+    let disconnectIssued = false;
+    if (typeof voiceState?.disconnect === "function") {
+      disconnectIssued = await voiceState.disconnect(`OmniFM ${reason}`).then(() => true).catch(() => false);
+    }
+
+    if (!disconnectIssued) {
+      const me = await this.resolveBotMember(guild);
+      if (typeof me?.voice?.disconnect === "function") {
+        disconnectIssued = await me.voice.disconnect(`OmniFM ${reason}`).then(() => true).catch(() => false);
+      } else if (typeof me?.voice?.setChannel === "function") {
+        disconnectIssued = await me.voice.setChannel(null, `OmniFM ${reason}`).then(() => true).catch(() => false);
+      }
+    }
+
+    const startedAt = Date.now();
+    while ((Date.now() - startedAt) <= timeoutMs) {
+      const refreshed = await this.fetchBotVoiceState(guildId);
+      if (!String(refreshed.channelId || "").trim()) {
+        return disconnectIssued;
+      }
+      await waitMs(400);
+    }
+
+    log(
+      "WARN",
+      `[${this.config.name}] Remote-Voice-State blieb haengen guild=${guildId} channel=${activeChannelId} (${reason}).`
+    );
+    return disconnectIssued;
+  }
+
   async reconcileGuildVoiceState(guildId, { reason = "periodic" } = {}) {
     if (!this.client.isReady()) return;
     const state = this.guildState.get(guildId);
@@ -4426,6 +4466,8 @@ class BotRuntime {
       state.shouldReconnect = previousShouldReconnect;
     }
 
+    await this.clearRemoteBotVoiceState(guildId, { reason: "fresh-join" }).catch(() => false);
+
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: guild.id,
@@ -4434,13 +4476,26 @@ class BotRuntime {
       selfDeaf: true
     });
     this.beginVoiceConnectionAttempt(state, channel.id);
+    let joinErrorMessage = null;
+    const onInitialConnectionError = (err) => {
+      joinErrorMessage = err?.message || String(err);
+    };
+    connection.on("error", onInitialConnectionError);
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, readyTimeoutMs);
     } catch {
+      const actualVoiceState = await this.fetchBotVoiceState(guildId).catch(() => ({ channelId: null }));
+      log(
+        "WARN",
+        `[${this.config.name}] Ensure Voice timeout guild=${guild.id} target=${channel.id} state=${connection.state?.status || "-"} actual=${actualVoiceState?.channelId || "-"} error=${joinErrorMessage || "-"}`
+      );
       this.finishVoiceConnectionAttempt(state);
       try { connection.destroy(); } catch {}
       throw new Error("Voice-Verbindung konnte nicht hergestellt werden.");
+    }
+    if (typeof connection.off === "function") {
+      connection.off("error", onInitialConnectionError);
     }
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, {
@@ -5402,13 +5457,26 @@ class BotRuntime {
     });
     log("INFO", `[${this.config.name}] Join Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
     this.beginVoiceConnectionAttempt(state, channel.id);
+    let joinErrorMessage = null;
+    const onInitialConnectionError = (err) => {
+      joinErrorMessage = err?.message || String(err);
+    };
+    connection.on("error", onInitialConnectionError);
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      const actualVoiceState = await this.fetchBotVoiceState(guildId).catch(() => ({ channelId: null }));
+      log(
+        "WARN",
+        `[${this.config.name}] Join Voice timeout guild=${guild.id} target=${channel.id} state=${connection.state?.status || "-"} actual=${actualVoiceState?.channelId || "-"} error=${joinErrorMessage || "-"}`
+      );
       this.finishVoiceConnectionAttempt(state);
       connection.destroy();
       return sendError(t("Konnte dem Voice-Channel nicht beitreten.", "Could not join the voice channel."));
+    }
+    if (typeof connection.off === "function") {
+      connection.off("error", onInitialConnectionError);
     }
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
@@ -5477,6 +5545,8 @@ class BotRuntime {
       state.connection = null;
     }
 
+    await this.clearRemoteBotVoiceState(guildId, { reason: "reconnect-join" }).catch(() => false);
+
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: guild.id,
@@ -5486,14 +5556,27 @@ class BotRuntime {
     });
     log("INFO", `[${this.config.name}] Rejoin Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
     this.beginVoiceConnectionAttempt(state, channel.id);
+    let joinErrorMessage = null;
+    const onInitialConnectionError = (err) => {
+      joinErrorMessage = err?.message || String(err);
+    };
+    connection.on("error", onInitialConnectionError);
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
+      const actualVoiceState = await this.fetchBotVoiceState(guildId).catch(() => ({ channelId: null }));
+      log(
+        "WARN",
+        `[${this.config.name}] Rejoin Voice timeout guild=${guild.id} target=${channel.id} state=${connection.state?.status || "-"} actual=${actualVoiceState?.channelId || "-"} error=${joinErrorMessage || "-"}`
+      );
       this.finishVoiceConnectionAttempt(state);
       networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-timeout`, `guild=${guildId}`);
       try { connection.destroy(); } catch {}
       return;
+    }
+    if (typeof connection.off === "function") {
+      connection.off("error", onInitialConnectionError);
     }
 
     const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 8_000, intervalMs: 700 });
