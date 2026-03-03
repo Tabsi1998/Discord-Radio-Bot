@@ -6,7 +6,7 @@ Discord Radio Bot reparieren, erweitern und ein Dashboard bereitstellen.
 ## Architektur
 - **Backend:** FastAPI (Python) auf Port 8001
 - **Frontend:** React auf Port 3000
-- **Datenbank:** MongoDB (Statistiken, Lizenzen, Settings)
+- **Datenbank:** MongoDB (Statistiken, Lizenzen, Settings, Custom Stations)
 - **Bot:** Node.js mit discord.js (Docker-basiert, Commander/Worker)
 - **Auth:** Discord OAuth2 SSO
 
@@ -20,71 +20,55 @@ Discord Radio Bot reparieren, erweitern und ein Dashboard bereitstellen.
 - MongoDB Service in docker-compose.yml
 - src/lib/db.js fuer DB-Verbindung
 - Migration von JSON zu MongoDB
-- Update-Script (update.sh) mit MongoDB Health Checks
 
 ### Phase 3 - Statistik-System
 - Listening Stats Store komplett auf MongoDB umgeschrieben
 - Detaillierte Sessions, Listener Counts, Command Usage
-- 31/31 Unit Tests bestanden
 
 ### Phase 4 - Dashboard Ueberarbeitung
-- Tabbed Interface (Uebersicht, Events, Stations, Perms, Stats, Settings)
-- DashboardOverview, DashboardStats (Charts mit Recharts)
-- DashboardEvents - Vollstaendiger Event-Manager mit allen Slash-Command-Optionen
-- DashboardCustomStations - CRUD fuer Custom Stations
-- DashboardSettings - Weekly Digest und Fallback Station
+- Tabbed Interface (Uebersicht, Events, Stations, Perms, Stats, Settings, Abo)
+- Recharts-basierte Statistik-Visualisierung
+- Event-Manager, Custom Stations CRUD, Settings
 
 ### Phase 5 - Neue Features (Backend)
-- Weekly Stats Digest (Cron Job in runtime.js)
-- Fallback Station fuer Ultimate-Tier
-- API-Endpunkte fuer Events, Custom Stations, Settings, Guild-Daten
+- Weekly Stats Digest, Fallback Station, API-Endpunkte
 
-### Phase 6 - P0 Dashboard Polish (03.03.2026)
-- **Abo-Verwaltung (Subscription Management):**
-  - Neuer Tab "Abo" im Dashboard mit CreditCard Icon
-  - DashboardSubscription.js: Plan-Anzeige, Ablaufdatum, Tage verbleibend, Server-Slots, Lizenz-E-Mail
-  - Warnungen bei bald ablaufendem oder abgelaufenem Abo
-  - Upgrade/Verlaengerungs-Links zur Hauptseite
-  - Plan-Feature-Uebersicht je Tier
-  - API: GET /api/dashboard/license (Session-geschuetzt)
-- **UI/UX Polish:**
-  - "Zurueck zur Hauptseite" Button in der Dashboard-Sidebar
-  - Plan-Box im Sidebar klickbar (oeffnet Abo-Tab)
-  - Abo-Tab auch fuer Free-User zugaenglich
+### Phase 6 - Dashboard Polish (03.03.2026)
+- Abo-Verwaltung Tab mit Plan-Anzeige, Seats, License-Info
+- "Zurueck zur Hauptseite" Button, Plan-Box klickbar
 
-### Phase 7 - P1 Nachrichten-Editor + P2 Lifetime Stats (03.03.2026)
-- **P1 Rich Message Editor (RichMessageEditor.js):**
-  - Formatting Toolbar: Fett, Kursiv, Unterstrichen, Durchgestrichen, Code, Codeblock, Link
-  - Discord Markdown Live-Vorschau (rendert alle Formatierungen inkl. Emojis)
-  - Emoji-Picker mit Discord Server-Emojis (inkl. animierte)
-  - Emoji-Suche im Picker
-  - Placeholder-Buttons ({event}, {station}, {voice}, {time})
-  - Cursor-basiertes Einfuegen und Selektion-Wrapping
-  - API: GET /api/dashboard/emojis (Node.js + FastAPI, Session-geschuetzt)
-  - Ersetzt den alten MessageEditor in DashboardEvents.js
-- **P2 Lifetime Stats Verifizierung:**
-  - Info-Banner in DashboardOverview mit Erklaerung der dauerhaften MongoDB-Speicherung
-  - data-testid="lifetime-stats-info"
+### Phase 7 - Rich Message Editor + Lifetime Stats (03.03.2026)
+- Rich Text Editor mit Discord Markdown, Emoji-Picker, Placeholders
+- Lifetime Stats Info-Banner in DashboardOverview
 
 ### Phase 8 - P0 Critical Bugfixes (03.03.2026)
-- **Custom Station Leak Fix:**
-  - /api/stations filtert jetzt NUR free + pro Stationen (keine custom: Prefix, kein Ultimate)
-  - /api/stats zaehlt nur offizielle Stationen
-  - Frontend filtert zusaetzlich client-seitig als Defense-in-Depth
-  - Fix in: backend/server.py, src/api/server.js, web/app.js
-- **License API 404 Fix:**
-  - /api/dashboard/license Endpoint in Node.js Production Server (src/api/server.js) hinzugefuegt
-  - Gibt Tier, License-Info, maskierte E-Mail, Seats etc. zurueck
-  - Konsistent mit FastAPI-Implementation in backend/server.py
-- **Hoerzeit-Berechnung Fix:**
-  - endListeningSession() berechnet jetzt nur humanListeningMs (Zeit mit mind. 1 menschl. Zuhoerer)
-  - getActiveSessionsForGuild() gibt currentHumanListeningMs zurueck
-  - Aggregate stats (totalListeningMs, daily_stats) nutzen humanListeningMs statt durationMs
-  - Bot-allein-Zeit wird nicht mehr gezaehlt
-- **Log-Review:**
-  - AcoustID no matches: Erwartetes Verhalten (Song-Erkennung)
-  - Stream idle restart: Auto-Reconnect funktioniert korrekt
-  - EBUSY atomic rename: Fallback auf direkten Write, nicht kritisch
+- Custom Station Leak Fix (nur free+pro oeffentlich)
+- License API 404 Fix (Endpoint in Node.js hinzugefuegt)
+- Hoerzeit-Berechnung Fix (nur humanListeningMs gezaehlt)
+
+### Phase 9 - Emoji-Picker + Stats-Reset + P1 Haertung (03.03.2026)
+- **Emoji-Picker Erweiterung:**
+  - 8 Kategorien: Personen, Natur, Essen, Aktivitaeten, Reisen, Objekte, Symbole, Flaggen
+  - Hunderte Standard-Unicode-Emojis pro Kategorie
+  - Tab-basierte Navigation mit Kategorie-Buttons
+  - Server Custom Emojis (animiert + statisch) als eigener Tab
+  - Suche ueber Server-Emojis
+  - Saubere Trennung: Unicode-Emojis direkt eingefuegt, Custom-Emojis als Discord-Syntax
+- **Stats-Reset Button:**
+  - Button "Statistiken zuruecksetzen" in DashboardStats
+  - Sicherheitsabfrage mit Ja/Nein Bestaetigungsdialog
+  - DELETE /api/dashboard/stats/reset Endpoint (beide Backends)
+  - Loescht: daily_stats, listening_sessions, listener_snapshots, guild_stats
+  - Reset in-memory Stats (Node.js: resetGuildStats Funktion)
+- **P1 Backend-Haertung (API Konsistenz):**
+  - GET /api/dashboard/stats/detail - Detaillierte Stats (FastAPI hinzugefuegt)
+  - GET/PUT /api/dashboard/settings - Guild Settings (FastAPI hinzugefuegt)
+  - GET /api/dashboard/channels - Voice/Text Channels (FastAPI hinzugefuegt)
+  - GET /api/dashboard/roles - Server Rollen (FastAPI hinzugefuegt)
+  - GET /api/dashboard/stations - Alle Stationen fuer Dashboard (FastAPI hinzugefuegt)
+  - CRUD /api/dashboard/custom-stations - Custom Stations CRUD (FastAPI hinzugefuegt)
+  - Custom Stations: Max 50 pro Server, Limit-Pruefung in Backend
+  - Alle Endpoints mit Auth-Check, Rate-Limiting, Input-Validierung
 
 ## Offene Tasks
 
@@ -102,37 +86,41 @@ Discord Radio Bot reparieren, erweitern und ein Dashboard bereitstellen.
 - GET /api/stations (nur free + pro, KEINE custom)
 - GET /api/stats (nur offizielle Stationen gezaehlt)
 - GET /api/dashboard/guilds
-- GET /api/dashboard/stats?serverId=X
-- GET /api/dashboard/license?serverId=X
-- GET /api/dashboard/emojis?serverId=X
-- GET/POST/PATCH/DELETE /api/dashboard/events
-- GET/POST/PUT/DELETE /api/dashboard/custom-stations
+- GET /api/dashboard/stats, /api/dashboard/stats/detail
+- DELETE /api/dashboard/stats/reset
+- GET /api/dashboard/license
+- GET /api/dashboard/emojis
+- GET /api/dashboard/channels, /api/dashboard/roles
+- GET /api/dashboard/stations
+- CRUD /api/dashboard/custom-stations (GET/POST/PUT/DELETE)
 - GET/PUT /api/dashboard/settings
+- CRUD /api/dashboard/events
 - GET/PUT /api/dashboard/perms
+- POST /api/dashboard/telemetry
 - GET /api/premium/check
 
 ## Datenbank-Schema
-- **listening_stats:** guildId, dailyStats, listeningSessions, commandUsage, connectionEvents
-- **guild_settings:** guildId, weeklyStats, fallbackStation
-- **licenses:** _licenseId, tier, plan, seats, email, expiresAt, linkedServerIds
-- **server_entitlements:** _serverId, licenseId
-- **dashboard_state:** events, perms, telemetry
+- **listening_sessions:** guildId, stationKey, startedAt, endedAt, durationMs, humanListeningMs, peakListeners
+- **daily_stats:** guildId, date, totalStarts, totalListeningMs, totalSessions, peakListeners
+- **guild_stats:** guildId, totalListeningMs, totalSessions, totalStarts, peakListeners, stationListeningMs, commands
+- **guild_settings:** guildId, weeklyDigest, fallbackStation
+- **custom_stations:** guildId, key, name, url, genre (max 50 pro Server)
 - **stations:** key, name, url, tier, genre
+- **listener_snapshots:** guildId, timestamp, listeners
 
 ## Dateien
-- backend/server.py - FastAPI Backend
+- backend/server.py - FastAPI Backend (alle Dashboard-Endpoints)
 - frontend/src/components/DashboardPortal.js - Dashboard Container
 - frontend/src/components/DashboardSubscription.js - Abo-Verwaltung
-- frontend/src/components/DashboardOverview.js - Uebersicht + Lifetime Stats
-- frontend/src/components/DashboardStats.js - Detaillierte Statistiken
+- frontend/src/components/DashboardOverview.js - Uebersicht
+- frontend/src/components/DashboardStats.js - Statistiken + Reset
 - frontend/src/components/DashboardEvents.js - Event-Manager
 - frontend/src/components/DashboardCustomStations.js - Custom Stations
 - frontend/src/components/DashboardSettings.js - Settings
-- frontend/src/components/RichMessageEditor.js - Rich-Text-Editor
-- frontend/src/lib/api.js - API Helper
+- frontend/src/components/RichMessageEditor.js - Rich-Text-Editor + Emoji-Picker
+- frontend/src/components/emojiData.js - Unicode Emoji-Kategorien
 - src/api/server.js - Bot API Server (Node.js)
-- src/lib/db.js - MongoDB Verbindung
-- src/listening-stats-store.js - Statistik-Store
-- src/bot/runtime.js - Bot Runtime
+- src/listening-stats-store.js - Statistik-Store + resetGuildStats
+- src/custom-stations.js - Custom Stations Store (JSON-basiert)
 - web/app.js - Hauptseite Frontend
 - web/index.html - Hauptseite HTML
