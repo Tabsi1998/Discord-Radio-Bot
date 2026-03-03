@@ -1,6 +1,6 @@
 # escape=\
 
-FROM node:20-slim AS frontend-builder
+FROM node:22-slim AS frontend-builder
 
 WORKDIR /frontend
 
@@ -10,7 +10,7 @@ RUN npm install
 COPY frontend/ ./
 RUN npm run build
 
-FROM node:20-slim
+FROM node:22-slim
 
 RUN set -eux; \
   apt-get update; \
@@ -24,6 +24,7 @@ RUN set -eux; \
     ca-certificates \
     libopus0 \
     libopus-dev \
+    libsodium-dev \
     python3 \
     make \
     g++ \

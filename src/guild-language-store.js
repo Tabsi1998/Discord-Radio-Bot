@@ -51,7 +51,32 @@ function readState(filePath) {
 }
 
 function loadState() {
-  return readState(STORE_FILE) || readState(BACKUP_FILE) || emptyState();
+  const primary = readState(STORE_FILE);
+  if (primary) return primary;
+
+  // Primary file is corrupt or missing - try backup
+  const backup = readState(BACKUP_FILE);
+  if (backup) {
+    // Auto-repair: restore primary from backup
+    try {
+      const payload = `${JSON.stringify(backup, null, 2)}\n`;
+      fs.writeFileSync(STORE_FILE, payload, "utf8");
+      console.log(`[guild-languages] Auto-repaired ${STORE_FILE} from backup.`);
+    } catch (repairErr) {
+      console.error(`[guild-languages] Auto-repair failed: ${repairErr.message}`);
+    }
+    return backup;
+  }
+
+  // Both corrupt/missing - start fresh and write a clean file
+  const fresh = emptyState();
+  try {
+    fs.writeFileSync(STORE_FILE, `${JSON.stringify(fresh, null, 2)}\n`, "utf8");
+    console.log(`[guild-languages] Initialized fresh ${STORE_FILE}.`);
+  } catch {
+    // ignore - will work in-memory
+  }
+  return fresh;
 }
 
 function saveState(state) {

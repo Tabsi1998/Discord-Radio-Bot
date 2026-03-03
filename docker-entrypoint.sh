@@ -33,6 +33,15 @@ init_json_file() {
   if [ -f "$filepath" ] && [ ! -s "$filepath" ]; then
     echo '{}' > "$filepath" 2>/dev/null || true
   fi
+
+  # Validate JSON content
+  if [ -f "$filepath" ] && [ -s "$filepath" ]; then
+    if ! node -e "JSON.parse(require('fs').readFileSync('$filepath','utf8'))" 2>/dev/null; then
+      echo "[WARN] $filename enthaelt ungueltiges JSON. Erstelle Backup und initialisiere neu."
+      cp "$filepath" "${filepath}.corrupt-$(date +%s)" 2>/dev/null || true
+      echo '{}' > "$filepath" 2>/dev/null || true
+    fi
+  fi
 }
 
 init_json_file "/app/bot-state.json"

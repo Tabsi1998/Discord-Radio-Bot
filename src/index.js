@@ -36,6 +36,15 @@ import {
 
 const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
 
+// ---- Voice-Dependencies pruefen ----
+try {
+  const { generateDependencyReport } = await import("@discordjs/voice");
+  const report = generateDependencyReport();
+  log("INFO", `Voice-Dependencies:\n${report}`);
+} catch (depErr) {
+  log("WARN", `Voice-Dependency-Check fehlgeschlagen: ${depErr.message}`);
+}
+
 // ---- Optional MongoDB-Verbindung ----
 const mongoUrlConfigured = String(process.env.MONGO_URL || "").trim().length > 0;
 const mongoEnabled = String(process.env.MONGO_ENABLED || "").trim() === "1" || mongoUrlConfigured;
