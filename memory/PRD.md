@@ -1,139 +1,43 @@
-# PRD – OmniFM Web Dashboard (Phase A/B/C)
+# PRD - OmniFM Discord Radio Bot Fehleranalyse
 
-## Original Problem Statement (aktueller Scope)
-- Erstes Fix: Premium-Preisbereich soll korrekt "ab Preis" anzeigen.
-- Danach komplette Umsetzung:
-  - **Phase A**: Discord OAuth + Session + Guild Picker + Plan Gating (Dashboard ab PRO) + Protected Routes
-  - **Phase B**: Events UI, Permissions UI, Stats UI (guild-spezifisch, datenschutzkonform)
-  - **Phase C**: Pricing/Plan-Matrix + Command-Matrix + Ultimate Promo (YouTube Live) + UX-Polish
-- User-Wahlen:
-  - 1a Discord OAuth only
-  - 2a Dashboard ab PRO
-  - 3a Modules: Server Selection + Events + Perms + Stats
-  - 4b Ultimate im Dashboard vorerst als Promo (keine volle Runtime-Konfiguration im UI)
-  - 5a starke Website-Kommunikation Free/Pro/Ultimate
-  - keine öffentlichen Top-Server/Top-Station/Peak Daten
+## Original Problem Statement
+Repo klonen (https://github.com/Tabsi1998/Discord-Radio-Bot) und komplette Fehleranalyse durchfuehren.
+Hauptprobleme: /play funktioniert nicht, Reconnect-Timeouts, guild-languages.json Parse-Fehler, ephemeral Deprecation.
 
-## Architecture Decisions
-- Bestehender React + FastAPI Stack beibehalten und erweitert.
-- OAuth-Session über sichere Cookie-Session (`omnifm_session`) im Backend.
-- Dashboard APIs strikt auth-geschützt; Guild-Zugriff nur mit Discord "Manage Server" Permission.
-- Plan-Gating serverseitig via Lizenz/Tier (`free`, `pro`, `ultimate`).
-- Guild-spezifische Dashboard-Daten in `dashboard.json`/Mongo (`events`, `perms`, `telemetry`).
+## Architektur
+- Node.js Discord Bot mit Commander/Worker Pattern (1 Commander + 16 Worker)
+- Docker-basiertes Deployment
+- Datei-basierter State (kein MongoDB)
+- @discordjs/voice fuer Audio-Streaming via ffmpeg
 
-## Implemented
-### UI/Website
-- Premium-Karten korrigiert: **"ab Preis"** + numerisch sauber (`2.99 EUR`, `4.99 EUR`).
-- Neues Dashboard-Portal (`?page=dashboard`) mit:
-  - Discord SSO Login View
-  - Dashboard Shell (Sidebar + Topbar)
-  - Guild Picker
-  - Tabs: Übersicht, Events, Permissions, Stats
-  - PRO-Gate für Free-Server
-  - Ultimate Promo-Block (YouTube Live)
-- Landing erweitert um:
-  - Plan-Matrix (Free/Pro/Ultimate)
-  - Command-Matrix
-  - Ultimate YouTube Livestream Promo in Hero/Matrix
-- Navbar erweitert um Dashboard-Zugang.
+## Implementierte Fixes (Session 1)
 
-### Backend/API
-- Discord OAuth Endpoints:
-  - `GET /api/auth/discord/login`
-  - `GET /api/auth/discord/callback`
-  - `GET /api/auth/session`
-  - `POST /api/auth/logout`
-- Dashboard Endpoints (auth + guild-scope):
-  - `GET /api/dashboard/guilds`
-  - `GET /api/dashboard/stats`
-  - `GET/POST/PATCH/DELETE /api/dashboard/events`
-  - `GET/PUT /api/dashboard/perms`
-  - `POST /api/dashboard/telemetry` (admin ingest)
-- CORS Methoden erweitert (GET/POST/PUT/PATCH/DELETE/OPTIONS).
+### KRITISCH
+1. **album undefined Bug** - `buildNowPlayingEmbedLegacy()` fehlte `album` Variable -> hinzugefuegt
+2. **Voice-Timeout 20s -> 30s** - `entersState()` und `confirmBotVoiceChannel()` Timeouts erhoeht
+3. **playInGuild Auto-Reconnect** - Bei Voice-Timeout wird jetzt `scheduleReconnect()` aufgerufen statt harter Reset
+4. **ephemeral -> MessageFlags** - 133 Stellen migriert, `respondInteraction()` mit automatischer Konvertierung
 
-### Configuration
-- Backend `.env` erweitert um Discord OAuth Werte:
-  - `DISCORD_CLIENT_ID`
-  - `DISCORD_CLIENT_SECRET`
-  - `DISCORD_REDIRECT_URI`
-  - `DISCORD_OAUTH_SCOPES`
+### MODERAT
+5. **guild-language-store Auto-Repair** - Korrupte Hauptdatei wird automatisch aus Backup repariert
+6. **docker-entrypoint.sh JSON-Validierung** - Korrupte JSON-Dateien werden beim Start erkannt und repariert
 
-## Validation
-- Frontend Build: ✅
-- Python Lint: ✅
-- JS Lint (geänderte Dateien): ✅
-- Backend Tests: ✅ (`21 passed, 13 skipped` inkl. Legacy-Skips)
-- Testing Agent Iteration 7: ✅ (Auth/API/UI Regression geprüft)
-- Bugfix nach Testreport: ✅ Casing fix von `AB PREIS` -> `ab Preis`
+### MINOR
+7. **Triple setEmoji Bug** - YouTube-Button in Legacy-Methode gefixt
 
-## Prioritized Backlog
-### P0
-- Discord OAuth in produktiver Domain final umstellen (`omnifm.xyz` Redirect + PUBLIC_WEB_URL).
-- Optional: Session Store persistent/redis statt In-Memory für Multi-Instance.
+## Geaenderte Dateien
+- src/bot/runtime.js (317 Zeilen geaendert)
+- src/guild-language-store.js (27 Zeilen hinzugefuegt)
+- docker-entrypoint.sh (9 Zeilen hinzugefuegt)
 
-### P1
-- Dashboard UX vertiefen: Event-Zeitplan mit Wochentagen + Repeat-Builder + Validation.
-- Permission-UI mit Rollen-Autocomplete aus Discord API.
+## Backlog / Empfehlungen
+- P1: Netzwerk/Firewall pruefen (UDP muss offen sein fuer Discord Voice)
+- P1: guild-languages.json auf Host manuell reparieren (echo '{}' > guild-languages.json)
+- P2: sodium-native installieren fuer stabilere Voice-Encryption
+- P2: MIME_TYPES Duplikat in runtime.js entfernen
+- P3: Legacy-Methoden (buildNowPlayingEmbedLegacy/buildTrackLinkComponentsLegacy) entfernen falls nicht mehr genutzt
 
-### P2
-- Ultimate Runtime-Controls im Dashboard (Fallback/YouTube-Reconnect) direkt per UI.
-- Telemetry-Pipeline vom Bot live in `/api/dashboard/telemetry` integrieren.
-
-## Next Tasks
-1. Produktionsumstellung für `omnifm.xyz` OAuth Redirect + DNS/SSL validieren.
-2. Discord Rollen-/Channel-Daten in Dashboard automatisch laden.
-3. Event-Builder + Analytics Visuals (Charts) ausbauen.
-
-
-## Incremental Update – Station Browser Polish
-- Search input im Station-Verzeichnis visuell an Dark-Theme angepasst (kein weißes Feld mehr, klare Focus-State).
-- Tier-Filter bereinigt: `Ultimate`-Tab im Station-Browser entfernt.
-- Summary/Filter-Texte bereinigt: kein `0 ultimate` mehr in der Anzeige.
-- Verifiziert im Preview: Suchfeld passt optisch, Filter zeigt nur All/Free/Pro.
-
-
-## Incremental Update – update.sh Hardening & Dashboard Settings
-- `update.sh` um Dashboard-spezifische Defaults erweitert (`DISCORD_*`, Session TTL/Cookie, State TTL).
-- Neue Health-Checks eingebaut: Dashboard OAuth-Status wird beim Start und in `--settings` sichtbar geprüft.
-- `--settings` erweitert um Punkt **Dashboard & Discord OAuth** (Client ID/Secret/Redirect/Scopes/TTL/Cookie, Auto-Fix CORS/Public URL).
-- Fehlerpfade entschärft: bei ungültigen Eingaben (`Public URL`, `DBL`, `AcoustID`, OAuth) bricht das Script nicht mehr hart mit `exit 1` ab, sondern warnt und läuft sauber weiter.
-- Wartbarkeit verbessert: `dashboard.json` wird automatisch erzeugt/gesichert und in Backup-Pruning berücksichtigt.
-
-
-## Incremental Update – update.sh UX Loop (Batch Settings)
-- `--settings` ist jetzt als **intuitiver Mehrfach-Loop** umgesetzt: mehrere Punkte nacheinander aenderbar ohne rauszufliegen.
-- Neuer Abschlussfluss:
-  - `10) Fertig -> einmal neu starten`
-  - `11) Fertig ohne Neustart`
-- Aenderungen werden gesammelt und als **einmaliger Neustart am Ende** ausgefuehrt (statt nach jeder Einzelaktion).
-- Ungueltige Eingaben fuehren nicht mehr zum harten Abbruch, sondern geben Warnung aus und bleiben im Setup-Menue.
-
-
-## Incremental Update – Main Menu Dashboard Entry
-- Hauptmenue zeigt jetzt explizit `d) Dashboard OAuth`.
-- Direktmodus eingebaut: Auswahl `d` springt sofort in Settings-Punkt 9 (OAuth Dashboard).
-- Neuer CLI-Shortcut: `./update.sh --dashboard-settings`.
-- Zusammenfassung am Ende zeigt den neuen Dashboard-Befehl ebenfalls an.
-
-
-## Incremental Update – update.sh Owner Menu Complete
-- update.sh als Owner-Workflow weiter verbessert:
-  - Hauptmenue mit `d) Dashboard OAuth` und `0) Doctor Check`
-  - neuer CLI-Modus `--dashboard-settings` (Direkteinstieg Dashboard/OAuth)
-  - neuer CLI-Modus `--doctor` (System, OAuth, JSON, Runtime Pruefung)
-- Settings-Menue auf Batch-Interaktion erweitert:
-  - mehrere Aenderungen nacheinander ohne rauszufliegen
-  - Abschluss mit `10) einmal neu starten` oder `11) ohne Neustart`
-  - `12) Doctor Check` direkt aus Settings
-- Fehlertoleranz verbessert: ungueltige Eingaben erzeugen Warnungen statt harter Abbrueche.
-- Dashboard-relevante Defaults/Checks integriert (OAuth vars, session TTL/cookie, dashboard.json backups).
-
-
-## Incremental Update – Fix Discord Login API route not found (Production Node API)
-- Ursache identifiziert: Produktivdomain `omnifm.xyz` nutzt Node-API (`src/api/server.js`), dort fehlten Dashboard/Auth-Routen.
-- Node-API erweitert um:
-  - `/api/auth/session`, `/api/auth/discord/login`, `/api/auth/discord/callback`, `/api/auth/logout`
-  - `/api/dashboard/guilds`, `/api/dashboard/stats`, `/api/dashboard/events` (GET/POST/PATCH/DELETE), `/api/dashboard/perms` (GET/PUT), `/api/dashboard/telemetry` (POST admin)
-- CORS im Node-Helper erweitert (PUT/PATCH/DELETE + Credentials), damit Dashboard-Requests inkl. Session sauber funktionieren.
-- Dashboard-Datenpersistenz via `dashboard.json` integriert (events/perms/telemetry).
-- Verifikation lokal: Lint grün, Node-Tests 31/31 grün.
+## Naechste Schritte
+- Fixes in das produktive Repository uebernehmen
+- Docker-Image neu bauen und deployen
+- /play testen und Logs ueberwachen
