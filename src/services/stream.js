@@ -17,8 +17,15 @@ import {
   isLikelyNetworkFailureLine,
 } from "../lib/helpers.js";
 import { networkRecoveryCoordinator } from "../core/network-recovery.js";
+import { validateCustomStationUrlWithDns } from "../custom-stations.js";
 
 async function createResource(url, volume, qualityPreset, botName, bitrateOverride) {
+  const urlValidation = await validateCustomStationUrlWithDns(url);
+  if (!urlValidation.ok) {
+    throw new Error(urlValidation.error);
+  }
+
+  const safeUrl = urlValidation.url;
   const preset = qualityPreset || "custom";
   const presetBitrate =
     preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
@@ -43,7 +50,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       "-reconnect_on_http_error", "4xx,5xx",
       "-rw_timeout", profile.rwTimeoutUs,
       "-timeout", profile.ioTimeoutUs,
-      "-i", url,
+      "-i", safeUrl,
       "-ar", "48000",
       "-ac", "2",
       "-vn",
@@ -126,7 +133,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
     return { resource, process: ffmpeg };
   }
 
-  const res = await fetch(url, {
+  const res = await fetch(safeUrl, {
     redirect: "follow",
     headers: { "User-Agent": "OmniFM/3.0" },
     signal: AbortSignal.timeout(10_000)

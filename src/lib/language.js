@@ -15,49 +15,140 @@ function languagePick(language, de, en) {
   return normalizeLanguage(language, getDefaultLanguage()) === "de" ? de : en;
 }
 
-function translatePermissionStoreMessage(message, language = "de") {
+function buildMessageCatalog(entries) {
+  const map = new Map();
+  for (const entry of entries) {
+    const values = [entry.de, entry.en, ...(entry.aliases || [])];
+    for (const value of values) {
+      const normalized = String(value || "").trim();
+      if (!normalized) continue;
+      map.set(normalized, entry);
+    }
+  }
+  return map;
+}
+
+function translateCatalogMessage(message, language, catalog) {
   const value = String(message || "").trim();
-  const map = {
-    "Ungueltige Guild-ID.": "Invalid guild ID.",
-    "Command wird nicht unterstuetzt.": "Command is not supported.",
-    "Ungueltige Rollen-ID.": "Invalid role ID.",
-    "Mode muss 'allow' oder 'deny' sein.": "Mode must be 'allow' or 'deny'.",
-  };
-  return languagePick(language, value, map[value] || value);
+  if (!value) return value;
+  const match = catalog.get(value);
+  if (!match) return value;
+  return languagePick(language, match.de, match.en);
+}
+
+const permissionStoreCatalog = buildMessageCatalog([
+  {
+    de: "Ungültige Guild-ID.",
+    en: "Invalid guild ID.",
+    aliases: ["Ungueltige Guild-ID."],
+  },
+  {
+    de: "Command wird nicht unterstützt.",
+    en: "Command is not supported.",
+    aliases: ["Command wird nicht unterstuetzt."],
+  },
+  {
+    de: "Ungültige Rollen-ID.",
+    en: "Invalid role ID.",
+    aliases: ["Ungueltige Rollen-ID."],
+  },
+  {
+    de: "Mode muss 'allow' oder 'deny' sein.",
+    en: "Mode must be 'allow' or 'deny'.",
+  },
+]);
+
+const scheduledEventCatalog = buildMessageCatalog([
+  {
+    de: "Event ist ungültig.",
+    en: "Event is invalid.",
+    aliases: ["Event ist ungueltig."],
+  },
+  {
+    de: "Event-ID fehlt.",
+    en: "Event ID is missing.",
+  },
+  {
+    de: "Event nicht gefunden.",
+    en: "Event was not found.",
+  },
+  {
+    de: "Event-Update ist ungültig.",
+    en: "Event update is invalid.",
+    aliases: ["Event-Update ist ungueltig."],
+  },
+]);
+
+const customStationCatalog = buildMessageCatalog([
+  {
+    de: "Ungültiger Station-Key.",
+    en: "Invalid station key.",
+    aliases: ["Ungueltiger Station-Key."],
+  },
+  {
+    de: "Name darf nicht leer sein.",
+    en: "Name must not be empty.",
+  },
+  {
+    de: "URL darf nicht leer sein.",
+    en: "URL must not be empty.",
+  },
+  {
+    de: "URL-Format ungültig.",
+    en: "Invalid URL format.",
+    aliases: ["URL-Format ungueltig."],
+  },
+  {
+    de: "URL muss mit http:// oder https:// beginnen.",
+    en: "URL must start with http:// or https://.",
+  },
+  {
+    de: "URLs mit Benutzername/Passwort sind nicht erlaubt.",
+    en: "URLs with username/password are not allowed.",
+    aliases: ["URL mit Benutzername/Passwort sind nicht erlaubt."],
+  },
+  {
+    de: "Lokale/private Hosts sind nicht erlaubt.",
+    en: "Local/private hosts are not allowed.",
+  },
+  {
+    de: "Host konnte nicht aufgelöst werden.",
+    en: "Host could not be resolved.",
+    aliases: ["Host konnte nicht aufgeloest werden."],
+  },
+]);
+
+function translatePermissionStoreMessage(message, language = "de") {
+  return translateCatalogMessage(message, language, permissionStoreCatalog);
 }
 
 function translateScheduledEventStoreMessage(message, language = "de") {
-  const value = String(message || "").trim();
-  const map = {
-    "Event ist ungueltig.": "Event is invalid.",
-    "Event-ID fehlt.": "Event ID is missing.",
-    "Event nicht gefunden.": "Event was not found.",
-    "Event-Update ist ungueltig.": "Event update is invalid.",
-  };
-  return languagePick(language, value, map[value] || value);
+  return translateCatalogMessage(message, language, scheduledEventCatalog);
 }
 
 function translateCustomStationErrorMessage(message, language = "de") {
   const value = String(message || "").trim();
   if (!value) return value;
+
   const maxStationsMatch = value.match(/^Maximum (\d+) Custom-Stationen erreicht\.$/);
   if (maxStationsMatch) {
     return languagePick(
       language,
-      value,
+      `Maximum ${maxStationsMatch[1]} Custom-Stationen erreicht.`,
       `Maximum of ${maxStationsMatch[1]} custom stations reached.`
     );
   }
-  const map = {
-    "Ungueltiger Station-Key.": "Invalid station key.",
-    "Name darf nicht leer sein.": "Name must not be empty.",
-    "URL darf nicht leer sein.": "URL must not be empty.",
-    "URL-Format ungueltig.": "Invalid URL format.",
-    "URL muss mit http:// oder https:// beginnen.": "URL must start with http:// or https://.",
-    "URL mit Benutzername/Passwort sind nicht erlaubt.": "URLs with username/password are not allowed.",
-    "Lokale/private Hosts sind nicht erlaubt.": "Local/private hosts are not allowed.",
-  };
-  return languagePick(language, value, map[value] || value);
+
+  const duplicateKeyMatch = value.match(/^Station mit Key '([^']+)' existiert bereits\.$/);
+  if (duplicateKeyMatch) {
+    return languagePick(
+      language,
+      `Station mit Key '${duplicateKeyMatch[1]}' existiert bereits.`,
+      `Station with key '${duplicateKeyMatch[1]}' already exists.`
+    );
+  }
+
+  return translateCatalogMessage(value, language, customStationCatalog);
 }
 
 function getFeatureRequirementMessage(featureResult, language = "de") {
@@ -65,19 +156,23 @@ function getFeatureRequirementMessage(featureResult, language = "de") {
   if (normalizeLanguage(language, getDefaultLanguage()) !== "de") {
     return String(featureResult.message || "Feature not available.");
   }
+
   const labels = {
     hqAudio: "HQ Audio (128k Opus)",
     ultraAudio: "Ultra HQ Audio (320k)",
     priorityReconnect: "Priority Auto-Reconnect",
     instantReconnect: "Instant Reconnect",
-    premiumStations: "100+ Premium Stationen",
-    customStationURLs: "Custom-Station URLs",
+    premiumStations: "100+ Premium-Stationen",
+    customStationURLs: "Custom-Station-URLs",
     commandPermissions: "Rollenbasierte Command-Berechtigungen",
     scheduledEvents: "Event-Scheduler mit Auto-Play",
   };
   const label = labels[featureResult.featureKey] || featureResult.featureKey || "Dieses Feature";
   const requiredPlanName = PLANS[featureResult.requiredPlan]?.name || String(featureResult.requiredPlan || "Pro");
-  return `**${label}** erfordert ${TIERS.free.name === "Free" ? "OmniFM" : ""} **${requiredPlanName}** oder hoeher.`;
+  const planLabel = TIERS.free.name === "Free"
+    ? `OmniFM **${requiredPlanName}**`
+    : `**${requiredPlanName}**`;
+  return `**${label}** erfordert ${planLabel} oder höher.`;
 }
 
 export {

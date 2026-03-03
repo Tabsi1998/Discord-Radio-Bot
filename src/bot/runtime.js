@@ -6322,14 +6322,14 @@ class BotRuntime {
       const key = interaction.options.getString("key");
       const name = interaction.options.getString("name");
       const url = interaction.options.getString("url");
-      const result = addGuildStation(guildId, key, name, url);
+      const result = await addGuildStation(guildId, key, name, url);
       if (result.error) {
         await interaction.reply({ content: translateCustomStationErrorMessage(result.error, language), flags: MessageFlags.Ephemeral });
       } else {
         const count = countGuildStations(guildId);
         await interaction.reply({
           content: t(
-            `Custom Station hinzugefuegt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`,
+            `Custom Station hinzugefügt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`,
             `Custom station added: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} slots used.`
           ),
           flags: MessageFlags.Ephemeral,

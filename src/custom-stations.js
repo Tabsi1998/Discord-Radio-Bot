@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import net from "node:net";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json");
-const CUSTOM_BACKUP_FILE = path.resolve(__dirname, "..", "custom-stations.json.bak");
+const DEFAULT_CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json");
+const CUSTOM_FILE = path.resolve(process.env.OMNIFM_CUSTOM_STATIONS_FILE || DEFAULT_CUSTOM_FILE);
+const CUSTOM_BACKUP_FILE = `${CUSTOM_FILE}.bak`;
 const MAX_STATIONS_PER_GUILD = 50;
 const CUSTOM_STATION_PREFIX = "custom:";
 
@@ -40,6 +42,7 @@ function load() {
               objMap[key] = {
                 name: String(item.name || item.title || key).trim().substring(0, 100),
                 url: String(item.streamURL || item.url || item.streamUrl || "").trim(),
+                genre: String(item.genre || "").trim().substring(0, 80),
                 addedAt: item.addedAt || new Date().toISOString(),
               };
             }
@@ -204,13 +207,13 @@ function validateCustomStationUrl(rawUrl) {
   try {
     parsedUrl = new URL(String(rawUrl || "").trim());
   } catch {
-    return { ok: false, error: "URL-Format ungueltig." };
+    return { ok: false, error: "URL-Format ungültig." };
   }
   if (!/^https?:$/i.test(parsedUrl.protocol)) {
     return { ok: false, error: "URL muss mit http:// oder https:// beginnen." };
   }
   if (parsedUrl.username || parsedUrl.password) {
-    return { ok: false, error: "URL mit Benutzername/Passwort sind nicht erlaubt." };
+    return { ok: false, error: "URLs mit Benutzername/Passwort sind nicht erlaubt." };
   }
   if (isPrivateOrLocalHost(parsedUrl.hostname)) {
     return { ok: false, error: "Lokale/private Hosts sind nicht erlaubt." };
@@ -218,43 +221,105 @@ function validateCustomStationUrl(rawUrl) {
   return { ok: true, url: parsedUrl.toString() };
 }
 
+async function validateCustomStationUrlWithDns(rawUrl) {
+  const basicValidation = validateCustomStationUrl(rawUrl);
+  if (!basicValidation.ok) return basicValidation;
+
+  const parsedUrl = new URL(basicValidation.url);
+  if (net.isIP(parsedUrl.hostname)) {
+    return basicValidation;
+  }
+
+  let resolvedAddresses = [];
+  try {
+    resolvedAddresses = await dnsLookup(parsedUrl.hostname, { all: true, verbatim: true });
+  } catch {
+    return { ok: false, error: "Host konnte nicht aufgelöst werden." };
+  }
+
+  if (!Array.isArray(resolvedAddresses) || resolvedAddresses.length === 0) {
+    return { ok: false, error: "Host konnte nicht aufgelöst werden." };
+  }
+
+  for (const entry of resolvedAddresses) {
+    const address = String(entry?.address || "").trim();
+    if (!address) continue;
+    if (isPrivateOrLocalHost(address)) {
+      return { ok: false, error: "Lokale/private Hosts sind nicht erlaubt." };
+    }
+  }
+
+  return basicValidation;
+}
+
 function getGuildStations(guildId) {
   const data = load();
   return data[String(guildId)] || {};
 }
 
-function addGuildStation(guildId, key, name, url) {
+function normalizeStationInput(nameOrStation, url) {
+  if (nameOrStation && typeof nameOrStation === "object" && !Array.isArray(nameOrStation)) {
+    return {
+      name: String(nameOrStation.name || "").trim(),
+      url: String(nameOrStation.url || nameOrStation.streamURL || nameOrStation.streamUrl || "").trim(),
+      genre: String(nameOrStation.genre || "").trim().substring(0, 80),
+    };
+  }
+
+  return {
+    name: String(nameOrStation || "").trim(),
+    url: String(url || "").trim(),
+    genre: "",
+  };
+}
+
+async function saveGuildStation(guildId, key, nameOrStation, url, options = {}) {
   const data = load();
   const gid = String(guildId);
   if (!data[gid]) data[gid] = {};
 
-  const existing = Object.keys(data[gid]).length;
-  if (existing >= MAX_STATIONS_PER_GUILD) {
+  const sKey = sanitizeKey(key);
+  if (!sKey) return { error: "Ungültiger Station-Key." };
+
+  const existingStation = data[gid][sKey];
+  if (!existingStation && Object.keys(data[gid]).length >= MAX_STATIONS_PER_GUILD) {
     return { error: `Maximum ${MAX_STATIONS_PER_GUILD} Custom-Stationen erreicht.` };
   }
+  if (!options?.overwrite && existingStation) {
+    return { error: `Station mit Key '${sKey}' existiert bereits.` };
+  }
 
-  const sKey = sanitizeKey(key);
-  if (!sKey) return { error: "Ungueltiger Station-Key." };
-  if (!name || !name.trim()) return { error: "Name darf nicht leer sein." };
-  if (!url || !url.trim()) return { error: "URL darf nicht leer sein." };
+  const stationInput = normalizeStationInput(nameOrStation, url);
+  if (!stationInput.name) return { error: "Name darf nicht leer sein." };
+  if (!stationInput.url) return { error: "URL darf nicht leer sein." };
 
-  const validation = validateCustomStationUrl(url);
+  const validation = await validateCustomStationUrlWithDns(stationInput.url);
   if (!validation.ok) return { error: validation.error };
 
   data[gid][sKey] = {
-    name: name.trim().substring(0, 100),
+    name: stationInput.name.substring(0, 100),
     url: validation.url,
-    addedAt: new Date().toISOString(),
+    genre: stationInput.genre,
+    addedAt: existingStation?.addedAt || new Date().toISOString(),
   };
   save(data);
   return { success: true, key: sKey, station: data[gid][sKey] };
 }
 
+async function addGuildStation(guildId, key, nameOrStation, url) {
+  return saveGuildStation(guildId, key, nameOrStation, url, { overwrite: false });
+}
+
+async function updateGuildStation(guildId, key, nameOrStation, url) {
+  return saveGuildStation(guildId, key, nameOrStation, url, { overwrite: true });
+}
+
 function removeGuildStation(guildId, key) {
   const data = load();
   const gid = String(guildId);
-  if (!data[gid] || !data[gid][key]) return false;
-  delete data[gid][key];
+  const sKey = sanitizeKey(key);
+  if (!data[gid] || !data[gid][sKey]) return false;
+  delete data[gid][sKey];
   if (Object.keys(data[gid]).length === 0) delete data[gid];
   save(data);
   return true;
@@ -276,6 +341,7 @@ function clearGuildStations(guildId) {
 
 // Legacy aliases used by older runtime code.
 const addCustomStation = addGuildStation;
+const updateCustomStation = updateGuildStation;
 const removeCustomStation = removeGuildStation;
 const listCustomStations = listGuildStations;
 
@@ -286,7 +352,9 @@ export {
   buildCustomStationReference,
   parseCustomStationReference,
   validateCustomStationUrl,
+  validateCustomStationUrlWithDns,
   getGuildStations, addGuildStation, removeGuildStation,
+  updateGuildStation,
   listGuildStations, countGuildStations, clearGuildStations,
-  addCustomStation, removeCustomStation, listCustomStations,
+  addCustomStation, updateCustomStation, removeCustomStation, listCustomStations,
 };

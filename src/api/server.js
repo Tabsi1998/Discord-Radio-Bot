@@ -53,6 +53,7 @@ import { loadStations, filterStationsByTier } from "../stations-store.js";
 import {
   getGuildStations as getCustomStations,
   addGuildStation as addCustomStation,
+  updateGuildStation as updateCustomStation,
   removeGuildStation as removeCustomStation,
 } from "../custom-stations.js";
 import { getTier, checkFeatureAccess, getServerPlanConfig } from "../core/entitlements.js";
@@ -1938,11 +1939,14 @@ function startWebServer(runtimes) {
           const name = clipText(body?.name || "", 120).trim();
           const url = clipText(body?.url || "", 500).trim();
           if (!key || !name || !url) { sendJson(res, 400, { error: "Key, Name und URL sind erforderlich." }); return; }
-          const result = addCustomStation(guildInfo.id, key, { name, url, genre: clipText(body?.genre || "", 80) });
-          if (!result) { sendJson(res, 400, { error: "Station konnte nicht hinzugefuegt werden." }); return; }
-          sendJson(res, 201, { success: true, station: { key, name, url, genre: body?.genre || "" } });
+          const result = await addCustomStation(guildInfo.id, key, { name, url, genre: clipText(body?.genre || "", 80) });
+          if (!result?.success) {
+            sendJson(res, 400, { error: result?.error || "Station konnte nicht hinzugefügt werden." });
+            return;
+          }
+          sendJson(res, 201, { success: true, station: { key: result.key, ...result.station } });
         } catch (err) {
-          sendJson(res, 400, { error: err?.message || "Ungueltige Anfrage." });
+          sendJson(res, 400, { error: err?.message || "Ungültige Anfrage." });
         }
         return;
       }
@@ -1958,7 +1962,7 @@ function startWebServer(runtimes) {
       if (req.method === "PUT") {
         try {
           const body = await readJsonBody();
-          const key = clipText(body?.key || "", 80).trim().toLowerCase();
+          const key = clipText(body?.key || "", 80).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
           if (!key) { sendJson(res, 400, { error: "Station Key fehlt." }); return; }
           const existing = getCustomStations(guildInfo.id);
           if (!existing[key]) { sendJson(res, 404, { error: "Station nicht gefunden." }); return; }
@@ -1968,11 +1972,14 @@ function startWebServer(runtimes) {
             url: clipText(body?.url || current.url || "", 500).trim(),
             genre: clipText(body?.genre !== undefined ? body.genre : (current.genre || ""), 80),
           };
-          removeCustomStation(guildInfo.id, key);
-          addCustomStation(guildInfo.id, key, updated);
-          sendJson(res, 200, { success: true, station: { key, ...updated } });
+          const result = await updateCustomStation(guildInfo.id, key, updated);
+          if (!result?.success) {
+            sendJson(res, 400, { error: result?.error || "Station konnte nicht aktualisiert werden." });
+            return;
+          }
+          sendJson(res, 200, { success: true, station: { key: result.key, ...result.station } });
         } catch (err) {
-          sendJson(res, 400, { error: err?.message || "Ungueltige Anfrage." });
+          sendJson(res, 400, { error: err?.message || "Ungültige Anfrage." });
         }
         return;
       }
