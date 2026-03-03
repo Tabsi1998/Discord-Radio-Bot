@@ -9,6 +9,7 @@ import {
 } from "../src/lib/helpers.js";
 import { buildCommandsJson } from "../src/commands.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
+import { BotRuntime } from "../src/bot/runtime.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
@@ -128,6 +129,82 @@ test("worker manager reuses the worker already streaming in the requested channe
   assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-1"), workerA);
   assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-2"), workerB);
   assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-9"), null);
+});
+
+test("public bot status omits guild details while dashboard status keeps them", () => {
+  const fakeRuntime = {
+    collectStats() {
+      return { servers: 3, users: 42, connections: 1, listeners: 7 };
+    },
+    getApplicationId() {
+      return "app-123";
+    },
+    getCurrentListenerCount() {
+      return 7;
+    },
+    config: {
+      id: "bot-1",
+      index: 1,
+      name: "OmniFM Bot 1",
+      clientId: "client-123",
+      requiredTier: "free",
+    },
+    role: "commander",
+    client: {
+      isReady: () => true,
+      user: {
+        tag: "OmniFM#0001",
+        displayAvatarURL: () => "https://example.com/avatar.png",
+      },
+      guilds: {
+        cache: new Map([
+          ["guild-1", {
+            name: "Guild One",
+            channels: {
+              cache: new Map([
+                ["voice-1", { name: "Radio" }],
+              ]),
+            },
+          }],
+        ]),
+      },
+    },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "custom:secret-fm",
+        currentStationName: "Secret FM",
+        lastChannelId: "voice-1",
+        volume: 80,
+        connection: { joinConfig: { channelId: "voice-1" } },
+        currentMeta: { title: "Hidden Track" },
+      }],
+    ]),
+    startedAt: Date.now() - 5_000,
+    startError: null,
+  };
+
+  fakeRuntime.buildStatusSnapshot = BotRuntime.prototype.buildStatusSnapshot;
+
+  const publicStatus = BotRuntime.prototype.getPublicStatus.call(fakeRuntime);
+  assert.equal("guildDetails" in publicStatus, false);
+  assert.equal(publicStatus.listeners, 7);
+  assert.equal(typeof publicStatus.inviteUrl, "string");
+
+  const dashboardStatus = BotRuntime.prototype.getDashboardStatus.call(fakeRuntime);
+  assert.equal(Array.isArray(dashboardStatus.guildDetails), true);
+  assert.equal(dashboardStatus.guildDetails.length, 1);
+  assert.deepEqual(dashboardStatus.guildDetails[0], {
+    guildId: "guild-1",
+    guildName: "Guild One",
+    stationKey: "custom:secret-fm",
+    stationName: "Secret FM",
+    channelId: "voice-1",
+    channelName: "Radio",
+    listenerCount: 7,
+    volume: 80,
+    playing: true,
+    meta: { title: "Hidden Track" },
+  });
 });
 
 test("worker manager can reuse a bot that is still connected in the target channel", async () => {

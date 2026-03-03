@@ -6923,34 +6923,16 @@ class BotRuntime {
     return count;
   }
 
-  getPublicStatus() {
+  buildStatusSnapshot({ includeGuildDetails = false } = {}) {
     const stats = this.collectStats();
     const resolvedClientId = this.getApplicationId() || this.config.clientId;
-    // Per-guild details: was spielt wo
-    const guildDetails = [];
-    for (const [guildId, state] of this.guildState.entries()) {
-      const guild = this.client.guilds.cache.get(guildId);
-      if (!guild) continue;
-      guildDetails.push({
-        guildId,
-        guildName: guild.name,
-        stationKey: state.currentStationKey || null,
-        stationName: state.currentStationName || null,
-        channelId: state.lastChannelId || null,
-        channelName: state.lastChannelId ? guild.channels.cache.get(state.lastChannelId)?.name || null : null,
-        listenerCount: this.getCurrentListenerCount(guildId, state),
-        volume: state.volume,
-        playing: Boolean(state.connection && state.currentStationKey),
-        meta: state.currentMeta || null,
-      });
-    }
     const isPremiumBot = this.config.requiredTier && this.config.requiredTier !== "free";
     const accentColor = this.config.requiredTier === "ultimate"
       ? "#BD00FF"
       : this.config.requiredTier === "pro"
         ? "#FFB800"
         : "#00F0FF";
-    return {
+    const status = {
       id: this.config.id,
       botId: this.config.id,
       index: Number(this.config.index || 0) || null,
@@ -6970,8 +6952,40 @@ class BotRuntime {
       listeners: stats.listeners,
       uptimeSec: Math.floor((Date.now() - this.startedAt) / 1000),
       error: this.startError ? String(this.startError.message || this.startError) : null,
+    };
+
+    if (!includeGuildDetails) return status;
+
+    const guildDetails = [];
+    for (const [guildId, state] of this.guildState.entries()) {
+      const guild = this.client.guilds.cache.get(guildId);
+      if (!guild) continue;
+      guildDetails.push({
+        guildId,
+        guildName: guild.name,
+        stationKey: state.currentStationKey || null,
+        stationName: state.currentStationName || null,
+        channelId: state.lastChannelId || null,
+        channelName: state.lastChannelId ? guild.channels.cache.get(state.lastChannelId)?.name || null : null,
+        listenerCount: this.getCurrentListenerCount(guildId, state),
+        volume: state.volume,
+        playing: Boolean(state.connection && state.currentStationKey),
+        meta: state.currentMeta || null,
+      });
+    }
+
+    return {
+      ...status,
       guildDetails,
     };
+  }
+
+  getPublicStatus() {
+    return this.buildStatusSnapshot();
+  }
+
+  getDashboardStatus() {
+    return this.buildStatusSnapshot({ includeGuildDetails: true });
   }
 
   // === State Persistence: Speichert aktuellen Zustand fuer Auto-Reconnect nach Restart ===

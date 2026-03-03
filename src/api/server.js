@@ -529,7 +529,9 @@ function collectGuildLiveDetails(runtimes, guildId) {
   const rows = [];
   for (const runtime of runtimes) {
     if (typeof runtime?.getPublicStatus !== "function") continue;
-    const status = runtime.getPublicStatus();
+    const status = typeof runtime?.getDashboardStatus === "function"
+      ? runtime.getDashboardStatus()
+      : runtime.getPublicStatus();
     const guildDetails = Array.isArray(status?.guildDetails) ? status.guildDetails : [];
     for (const detail of guildDetails) {
       if (String(detail?.guildId || "") !== String(guildId)) continue;
