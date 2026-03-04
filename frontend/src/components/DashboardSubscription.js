@@ -10,16 +10,16 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 const TIER_COLORS = { free: '#71717A', pro: '#10B981', ultimate: '#8B5CF6' };
 const TIER_LABELS = { free: 'Free', pro: 'Pro', ultimate: 'Ultimate' };
 const RENEWAL_OPTIONS = [1, 3, 6, 12];
 
-function formatDate(isoStr) {
+function formatLicenseDate(isoStr, formatDate) {
   if (!isoStr) return '-';
   try {
-    const d = new Date(isoStr);
-    return d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return formatDate(isoStr, { day: '2-digit', month: '2-digit', year: 'numeric' });
   } catch {
     return '-';
   }
@@ -68,6 +68,7 @@ function DashboardCheckoutModal({
   initialTier,
   seats,
   t,
+  locale,
   onSubmit,
   allowUpgrade,
 }) {
@@ -199,7 +200,7 @@ function DashboardCheckoutModal({
                   `${option} Monat${option > 1 ? 'e' : ''}`,
                   `${option} month${option > 1 ? 's' : ''}`
                 )}
-                subLabel={formatEuroCents(prices?.[tier]?.[option] || 0)}
+                subLabel={formatEuroCents(prices?.[tier]?.[option] || 0, locale)}
                 onClick={() => setMonths(option)}
               />
             ))}
@@ -217,7 +218,7 @@ function DashboardCheckoutModal({
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
             <span style={{ color: '#71717A' }}>{t('Preis', 'Price')}</span>
-            <strong>{formatEuroCents(currentPrice)}</strong>
+            <strong>{formatEuroCents(currentPrice, locale)}</strong>
           </div>
         </div>
 
@@ -267,6 +268,7 @@ function DashboardCheckoutModal({
 }
 
 export default function DashboardSubscription({ apiRequest, selectedGuildId, t }) {
+  const { locale, localeMeta, formatDate } = useI18n();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -341,7 +343,8 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
         body: JSON.stringify({
           months,
           tier,
-          returnUrl: `${window.location.origin}/?page=dashboard`,
+          language: locale,
+          returnUrl: `${window.location.origin}/?page=dashboard&lang=${encodeURIComponent(locale)}`,
         }),
       });
       if (result?.url) {
@@ -354,7 +357,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
     } finally {
       setCheckoutLoading(false);
     }
-  }, [apiRequest, selectedGuildId, t]);
+  }, [apiRequest, locale, selectedGuildId, t]);
 
   if (loading) {
     return (
@@ -430,7 +433,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
               )}
             </p>
             <a
-              href="/?page=home#premium"
+              href={`/?page=home&lang=${encodeURIComponent(locale)}#premium`}
               data-testid="subscription-upgrade-link"
               style={{
                 display: 'inline-flex',
@@ -469,7 +472,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
                 </span>
               </div>
               <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, fontWeight: 600, color: isExpired ? '#EF4444' : isExpiringSoon ? '#F59E0B' : '#fff' }}>
-                {formatDate(lic.expiresAt)}
+                {formatLicenseDate(lic.expiresAt, formatDate)}
               </div>
               {lic.remainingDays != null && !isExpired ? (
                 <div style={{ fontSize: 12, color: isExpiringSoon ? '#F59E0B' : '#52525B', marginTop: 4 }}>
@@ -623,6 +626,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
         initialTier={String(lic?.plan || effectiveTier || 'pro').toLowerCase() === 'ultimate' ? 'ultimate' : 'pro'}
         seats={Math.max(1, Number(lic?.seats || 1) || 1)}
         t={t}
+        locale={localeMeta.intl}
         onSubmit={startCheckout}
         allowUpgrade={canUpgradeToUltimate}
       />

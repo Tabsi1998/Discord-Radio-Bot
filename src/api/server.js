@@ -28,7 +28,13 @@ import {
   getPricePerMonthCents,
 } from "../lib/helpers.js";
 import { normalizeLanguage, getDefaultLanguage, resolveLanguageFromAcceptLanguage } from "../i18n.js";
-import { languagePick } from "../lib/language.js";
+import {
+  languagePick,
+  translateCustomStationErrorMessage,
+  translatePermissionStoreMessage,
+  translateScheduledEventStoreMessage,
+} from "../lib/language.js";
+import { resolveRequestLanguage } from "../lib/request-language.js";
 import {
   EVENT_FALLBACK_TIME_ZONE,
   getZonedPartsFromUtcMs,
@@ -513,9 +519,39 @@ function resolveDashboardGuildForSession(sessionPayload, serverId) {
   return resolveDashboardGuildsForSession(sessionPayload).find((guild) => guild.id === guildId) || null;
 }
 
-function buildDashboardErrorRedirect(origin, errorCode) {
+function buildDashboardErrorRedirect(origin, errorCode, language = "") {
   const safeOrigin = toOrigin(origin) || "http://localhost";
-  return `${safeOrigin}/?page=dashboard&authError=${encodeURIComponent(String(errorCode || "oauth_error"))}`;
+  const lang = normalizeLanguage(language || "", "");
+  const langParam = lang ? `&lang=${encodeURIComponent(lang)}` : "";
+  return `${safeOrigin}/?page=dashboard&authError=${encodeURIComponent(String(errorCode || "oauth_error"))}${langParam}`;
+}
+
+function resolveDashboardRequestLanguage(req, requestUrl, fallback = getDefaultLanguage()) {
+  return resolveRequestLanguage(
+    req?.headers || {},
+    requestUrl?.searchParams?.get("lang") || "",
+    fallback
+  );
+}
+
+function getDashboardRequestTranslator(req, requestUrl, fallback = getDefaultLanguage()) {
+  const language = resolveDashboardRequestLanguage(req, requestUrl, fallback);
+  return {
+    language,
+    t: (de, en) => languagePick(language, de, en),
+  };
+}
+
+function sendLocalizedError(res, status, language, de, en) {
+  sendJson(res, status, { error: languagePick(language, de, en) });
+}
+
+function getLocalizedJsonBodyError(language, status) {
+  return languagePick(
+    language,
+    status === 413 ? "Request-Body ist zu groß." : "Ungültiges JSON im Request-Body.",
+    status === 413 ? "Request body is too large." : "Invalid JSON in request body."
+  );
 }
 
 function resolveRuntimeForGuild(runtimes, guildId) {
@@ -838,7 +874,10 @@ function parseDashboardStartsAtInput(payload) {
 
 async function validateDashboardEventChannels(runtime, guild, event, language = "de") {
   if (!runtime || !guild) {
-    return { ok: false, message: "Der Bot ist auf diesem Server aktuell nicht verfuegbar." };
+    return {
+      ok: false,
+      message: languagePick(language, "Der Bot ist auf diesem Server aktuell nicht verfügbar.", "The bot is currently unavailable on this server."),
+    };
   }
 
   const me = await runtime.resolveBotMember(guild);
@@ -848,7 +887,7 @@ async function validateDashboardEventChannels(runtime, guild, event, language = 
 
   const { channel: voiceChannel } = await runtime.resolveGuildVoiceChannel(guild.id, event.voiceChannelId);
   if (!voiceChannel) {
-    return { ok: false, message: languagePick(language, "Bitte waehle einen Voice- oder Stage-Channel.", "Please choose a voice or stage channel.") };
+    return { ok: false, message: languagePick(language, "Bitte wähle einen Voice- oder Stage-Channel.", "Please choose a voice or stage channel.") };
   }
   if (event.stageTopic && voiceChannel.type !== ChannelType.GuildStageVoice) {
     return { ok: false, message: languagePick(language, "`stagetopic` funktioniert nur mit Stage-Channels.", "`stagetopic` only works with stage channels.") };
@@ -860,7 +899,7 @@ async function validateDashboardEventChannels(runtime, guild, event, language = 
       ok: false,
       message: languagePick(
         language,
-        `Ich habe keine Connect-Berechtigung fuer ${voiceChannel.toString()}.`,
+        `Ich habe keine Connect-Berechtigung für ${voiceChannel.toString()}.`,
         `I do not have Connect permission for ${voiceChannel.toString()}.`
       ),
     };
@@ -870,7 +909,7 @@ async function validateDashboardEventChannels(runtime, guild, event, language = 
       ok: false,
       message: languagePick(
         language,
-        `Ich habe keine Speak-Berechtigung fuer ${voiceChannel.toString()}.`,
+        `Ich habe keine Speak-Berechtigung für ${voiceChannel.toString()}.`,
         `I do not have Speak permission for ${voiceChannel.toString()}.`
       ),
     };
@@ -893,7 +932,7 @@ async function validateDashboardEventChannels(runtime, guild, event, language = 
         ok: false,
         message: languagePick(
           language,
-          "Der gewaehlte Text-Channel ist nicht in diesem Server.",
+          "Der gewählte Text-Channel ist nicht in diesem Server.",
           "The selected text channel is not in this server."
         ),
       };
@@ -988,19 +1027,19 @@ async function normalizeDashboardEventInput(body, {
     ? payload.enabled !== false
     : existingEvent?.enabled !== false;
 
-  if (!title) return { ok: false, message: "Titel fehlt." };
-  if (!stationKey) return { ok: false, message: "Station Key fehlt." };
-  if (!/^\d{17,22}$/.test(channelId)) return { ok: false, message: "Voice Channel ID fehlt oder ist ungueltig." };
-  if (textChannelId && !/^\d{17,22}$/.test(textChannelId)) return { ok: false, message: "Text Channel ID ist ungueltig." };
-  if (!timezone) return { ok: false, message: "Zeitzone ist ungueltig." };
-  if (!botId) return { ok: false, message: "Kein geeigneter Bot fuer dieses Event gefunden." };
+  if (!title) return { ok: false, message: languagePick(language, "Titel fehlt.", "Title is required.") };
+  if (!stationKey) return { ok: false, message: languagePick(language, "Station-Key fehlt.", "Station key is required.") };
+  if (!/^\d{17,22}$/.test(channelId)) return { ok: false, message: languagePick(language, "Voice-Channel-ID fehlt oder ist ungültig.", "Voice channel ID is missing or invalid.") };
+  if (textChannelId && !/^\d{17,22}$/.test(textChannelId)) return { ok: false, message: languagePick(language, "Text-Channel-ID ist ungültig.", "Text channel ID is invalid.") };
+  if (!timezone) return { ok: false, message: languagePick(language, "Zeitzone ist ungültig.", "Time zone is invalid.") };
+  if (!botId) return { ok: false, message: languagePick(language, "Kein geeigneter Bot für dieses Event gefunden.", "No suitable bot was found for this event.") };
 
   const startInput = parseDashboardStartsAtInput(payload);
   let parsedWindow;
   if (startInput.mode === "legacy_iso") {
     const parsedRunAtMs = Date.parse(startInput.value);
     if (!Number.isFinite(parsedRunAtMs) || parsedRunAtMs <= 0) {
-      return { ok: false, message: "Startzeit ist ungueltig." };
+      return { ok: false, message: languagePick(language, "Startzeit ist ungültig.", "Start time is invalid.") };
     }
     parsedWindow = {
       ok: true,
@@ -1019,7 +1058,7 @@ async function normalizeDashboardEventInput(body, {
     }, language);
   }
   if (!parsedWindow?.ok) {
-    return { ok: false, message: parsedWindow?.message || "Startzeit ist ungueltig." };
+    return { ok: false, message: parsedWindow?.message || languagePick(language, "Startzeit ist ungültig.", "Start time is invalid.") };
   }
   if (createDiscordEvent && parsedWindow.runAtMs < Date.now() + 60_000) {
     return {
@@ -1072,7 +1111,7 @@ function startWebServer(runtimes) {
     try {
       requestUrl = new URL(req.url || "/", "http://localhost");
     } catch {
-      sendJson(res, 400, { error: "Ungueltige Request-URL." });
+      sendJson(res, 400, { error: "Ungültige Request-URL." });
       return;
     }
 
@@ -1364,7 +1403,7 @@ function startWebServer(runtimes) {
         if (status === 400 || status === 413) {
           sendJson(res, status, {
             success: false,
-            error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body.",
+            error: status === 413 ? "Request-Body ist zu groß." : "Ungültiges JSON im Request-Body.",
           });
           return;
         }
@@ -1425,7 +1464,7 @@ function startWebServer(runtimes) {
         if (status === 400 || status === 413) {
           sendJson(res, status, {
             success: false,
-            error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body.",
+            error: status === 413 ? "Request-Body ist zu groß." : "Ungültiges JSON im Request-Body.",
           });
           return;
         }
@@ -1438,13 +1477,14 @@ function startWebServer(runtimes) {
     const dashboardEventMatch = requestUrl.pathname.match(/^\/api\/dashboard\/events\/([^/]+)$/);
 
     if (requestUrl.pathname === "/api/auth/discord/login") {
+      const requestLanguage = resolveDashboardRequestLanguage(req, requestUrl);
       if (req.method !== "GET") {
         methodNotAllowed(res, ["GET"]);
         return;
       }
       if (!isDiscordOauthConfigured()) {
         sendJson(res, 503, {
-          error: "Discord OAuth ist noch nicht konfiguriert.",
+          error: languagePick(requestLanguage, "Discord OAuth ist noch nicht konfiguriert.", "Discord OAuth is not configured yet."),
           oauthConfigured: false,
         });
         return;
@@ -1456,6 +1496,7 @@ function startWebServer(runtimes) {
       const nowTs = Math.floor(Date.now() / 1000);
       setDashboardOauthState(stateToken, {
         nextPage,
+        language: requestLanguage,
         origin: frontendOrigin,
         createdAt: nowTs,
         expiresAt: nowTs + getDiscordOauthStateTtlSeconds(),
@@ -1480,11 +1521,12 @@ function startWebServer(runtimes) {
       const fallbackOrigin = getFrontendBaseOrigin(req, publicUrl);
       const statePayload = popDashboardOauthState(stateToken);
       const frontendOrigin = statePayload?.origin || fallbackOrigin;
+      const oauthLanguage = normalizeLanguage(statePayload?.language, getDefaultLanguage());
 
       if (!isDiscordOauthConfigured()) {
         res.writeHead(302, {
           ...getCommonSecurityHeaders(),
-          Location: buildDashboardErrorRedirect(frontendOrigin, "oauth_not_configured"),
+          Location: buildDashboardErrorRedirect(frontendOrigin, "oauth_not_configured", oauthLanguage),
         });
         res.end();
         return;
@@ -1492,7 +1534,7 @@ function startWebServer(runtimes) {
       if (!statePayload) {
         res.writeHead(302, {
           ...getCommonSecurityHeaders(),
-          Location: buildDashboardErrorRedirect(frontendOrigin, "invalid_state"),
+          Location: buildDashboardErrorRedirect(frontendOrigin, "invalid_state", oauthLanguage),
         });
         res.end();
         return;
@@ -1500,7 +1542,7 @@ function startWebServer(runtimes) {
       if (!code) {
         res.writeHead(302, {
           ...getCommonSecurityHeaders(),
-          Location: buildDashboardErrorRedirect(frontendOrigin, "missing_code"),
+          Location: buildDashboardErrorRedirect(frontendOrigin, "missing_code", oauthLanguage),
         });
         res.end();
         return;
@@ -1521,7 +1563,7 @@ function startWebServer(runtimes) {
 
         res.writeHead(302, {
           ...getCommonSecurityHeaders(),
-          Location: `${frontendOrigin}/?page=${sanitizeDashboardPage(statePayload.nextPage)}`,
+          Location: `${frontendOrigin}/?page=${sanitizeDashboardPage(statePayload.nextPage)}&lang=${encodeURIComponent(oauthLanguage)}`,
           "Set-Cookie": buildDashboardSessionCookie(sessionToken, req, frontendOrigin),
         });
         res.end();
@@ -1529,7 +1571,7 @@ function startWebServer(runtimes) {
         log("ERROR", `Discord OAuth callback failed: ${err?.message || err}`);
         res.writeHead(302, {
           ...getCommonSecurityHeaders(),
-          Location: buildDashboardErrorRedirect(frontendOrigin, "oauth_exchange_failed"),
+          Location: buildDashboardErrorRedirect(frontendOrigin, "oauth_exchange_failed", oauthLanguage),
         });
         res.end();
       }
@@ -1584,13 +1626,14 @@ function startWebServer(runtimes) {
     }
 
     if (requestUrl.pathname === "/api/dashboard/guilds") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") {
         methodNotAllowed(res, ["GET"]);
         return;
       }
       const { session } = getDashboardSession(req);
       if (!session) {
-        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
         return;
       }
       sendJson(res, 200, { guilds: resolveDashboardGuildsForSession(session) });
@@ -1598,23 +1641,24 @@ function startWebServer(runtimes) {
     }
 
     if (requestUrl.pathname === "/api/dashboard/stats") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") {
         methodNotAllowed(res, ["GET"]);
         return;
       }
       const { session } = getDashboardSession(req);
       if (!session) {
-        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
         return;
       }
 
       const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guild) {
-        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
       if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
-        sendJson(res, 403, { error: "Dashboard ist erst ab Pro verfuegbar." });
+        sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro.");
         return;
       }
 
@@ -1630,11 +1674,12 @@ function startWebServer(runtimes) {
 
     // --- Dashboard: Stats Reset ---
     if (requestUrl.pathname === "/api/dashboard/stats/reset") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "DELETE") { methodNotAllowed(res, ["DELETE"]); return; }
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guild) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+      if (!guild) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
 
       const gid = guild.id;
       const deletedCounts = {};
@@ -1654,7 +1699,13 @@ function startWebServer(runtimes) {
         if (typeof resetGuildStats === "function") resetGuildStats(gid);
       } catch (err) {
         console.error(`[stats-reset] Error for guild ${gid}: ${err.message}`);
-        sendJson(res, 500, { error: `Fehler beim Zuruecksetzen: ${err.message}` });
+        sendJson(res, 500, {
+          error: languagePick(
+            language,
+            `Fehler beim Zurücksetzen: ${err.message}`,
+            `Reset failed: ${err.message}`
+          ),
+        });
         return;
       }
       sendJson(res, 200, { success: true, serverId: gid, deleted: deletedCounts });
@@ -1663,23 +1714,30 @@ function startWebServer(runtimes) {
 
     // Enhanced stats endpoint with daily, session, connection, timeline data
     if (requestUrl.pathname === "/api/dashboard/stats/detail") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") {
         methodNotAllowed(res, ["GET"]);
         return;
       }
       const { session } = getDashboardSession(req);
       if (!session) {
-        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
         return;
       }
 
       const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guild) {
-        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
       if (guild.tier !== "ultimate") {
-        sendJson(res, 403, { error: "Detaillierte Statistiken sind nur fuer Ultimate verfuegbar." });
+        sendLocalizedError(
+          res,
+          403,
+          language,
+          "Detaillierte Statistiken sind nur für Ultimate verfügbar.",
+          "Detailed statistics are only available for Ultimate."
+        );
         return;
       }
 
@@ -1742,7 +1800,13 @@ function startWebServer(runtimes) {
         });
       } catch (err) {
         log("ERROR", `Dashboard detail stats error: ${err?.message || err}`);
-        sendJson(res, 500, { error: "Detaillierte Statistiken konnten nicht geladen werden." });
+        sendLocalizedError(
+          res,
+          500,
+          language,
+          "Detaillierte Statistiken konnten nicht geladen werden.",
+          "Detailed statistics could not be loaded."
+        );
       }
       return;
     }
@@ -1764,6 +1828,7 @@ function startWebServer(runtimes) {
     }
 
     if (requestUrl.pathname === "/api/dashboard/telemetry") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "POST") {
         methodNotAllowed(res, ["POST"]);
         return;
@@ -1774,7 +1839,7 @@ function startWebServer(runtimes) {
       }
       const serverId = String(requestUrl.searchParams.get("serverId") || "").trim();
       if (!/^\d{17,22}$/.test(serverId)) {
-        sendJson(res, 400, { error: "ungueltige serverId" });
+        sendLocalizedError(res, 400, language, "Ungültige serverId.", "Invalid serverId.");
         return;
       }
       try {
@@ -1784,28 +1849,29 @@ function startWebServer(runtimes) {
       } catch (err) {
         const status = Number(err?.status || 0);
         if (status === 400 || status === 413) {
-          sendJson(res, status, { error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body." });
+          sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
           return;
         }
-        sendJson(res, 500, { error: "Telemetry konnte nicht gespeichert werden." });
+        sendLocalizedError(res, 500, language, "Telemetry konnte nicht gespeichert werden.", "Telemetry could not be saved.");
       }
       return;
     }
 
     if (requestUrl.pathname === "/api/dashboard/events") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       const { session } = getDashboardSession(req);
       if (!session) {
-        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
         return;
       }
 
       const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guild) {
-        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
       if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
-        sendJson(res, 403, { error: "Events sind erst ab Pro verfuegbar." });
+        sendLocalizedError(res, 403, language, "Events sind erst ab Pro verfügbar.", "Events are only available from Pro.");
         return;
       }
 
@@ -1820,20 +1886,21 @@ function startWebServer(runtimes) {
           const body = await readJsonBody();
           const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
           if (!runtime || !managedGuild) {
-            sendJson(res, 400, { error: "Der Bot ist auf diesem Server aktuell nicht verfuegbar." });
+            sendLocalizedError(res, 400, language, "Der Bot ist auf diesem Server aktuell nicht verfügbar.", "The bot is currently unavailable on this server.");
             return;
           }
           const normalized = await normalizeDashboardEventInput(body, {
             guildId: guild.id,
             botId: runtime?.config?.id || "",
             runtime,
+            language,
           });
           if (!normalized.ok) {
             sendJson(res, 400, { error: normalized.message });
             return;
           }
 
-          const channelValidation = await validateDashboardEventChannels(runtime, managedGuild, normalized.event);
+          const channelValidation = await validateDashboardEventChannels(runtime, managedGuild, normalized.event, language);
           if (!channelValidation.ok) {
             sendJson(res, 400, { error: channelValidation.message });
             return;
@@ -1843,7 +1910,11 @@ function startWebServer(runtimes) {
             const invitedWorkers = runtime.workerManager.getInvitedWorkers(guild.id, getTier(guild.id));
             if (!invitedWorkers.length) {
               sendJson(res, 400, {
-                error: "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit /invite worker:1 einladen.",
+                error: languagePick(
+                  language,
+                  "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit /invite worker:1 einladen.",
+                  "No suitable worker bot is invited to this server yet. Please invite a worker first with /invite worker:1."
+                ),
               });
               return;
             }
@@ -1858,7 +1929,12 @@ function startWebServer(runtimes) {
             createdByUserId: session?.user?.id || null,
           });
           if (!result?.ok || !result?.event) {
-            sendJson(res, 400, { error: result?.message || "Event konnte nicht erstellt werden." });
+            sendJson(res, 400, {
+              error: translateScheduledEventStoreMessage(
+                result?.message || languagePick(language, "Event konnte nicht erstellt werden.", "Event could not be created."),
+                language
+              ),
+            });
             return;
           }
 
@@ -1905,10 +1981,10 @@ function startWebServer(runtimes) {
         } catch (err) {
           const status = Number(err?.status || 0);
           if (status === 400 || status === 413) {
-            sendJson(res, status, { error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body." });
+            sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
             return;
           }
-          sendJson(res, 500, { error: "Event konnte nicht erstellt werden." });
+          sendLocalizedError(res, 500, language, "Event konnte nicht erstellt werden.", "Event could not be created.");
         }
         return;
       }
@@ -1918,25 +1994,26 @@ function startWebServer(runtimes) {
     }
 
     if (dashboardEventMatch) {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       const { session } = getDashboardSession(req);
       if (!session) {
-        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
         return;
       }
 
       const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guild) {
-        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
       if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
-        sendJson(res, 403, { error: "Events sind erst ab Pro verfuegbar." });
+        sendLocalizedError(res, 403, language, "Events sind erst ab Pro verfügbar.", "Events are only available from Pro.");
         return;
       }
 
       const eventId = decodeURIComponent(dashboardEventMatch[1] || "").trim();
       if (!eventId) {
-        sendJson(res, 400, { error: "Event-ID fehlt." });
+        sendLocalizedError(res, 400, language, "Event-ID fehlt.", "Event ID is missing.");
         return;
       }
 
@@ -1944,14 +2021,14 @@ function startWebServer(runtimes) {
         try {
           const existingEvent = getScheduledEvent(eventId);
           if (!existingEvent || String(existingEvent.guildId || "") !== guild.id) {
-            sendJson(res, 404, { error: "Event nicht gefunden." });
+            sendJson(res, 404, { error: translateScheduledEventStoreMessage("Event nicht gefunden.", language) });
             return;
           }
 
           const body = await readJsonBody();
           const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
           if (!runtime || !managedGuild) {
-            sendJson(res, 400, { error: "Der Bot ist auf diesem Server aktuell nicht verfuegbar." });
+            sendLocalizedError(res, 400, language, "Der Bot ist auf diesem Server aktuell nicht verfügbar.", "The bot is currently unavailable on this server.");
             return;
           }
 
@@ -1960,13 +2037,14 @@ function startWebServer(runtimes) {
             botId: existingEvent.botId || runtime?.config?.id || "",
             runtime,
             existingEvent,
+            language,
           });
           if (!normalized.ok) {
             sendJson(res, 400, { error: normalized.message });
             return;
           }
 
-          const channelValidation = await validateDashboardEventChannels(runtime, managedGuild, normalized.event);
+          const channelValidation = await validateDashboardEventChannels(runtime, managedGuild, normalized.event, language);
           if (!channelValidation.ok) {
             sendJson(res, 400, { error: channelValidation.message });
             return;
@@ -1976,7 +2054,11 @@ function startWebServer(runtimes) {
             const invitedWorkers = runtime.workerManager.getInvitedWorkers(guild.id, getTier(guild.id));
             if (!invitedWorkers.length) {
               sendJson(res, 400, {
-                error: "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit /invite worker:1 einladen.",
+                error: languagePick(
+                  language,
+                  "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit /invite worker:1 einladen.",
+                  "No suitable worker bot is invited to this server yet. Please invite a worker first with /invite worker:1."
+                ),
               });
               return;
             }
@@ -1990,7 +2072,10 @@ function startWebServer(runtimes) {
           });
           if (!result?.ok || !result?.event) {
             sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
-              error: result?.message || "Event konnte nicht aktualisiert werden.",
+              error: translateScheduledEventStoreMessage(
+                result?.message || languagePick(language, "Event konnte nicht aktualisiert werden.", "Event could not be updated."),
+                language
+              ),
             });
             return;
           }
@@ -2066,10 +2151,10 @@ function startWebServer(runtimes) {
         } catch (err) {
           const status = Number(err?.status || 0);
           if (status === 400 || status === 413) {
-            sendJson(res, status, { error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body." });
+            sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
             return;
           }
-          sendJson(res, 500, { error: "Event konnte nicht aktualisiert werden." });
+          sendLocalizedError(res, 500, language, "Event konnte nicht aktualisiert werden.", "Event could not be updated.");
         }
         return;
       }
@@ -2077,7 +2162,7 @@ function startWebServer(runtimes) {
       if (req.method === "DELETE") {
         const existingEvent = getScheduledEvent(eventId);
         if (!existingEvent || String(existingEvent.guildId || "") !== guild.id) {
-          sendJson(res, 404, { error: "Event nicht gefunden." });
+          sendJson(res, 404, { error: translateScheduledEventStoreMessage("Event nicht gefunden.", language) });
           return;
         }
 
@@ -2097,7 +2182,10 @@ function startWebServer(runtimes) {
         const result = deleteScheduledEvent(eventId, { guildId: guild.id });
         if (!result?.ok) {
           sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
-            error: result?.message || "Event konnte nicht geloescht werden.",
+            error: translateScheduledEventStoreMessage(
+              result?.message || languagePick(language, "Event konnte nicht gelöscht werden.", "Event could not be deleted."),
+              language
+            ),
           });
           return;
         }
@@ -2110,19 +2198,20 @@ function startWebServer(runtimes) {
     }
 
     if (requestUrl.pathname === "/api/dashboard/perms") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       const { session } = getDashboardSession(req);
       if (!session) {
-        sendJson(res, 401, { error: "Nicht eingeloggt." });
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
         return;
       }
 
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) {
-        sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." });
+        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
       if ((TIER_RANK[guildInfo.tier] || 0) < (TIER_RANK.pro || 1)) {
-        sendJson(res, 403, { error: "Berechtigungen sind erst ab Pro verfuegbar." });
+        sendLocalizedError(res, 403, language, "Berechtigungen sind erst ab Pro verfügbar.", "Permissions are only available from Pro.");
         return;
       }
 
@@ -2165,7 +2254,11 @@ function startWebServer(runtimes) {
 
           if (unresolved.length) {
             sendJson(res, 400, {
-              error: `Folgende Rollen konnten nicht aufgeloest werden: ${unresolved.join(" | ")}`,
+              error: languagePick(
+                language,
+                `Folgende Rollen konnten nicht aufgelöst werden: ${unresolved.join(" | ")}`,
+                `The following roles could not be resolved: ${unresolved.join(" | ")}`
+              ),
             });
             return;
           }
@@ -2190,10 +2283,10 @@ function startWebServer(runtimes) {
         } catch (err) {
           const status = Number(err?.status || 0);
           if (status === 400 || status === 413) {
-            sendJson(res, status, { error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body." });
+            sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
             return;
           }
-          sendJson(res, 500, { error: "Berechtigungen konnten nicht gespeichert werden." });
+          sendLocalizedError(res, 500, language, "Berechtigungen konnten nicht gespeichert werden.", "Permissions could not be saved.");
         }
         return;
       }
@@ -2204,11 +2297,12 @@ function startWebServer(runtimes) {
 
     // --- Dashboard: Discord Channels Sync ---
     if (requestUrl.pathname === "/api/dashboard/channels") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
 
       const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
       if (!guild) { sendJson(res, 200, { voiceChannels: [], textChannels: [] }); return; }
@@ -2229,11 +2323,12 @@ function startWebServer(runtimes) {
 
     // --- Dashboard: Guild Emojis ---
     if (requestUrl.pathname === "/api/dashboard/emojis") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
 
       const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
       if (!guild) { sendJson(res, 200, { emojis: [] }); return; }
@@ -2260,11 +2355,12 @@ function startWebServer(runtimes) {
 
     // --- Dashboard: All Stations (Free + Pro + Custom) ---
     if (requestUrl.pathname === "/api/dashboard/stations") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
 
       const allStations = loadStations();
       const tierStations = filterStationsByTier(allStations.stations || {}, guildInfo.tier);
@@ -2303,10 +2399,11 @@ function startWebServer(runtimes) {
 
     // --- Dashboard: Custom Stations CRUD ---
     if (requestUrl.pathname === "/api/dashboard/custom-stations") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff." }); return; }
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
 
       if (req.method === "GET") {
         const stations = getCustomStations(guildInfo.id);
@@ -2323,22 +2420,35 @@ function startWebServer(runtimes) {
           const key = clipText(body?.key || "", 80).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
           const name = clipText(body?.name || "", 120).trim();
           const url = clipText(body?.url || "", 500).trim();
-          if (!key || !name || !url) { sendJson(res, 400, { error: "Key, Name und URL sind erforderlich." }); return; }
+          if (!key || !name || !url) {
+            sendLocalizedError(res, 400, language, "Key, Name und URL sind erforderlich.", "Key, name and URL are required.");
+            return;
+          }
           const result = await addCustomStation(guildInfo.id, key, { name, url, genre: clipText(body?.genre || "", 80) });
           if (!result?.success) {
-            sendJson(res, 400, { error: result?.error || "Station konnte nicht hinzugefügt werden." });
+            sendJson(res, 400, {
+              error: translateCustomStationErrorMessage(
+                result?.error || languagePick(language, "Station konnte nicht hinzugefügt werden.", "Station could not be added."),
+                language
+              ),
+            });
             return;
           }
           sendJson(res, 201, { success: true, station: { key: result.key, ...result.station } });
         } catch (err) {
-          sendJson(res, 400, { error: err?.message || "Ungültige Anfrage." });
+          sendJson(res, 400, {
+            error: translateCustomStationErrorMessage(
+              err?.message || languagePick(language, "Ungültige Anfrage.", "Invalid request."),
+              language
+            ),
+          });
         }
         return;
       }
 
       if (req.method === "DELETE") {
         const key = requestUrl.searchParams.get("key");
-        if (!key) { sendJson(res, 400, { error: "Station Key fehlt." }); return; }
+        if (!key) { sendLocalizedError(res, 400, language, "Station-Key fehlt.", "Station key is missing."); return; }
         const result = removeCustomStation(guildInfo.id, key);
         sendJson(res, 200, { success: !!result, key });
         return;
@@ -2348,9 +2458,9 @@ function startWebServer(runtimes) {
         try {
           const body = await readJsonBody();
           const key = clipText(body?.key || "", 80).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-          if (!key) { sendJson(res, 400, { error: "Station Key fehlt." }); return; }
+          if (!key) { sendLocalizedError(res, 400, language, "Station-Key fehlt.", "Station key is missing."); return; }
           const existing = getCustomStations(guildInfo.id);
-          if (!existing[key]) { sendJson(res, 404, { error: "Station nicht gefunden." }); return; }
+          if (!existing[key]) { sendLocalizedError(res, 404, language, "Station nicht gefunden.", "Station was not found."); return; }
           const current = existing[key];
           const updated = {
             name: clipText(body?.name || current.name || key, 120).trim(),
@@ -2359,12 +2469,22 @@ function startWebServer(runtimes) {
           };
           const result = await updateCustomStation(guildInfo.id, key, updated);
           if (!result?.success) {
-            sendJson(res, 400, { error: result?.error || "Station konnte nicht aktualisiert werden." });
+            sendJson(res, 400, {
+              error: translateCustomStationErrorMessage(
+                result?.error || languagePick(language, "Station konnte nicht aktualisiert werden.", "Station could not be updated."),
+                language
+              ),
+            });
             return;
           }
           sendJson(res, 200, { success: true, station: { key: result.key, ...result.station } });
         } catch (err) {
-          sendJson(res, 400, { error: err?.message || "Ungültige Anfrage." });
+          sendJson(res, 400, {
+            error: translateCustomStationErrorMessage(
+              err?.message || languagePick(language, "Ungültige Anfrage.", "Invalid request."),
+              language
+            ),
+          });
         }
         return;
       }
@@ -2375,11 +2495,12 @@ function startWebServer(runtimes) {
 
     // --- Dashboard: Roles Sync ---
     if (requestUrl.pathname === "/api/dashboard/roles") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff." }); return; }
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
 
       const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
       if (!guild) { sendJson(res, 200, { roles: [] }); return; }
@@ -2397,11 +2518,12 @@ function startWebServer(runtimes) {
 
     // --- Dashboard: License / Subscription Info ---
     if (requestUrl.pathname === "/api/dashboard/license") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
 
       const license = getLicense(guildInfo.id);
       const effectiveTier = String(license?.plan || guildInfo.tier || "free").trim().toLowerCase();
@@ -2442,18 +2564,19 @@ function startWebServer(runtimes) {
     }
 
     if (requestUrl.pathname === "/api/dashboard/license/checkout") {
+      const requestLanguage = resolveDashboardRequestLanguage(req, requestUrl);
       if (req.method !== "POST") { methodNotAllowed(res, ["POST"]); return; }
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, requestLanguage, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+      if (!guildInfo) { sendLocalizedError(res, 403, requestLanguage, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
 
       try {
         const body = await readJsonBody();
         const license = getLicense(guildInfo.id);
         const checkoutLanguage = normalizeLanguage(
           body?.language,
-          normalizeLanguage(license?.preferredLanguage, getDefaultLanguage())
+          normalizeLanguage(license?.preferredLanguage, requestLanguage)
         );
         const isDe = checkoutLanguage === "de";
         const t = (de, en) => (isDe ? de : en);
@@ -2598,32 +2721,24 @@ function startWebServer(runtimes) {
       } catch (err) {
         const status = Number(err?.status || 0);
         if (status === 400 || status === 413) {
-          const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
           sendJson(res, status, {
-            error: fallbackLanguage === "de"
-              ? status === 413
-                ? "Request-Body ist zu groß."
-                : "Ungültiges JSON im Request-Body."
-              : status === 413
-                ? "Request body is too large."
-                : "Invalid JSON in request body.",
+            error: getLocalizedJsonBodyError(requestLanguage, status),
           });
           return;
         }
         log("ERROR", `Dashboard checkout error: ${err.message}`);
-        sendJson(res, 500, {
-          error: "Dashboard-Checkout fehlgeschlagen.",
-        });
+        sendLocalizedError(res, 500, requestLanguage, "Dashboard-Checkout fehlgeschlagen.", "Dashboard checkout failed.");
       }
       return;
     }
 
     // --- Dashboard: Guild Settings (Weekly Digest, Fallback Station) ---
     if (requestUrl.pathname === "/api/dashboard/settings") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
       const { session } = getDashboardSession(req);
-      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff." }); return; }
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
 
       const { getDb: getDatabase, isConnected: isDbConnected } = await import("../lib/db.js");
 
@@ -2645,7 +2760,7 @@ function startWebServer(runtimes) {
 
       if (req.method === "PUT") {
         if (!isDbConnected() || !getDatabase()) {
-          sendJson(res, 503, { error: "MongoDB nicht verbunden." });
+          sendLocalizedError(res, 503, language, "MongoDB nicht verbunden.", "MongoDB is not connected.");
           return;
         }
         try {
@@ -2665,7 +2780,7 @@ function startWebServer(runtimes) {
 
           if (body?.fallbackStation !== undefined) {
             if (guildInfo.tier !== "ultimate") {
-              sendJson(res, 403, { error: "Fallback-Station ist nur fuer Ultimate verfuegbar." });
+              sendLocalizedError(res, 403, language, "Fallback-Station ist nur für Ultimate verfügbar.", "Fallback station is only available for Ultimate.");
               return;
             }
             updates.fallbackStation = clipText(body.fallbackStation || "", 120).trim().toLowerCase();
@@ -2678,7 +2793,7 @@ function startWebServer(runtimes) {
           );
           sendJson(res, 200, { success: true, ...updates });
         } catch (err) {
-          sendJson(res, 400, { error: err?.message || "Ungueltige Anfrage." });
+          sendJson(res, 400, { error: err?.message || languagePick(language, "Ungültige Anfrage.", "Invalid request.") });
         }
         return;
       }
@@ -2782,7 +2897,7 @@ function startWebServer(runtimes) {
           sendJson(res, 400, {
             success: false,
             message: t(
-              "Bitte eine gueltige E-Mail-Adresse eingeben.",
+              "Bitte eine gültige E-Mail-Adresse eingeben.",
               "Please enter a valid email address."
             ),
           });
@@ -2822,8 +2937,8 @@ function startWebServer(runtimes) {
             success: false,
             message: fallbackLanguage === "de"
               ? status === 413
-                ? "Request-Body ist zu gross."
-                : "Ungueltiges JSON im Request-Body."
+                ? "Request-Body ist zu groß."
+                : "Ungültiges JSON im Request-Body."
               : status === 413
                 ? "Request body is too large."
                 : "Invalid JSON in request body.",
@@ -2871,7 +2986,7 @@ function startWebServer(runtimes) {
           return;
         }
         if (!isValidEmailAddress(email)) {
-          sendJson(res, 400, { error: t("Bitte eine gueltige E-Mail-Adresse eingeben.", "Please enter a valid email address.") });
+          sendJson(res, 400, { error: t("Bitte eine gültige E-Mail-Adresse eingeben.", "Please enter a valid email address.") });
           return;
         }
         if (tier !== "pro" && tier !== "ultimate") {
@@ -2902,7 +3017,7 @@ function startWebServer(runtimes) {
 
         const basePriceInCents = calculatePrice(tier, durationMonths, seats);
         if (basePriceInCents <= 0) {
-          sendJson(res, 400, { error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination.") });
+          sendJson(res, 400, { error: t("Ungültige Preisberechnung für die gewählte Kombination.", "Invalid price calculation for the selected combination.") });
           return;
         }
         const offerResolution = resolveCheckoutOfferForRequest({
@@ -2929,7 +3044,7 @@ function startWebServer(runtimes) {
         const appliedOfferKind = String(offerPreview?.applied?.kind || "").trim().toLowerCase();
         const referralCode = sanitizeOfferCode(offerPreview?.attributionReferralCode || "");
         if (priceInCents <= 0) {
-          sendJson(res, 400, { error: t("Preis ist nach Rabatt ungueltig.", "Price is invalid after discount.") });
+          sendJson(res, 400, { error: t("Preis ist nach Rabatt ungültig.", "Price is invalid after discount.") });
           return;
         }
         const tierName = TIERS[tier].name;
@@ -3003,8 +3118,8 @@ function startWebServer(runtimes) {
           sendJson(res, status, {
             error: fallbackLanguage === "de"
               ? status === 413
-                ? "Request-Body ist zu gross."
-                : "Ungueltiges JSON im Request-Body."
+                ? "Request-Body ist zu groß."
+                : "Ungültiges JSON im Request-Body."
               : status === 413
                 ? "Request body is too large."
                 : "Invalid JSON in request body.",
@@ -3071,7 +3186,7 @@ function startWebServer(runtimes) {
         if (baseAmountCents <= 0) {
           sendJson(res, 400, {
             success: false,
-            error: t("Ungueltige Preisberechnung fuer die gewaehlte Kombination.", "Invalid price calculation for the selected combination."),
+            error: t("Ungültige Preisberechnung für die gewählte Kombination.", "Invalid price calculation for the selected combination."),
           });
           return;
         }
@@ -3110,7 +3225,7 @@ function startWebServer(runtimes) {
         if (status === 400 || status === 413) {
           sendJson(res, status, {
             success: false,
-            error: status === 413 ? "Request-Body ist zu gross." : "Ungueltiges JSON im Request-Body.",
+            error: status === 413 ? "Request-Body ist zu groß." : "Ungültiges JSON im Request-Body.",
           });
           return;
         }
@@ -3258,12 +3373,12 @@ function startWebServer(runtimes) {
         try {
           event = stripeClient.webhooks.constructEvent(rawBody, signature, webhookSecret);
         } catch (err) {
-          sendJson(res, 400, { error: `Webhook-Signatur ungueltig: ${err.message}` });
+          sendJson(res, 400, { error: `Webhook-Signatur ungültig: ${err.message}` });
           return;
         }
 
         if (!event?.id) {
-          sendJson(res, 400, { error: "Webhook-Event ungueltig." });
+          sendJson(res, 400, { error: "Webhook-Event ungültig." });
           return;
         }
 
@@ -3313,7 +3428,7 @@ function startWebServer(runtimes) {
         }
       } catch (err) {
         if (Number(err?.status || 0) === 413) {
-          sendJson(res, 413, { error: "Webhook-Body ist zu gross." });
+          sendJson(res, 413, { error: "Webhook-Body ist zu groß." });
           return;
         }
         log("ERROR", `Stripe webhook error: ${err.message}`);
@@ -3390,8 +3505,8 @@ function startWebServer(runtimes) {
         if (status === 400 || status === 413) {
           sendJson(res, status, {
             error: status === 413
-              ? "Request-Body ist zu gross."
-              : "Ungueltiges JSON im Request-Body.",
+              ? "Request-Body ist zu groß."
+              : "Ungültiges JSON im Request-Body.",
           });
           return;
         }

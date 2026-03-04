@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BarChart3, CalendarDays, Crown, Lock, LogOut, ShieldCheck, TrendingUp, Radio, Settings, ListMusic, CreditCard, ArrowLeft } from 'lucide-react';
+import { BarChart3, CalendarDays, Crown, Globe, Lock, LogOut, ShieldCheck, TrendingUp, Radio, Settings, ListMusic, CreditCard, ArrowLeft } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { buildApiUrl } from '../lib/api';
 import DashboardOverview from './DashboardOverview';
@@ -65,10 +65,14 @@ function toEventFormState(event) {
   };
 }
 
-async function apiRequest(path, options = {}) {
+async function apiRequestWithLanguage(path, language, options = {}) {
   const response = await fetch(buildApiUrl(path), {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-OmniFM-Language': language,
+      ...(options.headers || {}),
+    },
     ...options,
   });
   let payload = {};
@@ -85,7 +89,7 @@ function resolveAuthError() {
 
 function resolveAuthErrorMessage(authError, t) {
   switch (String(authError || '').trim()) {
-    case 'oauth_not_configured': return t('Discord OAuth ist noch nicht vollstaendig konfiguriert.', 'Discord OAuth is not configured yet.');
+    case 'oauth_not_configured': return t('Discord OAuth ist noch nicht vollständig konfiguriert.', 'Discord OAuth is not configured yet.');
     case 'invalid_state': return t('Der Discord-Login ist abgelaufen oder ungültig.', 'The Discord login expired or is invalid.');
     case 'missing_code': return t('Discord hat keinen gültigen Login-Code geliefert.', 'Discord did not return a valid login code.');
     case 'oauth_exchange_failed': return t('Discord-Login konnte nicht abgeschlossen werden.', 'Discord login could not be completed.');
@@ -133,10 +137,13 @@ function DashboardShell({ children, sidebar, topbar }) {
 }
 
 export default function DashboardPortal() {
-  const { locale, formatDate } = useI18n();
+  const { locale, localeMeta, toggleLocale, formatDate } = useI18n();
   const t = useCallback((de, en) => (String(locale || 'de').startsWith('de') ? de : en), [locale]);
+  const apiRequest = useCallback((path, options = {}) => apiRequestWithLanguage(path, locale, options), [locale]);
   const authError = resolveAuthError();
   const authErrorMessage = useMemo(() => resolveAuthErrorMessage(authError, t), [authError, t]);
+  const mainSiteHref = useMemo(() => `/?page=home&lang=${encodeURIComponent(locale || 'de')}`, [locale]);
+  const premiumHref = useMemo(() => `${mainSiteHref}#premium`, [mainSiteHref]);
 
   const [loadingSession, setLoadingSession] = useState(true);
   const [session, setSession] = useState(EMPTY_SESSION);
@@ -182,7 +189,7 @@ export default function DashboardPortal() {
     } finally {
       setLoadingSession(false);
     }
-  }, [authErrorMessage, t]);
+  }, [apiRequest, authErrorMessage, t]);
 
   useEffect(() => { if (!session.authenticated) setError((c) => c || authErrorMessage); }, [authErrorMessage, session.authenticated]);
 
@@ -220,13 +227,13 @@ export default function DashboardPortal() {
       });
       setPermsDraft(nextDraft);
     } catch (err) {
-      setError(err.message || 'Dashboard-Daten konnten nicht geladen werden.');
+      setError(err.message || t('Dashboard-Daten konnten nicht geladen werden.', 'Dashboard data could not be loaded.'));
     } finally {
       if (!silent) {
         setLoadingData(false);
       }
     }
-  }, [selectedGuildId, dashboardEnabled, selectedGuild?.tier, isUltimate]);
+  }, [apiRequest, dashboardEnabled, isUltimate, selectedGuild?.tier, selectedGuildId, t]);
 
   useEffect(() => { refreshSession(); }, [refreshSession]);
   useEffect(() => { if (selectedGuildId) window.localStorage.setItem('omnifm.dashboard.guildId', selectedGuildId); }, [selectedGuildId]);
@@ -251,9 +258,9 @@ export default function DashboardPortal() {
   const startDiscordLogin = async () => {
     setError('');
     try {
-      const payload = await apiRequest('/api/auth/discord/login?nextPage=dashboard', { method: 'GET' });
+      const payload = await apiRequest(`/api/auth/discord/login?nextPage=dashboard&lang=${encodeURIComponent(locale)}`, { method: 'GET' });
       if (payload?.authUrl) window.location.href = payload.authUrl;
-    } catch (err) { setError(err.message || 'Discord Login fehlgeschlagen.'); }
+    } catch (err) { setError(err.message || t('Discord-Login fehlgeschlagen.', 'Discord login failed.')); }
   };
 
   const logout = async () => {
@@ -262,7 +269,7 @@ export default function DashboardPortal() {
       await apiRequest('/api/auth/logout', { method: 'POST' });
       await refreshSession();
       setMessage(t('Erfolgreich ausgeloggt.', 'Logged out.'));
-    } catch (err) { setError(err.message || 'Logout fehlgeschlagen.'); }
+    } catch (err) { setError(err.message || t('Logout fehlgeschlagen.', 'Logout failed.')); }
   };
 
   const saveEvent = useCallback(async () => {
@@ -371,20 +378,43 @@ export default function DashboardPortal() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Radio size={24} color="#5865F2" />
             <span style={{ fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#71717A' }}>OmniFM Dashboard</span>
+            <button
+              type="button"
+              data-testid="dashboard-login-language-toggle"
+              onClick={toggleLocale}
+              title={localeMeta.switchTitle}
+              style={{
+                marginLeft: 'auto',
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.04)',
+                color: '#fff',
+                height: 30,
+                padding: '0 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              <Globe size={12} color="#00F0FF" />
+              {localeMeta.label} / {localeMeta.switchLabel}
+            </button>
           </div>
           <h1 data-testid="dashboard-login-title" style={{ fontFamily: "'Outfit', sans-serif", fontSize: 40, lineHeight: 1.05, marginTop: 14 }}>
-            {t('Discord SSO Login', 'Discord SSO Login')}
+            {t('Discord-SSO-Login', 'Discord SSO login')}
           </h1>
           <p data-testid="dashboard-login-description" style={{ color: '#71717A', marginTop: 12, lineHeight: 1.7 }}>
             {t(
-              'Melde dich mit deinem Discord Account an. Dashboard ist ab PRO freigeschaltet.',
-              'Sign in with your Discord account. Dashboard access is unlocked from PRO.',
+              'Melde dich mit deinem Discord-Account an. Das Dashboard ist ab Pro freigeschaltet.',
+              'Sign in with your Discord account. Dashboard access is unlocked from Pro.',
             )}
           </p>
           {error && <div data-testid="dashboard-login-error" style={{ marginTop: 14, color: '#FCA5A5', border: '1px solid rgba(252,165,165,0.25)', padding: '10px 12px', background: 'rgba(127,29,29,0.15)' }}>{error}</div>}
           {session.oauthConfigured === false && (
             <div data-testid="dashboard-oauth-not-configured" style={{ marginTop: 14, color: '#FDE68A', border: '1px solid rgba(253,230,138,0.25)', padding: '10px 12px', background: 'rgba(120,53,15,0.12)' }}>
-              {t('Discord OAuth ist noch nicht vollstaendig konfiguriert.', 'Discord OAuth is not fully configured yet.')}
+              {t('Discord OAuth ist noch nicht vollständig konfiguriert.', 'Discord OAuth is not fully configured yet.')}
             </div>
           )}
           <button data-testid="dashboard-discord-login-button" onClick={startDiscordLogin} disabled={session.oauthConfigured === false} style={{
@@ -401,7 +431,7 @@ export default function DashboardPortal() {
   const tabs = [
     { key: 'overview', label: t('Übersicht', 'Overview'), icon: BarChart3 },
     { key: 'events', label: t('Events', 'Events'), icon: CalendarDays },
-    { key: 'stations', label: t('Custom Stations', 'Custom stations'), icon: ListMusic },
+    { key: 'stations', label: t('Custom-Stationen', 'Custom stations'), icon: ListMusic },
     { key: 'perms', label: t('Berechtigungen', 'Permissions'), icon: ShieldCheck },
     { key: 'stats', label: t('Statistiken', 'Statistics'), icon: TrendingUp, ultimateOnly: true },
     { key: 'subscription', label: t('Abo', 'Subscription'), icon: CreditCard },
@@ -414,7 +444,7 @@ export default function DashboardPortal() {
         <Radio size={22} color="#5865F2" />
         <div>
           <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 22, fontWeight: 700 }}>OmniFM</div>
-          <div style={{ color: '#52525B', fontSize: 11 }}>{t('Server Control', 'Server Control')}</div>
+          <div style={{ color: '#52525B', fontSize: 11 }}>{t('Server-Steuerung', 'Server control')}</div>
         </div>
       </div>
 
@@ -475,7 +505,7 @@ export default function DashboardPortal() {
       )}
 
       <a
-        href="/"
+        href={mainSiteHref}
         data-testid="sidebar-back-to-main"
         style={{
           marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px',
@@ -498,8 +528,30 @@ export default function DashboardPortal() {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {loadingData && <span data-testid="dashboard-loading-indicator" style={{ fontSize: 12, color: '#52525B' }}>{t('Lade...', 'Loading...')}</span>}
+        <button
+          type="button"
+          data-testid="dashboard-language-toggle"
+          onClick={toggleLocale}
+          title={localeMeta.switchTitle}
+          style={{
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.04)',
+            color: '#fff',
+            height: 34,
+            padding: '0 12px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          <Globe size={13} color="#00F0FF" />
+          {localeMeta.label} / {localeMeta.switchLabel}
+        </button>
         <a
-          href="/?page=home"
+          href={mainSiteHref}
           data-testid="dashboard-topbar-home-link"
           style={{
             border: '1px solid rgba(88,101,242,0.45)',
@@ -517,12 +569,12 @@ export default function DashboardPortal() {
         >
           <ArrowLeft size={13} /> {t('Hauptseite', 'Main site')}
         </a>
-        <div data-testid="dashboard-user-chip" style={{ color: '#71717A', fontSize: 13 }}>{session.user?.username || 'User'}</div>
+        <div data-testid="dashboard-user-chip" style={{ color: '#71717A', fontSize: 13 }}>{session.user?.username || t('Nutzer', 'User')}</div>
         <button data-testid="dashboard-logout-button" onClick={logout} style={{
           border: '1px solid #1A1A2E', background: 'transparent', color: '#71717A', height: 34, padding: '0 10px',
           display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12,
         }}>
-          <LogOut size={13} /> {t('Logout', 'Logout')}
+          <LogOut size={13} /> {t('Abmelden', 'Log out')}
         </button>
       </div>
     </>
@@ -537,16 +589,16 @@ export default function DashboardPortal() {
         <div data-testid="dashboard-pro-gate" style={{ border: '1px solid #1A1A2E', background: '#080808', padding: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Lock size={22} color="#F59E0B" />
-            <h2 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 26 }}>{t('Dashboard ab PRO', 'Dashboard from PRO')}</h2>
+            <h2 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 26 }}>{t('Dashboard ab Pro', 'Dashboard from Pro')}</h2>
           </div>
           <p style={{ marginTop: 10, color: '#71717A', lineHeight: 1.7 }}>
-            {t('Upgrade auf PRO für Events, Rechte und Statistiken.', 'Upgrade to PRO for events, permissions and statistics.')}
+            {t('Upgrade auf Pro für Events, Rechte und Statistiken.', 'Upgrade to Pro for events, permissions and statistics.')}
           </p>
-          <a href="/?page=home#premium" data-testid="dashboard-upgrade-link" style={{
+          <a href={premiumHref} data-testid="dashboard-upgrade-link" style={{
             marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 8,
             border: '1px solid #8B5CF6', background: 'rgba(139,92,246,0.12)', color: '#fff', padding: '10px 14px', textDecoration: 'none',
           }}>
-            <Crown size={14} /> {t('Zu PRO / Ultimate', 'Upgrade to PRO / Ultimate')}
+            <Crown size={14} /> {t('Zu Pro / Ultimate', 'Upgrade to Pro / Ultimate')}
           </a>
         </div>
       )}
@@ -628,7 +680,7 @@ export default function DashboardPortal() {
                 {t('Ultimate Analytics', 'Ultimate analytics')}
               </h3>
               <p style={{ color: '#52525B', marginTop: 8, maxWidth: 400, margin: '8px auto 0' }}>
-                {t('Detaillierte Statistiken mit Charts, Session-Verlauf und Verbindungsanalyse sind mit Ultimate verfuegbar.', 'Detailed statistics with charts, session history, and connection analysis are available with Ultimate.')}
+                {t('Detaillierte Statistiken mit Charts, Session-Verlauf und Verbindungsanalyse sind mit Ultimate verfügbar.', 'Detailed statistics with charts, session history, and connection analysis are available with Ultimate.')}
               </p>
             </div>
           )}
