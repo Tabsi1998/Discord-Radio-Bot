@@ -995,20 +995,91 @@ export function recordConnectionEvent(guildId, {
 // ============================================================
 // Public API - Read Functions
 // ============================================================
+function mergeActiveSessionsIntoListeningStats(stats, activeSessions = []) {
+  const result = stats ? JSON.parse(JSON.stringify(stats)) : normalizeGuildStats({});
+  result.stationListeningMs = { ...(result.stationListeningMs || {}) };
+  result.stationNames = { ...(result.stationNames || {}) };
+
+  let activeListeningMs = 0;
+  let peakListeners = Number(result.peakListeners || 0) || 0;
+
+  for (const session of activeSessions) {
+    const stationKey = normalizeText(session?.stationKey, 120);
+    const stationName = normalizeText(session?.stationName, 120);
+    const currentHumanListeningMs = Math.max(0, Number(session?.currentHumanListeningMs || 0) || 0);
+    const sessionPeak = Math.max(
+      0,
+      Number(session?.peakListeners || 0) || 0,
+      Number(session?.currentListeners || 0) || 0
+    );
+
+    activeListeningMs += currentHumanListeningMs;
+    peakListeners = Math.max(peakListeners, sessionPeak);
+
+    if (stationKey) {
+      result.stationListeningMs[stationKey] = (Number(result.stationListeningMs[stationKey] || 0) || 0) + currentHumanListeningMs;
+      if (stationName) {
+        result.stationNames[stationKey] = stationName;
+      }
+    }
+  }
+
+  result.activeSessions = activeSessions.length;
+  result.activeListeningMs = activeListeningMs;
+  result.currentTotalListeningMs = (Number(result.totalListeningMs || 0) || 0) + activeListeningMs;
+  result.peakListeners = peakListeners;
+  return result;
+}
+
+function mergeActiveSessionsIntoDailyStats(rows = [], activeSessions = [], nowMs = Date.now()) {
+  const byDate = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const date = String(row?.date || "").trim();
+    if (!date) continue;
+    byDate.set(date, {
+      date,
+      totalStarts: Number(row?.totalStarts || 0) || 0,
+      totalListeningMs: Number(row?.totalListeningMs || 0) || 0,
+      totalSessions: Number(row?.totalSessions || 0) || 0,
+      peakListeners: Number(row?.peakListeners || 0) || 0,
+    });
+  }
+
+  for (const session of Array.isArray(activeSessions) ? activeSessions : []) {
+    const breakdown = buildDailyListeningBreakdown({
+      samples: session?.listenerSamples || [],
+      startedAtMs: Number(session?.startedAt || 0) || nowMs,
+      endedAtMs: nowMs,
+    });
+    for (const day of breakdown) {
+      const key = String(day?.date || "").trim();
+      if (!key) continue;
+      const current = byDate.get(key) || {
+        date: key,
+        totalStarts: 0,
+        totalListeningMs: 0,
+        totalSessions: 0,
+        peakListeners: 0,
+      };
+      current.totalListeningMs += Number(day?.totalListeningMs || 0) || 0;
+      current.peakListeners = Math.max(current.peakListeners || 0, Number(day?.peakListeners || 0) || 0);
+      byDate.set(key, current);
+    }
+  }
+
+  return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
 export function getGuildListeningStats(guildId) {
   const gid = normalizeGuildId(guildId);
   if (!gid) return null;
   const state = ensureState();
   const stats = state.guilds[gid];
-  const result = stats ? JSON.parse(JSON.stringify(stats)) : normalizeGuildStats({}, gid);
-
-  // Enrich with active sessions
   const activeSess = getActiveSessionsForGuild(gid);
-  result.activeSessions = activeSess.length;
-  result.activeListeningMs = activeSess.reduce((sum, s) => sum + (s.currentHumanListeningMs || 0), 0);
-  result.currentTotalListeningMs = result.totalListeningMs + result.activeListeningMs;
-
-  return result;
+  return mergeActiveSessionsIntoListeningStats(
+    stats ? JSON.parse(JSON.stringify(stats)) : normalizeGuildStats({}, gid),
+    activeSess
+  );
 }
 
 export function getTopGuildsByActivity(limit = 5) {
@@ -1024,30 +1095,33 @@ export function getTopGuildsByActivity(limit = 5) {
 export async function getGuildDailyStats(guildId, days = 30) {
   const gid = normalizeGuildId(guildId);
   if (!gid) return [];
+  const safeDays = Math.min(days, 365);
+  const activeSess = getActiveSessionsForGuild(gid);
+  const nowMs = Date.now();
 
   const result = await mongoSafe(async (db) => {
     return db.collection("daily_stats")
       .find({ guildId: gid })
       .sort({ date: -1 })
-      .limit(Math.min(days, 365))
+      .limit(safeDays)
       .toArray();
   });
 
   if (result) {
-    return result.map((doc) => ({
+    return mergeActiveSessionsIntoDailyStats(result.map((doc) => ({
       date: doc.date,
       totalStarts: doc.totalStarts || 0,
       totalListeningMs: doc.totalListeningMs || 0,
       totalSessions: doc.totalSessions || 0,
       peakListeners: doc.peakListeners || 0,
-    }));
+    })), activeSess, nowMs).slice(0, safeDays);
   }
 
-  return (ensureState().dailyStats?.[gid] || [])
+  return mergeActiveSessionsIntoDailyStats((ensureState().dailyStats?.[gid] || [])
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, Math.min(days, MAX_FALLBACK_DAILY_STATS))
-    .map((entry) => ({ ...entry }));
+    .slice(0, Math.min(safeDays, MAX_FALLBACK_DAILY_STATS))
+    .map((entry) => ({ ...entry })), activeSess, nowMs).slice(0, safeDays);
 }
 
 export async function getGuildSessionHistory(guildId, limit = 20) {

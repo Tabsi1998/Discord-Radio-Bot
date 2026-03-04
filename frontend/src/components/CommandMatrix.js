@@ -1,7 +1,7 @@
 import React from 'react';
 
 const COMMAND_ROWS = [
-  { command: '/play', free: 'Basic', pro: 'HQ + Worker', ultimate: 'HQ + Fallback + YouTube Live' },
+  { command: '/play', free: 'Basic', pro: 'HQ + Worker', ultimate: 'HQ + Fallback' },
   { command: '/event', free: '—', pro: 'Ja', ultimate: 'Ja + erweitert' },
   { command: '/perm', free: '—', pro: 'Ja', ultimate: 'Ja + erweitert' },
   { command: '/stats', free: '—', pro: 'Basis Stats', ultimate: 'Advanced Analytics' },

@@ -18,6 +18,7 @@ import {
   getGuildConnectionHealth,
   getGuildSessionHistory,
   getGuildDailyStats,
+  getGuildListeningStats,
   resetGuildStats,
   __resetListeningStatsStoreForTests,
 } from "../src/listening-stats-store.js";
@@ -149,6 +150,32 @@ test("global stats include active listening time from in-flight sessions", async
     assert.equal(stats.activeListeningMs, 10 * 60 * 1000);
     assert.equal(stats.totalListeningMs, 10 * 60 * 1000);
     assert.equal(stats.completedListeningMs, 0);
+  });
+});
+
+test("guild listening stats include active station listening time before a session ends", async () => {
+  await withIsolatedStatsStore(async ({ setNow }) => {
+    const startedAtMs = Date.UTC(2026, 2, 4, 13, 0, 0);
+    setNow(startedAtMs);
+    startListeningSession(TEST_GUILD_ID, {
+      botId: "bot-2",
+      stationKey: "festivalanthems",
+      stationName: "Festival Anthems",
+      channelId: "voice-2",
+      listenerCount: 0,
+    });
+
+    setNow(startedAtMs + (5 * 60 * 1000));
+    recordSessionListenerSample(TEST_GUILD_ID, { botId: "bot-2", listenerCount: 2, timestampMs: Date.now() });
+    setNow(startedAtMs + (15 * 60 * 1000));
+
+    const stats = getGuildListeningStats(TEST_GUILD_ID);
+
+    assert.equal(stats.activeListeningMs, 10 * 60 * 1000);
+    assert.equal(stats.currentTotalListeningMs, 10 * 60 * 1000);
+    assert.equal(stats.stationListeningMs.festivalanthems, 10 * 60 * 1000);
+    assert.equal(stats.stationNames.festivalanthems, "Festival Anthems");
+    assert.equal(stats.peakListeners, 2);
   });
 });
 

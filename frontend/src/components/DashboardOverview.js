@@ -113,7 +113,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
         </svg>
         <span>
           {t(
-            'Lifetime-Statistiken: Die Daten werden bevorzugt in MongoDB gespeichert und bei Bedarf ueber den lokalen Fallback weitergefuehrt. Die Stats werden ueber alle Sessions und Tage akkumuliert.',
+            'Lifetime-Statistiken: Die Daten werden bevorzugt in MongoDB gespeichert und bei Bedarf über den lokalen Fallback weitergeführt. Die Werte werden über alle Sessions und Tage akkumuliert.',
             'Lifetime statistics: Data is primarily stored in MongoDB and continued through the local fallback when needed. Stats are accumulated across all sessions and days.'
           )}
         </span>
@@ -121,12 +121,12 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
 
       {/* Row 1: Key metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-        <StatCard testId="metric-listeners" label={t('Live Zuhoerer', 'Live listeners')} value={basic.listenersNow ?? 0} accent="#00F0FF" />
+        <StatCard testId="metric-listeners" label={t('Live-Zuhörer', 'Live listeners')} value={basic.listenersNow ?? 0} accent="#00F0FF" />
         <StatCard testId="metric-streams" label={t('Aktive Streams', 'Active streams')} value={basic.activeStreams ?? 0} accent="#10B981" />
-        <StatCard testId="metric-peak" label={t('Peak Zuhoerer', 'Peak listeners')} value={basic.peakListeners ?? 0} accent="#8B5CF6" />
-        <StatCard testId="metric-total-time" label={t('Gesamte Hoerzeit', 'Total listening')} value={formatMsShort(totalListeningMs)} accent="#F59E0B" sub={formatMs(totalListeningMs)} />
+        <StatCard testId="metric-peak" label={t('Peak-Zuhörer', 'Peak listeners')} value={basic.peakListeners ?? 0} accent="#8B5CF6" />
+        <StatCard testId="metric-total-time" label={t('Gesamte Hörzeit', 'Total listening')} value={formatMsShort(totalListeningMs)} accent="#F59E0B" sub={formatMs(totalListeningMs)} />
         <StatCard testId="metric-sessions" label={t('Sessions gesamt', 'Total sessions')} value={totalSessions} accent="#06B6D4" />
-        <StatCard testId="metric-reliability" label={t('Zuverlaessigkeit', 'Reliability')} value={`${reliability}%`} accent={reliability >= 95 ? '#10B981' : reliability >= 80 ? '#F59E0B' : '#EF4444'} sub={`${totalConnections} ${t('Verbindungen', 'connections')}`} />
+        <StatCard testId="metric-reliability" label={t('Zuverlässigkeit', 'Reliability')} value={`${reliability}%`} accent={reliability >= 95 ? '#10B981' : reliability >= 80 ? '#F59E0B' : '#EF4444'} sub={`${totalConnections} ${t('Verbindungen', 'connections')}`} />
       </div>
 
       {/* Row 2: Active sessions */}
@@ -143,7 +143,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
               }}>
                 <span style={{ fontWeight: 600 }}>{s.stationName || s.stationKey || '-'}</span>
                 <span style={{ color: '#71717A', fontSize: 13 }}>
-                  {s.currentListeners} {t('Zuhoerer', 'listeners')} | Avg {s.currentAvgListeners ?? 0} | {t('Hoerzeit', 'Listening')}: {formatMs(s.currentHumanListeningMs)} | {t('Dauer', 'Runtime')}: {formatMs(s.currentDurationMs)}
+                  {s.currentListeners} {t('Zuhörer', 'listeners')} | Avg {s.currentAvgListeners ?? 0} | {t('Hörzeit', 'Listening')}: {formatMs(s.currentHumanListeningMs)} | {t('Dauer', 'Runtime')}: {formatMs(s.currentDurationMs)}
                 </span>
               </div>
             ))}
@@ -203,7 +203,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
               <strong>{formatMs(avgSession)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Laengste Session', 'Longest session')}</span>
+              <span style={{ color: '#71717A' }}>{t('Längste Session', 'Longest session')}</span>
               <strong>{formatMs(longestSession)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
@@ -224,7 +224,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
 
       {/* Row 5: Daily trend (only with MongoDB detail data) */}
       {dailyData.length > 0 && (
-        <ChartCard title={t('Taegl. Trend (letzte 30 Tage)', 'Daily trend (last 30 days)')} testId="chart-daily-trend">
+        <ChartCard title={t('Tägl. Trend (letzte 30 Tage)', 'Daily trend (last 30 days)')} testId="chart-daily-trend">
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={dailyData}>
               <defs>

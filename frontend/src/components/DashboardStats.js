@@ -121,7 +121,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#27272A'; e.currentTarget.style.color = '#71717A'; }}
           >
             <RotateCcw size={13} />
-            {t('Statistiken zuruecksetzen', 'Reset statistics')}
+            {t('Statistiken zurücksetzen', 'Reset statistics')}
           </button>
         ) : (
           <div data-testid="stats-reset-confirm" style={{
@@ -129,7 +129,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
             padding: '8px 14px',
           }}>
             <span style={{ fontSize: 12, color: '#FCA5A5' }}>
-              {t('Alle Statistiken fuer diesen Server unwiderruflich loeschen?', 'Permanently delete all statistics for this server?')}
+              {t('Alle Statistiken für diesen Server unwiderruflich löschen?', 'Permanently delete all statistics for this server?')}
             </span>
             <button
               data-testid="stats-reset-confirm-yes"
@@ -141,7 +141,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
                 opacity: resetting ? 0.6 : 1,
               }}
             >
-              {resetting ? t('Loesche...', 'Deleting...') : t('Ja, loeschen', 'Yes, delete')}
+              {resetting ? t('Lösche...', 'Deleting...') : t('Ja, löschen', 'Yes, delete')}
             </button>
             <button
               data-testid="stats-reset-confirm-no"
@@ -159,7 +159,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
 
       {/* Daily listening hours trend */}
       {dailyData.length > 0 && (
-        <Section title={t('Hoerzeit-Verlauf (Tage)', 'Listening hours trend (days)')} testId="stats-daily-hours">
+        <Section title={t('Hörzeit-Verlauf (Tage)', 'Listening hours trend (days)')} testId="stats-daily-hours">
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={dailyData}>
               <defs>
@@ -181,7 +181,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
       {/* Station listening time ranking */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
         {stationTimeData.length > 0 && (
-          <Section title={t('Hoerzeit pro Station', 'Listening time per station')} testId="stats-station-time">
+          <Section title={t('Hörzeit pro Station', 'Listening time per station')} testId="stats-station-time">
             <ResponsiveContainer width="100%" height={Math.max(180, stationTimeData.length * 30)}>
               <BarChart data={stationTimeData} layout="vertical" margin={{ left: 10 }}>
                 <XAxis type="number" tick={{ fill: '#52525B', fontSize: 10 }} />
@@ -210,13 +210,13 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
 
       {/* Listener timeline (24h) */}
       {timelineData.length > 0 && (
-        <Section title={t('Zuhoerer-Verlauf (24h)', 'Listener timeline (24h)')} testId="stats-listener-timeline">
+        <Section title={t('Zuhörer-Verlauf (24h)', 'Listener timeline (24h)')} testId="stats-listener-timeline">
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={timelineData}>
               <XAxis dataKey="time" tick={{ fill: '#52525B', fontSize: 10 }} interval={Math.max(1, Math.floor(timelineData.length / 12))} />
               <YAxis tick={{ fill: '#52525B', fontSize: 10 }} width={30} />
               <Tooltip content={<CustomTooltip />} />
-              <Line type="monotone" dataKey="listeners" stroke="#00F0FF" strokeWidth={2} dot={false} name={t('Zuhoerer', 'Listeners')} />
+              <Line type="monotone" dataKey="listeners" stroke="#00F0FF" strokeWidth={2} dot={false} name={t('Zuhörer', 'Listeners')} />
             </LineChart>
           </ResponsiveContainer>
         </Section>
@@ -231,7 +231,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
                 <tr style={{ borderBottom: '1px solid #1A1A2E' }}>
                   <th style={{ textAlign: 'left', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Station', 'Station')}</th>
                   <th style={{ textAlign: 'left', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Start', 'Start')}</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Hoerzeit', 'Listening')}</th>
+                  <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Hörzeit', 'Listening')}</th>
                   <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Dauer', 'Runtime')}</th>
                   <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>Peak</th>
                   <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>Avg</th>

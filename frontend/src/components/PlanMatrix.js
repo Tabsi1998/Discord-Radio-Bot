@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Crown, Sparkles } from 'lucide-react';
+import { Check, Crown } from 'lucide-react';
 
 const PLAN_ROWS = [
   {
@@ -28,13 +28,6 @@ const PLAN_ROWS = [
     label: 'Server-spezifische Basis-Stats',
     free: false,
     pro: true,
-    ultimate: true,
-  },
-  {
-    key: 'youtubeLive',
-    label: 'YouTube Livestream Playback',
-    free: false,
-    pro: false,
     ultimate: true,
   },
   {
@@ -92,7 +85,7 @@ export default function PlanMatrix() {
             Klarer Vergleich, keine offenen Fragen
           </h2>
           <p style={{ marginTop: 10, color: '#A1A1AA', maxWidth: 760, lineHeight: 1.7 }}>
-            Die Matrix zeigt transparent, was in welchem Plan enthalten ist. Ultimate hebt YouTube Live, Reliability-Features und erweiterte Analytics sichtbar hervor.
+            Die Matrix zeigt transparent, was in welchem Plan enthalten ist. Ultimate hebt Reliability-Features, mehr Bot-Slots und erweiterte Analytics sichtbar hervor.
           </p>
         </div>
 
@@ -137,39 +130,6 @@ export default function PlanMatrix() {
               </div>
             ))}
           </div>
-        </div>
-
-        <div
-          data-testid="ultimate-youtube-promo"
-          style={{
-            marginTop: 18,
-            border: '1px solid rgba(139,92,246,0.45)',
-            background: 'linear-gradient(90deg, rgba(88,101,242,0.12), rgba(139,92,246,0.12))',
-            padding: 16,
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 10,
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Sparkles size={18} color="#C4B5FD" />
-            <strong style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>Ultimate kann YouTube Livestreams abspielen</strong>
-          </div>
-          <a
-            href="#premium"
-            data-testid="ultimate-promo-cta"
-            style={{
-              border: '1px solid #8B5CF6',
-              color: '#fff',
-              background: 'rgba(139,92,246,0.2)',
-              padding: '10px 14px',
-              fontWeight: 700,
-            }}
-          >
-            Zu den Plänen
-          </a>
         </div>
       </div>
     </section>
