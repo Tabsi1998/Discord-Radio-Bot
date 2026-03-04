@@ -34,6 +34,7 @@ import {
 } from "@discordjs/voice";
 
 import { log } from "../lib/logging.js";
+import { expandDiscordEmojiAliases } from "../lib/discord-emojis.js";
 import { NowPlayingQueue } from "../lib/now-playing-queue.js";
 import { buildNowPlayingSignature, getNowPlayingCandidateIds } from "../lib/now-playing-target.js";
 import {
@@ -3826,10 +3827,25 @@ class BotRuntime {
     return Number.isFinite(normalizedStopAtMs) && normalizedStopAtMs > 0 && now >= normalizedStopAtMs;
   }
 
-  buildScheduledEventServerDescription(event, stationName) {
-    const baseDescription = clipText(String(event?.description || "").trim(), 850);
+  async resolveGuildEmojiAliases(text, guild) {
+    const source = String(text || "");
+    if (!source || !guild?.emojis) return source;
+
+    try {
+      if (typeof guild.emojis.fetch === "function") {
+        await guild.emojis.fetch();
+      }
+    } catch {}
+
+    return expandDiscordEmojiAliases(source, [...(guild.emojis.cache?.values() || [])]);
+  }
+
+  async buildScheduledEventServerDescription(event, stationName, guild = null) {
+    const baseDescription = String(event?.description || "").trim();
     const details = `OmniFM Auto-Event | Station: ${clipText(stationName || event?.stationKey || "-", 120)}`;
-    return clipText(baseDescription ? `${baseDescription}\n\n${details}` : details, 1000);
+    const description = baseDescription ? `${baseDescription}\n\n${details}` : details;
+    const resolvedDescription = await this.resolveGuildEmojiAliases(description, guild);
+    return clipText(resolvedDescription, 1000);
   }
 
   validateDiscordScheduledEventPermissions(guild, channel, language = "de") {
@@ -4251,7 +4267,7 @@ class BotRuntime {
         ? GuildScheduledEventEntityType.StageInstance
         : GuildScheduledEventEntityType.Voice,
       channel,
-      description: this.buildScheduledEventServerDescription(event, stationName),
+      description: await this.buildScheduledEventServerDescription(event, stationName, guild),
       reason: `OmniFM scheduled event ${event.id}`,
     };
     if (scheduledEndAtMs > scheduledRunAtMs) {
@@ -4431,10 +4447,11 @@ class BotRuntime {
       end: endAtMs > 0 ? formatDateTime(endAtMs, language, event.timeZone) : "-",
       timeZone: normalizeEventTimeZone(event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE,
     }, language);
-    if (!rendered) return;
+    const resolvedMessage = await this.resolveGuildEmojiAliases(rendered, guild);
+    if (!resolvedMessage) return;
 
     await channel.send({
-      content: clipText(rendered, 1800),
+      content: clipText(resolvedMessage, 1800),
       allowedMentions: { parse: [] },
     });
   }
@@ -4457,6 +4474,7 @@ class BotRuntime {
     }
 
     const state = this.getState(event.guildId);
+    const eventGuild = this.client.guilds.cache.get(event.guildId) || null;
     const eventLanguage = this.resolveGuildLanguage(event.guildId);
     const stationResult = this.resolveStationForGuild(event.guildId, event.stationKey, eventLanguage);
     if (!stationResult.ok) {
@@ -4490,13 +4508,14 @@ class BotRuntime {
           return;
         }
 
-        const stageTopic = renderStageTopic(event.stageTopic, {
+        const rawStageTopic = renderStageTopic(event.stageTopic, {
           event: event.name,
           station: stationResult.station?.name || event.stationKey,
           time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
           end: eventEndLabel,
           timeZone: eventTimeZone,
         });
+        const stageTopic = clipText(await this.resolveGuildEmojiAliases(rawStageTopic, eventGuild), 120);
         const delegatedResult = await worker.playInGuild(
           event.guildId,
           event.voiceChannelId,
@@ -4518,13 +4537,14 @@ class BotRuntime {
       } else {
         const connectionInfo = await this.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state);
         if (connectionInfo?.channel?.type === ChannelType.GuildStageVoice) {
-          const stageTopic = renderStageTopic(event.stageTopic, {
+          const rawStageTopic = renderStageTopic(event.stageTopic, {
             event: event.name,
             station: stationResult.station?.name || event.stationKey,
             time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
             end: eventEndLabel,
             timeZone: eventTimeZone,
           });
+          const stageTopic = clipText(await this.resolveGuildEmojiAliases(rawStageTopic, connectionInfo.guild), 120);
           await this.ensureStageChannelReady(connectionInfo.guild, connectionInfo.channel, {
             topic: stageTopic,
             guildScheduledEventId: event.discordScheduledEventId || null,

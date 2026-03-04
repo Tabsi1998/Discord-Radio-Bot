@@ -14,3 +14,20 @@ test("renderDiscordMarkdown keeps HTML escaped but renders Discord custom emojis
   assert.doesNotMatch(html, /&lt;:partyblob:123456789012345678&gt;/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
+
+test("renderDiscordMarkdown resolves :name: aliases with server emojis", () => {
+  const html = renderDiscordMarkdown(
+    "**Start** :partyblob: :danceblob:",
+    {
+      serverEmojis: [
+        { id: "123456789012345678", name: "partyblob", animated: false },
+        { id: "987654321098765432", name: "danceblob", animated: true },
+      ],
+    }
+  );
+
+  assert.match(html, /cdn\.discordapp\.com\/emojis\/123456789012345678\.webp/);
+  assert.match(html, /cdn\.discordapp\.com\/emojis\/987654321098765432\.gif/);
+  assert.doesNotMatch(html, /&lt;:partyblob:&gt;/);
+  assert.doesNotMatch(html, /&lt;:danceblob:&gt;/);
+});

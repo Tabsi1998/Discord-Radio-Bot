@@ -206,6 +206,7 @@ export default function RichMessageEditor({
   testId,
   apiRequest,
   selectedGuildId,
+  serverEmojis: providedServerEmojis = null,
   label = null,
   previewValues = null,
   previewText = null,
@@ -222,9 +223,11 @@ export default function RichMessageEditor({
   const [emojisLoaded, setEmojisLoaded] = useState(false);
   const textareaRef = useRef(null);
   const containerRef = useRef(null);
+  const usingProvidedServerEmojis = Array.isArray(providedServerEmojis);
+  const resolvedServerEmojis = usingProvidedServerEmojis ? providedServerEmojis : serverEmojis;
 
   const loadServerEmojis = useCallback(async () => {
-    if (emojisLoaded || !apiRequest || !selectedGuildId) return;
+    if (usingProvidedServerEmojis || emojisLoaded || !apiRequest || !selectedGuildId) return;
     setEmojisLoading(true);
     try {
       const result = await apiRequest(`/api/dashboard/emojis?serverId=${encodeURIComponent(selectedGuildId)}`);
@@ -235,7 +238,7 @@ export default function RichMessageEditor({
       setEmojisLoading(false);
       setEmojisLoaded(true);
     }
-  }, [apiRequest, selectedGuildId, emojisLoaded]);
+  }, [apiRequest, selectedGuildId, emojisLoaded, usingProvidedServerEmojis]);
 
   const toggleEmojis = () => {
     if (!showEmojis) loadServerEmojis();
@@ -252,11 +255,15 @@ export default function RichMessageEditor({
   }, [showEmojis]);
 
   useEffect(() => {
+    if (mode === 'preview') loadServerEmojis();
+  }, [mode, loadServerEmojis]);
+
+  useEffect(() => {
     setServerEmojis([]);
     setEmojisLoaded(false);
     setEmojisLoading(false);
     setShowEmojis(false);
-  }, [selectedGuildId]);
+  }, [selectedGuildId, usingProvidedServerEmojis]);
 
   const insertAtCursor = (before, after = '') => {
     const ta = textareaRef.current;
@@ -289,9 +296,7 @@ export default function RichMessageEditor({
   };
 
   const insertCustomEmoji = (emoji) => {
-    const emojiText = emoji.animated
-      ? `<a:${emoji.name}:${emoji.id}>`
-      : `<:${emoji.name}:${emoji.id}>`;
+    const emojiText = `:${emoji.name}:`;
     insertAtCursor(emojiText);
     setShowEmojis(false);
   };
@@ -356,7 +361,7 @@ export default function RichMessageEditor({
                 <ToolbarButton icon={Smile} label={t('Emoji', 'Emoji')} onClick={toggleEmojis} active={showEmojis} testId="fmt-emoji" />
                 {showEmojis && (
                   <EmojiPicker
-                    serverEmojis={serverEmojis}
+                    serverEmojis={resolvedServerEmojis}
                     loading={emojisLoading}
                     onSelectUnicode={insertUnicodeEmoji}
                     onSelectCustom={insertCustomEmoji}
@@ -401,7 +406,7 @@ export default function RichMessageEditor({
         }}>
           {resolvedPreviewText ? (
             previewAsMarkdown ? (
-              <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(resolvedPreviewText) }} />
+              <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(resolvedPreviewText, { serverEmojis: resolvedServerEmojis }) }} />
             ) : (
               <div style={{ whiteSpace: 'pre-wrap' }}>{resolvedPreviewText}</div>
             )

@@ -38,10 +38,53 @@ export function renderEventTemplate(template, values = {}) {
     .trim();
 }
 
-export function renderDiscordMarkdown(text) {
+export function buildDiscordCustomEmojiToken(emoji) {
+  const name = String(emoji?.name || '').trim();
+  const id = String(emoji?.id || '').trim();
+  if (!name || !/^\d{2,32}$/.test(id)) return '';
+  return emoji?.animated
+    ? `<a:${name}:${id}>`
+    : `<:${name}:${id}>`;
+}
+
+export function expandDiscordEmojiAliases(text, serverEmojis = []) {
+  const source = String(text || '');
+  if (!source) return '';
+
+  const emojiTokensByName = new Map();
+  for (const emoji of Array.isArray(serverEmojis) ? serverEmojis : []) {
+    const name = String(emoji?.name || '').trim();
+    const token = buildDiscordCustomEmojiToken(emoji);
+    if (!name || !token || emojiTokensByName.has(name)) continue;
+    emojiTokensByName.set(name, token);
+  }
+  if (!emojiTokensByName.size) return source;
+
+  const protectedFullTokens = [];
+  let normalized = source.replace(/<(a?):([a-zA-Z0-9_]+):(\d+)>/g, (match) => {
+    const token = `@@DISCORD_FULL_EMOJI_${protectedFullTokens.length}@@`;
+    protectedFullTokens.push({ token, match });
+    return token;
+  });
+
+  normalized = normalized.replace(/(^|[^<\w]):([A-Za-z0-9_]{2,32}):(?!\d+>)/g, (match, prefix, name) => {
+    const token = emojiTokensByName.get(name);
+    if (!token) return match;
+    return `${prefix}${token}`;
+  });
+
+  for (const { token, match } of protectedFullTokens) {
+    normalized = normalized.replaceAll(token, match);
+  }
+
+  return normalized;
+}
+
+export function renderDiscordMarkdown(text, options = {}) {
   if (!text) return '';
+  const normalizedText = expandDiscordEmojiAliases(text, options.serverEmojis || []);
   const emojiTokens = [];
-  let rendered = String(text || '').replace(/<(a?):([a-zA-Z0-9_]+):(\d+)>/g, (_, anim, name, id) => {
+  let rendered = String(normalizedText || '').replace(/<(a?):([a-zA-Z0-9_]+):(\d+)>/g, (_, anim, name, id) => {
     const token = `@@DISCORD_EMOJI_${emojiTokens.length}@@`;
     const ext = anim === 'a' ? 'gif' : 'webp';
     emojiTokens.push({

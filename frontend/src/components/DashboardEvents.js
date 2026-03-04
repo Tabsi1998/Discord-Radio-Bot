@@ -116,7 +116,7 @@ function buildEventPreviewValues(eventLike, voiceName, formatDate, t) {
   };
 }
 
-function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChannels, textChannels }) {
+function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChannels, textChannels, serverEmojis }) {
   const [expanded, setExpanded] = useState(false);
   const isActive = event.enabled !== false;
   const isPast = event.startsAt && new Date(event.startsAt) < new Date();
@@ -207,7 +207,7 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
             <div>
               <span style={{ color: '#52525B' }}>{t('Nachrichten-Vorschau', 'Message preview')}:</span>
               <div style={{ marginTop: 4, background: '#050505', border: '1px solid #1A1A2E', padding: '10px 12px', color: '#D4D4D8' }}>
-                <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(announcementPreview) }} />
+                <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(announcementPreview, { serverEmojis }) }} />
               </div>
             </div>
           )}
@@ -216,7 +216,7 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
             <div>
               <span style={{ color: '#52525B' }}>{t('Discord-Event-Beschreibung', 'Discord event description')}:</span>
               <div style={{ marginTop: 4, background: '#050505', border: '1px solid #1A1A2E', padding: '10px 12px', color: '#A1A1AA' }}>
-                <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(descriptionPreview) }} />
+                <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(descriptionPreview, { serverEmojis }) }} />
               </div>
             </div>
           )}
@@ -245,6 +245,7 @@ export default function DashboardEvents({
   const [voiceChannels, setVoiceChannels] = useState([]);
   const [textChannels, setTextChannels] = useState([]);
   const [stations, setStations] = useState({ free: [], pro: [], ultimate: [], custom: [] });
+  const [serverEmojis, setServerEmojis] = useState([]);
   const loadTokenRef = useRef(0);
 
   const loadChannelsAndStations = useCallback(async () => {
@@ -253,15 +254,18 @@ export default function DashboardEvents({
       setVoiceChannels([]);
       setTextChannels([]);
       setStations({ free: [], pro: [], ultimate: [], custom: [] });
+      setServerEmojis([]);
       return;
     }
     setVoiceChannels([]);
     setTextChannels([]);
     setStations({ free: [], pro: [], ultimate: [], custom: [] });
+    setServerEmojis([]);
     try {
-      const [channelResult, stationResult] = await Promise.all([
+      const [channelResult, stationResult, emojiResult] = await Promise.all([
         apiRequest(`/api/dashboard/channels?serverId=${encodeURIComponent(selectedGuildId)}`),
         apiRequest(`/api/dashboard/stations?serverId=${encodeURIComponent(selectedGuildId)}`),
+        apiRequest(`/api/dashboard/emojis?serverId=${encodeURIComponent(selectedGuildId)}`),
       ]);
       if (loadToken !== loadTokenRef.current) return;
       setVoiceChannels(channelResult.voiceChannels || []);
@@ -272,11 +276,13 @@ export default function DashboardEvents({
         ultimate: stationResult.ultimate || [],
         custom: stationResult.custom || [],
       });
+      setServerEmojis(emojiResult.emojis || []);
     } catch {
       if (loadToken !== loadTokenRef.current) return;
       setVoiceChannels([]);
       setTextChannels([]);
       setStations({ free: [], pro: [], ultimate: [], custom: [] });
+      setServerEmojis([]);
     }
   }, [selectedGuildId, apiRequest]);
 
@@ -452,6 +458,7 @@ export default function DashboardEvents({
               t={t}
               apiRequest={apiRequest}
               selectedGuildId={selectedGuildId}
+              serverEmojis={serverEmojis}
               previewValues={previewValues}
             />
 
@@ -462,6 +469,7 @@ export default function DashboardEvents({
               t={t}
               apiRequest={apiRequest}
               selectedGuildId={selectedGuildId}
+              serverEmojis={serverEmojis}
               label={t('Beschreibung (Discord-Event)', 'Description (Discord event)')}
               placeholderText={t('Beschreibung für das Discord-Server-Event. Die Vorschau rendert Custom-Emojis, Markdown und den automatisch angehängten Stations-Hinweis.', 'Description for the Discord server event. The preview renders custom emojis, markdown and the automatically appended station note.')}
               previewText={descriptionPreview}
@@ -505,6 +513,7 @@ export default function DashboardEvents({
             formatDate={formatDate}
             voiceChannels={voiceChannels}
             textChannels={textChannels}
+            serverEmojis={serverEmojis}
           />
         ))}
       </div>
