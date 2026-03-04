@@ -246,7 +246,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
       {/* Row 3: Charts */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
         {/* Hourly distribution */}
-        <ChartCard title={t('Aktivitaet nach Stunde', 'Activity by hour')} testId="chart-hourly">
+        <ChartCard title={t('Aktivität nach Stunde', 'Activity by hour')} testId="chart-hourly">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={hoursData}>
               <XAxis dataKey="hour" tick={{ fill: '#52525B', fontSize: 10 }} interval={2} />
@@ -258,7 +258,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
         </ChartCard>
 
         {/* Day of week distribution */}
-        <ChartCard title={t('Aktivitaet nach Wochentag', 'Activity by weekday')} testId="chart-dow">
+        <ChartCard title={t('Aktivität nach Wochentag', 'Activity by weekday')} testId="chart-dow">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={dowData}>
               <XAxis dataKey="day" tick={{ fill: '#52525B', fontSize: 11 }} />

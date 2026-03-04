@@ -1,15 +1,10 @@
 import React from 'react';
-
-const COMMAND_ROWS = [
-  { command: '/play', free: 'Basic', pro: 'HQ + Worker', ultimate: 'HQ + Fallback' },
-  { command: '/event', free: '—', pro: 'Ja', ultimate: 'Ja + erweitert' },
-  { command: '/perm', free: '—', pro: 'Ja', ultimate: 'Ja + erweitert' },
-  { command: '/stats', free: '—', pro: 'Basis Stats', ultimate: 'Advanced Analytics' },
-  { command: '/addstation', free: '—', pro: '—', ultimate: 'Ja (Custom URL)' },
-  { command: '/workers', free: '—', pro: 'Ja', ultimate: 'Priorisiert' },
-];
+import { useI18n } from '../i18n';
 
 export default function CommandMatrix() {
+  const { copy } = useI18n();
+  const matrix = copy.commandMatrix;
+
   return (
     <section
       data-testid="command-matrix-section"
@@ -21,9 +16,9 @@ export default function CommandMatrix() {
     >
       <div className="section-container" style={{ maxWidth: 1200 }}>
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, letterSpacing: '0.12em', color: '#A1A1AA', textTransform: 'uppercase' }}>Command Matrix</div>
+          <div style={{ fontSize: 12, letterSpacing: '0.12em', color: '#A1A1AA', textTransform: 'uppercase' }}>{matrix.eyebrow}</div>
           <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 'clamp(1.6rem, 4vw, 2.6rem)', marginTop: 8 }}>
-            Welche Commands in welchem Plan enthalten sind
+            {matrix.title}
           </h3>
         </div>
 
@@ -37,13 +32,13 @@ export default function CommandMatrix() {
         >
           <div style={{ minWidth: 860 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '220px repeat(3, 1fr)', borderBottom: '1px solid #27272A' }}>
-              <div style={{ padding: 14, color: '#A1A1AA', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: 11 }}>Command</div>
-              <div style={{ padding: 14, fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>Free</div>
-              <div style={{ padding: 14, fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>Pro</div>
-              <div style={{ padding: 14, fontFamily: "'Outfit', sans-serif", fontSize: 20, color: '#8B5CF6' }}>Ultimate</div>
+              <div style={{ padding: 14, color: '#A1A1AA', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: 11 }}>{matrix.commandHeader}</div>
+              <div style={{ padding: 14, fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{matrix.tiers.free}</div>
+              <div style={{ padding: 14, fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{matrix.tiers.pro}</div>
+              <div style={{ padding: 14, fontFamily: "'Outfit', sans-serif", fontSize: 20, color: '#8B5CF6' }}>{matrix.tiers.ultimate}</div>
             </div>
 
-            {COMMAND_ROWS.map((row) => (
+            {matrix.rows.map((row) => (
               <div key={row.command} data-testid={`command-matrix-row-${row.command.replace('/', '')}`} style={{ display: 'grid', gridTemplateColumns: '220px repeat(3, 1fr)', borderBottom: '1px solid #27272A' }}>
                 <div style={{ padding: 14, fontFamily: "'JetBrains Mono', monospace", color: '#00F0FF' }}>{row.command}</div>
                 <div style={{ padding: 14, color: '#A1A1AA' }}>{row.free}</div>

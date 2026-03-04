@@ -1,50 +1,6 @@
 import React from 'react';
 import { Check, Crown } from 'lucide-react';
-
-const PLAN_ROWS = [
-  {
-    key: 'dashboard',
-    label: 'Web Dashboard (SSO + Guild Picker)',
-    free: false,
-    pro: true,
-    ultimate: true,
-  },
-  {
-    key: 'events',
-    label: 'Event-Scheduler im Web',
-    free: false,
-    pro: true,
-    ultimate: true,
-  },
-  {
-    key: 'perms',
-    label: 'Rollenrechte pro Command',
-    free: false,
-    pro: true,
-    ultimate: true,
-  },
-  {
-    key: 'basicStats',
-    label: 'Server-spezifische Basis-Stats',
-    free: false,
-    pro: true,
-    ultimate: true,
-  },
-  {
-    key: 'fallback',
-    label: '/play mit optionalem Fallback',
-    free: false,
-    pro: false,
-    ultimate: true,
-  },
-  {
-    key: 'advancedStats',
-    label: 'Erweiterte Analytics (Channel + Tagesreport)',
-    free: false,
-    pro: false,
-    ultimate: true,
-  },
-];
+import { useI18n } from '../i18n';
 
 function FeatureDot({ enabled, testId }) {
   return (
@@ -68,6 +24,9 @@ function FeatureDot({ enabled, testId }) {
 }
 
 export default function PlanMatrix() {
+  const { copy } = useI18n();
+  const matrix = copy.planMatrix;
+
   return (
     <section
       id="plan-matrix"
@@ -80,12 +39,12 @@ export default function PlanMatrix() {
     >
       <div className="section-container" style={{ maxWidth: 1200 }}>
         <div style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 12, letterSpacing: '0.12em', color: '#A1A1AA', textTransform: 'uppercase' }}>Free vs Pro vs Ultimate</div>
+          <div style={{ fontSize: 12, letterSpacing: '0.12em', color: '#A1A1AA', textTransform: 'uppercase' }}>{matrix.eyebrow}</div>
           <h2 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 'clamp(2rem, 5vw, 4rem)', marginTop: 8, lineHeight: 1.05 }}>
-            Klarer Vergleich, keine offenen Fragen
+            {matrix.title}
           </h2>
           <p style={{ marginTop: 10, color: '#A1A1AA', maxWidth: 760, lineHeight: 1.7 }}>
-            Die Matrix zeigt transparent, was in welchem Plan enthalten ist. Ultimate hebt Reliability-Features, mehr Bot-Slots und erweiterte Analytics sichtbar hervor.
+            {matrix.subtitle}
           </p>
         </div>
 
@@ -105,15 +64,15 @@ export default function PlanMatrix() {
                 borderBottom: '1px solid #27272A',
               }}
             >
-              <div style={{ padding: 16, color: '#A1A1AA', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Feature</div>
-              <div style={{ padding: 16, fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>Free</div>
-              <div style={{ padding: 16, fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>Pro</div>
+              <div style={{ padding: 16, color: '#A1A1AA', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{matrix.featureHeader}</div>
+              <div style={{ padding: 16, fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{matrix.tiers.free}</div>
+              <div style={{ padding: 16, fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{matrix.tiers.pro}</div>
               <div style={{ padding: 16, fontFamily: "'Outfit', sans-serif", fontSize: 20, color: '#8B5CF6', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Crown size={18} /> Ultimate
+                <Crown size={18} /> {matrix.tiers.ultimate}
               </div>
             </div>
 
-            {PLAN_ROWS.map((row) => (
+            {matrix.rows.map((row) => (
               <div
                 key={row.key}
                 data-testid={`plan-matrix-row-${row.key}`}

@@ -128,7 +128,9 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
     stationName: event.stationName || event.stationKey,
   }, voiceName, formatDate, t);
   const announcementPreview = renderEventTemplate(event.announceMessage, previewValues);
-  const descriptionPreview = buildDiscordEventDescriptionPreview(event.description, previewValues.station);
+  const descriptionPreview = buildDiscordEventDescriptionPreview(event.description, previewValues.station, {
+    detailsPrefix: t('OmniFM Auto-Event | Station', 'OmniFM auto event | Station'),
+  });
 
   return (
     <div data-testid={`event-card-${event.id}`} style={{
@@ -172,7 +174,7 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
       </div>
 
       <div style={{ marginTop: 8, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: '#71717A' }}>
-        <span>Station: <span style={{ color: '#A1A1AA' }}>{event.stationKey || '-'}</span></span>
+        <span>{t('Station', 'Station')}: <span style={{ color: '#A1A1AA' }}>{event.stationKey || '-'}</span></span>
         <span><Hash size={11} style={{ verticalAlign: '-1px' }} /> <span style={{ color: '#A1A1AA' }}>{voiceName}</span></span>
         <span>
           <Clock size={11} style={{ verticalAlign: '-1px' }} />{' '}
@@ -186,12 +188,12 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
       {expanded && (
         <div style={{ marginTop: 10, padding: '10px 0 0', borderTop: '1px solid #1A1A2E', fontSize: 13, display: 'grid', gap: 10 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
-            <div><span style={{ color: '#52525B' }}>ID:</span> <span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#A1A1AA', fontSize: 11 }}>{event.id}</span></div>
-            <div><span style={{ color: '#52525B' }}>Timezone:</span> <span style={{ color: '#A1A1AA' }}>{event.timezone || '-'}</span></div>
+            <div><span style={{ color: '#52525B' }}>{t('ID', 'ID')}:</span> <span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#A1A1AA', fontSize: 11 }}>{event.id}</span></div>
+            <div><span style={{ color: '#52525B' }}>{t('Zeitzone', 'Time zone')}:</span> <span style={{ color: '#A1A1AA' }}>{event.timezone || '-'}</span></div>
             {textName && <div><span style={{ color: '#52525B' }}>{t('Text-Channel', 'Text channel')}:</span> <span style={{ color: '#A1A1AA' }}>#{textName}</span></div>}
             <div><span style={{ color: '#52525B' }}>{t('Discord-Sync', 'Discord sync')}:</span> <span style={{ color: syncState.color }}>{syncState.label}</span></div>
-            {event.discordScheduledEventId && <div><span style={{ color: '#52525B' }}>Discord Event ID:</span> <span style={{ color: '#A1A1AA', fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{event.discordScheduledEventId}</span></div>}
-            {event.stageTopic && <div><span style={{ color: '#52525B' }}>Stage Topic:</span> <span style={{ color: '#A1A1AA' }}>{event.stageTopic}</span></div>}
+            {event.discordScheduledEventId && <div><span style={{ color: '#52525B' }}>{t('Discord-Event-ID', 'Discord event ID')}:</span> <span style={{ color: '#A1A1AA', fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{event.discordScheduledEventId}</span></div>}
+            {event.stageTopic && <div><span style={{ color: '#52525B' }}>{t('Stage-Thema', 'Stage topic')}:</span> <span style={{ color: '#A1A1AA' }}>{event.stageTopic}</span></div>}
           </div>
 
           {event.discordSyncError && (
@@ -282,13 +284,13 @@ export default function DashboardEvents({
   useEffect(() => { if (editingEventId) setShowForm(true); }, [editingEventId]);
 
   const stationOptions = useMemo(() => ([
-    ...(stations.custom.length > 0 ? [{ value: '', label: `--- ${t('Custom Stations', 'Custom Stations')} ---`, disabled: true }] : []),
-    ...stations.custom.map((station) => ({ value: `custom:${station.key}`, label: `${station.name} (Custom)` })),
-    { value: '', label: `--- ${t('Free Stations', 'Free Stations')} ---`, disabled: true },
+    ...(stations.custom.length > 0 ? [{ value: '', label: `--- ${t('Custom-Stationen', 'Custom stations')} ---`, disabled: true }] : []),
+    ...stations.custom.map((station) => ({ value: `custom:${station.key}`, label: `${station.name} (${t('Custom', 'Custom')})` })),
+    { value: '', label: `--- ${t('Free-Stationen', 'Free stations')} ---`, disabled: true },
     ...stations.free.map((station) => ({ value: station.key, label: station.name })),
-    ...(stations.pro.length > 0 ? [{ value: '', label: `--- ${t('Pro Stations', 'Pro Stations')} ---`, disabled: true }] : []),
+    ...(stations.pro.length > 0 ? [{ value: '', label: `--- ${t('Pro-Stationen', 'Pro stations')} ---`, disabled: true }] : []),
     ...stations.pro.map((station) => ({ value: station.key, label: `${station.name} (Pro)` })),
-    ...(stations.ultimate.length > 0 ? [{ value: '', label: `--- ${t('Ultimate Stations', 'Ultimate Stations')} ---`, disabled: true }] : []),
+    ...(stations.ultimate.length > 0 ? [{ value: '', label: `--- ${t('Ultimate-Stationen', 'Ultimate stations')} ---`, disabled: true }] : []),
     ...stations.ultimate.map((station) => ({ value: station.key, label: `${station.name} (Ultimate)` })),
   ]), [stations.custom, stations.free, stations.pro, stations.ultimate, t]);
 
@@ -319,8 +321,10 @@ export default function DashboardEvents({
   }, [eventForm.durationMinutes, eventForm.startsAt, eventForm.timezone, eventForm.title, formatDate, selectedStationLabel, selectedVoiceName, t]);
 
   const descriptionPreview = useMemo(
-    () => buildDiscordEventDescriptionPreview(eventForm.description, selectedStationLabel),
-    [eventForm.description, selectedStationLabel]
+    () => buildDiscordEventDescriptionPreview(eventForm.description, selectedStationLabel, {
+      detailsPrefix: t('OmniFM Auto-Event | Station', 'OmniFM auto event | Station'),
+    }),
+    [eventForm.description, selectedStationLabel, t]
   );
 
   const handleSave = useCallback(async () => {
@@ -387,7 +391,7 @@ export default function DashboardEvents({
                 </select>
               </InputRow>
 
-              <InputRow label={t('Voice Channel', 'Voice channel')}>
+              <InputRow label={t('Voice-Channel', 'Voice channel')}>
                 <select data-testid="event-voice-select" value={eventForm.channelId} onChange={(e) => setEventForm((current) => ({ ...current, channelId: e.target.value }))} style={{
                   width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
                 }}>
@@ -423,13 +427,13 @@ export default function DashboardEvents({
                 <SelectInput testId="event-repeat-select" value={eventForm.repeat || 'none'} onChange={(e) => setEventForm((current) => ({ ...current, repeat: e.target.value }))} options={DASHBOARD_EVENT_REPEAT_OPTIONS.map((option) => ({ value: option.value, label: t(option.de, option.en) }))} />
               </InputRow>
 
-              <InputRow label="Timezone">
+              <InputRow label={t('Zeitzone', 'Time zone')}>
                 <SelectInput testId="event-timezone-select" value={eventForm.timezone || 'Europe/Vienna'} onChange={(e) => setEventForm((current) => ({ ...current, timezone: e.target.value }))} options={DASHBOARD_EVENT_TIMEZONE_OPTIONS.map((timeZone) => ({ value: timeZone, label: timeZone }))} />
               </InputRow>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-              <InputRow label="Stage Topic">
+              <InputRow label={t('Stage-Thema', 'Stage topic')}>
                 <TextInput testId="event-stage-topic-input" value={eventForm.stageTopic || ''} onChange={(e) => setEventForm((current) => ({ ...current, stageTopic: e.target.value }))} placeholder={t('Optional, Platzhalter wie {event} oder {station} sind erlaubt', 'Optional, placeholders like {event} or {station} are supported')} />
               </InputRow>
 

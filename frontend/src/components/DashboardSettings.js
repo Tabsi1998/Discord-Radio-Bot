@@ -96,7 +96,7 @@ export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUl
       <div data-testid="settings-weekly-digest" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <Calendar size={18} color="#5865F2" />
-          <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Woechentlicher Stats-Digest', 'Weekly stats digest')}</h3>
+          <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Wöchentlicher Stats-Digest', 'Weekly stats digest')}</h3>
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
           {t(
@@ -116,7 +116,7 @@ export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUl
             <select data-testid="digest-channel-select" value={wd.channelId} onChange={(e) => setSettings(c => ({ ...c, weeklyDigest: { ...wd, channelId: e.target.value } }))} style={{
               width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
             }}>
-              <option value="">{t('Channel waehlen...', 'Select channel...')}</option>
+              <option value="">{t('Channel wählen...', 'Select channel...')}</option>
               {textChannels.map(ch => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}
             </select>
           </div>
@@ -150,7 +150,7 @@ export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUl
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
           {t(
-            'Wird automatisch verwendet, wenn eine Station nicht erreichbar ist. Anstatt dass gar nichts laeuft, springt der Bot auf diese Station.',
+            'Wird automatisch verwendet, wenn eine Station nicht erreichbar ist. Anstatt dass gar nichts läuft, springt der Bot auf diese Station.',
             'Automatically used when a station is unreachable. Instead of silence, the bot switches to this station.'
           )}
         </p>

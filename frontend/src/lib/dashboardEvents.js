@@ -73,8 +73,11 @@ export function renderDiscordMarkdown(text) {
   return rendered;
 }
 
-export function buildDiscordEventDescriptionPreview(description, stationName) {
+export function buildDiscordEventDescriptionPreview(description, stationName, options = {}) {
   const base = String(description || '').trim();
-  const details = `OmniFM Auto-Event | Station: ${String(stationName || '-').trim() || '-'}`;
+  const details = String(
+    options.detailsLine
+      || `${String(options.detailsPrefix || 'OmniFM Auto-Event | Station').trim()}: ${String(stationName || '-').trim() || '-'}`
+  ).trim();
   return base ? `${base}\n\n${details}` : details;
 }

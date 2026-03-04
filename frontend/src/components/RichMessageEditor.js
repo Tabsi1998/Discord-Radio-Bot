@@ -120,7 +120,7 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
             {filteredServer.length > 0 && (
               <>
                 <div style={{ fontSize: 10, color: '#52525B', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '4px 2px 6px', fontWeight: 600 }}>
-                  {t('Server Emojis', 'Server Emojis')}
+                  {t('Server-Emojis', 'Server emojis')}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))', gap: 6, marginBottom: 10 }}>
                   {filteredServer.map(emoji => (
@@ -139,7 +139,7 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
             )}
             {filteredServer.length === 0 && serverEmojis.length === 0 && (
               <div style={{ color: '#3F3F46', fontSize: 12, textAlign: 'center', padding: 12 }}>
-                {t('Tipp: Waehle eine Kategorie oder tippe einen Emoji ein.', 'Tip: Select a category or type an emoji.')}
+                {t('Tipp: Wähle eine Kategorie oder tippe ein Emoji ein.', 'Tip: Select a category or type an emoji.')}
               </div>
             )}
           </>

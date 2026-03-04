@@ -57,7 +57,7 @@ const EMOJI_CATEGORIES = [
   },
   {
     id: 'activities',
-    label: { de: 'Aktivitaeten', en: 'Activities' },
+    label: { de: 'Aktivitäten', en: 'Activities' },
     emojis: [
       '⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🏑','🥍',
       '🏏','🪃','🥅','⛳','🪁','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','⛸️','🥌',

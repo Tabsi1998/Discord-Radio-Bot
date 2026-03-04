@@ -9,13 +9,13 @@ function StationRow({ station, onDelete, onEdit, t, testId }) {
     <div data-testid={testId} style={{ border: '1px solid #1A1A2E', background: '#0A0A0A', padding: '10px 14px' }}>
       {editing ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'center' }}>
-          <input value={form.name} onChange={(e) => setForm(c => ({ ...c, name: e.target.value }))} placeholder="Name" style={{
+          <input value={form.name} onChange={(e) => setForm(c => ({ ...c, name: e.target.value }))} placeholder={t('Name', 'Name')} style={{
             height: 34, border: '1px solid #1A1A2E', background: '#050505', color: '#fff', padding: '0 8px', fontSize: 13,
           }} />
-          <input value={form.url} onChange={(e) => setForm(c => ({ ...c, url: e.target.value }))} placeholder="Stream URL" style={{
+          <input value={form.url} onChange={(e) => setForm(c => ({ ...c, url: e.target.value }))} placeholder={t('Stream-URL', 'Stream URL')} style={{
             height: 34, border: '1px solid #1A1A2E', background: '#050505', color: '#fff', padding: '0 8px', fontSize: 13,
           }} />
-          <input value={form.genre} onChange={(e) => setForm(c => ({ ...c, genre: e.target.value }))} placeholder="Genre" style={{
+          <input value={form.genre} onChange={(e) => setForm(c => ({ ...c, genre: e.target.value }))} placeholder={t('Genre', 'Genre')} style={{
             height: 34, border: '1px solid #1A1A2E', background: '#050505', color: '#fff', padding: '0 8px', fontSize: 13,
           }} />
           <div style={{ display: 'flex', gap: 4 }}>
@@ -102,7 +102,7 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
       await apiRequest(`/api/dashboard/custom-stations?serverId=${encodeURIComponent(selectedGuildId)}`, {
         method: 'POST', body: JSON.stringify({ key, name: addForm.name.trim(), url: addForm.url.trim(), genre: addForm.genre.trim() }),
       });
-      setMessage(t('Station hinzugefuegt.', 'Station added.'));
+      setMessage(t('Station hinzugefügt.', 'Station added.'));
       setAddForm({ key: '', name: '', url: '', genre: '' });
       setShowAdd(false);
       await load();
@@ -124,7 +124,7 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
     setError(''); setMessage('');
     try {
       await apiRequest(`/api/dashboard/custom-stations?serverId=${encodeURIComponent(selectedGuildId)}&key=${encodeURIComponent(key)}`, { method: 'DELETE' });
-      setMessage(t('Station geloescht.', 'Station deleted.'));
+      setMessage(t('Station gelöscht.', 'Station deleted.'));
       await load();
     } catch (err) { setError(err.message); }
   };
@@ -134,7 +134,7 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
       <div style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>
-            {t('Custom Stations', 'Custom stations')} <span style={{ color: '#52525B', fontSize: 14 }}>({stations.length})</span>
+            {t('Custom-Stationen', 'Custom stations')} <span style={{ color: '#52525B', fontSize: 14 }}>({stations.length})</span>
           </h3>
           <button data-testid="custom-station-add-btn" onClick={() => setShowAdd(!showAdd)} style={{
             border: '1px solid #5865F2', background: showAdd ? 'rgba(88,101,242,0.15)' : 'transparent',
@@ -147,25 +147,25 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
         {showAdd && (
           <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Key</label>
+              <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Key', 'Key')}</label>
               <input data-testid="custom-station-key-input" value={addForm.key} onChange={(e) => setAddForm(c => ({ ...c, key: e.target.value }))} placeholder="mein-radio" style={{
                 width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
               }} />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Name</label>
+              <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Name', 'Name')}</label>
               <input data-testid="custom-station-name-input" value={addForm.name} onChange={(e) => setAddForm(c => ({ ...c, name: e.target.value }))} placeholder="Mein Radio" style={{
                 width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
               }} />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stream URL</label>
+              <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Stream-URL', 'Stream URL')}</label>
               <input data-testid="custom-station-url-input" value={addForm.url} onChange={(e) => setAddForm(c => ({ ...c, url: e.target.value }))} placeholder="https://..." style={{
                 width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
               }} />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Genre</label>
+              <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Genre', 'Genre')}</label>
               <input data-testid="custom-station-genre-input" value={addForm.genre} onChange={(e) => setAddForm(c => ({ ...c, genre: e.target.value }))} placeholder={t('Optional', 'Optional')} style={{
                 width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
               }} />
@@ -174,7 +174,7 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
               <button data-testid="custom-station-save-btn" onClick={addStation} style={{
                 width: '100%', height: 40, border: 'none', background: '#5865F2', color: '#fff', fontWeight: 700, cursor: 'pointer',
               }}>
-                {t('Hinzufuegen', 'Add')}
+                {t('Hinzufügen', 'Add')}
               </button>
             </div>
           </div>
@@ -190,8 +190,8 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
         {!loading && stations.length === 0 && (
           <div data-testid="custom-stations-empty" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: '40px 20px', textAlign: 'center' }}>
             <Radio size={32} color="#27272A" style={{ margin: '0 auto' }} />
-            <p style={{ color: '#52525B', marginTop: 10 }}>{t('Keine Custom Stations vorhanden.', 'No custom stations yet.')}</p>
-            <p style={{ color: '#3F3F46', marginTop: 4, fontSize: 13 }}>{t('Nutze /addstation auf Discord oder fuege hier eine hinzu.', 'Use /addstation on Discord or add one here.')}</p>
+            <p style={{ color: '#52525B', marginTop: 10 }}>{t('Keine Custom-Stationen vorhanden.', 'No custom stations yet.')}</p>
+            <p style={{ color: '#3F3F46', marginTop: 4, fontSize: 13 }}>{t('Nutze /addstation auf Discord oder füge hier eine hinzu.', 'Use /addstation on Discord or add one here.')}</p>
           </div>
         )}
         {stations.map((station, i) => (

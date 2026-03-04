@@ -84,7 +84,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
 
   // Listener timeline
   const timelineData = (detail.listenerTimeline || []).map(s => ({
-    time: new Date(s.timestamp).toLocaleTimeString(isDE ? 'de-DE' : 'en-US', { hour: '2-digit', minute: '2-digit' }),
+    time: formatDate(s.timestamp, { hour: '2-digit', minute: '2-digit' }),
     listeners: s.listeners || 0,
   }));
 
@@ -291,7 +291,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
                   {ev.eventType}
                 </span>
                 <span style={{ color: '#71717A' }}>
-                  {ev.timestamp ? new Date(ev.timestamp).toLocaleString(isDE ? 'de-DE' : 'en-US') : '-'}
+                  {ev.timestamp ? formatDate(ev.timestamp, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
                 </span>
                 {ev.details && <span style={{ color: '#52525B' }}>{ev.details}</span>}
               </div>
@@ -302,7 +302,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
 
       {/* Voice channel usage */}
       {channelData.length > 0 && (
-        <Section title={t('Voice-Channel Nutzung', 'Voice channel usage')} testId="stats-channel-usage">
+        <Section title={t('Voice-Channel-Nutzung', 'Voice channel usage')} testId="stats-channel-usage">
           <div style={{ display: 'grid', gap: 4 }}>
             {channelData.map((ch, i) => {
               const maxCount = channelData[0]?.count || 1;
