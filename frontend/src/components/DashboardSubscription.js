@@ -1,21 +1,278 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Crown, Clock, Users, ExternalLink, AlertTriangle, RefreshCw } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  Clock,
+  Crown,
+  ExternalLink,
+  RefreshCw,
+  Users,
+  X,
+} from 'lucide-react';
 
 const TIER_COLORS = { free: '#71717A', pro: '#10B981', ultimate: '#8B5CF6' };
 const TIER_LABELS = { free: 'Free', pro: 'Pro', ultimate: 'Ultimate' };
+const RENEWAL_OPTIONS = [1, 3, 6, 12];
 
 function formatDate(isoStr) {
   if (!isoStr) return '-';
   try {
     const d = new Date(isoStr);
     return d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  } catch { return '-'; }
+  } catch {
+    return '-';
+  }
+}
+
+function formatEuroCents(cents, locale = 'de-AT') {
+  const amount = Math.max(0, Number(cents || 0) || 0) / 100;
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+  }).format(amount);
+}
+
+function CheckoutChoiceButton({ active, label, subLabel, onClick, accent }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        border: '1px solid',
+        borderColor: active ? accent : '#1A1A2E',
+        background: active ? `${accent}1A` : '#050505',
+        color: '#fff',
+        padding: '12px 14px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        display: 'grid',
+        gap: 4,
+        minWidth: 0,
+      }}
+    >
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <strong style={{ fontSize: 14 }}>{label}</strong>
+        {active && <Check size={15} color={accent} />}
+      </span>
+      {subLabel ? <span style={{ fontSize: 12, color: '#A1A1AA' }}>{subLabel}</span> : null}
+    </button>
+  );
+}
+
+function DashboardCheckoutModal({
+  open,
+  onClose,
+  loading,
+  submitError,
+  initialTier,
+  seats,
+  t,
+  onSubmit,
+  allowUpgrade,
+}) {
+  const [months, setMonths] = useState(3);
+  const [tier, setTier] = useState(initialTier);
+  const accent = TIER_COLORS[tier] || '#8B5CF6';
+
+  useEffect(() => {
+    if (!open) return;
+    setTier(initialTier);
+    setMonths(initialTier === 'ultimate' ? 1 : 3);
+  }, [initialTier, open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && !loading) onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [loading, onClose, open]);
+
+  if (!open) return null;
+
+  const seatBasePrice = {
+    pro: seats === 5 ? 1149 : seats === 3 ? 749 : seats === 2 ? 549 : 299,
+    ultimate: seats === 5 ? 1699 : seats === 3 ? 1099 : seats === 2 ? 799 : 499,
+  };
+  const durationMultiplier = tier === 'pro'
+    ? { 1: 1, 3: (2.49 / 2.99) * 3, 6: (2.29 / 2.99) * 6, 12: (1.99 / 2.99) * 12 }
+    : { 1: 1, 3: (3.99 / 4.99) * 3, 6: (3.49 / 4.99) * 6, 12: (2.99 / 4.99) * 12 };
+  const prices = {
+    pro: Object.fromEntries(RENEWAL_OPTIONS.map((option) => [option, Math.round(seatBasePrice.pro * (durationMultiplier[option] || option))])),
+    ultimate: Object.fromEntries(RENEWAL_OPTIONS.map((option) => [option, Math.round(seatBasePrice.ultimate * (durationMultiplier[option] || option))])),
+  };
+
+  const currentPrice = prices?.[tier]?.[months] || 0;
+
+  return (
+    <div
+      data-testid="dashboard-subscription-checkout-modal"
+      onClick={() => { if (!loading) onClose(); }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        background: 'rgba(0,0,0,0.78)',
+        backdropFilter: 'blur(8px)',
+        display: 'grid',
+        placeItems: 'center',
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: 'min(560px, 100%)',
+          background: '#0A0A0A',
+          border: `1px solid ${accent}55`,
+          boxShadow: `0 0 60px ${accent}18`,
+          padding: 24,
+          display: 'grid',
+          gap: 18,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              {t('Dashboard Checkout', 'Dashboard checkout')}
+            </div>
+            <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 28, color: '#fff', marginTop: 6 }}>
+              {t('Abo direkt verlängern', 'Renew subscription directly')}
+            </h3>
+            <p style={{ color: '#A1A1AA', marginTop: 8, lineHeight: 1.6, fontSize: 14 }}>
+              {t(
+                'Stripe öffnet sich direkt mit der bestehenden Lizenz-E-Mail. Du wählst nur Laufzeit und bei Pro optional das Upgrade auf Ultimate.',
+                'Stripe opens directly with the existing license email. You only choose the duration and, for Pro, optionally an upgrade to Ultimate.'
+              )}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            style={{ border: 'none', background: 'transparent', color: '#71717A', cursor: loading ? 'wait' : 'pointer', padding: 0 }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {allowUpgrade && (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              {t('Plan', 'Plan')}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+              <CheckoutChoiceButton
+                active={tier === 'pro'}
+                accent={TIER_COLORS.pro}
+                label={t('Pro verlängern', 'Renew Pro')}
+                subLabel={t('Bestehenden Pro-Plan beibehalten', 'Keep the current Pro plan')}
+                onClick={() => setTier('pro')}
+              />
+              <CheckoutChoiceButton
+                active={tier === 'ultimate'}
+                accent={TIER_COLORS.ultimate}
+                label={t('Zu Ultimate wechseln', 'Switch to Ultimate')}
+                subLabel={t('Upgrade und direkt weiter verlängern', 'Upgrade and extend immediately')}
+                onClick={() => setTier('ultimate')}
+              />
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            {t('Laufzeit', 'Duration')}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
+            {RENEWAL_OPTIONS.map((option) => (
+              <CheckoutChoiceButton
+                key={option}
+                active={months === option}
+                accent={accent}
+                label={t(
+                  `${option} Monat${option > 1 ? 'e' : ''}`,
+                  `${option} month${option > 1 ? 's' : ''}`
+                )}
+                subLabel={formatEuroCents(prices?.[tier]?.[option] || 0)}
+                onClick={() => setMonths(option)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 16, display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
+            <span style={{ color: '#71717A' }}>{t('Zielplan', 'Target plan')}</span>
+            <strong style={{ color: accent }}>{TIER_LABELS[tier]}</strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
+            <span style={{ color: '#71717A' }}>{t('Server-Slots', 'Server slots')}</span>
+            <strong>{seats}</strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
+            <span style={{ color: '#71717A' }}>{t('Preis', 'Price')}</span>
+            <strong>{formatEuroCents(currentPrice)}</strong>
+          </div>
+        </div>
+
+        {submitError ? (
+          <div style={{ border: '1px solid rgba(252,165,165,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', fontSize: 13 }}>
+            {submitError}
+          </div>
+        ) : null}
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => onSubmit({ months, tier })}
+            disabled={loading}
+            style={{
+              border: 'none',
+              background: accent,
+              color: '#fff',
+              padding: '12px 16px',
+              fontWeight: 700,
+              cursor: loading ? 'wait' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            {loading ? <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={15} />}
+            {loading ? t('Stripe wird geöffnet...', 'Opening Stripe...') : t('Weiter zu Stripe', 'Continue to Stripe')}
+          </button>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            style={{
+              border: '1px solid #1A1A2E',
+              background: 'transparent',
+              color: '#A1A1AA',
+              padding: '12px 16px',
+              cursor: loading ? 'wait' : 'pointer',
+            }}
+          >
+            {t('Abbrechen', 'Cancel')}
+          </button>
+        </div>
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      </div>
+    </div>
+  );
 }
 
 export default function DashboardSubscription({ apiRequest, selectedGuildId, t }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
 
   const load = useCallback(async () => {
     if (!selectedGuildId) return;
@@ -33,216 +290,353 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <div style={{ color: '#52525B', textAlign: 'center', padding: 40 }}>{t('Lade...', 'Loading...')}</div>;
-
-  const tier = data?.tier || 'free';
-  const tierColor = TIER_COLORS[tier] || '#71717A';
-  const lic = data?.license;
+  const lic = data?.license || null;
+  const effectiveTier = data?.effectiveTier || lic?.plan || data?.tier || 'free';
+  const tierColor = TIER_COLORS[effectiveTier] || '#71717A';
   const isExpired = lic?.expired;
   const isExpiringSoon = !isExpired && lic?.remainingDays != null && lic.remainingDays <= 7;
+  const canManagePaidPlan = lic && ['pro', 'ultimate'].includes(String(lic.plan || effectiveTier || '').toLowerCase());
+  const canUpgradeToUltimate = String(lic?.plan || effectiveTier || '').toLowerCase() === 'pro';
+
+  const planFeatures = useMemo(() => {
+    if (effectiveTier === 'ultimate') {
+      return [
+        '320k Bitrate (Ultra HQ)',
+        t('Bis zu 16 Bots', 'Up to 16 bots'),
+        t('Alle Stationen + Custom-URLs', 'All stations + custom URLs'),
+        t('Dashboard + Events + Analytics', 'Dashboard + events + analytics'),
+        t('Fallback-Station', 'Fallback station'),
+      ];
+    }
+    if (effectiveTier === 'pro') {
+      return [
+        '128k Bitrate (HQ Opus)',
+        t('Bis zu 8 Bots', 'Up to 8 bots'),
+        t('120 Stationen (Free + Pro)', '120 stations (free + pro)'),
+        t('Dashboard + Events', 'Dashboard + events'),
+        t('Priorisierter Reconnect', 'Priority reconnect'),
+      ];
+    }
+    return [
+      '64k Bitrate',
+      t('Bis zu 2 Bots', 'Up to 2 bots'),
+      t('20 Free-Stationen', '20 free stations'),
+      t('Automatischer Reconnect', 'Automatic reconnect'),
+      t('Dashboard ab Pro', 'Dashboard from Pro'),
+    ];
+  }, [effectiveTier, t]);
+
+  const openCheckout = useCallback(() => {
+    setCheckoutError('');
+    setCheckoutOpen(true);
+  }, []);
+
+  const startCheckout = useCallback(async ({ months, tier }) => {
+    if (!selectedGuildId) return;
+    setCheckoutLoading(true);
+    setCheckoutError('');
+    try {
+      const result = await apiRequest(`/api/dashboard/license/checkout?serverId=${encodeURIComponent(selectedGuildId)}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          months,
+          tier,
+          returnUrl: `${window.location.origin}/?page=dashboard`,
+        }),
+      });
+      if (result?.url) {
+        window.location.href = result.url;
+        return;
+      }
+      setCheckoutError(t('Stripe-URL fehlt in der Antwort.', 'Stripe URL is missing in the response.'));
+    } catch (err) {
+      setCheckoutError(err.message || t('Checkout konnte nicht gestartet werden.', 'Could not start checkout.'));
+    } finally {
+      setCheckoutLoading(false);
+    }
+  }, [apiRequest, selectedGuildId, t]);
+
+  if (loading) {
+    return (
+      <div style={{ color: '#52525B', textAlign: 'center', padding: 40 }}>
+        {t('Lade...', 'Loading...')}
+      </div>
+    );
+  }
 
   return (
     <section data-testid="dashboard-subscription-panel" style={{ display: 'grid', gap: 14 }}>
-      {error && <div style={{ border: '1px solid rgba(252,165,165,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', fontSize: 13 }}>{error}</div>}
+      {error ? (
+        <div style={{ border: '1px solid rgba(252,165,165,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', fontSize: 13 }}>
+          {error}
+        </div>
+      ) : null}
 
-      {/* Plan Overview */}
-      <div data-testid="subscription-plan-card" style={{
-        background: '#0A0A0A', border: `1px solid ${tierColor}33`, padding: 24,
-        display: 'grid', gap: 20,
-      }}>
+      <div
+        data-testid="subscription-plan-card"
+        style={{
+          background: '#0A0A0A',
+          border: `1px solid ${tierColor}33`,
+          padding: 24,
+          display: 'grid',
+          gap: 20,
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Crown size={24} color={tierColor} />
             <div>
               <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 28, fontWeight: 700, color: tierColor }}>
-                {TIER_LABELS[tier] || 'Free'}
+                {TIER_LABELS[effectiveTier] || 'Free'}
               </div>
-              <div style={{ color: '#52525B', fontSize: 12 }}>{t('Aktueller Plan', 'Current plan')}</div>
+              <div style={{ color: '#71717A', fontSize: 12 }}>{t('Aktueller Lizenzstatus', 'Current license status')}</div>
             </div>
           </div>
-          <button data-testid="subscription-refresh-btn" onClick={load} style={{
-            border: '1px solid #1A1A2E', background: 'transparent', color: '#71717A', height: 34, padding: '0 10px',
-            display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12,
-          }}>
+          <button
+            data-testid="subscription-refresh-btn"
+            onClick={load}
+            style={{
+              border: '1px solid #1A1A2E',
+              background: 'transparent',
+              color: '#71717A',
+              height: 34,
+              padding: '0 10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
             <RefreshCw size={13} /> {t('Aktualisieren', 'Refresh')}
           </button>
         </div>
 
-        {tier === 'free' && (
-          <div data-testid="subscription-free-info" style={{
-            border: '1px solid #1A1A2E', background: '#050505', padding: 16, display: 'grid', gap: 8,
-          }}>
-            <p style={{ color: '#71717A', fontSize: 13, lineHeight: 1.6 }}>
+        {effectiveTier === 'free' && !lic ? (
+          <div
+            data-testid="subscription-free-info"
+            style={{
+              border: '1px solid #1A1A2E',
+              background: '#050505',
+              padding: 16,
+              display: 'grid',
+              gap: 8,
+            }}
+          >
+            <p style={{ color: '#A1A1AA', fontSize: 13, lineHeight: 1.7 }}>
               {t(
-                'Du nutzt aktuell den Free-Plan. Upgrade auf Pro oder Ultimate fuer erweiterte Features wie das Dashboard, mehr Bots und bessere Audioqualitaet.',
-                'You are currently on the Free plan. Upgrade to Pro or Ultimate for advanced features like the dashboard, more bots and better audio quality.'
+                'Für diesen Server ist aktuell kein kostenpflichtiges Abo hinterlegt. Upgrades auf Pro oder Ultimate startest du weiterhin über die Hauptseite.',
+                'There is currently no paid subscription stored for this server. Upgrades to Pro or Ultimate are still started from the main website.'
               )}
             </p>
-            <a href="/?page=home#premium" data-testid="subscription-upgrade-link" style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 4,
-              border: '1px solid #8B5CF6', background: 'rgba(139,92,246,0.12)', color: '#fff',
-              padding: '10px 16px', textDecoration: 'none', fontWeight: 600, fontSize: 14, width: 'fit-content',
-            }}>
-              <Crown size={15} /> {t('Jetzt upgraden', 'Upgrade now')}
+            <a
+              href="/?page=home#premium"
+              data-testid="subscription-upgrade-link"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 4,
+                border: '1px solid #8B5CF6',
+                background: 'rgba(139,92,246,0.12)',
+                color: '#fff',
+                padding: '10px 16px',
+                textDecoration: 'none',
+                fontWeight: 600,
+                fontSize: 14,
+                width: 'fit-content',
+              }}
+            >
+              <ExternalLink size={15} /> {t('Pläne öffnen', 'Open plans')}
             </a>
           </div>
-        )}
+        ) : null}
 
-        {tier !== 'free' && lic && (
-          <div data-testid="subscription-details" style={{
-            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10,
-          }}>
-            {/* Expiry */}
+        {lic ? (
+          <div
+            data-testid="subscription-details"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 10,
+            }}
+          >
             <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                 <Clock size={14} color="#71717A" />
-                <span style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Ablaufdatum', 'Expires')}</span>
+                <span style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  {t('Gültig bis', 'Valid until')}
+                </span>
               </div>
               <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, fontWeight: 600, color: isExpired ? '#EF4444' : isExpiringSoon ? '#F59E0B' : '#fff' }}>
                 {formatDate(lic.expiresAt)}
               </div>
-              {lic.remainingDays != null && !isExpired && (
+              {lic.remainingDays != null && !isExpired ? (
                 <div style={{ fontSize: 12, color: isExpiringSoon ? '#F59E0B' : '#52525B', marginTop: 4 }}>
                   {lic.remainingDays} {t('Tage verbleibend', 'days remaining')}
                 </div>
-              )}
-              {isExpired && (
+              ) : null}
+              {isExpired ? (
                 <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{t('Abgelaufen', 'Expired')}</div>
-              )}
+              ) : null}
             </div>
 
-            {/* Seats */}
             <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                 <Users size={14} color="#71717A" />
-                <span style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Server-Slots', 'Server slots')}</span>
+                <span style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  {t('Server-Slots', 'Server slots')}
+                </span>
               </div>
               <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, fontWeight: 600 }}>
                 {lic.seatsUsed || 0} / {lic.seats || 1}
               </div>
               <div style={{ fontSize: 12, color: '#52525B', marginTop: 4 }}>
-                {t('belegt', 'used')}
+                {t('verknüpft', 'linked')}
               </div>
             </div>
 
-            {/* E-Mail */}
-            {lic.emailMasked && (
+            {lic.emailMasked ? (
               <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
-                <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{t('Lizenz-E-Mail', 'License email')}</div>
+                <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                  {t('Lizenz-E-Mail', 'License email')}
+                </div>
                 <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: '#A1A1AA' }}>
                   {lic.emailMasked}
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
-        )}
+        ) : null}
 
-        {/* Warning for expired */}
-        {isExpired && tier !== 'free' && (
-          <div data-testid="subscription-expired-warning" style={{
-            border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(127,29,29,0.12)', padding: '14px 16px',
-            display: 'flex', alignItems: 'center', gap: 12,
-          }}>
+        {isExpired && canManagePaidPlan ? (
+          <div
+            data-testid="subscription-expired-warning"
+            style={{
+              border: '1px solid rgba(239,68,68,0.3)',
+              background: 'rgba(127,29,29,0.12)',
+              padding: '14px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}
+          >
             <AlertTriangle size={18} color="#EF4444" />
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#FCA5A5' }}>{t('Lizenz abgelaufen', 'License expired')}</div>
-              <div style={{ fontSize: 12, color: '#71717A', marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: '#A1A1AA', marginTop: 2 }}>
                 {t(
-                  'Deine Lizenz ist abgelaufen. Verlaengere sie, um weiterhin alle Features nutzen zu koennen.',
-                  'Your license has expired. Renew it to continue using all features.'
+                  'Deine Lizenz ist abgelaufen. Verlängere sie direkt im Dashboard, damit alle Funktionen wieder aktiv sind.',
+                  'Your license has expired. Renew it directly in the dashboard to reactivate all features.'
                 )}
               </div>
             </div>
           </div>
-        )}
+        ) : null}
 
-        {/* Expiring soon warning */}
-        {isExpiringSoon && !isExpired && (
-          <div data-testid="subscription-expiring-warning" style={{
-            border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(120,53,15,0.12)', padding: '14px 16px',
-            display: 'flex', alignItems: 'center', gap: 12,
-          }}>
+        {isExpiringSoon && !isExpired ? (
+          <div
+            data-testid="subscription-expiring-warning"
+            style={{
+              border: '1px solid rgba(245,158,11,0.3)',
+              background: 'rgba(120,53,15,0.12)',
+              padding: '14px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}
+          >
             <AlertTriangle size={18} color="#F59E0B" />
             <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#FDE68A' }}>{t('Laeuft bald ab', 'Expiring soon')}</div>
-              <div style={{ fontSize: 12, color: '#71717A', marginTop: 2 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#FDE68A' }}>{t('Läuft bald ab', 'Expiring soon')}</div>
+              <div style={{ fontSize: 12, color: '#A1A1AA', marginTop: 2 }}>
                 {t(
-                  `Deine Lizenz laeuft in ${lic.remainingDays} Tagen ab. Verlaengere rechtzeitig!`,
-                  `Your license expires in ${lic.remainingDays} days. Renew in time!`
+                  `Deine Lizenz läuft in ${lic.remainingDays} Tagen ab. Du kannst sie direkt hier um 1, 3, 6 oder 12 Monate verlängern.`,
+                  `Your license expires in ${lic.remainingDays} days. You can renew it right here for 1, 3, 6 or 12 months.`
                 )}
               </div>
             </div>
           </div>
-        )}
+        ) : null}
 
-        {/* Action buttons */}
-        {tier !== 'free' && (
+        {canManagePaidPlan ? (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <a href="/?page=home#premium" data-testid="subscription-extend-link" style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              border: `1px solid ${tierColor}`, background: `${tierColor}1A`, color: '#fff',
-              padding: '10px 16px', textDecoration: 'none', fontWeight: 600, fontSize: 14,
-            }}>
-              <ExternalLink size={15} /> {isExpired ? t('Jetzt verlaengern', 'Renew now') : t('Abo verlaengern', 'Extend subscription')}
-            </a>
-            {tier === 'pro' && (
-              <a href="/?page=home#premium" data-testid="subscription-upgrade-ultimate-link" style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                border: '1px solid #8B5CF6', background: 'rgba(139,92,246,0.12)', color: '#fff',
-                padding: '10px 16px', textDecoration: 'none', fontWeight: 600, fontSize: 14,
-              }}>
-                <Crown size={15} /> {t('Zu Ultimate upgraden', 'Upgrade to Ultimate')}
-              </a>
-            )}
+            <button
+              data-testid="subscription-extend-link"
+              onClick={openCheckout}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                border: `1px solid ${tierColor}`,
+                background: `${tierColor}1A`,
+                color: '#fff',
+                padding: '10px 16px',
+                fontWeight: 600,
+                fontSize: 14,
+                cursor: 'pointer',
+              }}
+            >
+              <ArrowRight size={15} />
+              {isExpired ? t('Jetzt verlängern', 'Renew now') : t('Abo verlängern', 'Extend subscription')}
+            </button>
+            {canUpgradeToUltimate ? (
+              <button
+                data-testid="subscription-upgrade-ultimate-link"
+                onClick={openCheckout}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  border: '1px solid #8B5CF6',
+                  background: 'rgba(139,92,246,0.12)',
+                  color: '#fff',
+                  padding: '10px 16px',
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+              >
+                <Crown size={15} /> {t('Ultimate prüfen', 'Review Ultimate')}
+              </button>
+            ) : null}
           </div>
-        )}
+        ) : null}
       </div>
 
-      {/* Tier Features */}
       <div data-testid="subscription-features-card" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
         <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 18, marginBottom: 14, color: '#D4D4D8' }}>
-          {t('Plan-Features', 'Plan features')}
+          {t('Plan-Highlights', 'Plan highlights')}
         </h4>
         <div style={{ display: 'grid', gap: 8 }}>
-          {tier === 'free' && <>
-            <FeatureRow label="64k Bitrate" included t={t} />
-            <FeatureRow label={t('Bis zu 2 Bots', 'Up to 2 bots')} included t={t} />
-            <FeatureRow label={t('20 Free Stationen', '20 free stations')} included t={t} />
-            <FeatureRow label={t('Auto-Reconnect (5s)', 'Auto-reconnect (5s)')} included t={t} />
-            <FeatureRow label={t('Dashboard', 'Dashboard')} included={false} t={t} />
-            <FeatureRow label={t('Custom Stations', 'Custom stations')} included={false} t={t} />
-          </>}
-          {tier === 'pro' && <>
-            <FeatureRow label="128k Bitrate (HQ Opus)" included t={t} />
-            <FeatureRow label={t('Bis zu 8 Bots', 'Up to 8 bots')} included t={t} />
-            <FeatureRow label={t('120 Stationen (Free + Pro)', '120 stations (free + pro)')} included t={t} />
-            <FeatureRow label={t('Priority Reconnect (1,5s)', 'Priority reconnect (1.5s)')} included t={t} />
-            <FeatureRow label={t('Dashboard + Events', 'Dashboard + events')} included t={t} />
-            <FeatureRow label={t('Custom Station URLs', 'Custom station URLs')} included={false} t={t} />
-          </>}
-          {tier === 'ultimate' && <>
-            <FeatureRow label="320k Bitrate (Ultra HQ)" included t={t} />
-            <FeatureRow label={t('Bis zu 16 Bots', 'Up to 16 bots')} included t={t} />
-            <FeatureRow label={t('Alle Stationen + Custom URLs', 'All stations + custom URLs')} included t={t} />
-            <FeatureRow label={t('Instant Reconnect (0,4s)', 'Instant reconnect (0.4s)')} included t={t} />
-            <FeatureRow label={t('Dashboard + Events + Analytics', 'Dashboard + events + analytics')} included t={t} />
-            <FeatureRow label={t('Fallback-Station', 'Fallback station')} included t={t} />
-          </>}
+          {planFeatures.map((feature) => (
+            <FeatureRow key={feature} label={feature} />
+          ))}
         </div>
       </div>
+
+      <DashboardCheckoutModal
+        open={checkoutOpen}
+        onClose={() => setCheckoutOpen(false)}
+        loading={checkoutLoading}
+        submitError={checkoutError}
+        initialTier={String(lic?.plan || effectiveTier || 'pro').toLowerCase() === 'ultimate' ? 'ultimate' : 'pro'}
+        seats={Math.max(1, Number(lic?.seats || 1) || 1)}
+        t={t}
+        onSubmit={startCheckout}
+        allowUpgrade={canUpgradeToUltimate}
+      />
     </section>
   );
 }
 
-function FeatureRow({ label, included }) {
+function FeatureRow({ label }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
-      {included ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
-      ) : (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3F3F46" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-      )}
-      <span style={{ fontSize: 13, color: included ? '#D4D4D8' : '#52525B' }}>{label}</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+      <span style={{ fontSize: 13, color: '#D4D4D8' }}>{label}</span>
     </div>
   );
 }

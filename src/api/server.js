@@ -2404,10 +2404,12 @@ function startWebServer(runtimes) {
       if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
 
       const license = getLicense(guildInfo.id);
+      const effectiveTier = String(license?.plan || guildInfo.tier || "free").trim().toLowerCase();
       const result = {
         serverId: guildInfo.id,
         tier: guildInfo.tier,
-        tierName: guildInfo.tier === "ultimate" ? "Ultimate" : guildInfo.tier === "pro" ? "Pro" : "Free",
+        effectiveTier,
+        tierName: effectiveTier === "ultimate" ? "Ultimate" : effectiveTier === "pro" ? "Pro" : "Free",
         dashboardEnabled: guildInfo.dashboardEnabled,
         ultimateEnabled: guildInfo.ultimateEnabled,
         license: null,
@@ -2436,6 +2438,183 @@ function startWebServer(runtimes) {
       }
 
       sendJson(res, 200, result);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/license/checkout") {
+      if (req.method !== "POST") { methodNotAllowed(res, ["POST"]); return; }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendJson(res, 401, { error: "Nicht eingeloggt." }); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendJson(res, 403, { error: "Kein Zugriff auf diesen Server." }); return; }
+
+      try {
+        const body = await readJsonBody();
+        const license = getLicense(guildInfo.id);
+        const checkoutLanguage = normalizeLanguage(
+          body?.language,
+          normalizeLanguage(license?.preferredLanguage, getDefaultLanguage())
+        );
+        const isDe = checkoutLanguage === "de";
+        const t = (de, en) => (isDe ? de : en);
+
+        if (!license) {
+          sendJson(res, 404, {
+            error: t(
+              "Für diesen Server wurde keine aktive oder abgelaufene Lizenz gefunden.",
+              "No active or expired license was found for this server."
+            ),
+          });
+          return;
+        }
+
+        const licenseEmail = String(license.contactEmail || license.email || "").trim().toLowerCase();
+        if (!isValidEmailAddress(licenseEmail)) {
+          sendJson(res, 400, {
+            error: t(
+              "Für diese Lizenz ist keine gültige Abrechnungs-E-Mail hinterlegt.",
+              "No valid billing email is stored for this license."
+            ),
+          });
+          return;
+        }
+
+        const currentPlan = String(license.plan || guildInfo.tier || "free").trim().toLowerCase();
+        const requestedTier = String(body?.tier || currentPlan).trim().toLowerCase();
+        const durationMonths = normalizeDuration(body?.months);
+        const seats = normalizeSeats(license.seats || 1);
+        const returnUrl = String(body?.returnUrl || "").trim();
+
+        if (!["pro", "ultimate"].includes(currentPlan)) {
+          sendJson(res, 400, {
+            error: t(
+              "Dieses Dashboard kann nur bestehende Pro- oder Ultimate-Abos verlängern.",
+              "This dashboard can only renew existing Pro or Ultimate subscriptions."
+            ),
+          });
+          return;
+        }
+
+        if (!["pro", "ultimate"].includes(requestedTier)) {
+          sendJson(res, 400, {
+            error: t("Ungültiger Zielplan.", "Invalid target plan."),
+          });
+          return;
+        }
+
+        if (currentPlan === "ultimate" && requestedTier !== "ultimate") {
+          sendJson(res, 400, {
+            error: t("Ein Ultimate-Abo kann nicht im Dashboard heruntergestuft werden.", "An Ultimate subscription cannot be downgraded in the dashboard."),
+          });
+          return;
+        }
+
+        const stripeKey = getStripeSecretKey();
+        if (!stripeKey) {
+          sendJson(res, 503, {
+            error: t("Stripe ist nicht konfiguriert.", "Stripe is not configured."),
+          });
+          return;
+        }
+
+        const publicUrl = resolvePublicWebsiteUrl(req);
+        const basePriceInCents = calculatePrice(requestedTier, durationMonths, seats);
+        if (basePriceInCents <= 0) {
+          sendJson(res, 400, {
+            error: t(
+              "Ungültige Preisberechnung für die gewählte Verlängerung.",
+              "Invalid price calculation for the selected renewal."
+            ),
+          });
+          return;
+        }
+
+        const seatsLabel = seats > 1
+          ? (isDe ? ` (${seats} Server)` : ` (${seats} servers)`)
+          : "";
+        const isUpgrade = currentPlan === "pro" && requestedTier === "ultimate";
+        const description = isUpgrade
+          ? (isDe
+            ? `${TIERS[requestedTier].name}${seatsLabel} - Upgrade für ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`
+            : `${TIERS[requestedTier].name}${seatsLabel} - upgrade for ${durationMonths} month${durationMonths > 1 ? "s" : ""}`)
+          : (isDe
+            ? `${TIERS[requestedTier].name}${seatsLabel} - Verlängerung für ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`
+            : `${TIERS[requestedTier].name}${seatsLabel} - renewal for ${durationMonths} month${durationMonths > 1 ? "s" : ""}`);
+
+        const stripe = await import("stripe");
+        const stripeClient = new stripe.default(stripeKey);
+        const checkoutSession = await stripeClient.checkout.sessions.create({
+          payment_method_types: ["card"],
+          mode: "payment",
+          customer_email: licenseEmail,
+          line_items: [{
+            price_data: {
+              currency: "eur",
+              product_data: {
+                name: `${BRAND.name} ${TIERS[requestedTier].name}`,
+                description,
+              },
+              unit_amount: basePriceInCents,
+            },
+            quantity: 1,
+          }],
+          metadata: {
+            email: licenseEmail,
+            tier: requestedTier,
+            seats: String(seats),
+            months: String(durationMonths),
+            language: checkoutLanguage,
+            isUpgrade: String(isUpgrade),
+            checkoutCreatedAt: new Date().toISOString(),
+            couponCode: "",
+            referralCode: "",
+            appliedOfferCode: "",
+            appliedOfferKind: "",
+            offerOwnerLabel: "",
+            baseAmountCents: String(basePriceInCents),
+            discountCents: "0",
+            finalAmountCents: String(basePriceInCents),
+          },
+          success_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
+          cancel_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=cancelled",
+        });
+
+        sendJson(res, 200, {
+          sessionId: checkoutSession.id,
+          url: checkoutSession.url,
+          pricing: {
+            baseAmountCents: basePriceInCents,
+            discountCents: 0,
+            finalAmountCents: basePriceInCents,
+          },
+          renewal: {
+            currentPlan,
+            targetPlan: requestedTier,
+            seats,
+            months: durationMonths,
+            emailMasked: licenseEmail.replace(/^(.{2}).*(@.*)$/, "$1***$2"),
+          },
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
+          sendJson(res, status, {
+            error: fallbackLanguage === "de"
+              ? status === 413
+                ? "Request-Body ist zu groß."
+                : "Ungültiges JSON im Request-Body."
+              : status === 413
+                ? "Request body is too large."
+                : "Invalid JSON in request body.",
+          });
+          return;
+        }
+        log("ERROR", `Dashboard checkout error: ${err.message}`);
+        sendJson(res, 500, {
+          error: "Dashboard-Checkout fehlgeschlagen.",
+        });
+      }
       return;
     }
 
