@@ -212,9 +212,9 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
 
           {event.description && (
             <div>
-              <span style={{ color: '#52525B' }}>{t('Discord-Event Beschreibung', 'Discord event description')}:</span>
-              <div style={{ marginTop: 4, background: '#050505', border: '1px solid #1A1A2E', padding: '10px 12px', color: '#A1A1AA', whiteSpace: 'pre-wrap' }}>
-                {descriptionPreview}
+              <span style={{ color: '#52525B' }}>{t('Discord-Event-Beschreibung', 'Discord event description')}:</span>
+              <div style={{ marginTop: 4, background: '#050505', border: '1px solid #1A1A2E', padding: '10px 12px', color: '#A1A1AA' }}>
+                <div dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(descriptionPreview) }} />
               </div>
             </div>
           )}
@@ -378,7 +378,7 @@ export default function DashboardEvents({
                 <select data-testid="event-station-select" value={eventForm.stationKey} onChange={(e) => setEventForm((current) => ({ ...current, stationKey: e.target.value }))} style={{
                   width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
                 }}>
-                  <option value="">{t('Station waehlen...', 'Select station...')}</option>
+                  <option value="">{t('Station wählen...', 'Select station...')}</option>
                   {stationOptions.map((option, index) => (
                     option.disabled
                       ? <option key={`${option.label}-${index}`} disabled style={{ color: '#52525B' }}>{option.label}</option>
@@ -391,18 +391,18 @@ export default function DashboardEvents({
                 <select data-testid="event-voice-select" value={eventForm.channelId} onChange={(e) => setEventForm((current) => ({ ...current, channelId: e.target.value }))} style={{
                   width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
                 }}>
-                  <option value="">{t('Voice Channel waehlen...', 'Select voice channel...')}</option>
+                  <option value="">{t('Voice-Channel wählen...', 'Select voice channel...')}</option>
                   {voiceChannels.map((channel) => (
                     <option key={channel.id} value={channel.id}>{channel.parentName ? `${channel.parentName} / ` : ''}{channel.name} {channel.type === 'stage' ? '(Stage)' : ''}</option>
                   ))}
                 </select>
               </InputRow>
 
-              <InputRow label={t('Text Channel (Ankuendigung)', 'Text channel (announcement)')}>
+              <InputRow label={t('Text-Channel (Ankündigung)', 'Text channel (announcement)')}>
                 <select data-testid="event-text-channel-select" value={eventForm.textChannelId || ''} onChange={(e) => setEventForm((current) => ({ ...current, textChannelId: e.target.value }))} style={{
                   width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
                 }}>
-                  <option value="">{t('Kein Ankuendigungs-Channel', 'No announcement channel')}</option>
+                  <option value="">{t('Kein Ankündigungs-Channel', 'No announcement channel')}</option>
                   {textChannels.map((channel) => (
                     <option key={channel.id} value={channel.id}>{channel.parentName ? `${channel.parentName} / ` : ''}#{channel.name}</option>
                   ))}
@@ -415,7 +415,7 @@ export default function DashboardEvents({
                 <TextInput testId="event-starts-at-input" type="datetime-local" value={eventForm.startsAt} onChange={(e) => setEventForm((current) => ({ ...current, startsAt: e.target.value }))} />
               </InputRow>
 
-              <InputRow label={t('Dauer (Minuten, 0=unbegrenzt)', 'Duration (minutes, 0=unlimited)')}>
+              <InputRow label={t('Dauer (Minuten, 0 = unbegrenzt)', 'Duration (minutes, 0 = unlimited)')}>
                 <TextInput testId="event-duration-input" type="number" value={eventForm.durationMinutes || ''} onChange={(e) => setEventForm((current) => ({ ...current, durationMinutes: e.target.value }))} placeholder="0" />
               </InputRow>
 
@@ -458,12 +458,12 @@ export default function DashboardEvents({
               t={t}
               apiRequest={apiRequest}
               selectedGuildId={selectedGuildId}
-              label={t('Beschreibung (Discord Event)', 'Description (Discord event)')}
-              placeholderText={t('Beschreibung fuer das Discord-Server-Event. Diese Vorschau zeigt auch den automatisch angehaengten Stations-Hinweis.', 'Description for the Discord server event. This preview also shows the automatically appended station note.')}
+              label={t('Beschreibung (Discord-Event)', 'Description (Discord event)')}
+              placeholderText={t('Beschreibung für das Discord-Server-Event. Die Vorschau rendert Custom-Emojis, Markdown und den automatisch angehängten Stations-Hinweis.', 'Description for the Discord server event. The preview renders custom emojis, markdown and the automatically appended station note.')}
               previewText={descriptionPreview}
-              previewAsMarkdown={false}
+              previewAsMarkdown={true}
               placeholders={[]}
-              showToolbar={false}
+              showToolbar={true}
               emptyPreviewText={t('Keine Beschreibung', 'No description')}
             />
 

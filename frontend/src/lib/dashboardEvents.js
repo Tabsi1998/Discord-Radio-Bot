@@ -2,8 +2,8 @@ export const EVENT_PLACEHOLDERS = ['{event}', '{station}', '{voice}', '{time}', 
 
 export const DASHBOARD_EVENT_REPEAT_OPTIONS = [
   { value: 'none', de: 'Keine Wiederholung', en: 'No repeat' },
-  { value: 'daily', de: 'Taeglich', en: 'Daily' },
-  { value: 'weekly', de: 'Woechentlich', en: 'Weekly' },
+  { value: 'daily', de: 'Täglich', en: 'Daily' },
+  { value: 'weekly', de: 'Wöchentlich', en: 'Weekly' },
   { value: 'monthly_first_weekday', de: 'Monatlich (1. Wochentag)', en: 'Monthly (1st weekday)' },
   { value: 'monthly_second_weekday', de: 'Monatlich (2. Wochentag)', en: 'Monthly (2nd weekday)' },
   { value: 'monthly_third_weekday', de: 'Monatlich (3. Wochentag)', en: 'Monthly (3rd weekday)' },
@@ -40,7 +40,18 @@ export function renderEventTemplate(template, values = {}) {
 
 export function renderDiscordMarkdown(text) {
   if (!text) return '';
-  return text
+  const emojiTokens = [];
+  let rendered = String(text || '').replace(/<(a?):([a-zA-Z0-9_]+):(\d+)>/g, (_, anim, name, id) => {
+    const token = `@@DISCORD_EMOJI_${emojiTokens.length}@@`;
+    const ext = anim === 'a' ? 'gif' : 'webp';
+    emojiTokens.push({
+      token,
+      html: `<img src="https://cdn.discordapp.com/emojis/${id}.${ext}?size=48" alt=":${name}:" title=":${name}:" style="width:22px;height:22px;vertical-align:middle;margin:0 1px" />`,
+    });
+    return token;
+  });
+
+  rendered = rendered
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -53,11 +64,13 @@ export function renderDiscordMarkdown(text) {
     .replace(/~~(.+?)~~/g, '<s>$1</s>')
     .replace(/^> (.+)$/gm, '<div style="border-left:3px solid #4f545c;padding-left:10px;color:#a1a1aa">$1</div>')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#5865F2;text-decoration:none" target="_blank" rel="noreferrer">$1</a>')
-    .replace(/<(a?):(\w+):(\d+)>/g, (_, anim, name, id) => {
-      const ext = anim === 'a' ? 'gif' : 'webp';
-      return `<img src="https://cdn.discordapp.com/emojis/${id}.${ext}?size=48" alt=":${name}:" title=":${name}:" style="width:22px;height:22px;vertical-align:middle;margin:0 1px" />`;
-    })
     .replace(/\n/g, '<br/>');
+
+  for (const { token, html } of emojiTokens) {
+    rendered = rendered.replaceAll(token, html);
+  }
+
+  return rendered;
 }
 
 export function buildDiscordEventDescriptionPreview(description, stationName) {

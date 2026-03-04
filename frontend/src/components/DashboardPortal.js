@@ -86,8 +86,8 @@ function resolveAuthError() {
 function resolveAuthErrorMessage(authError, t) {
   switch (String(authError || '').trim()) {
     case 'oauth_not_configured': return t('Discord OAuth ist noch nicht vollstaendig konfiguriert.', 'Discord OAuth is not configured yet.');
-    case 'invalid_state': return t('Der Discord-Login ist abgelaufen oder ungueltig.', 'The Discord login expired or is invalid.');
-    case 'missing_code': return t('Discord hat keinen gueltigen Login-Code geliefert.', 'Discord did not return a valid login code.');
+    case 'invalid_state': return t('Der Discord-Login ist abgelaufen oder ungültig.', 'The Discord login expired or is invalid.');
+    case 'missing_code': return t('Discord hat keinen gültigen Login-Code geliefert.', 'Discord did not return a valid login code.');
     case 'oauth_exchange_failed': return t('Discord-Login konnte nicht abgeschlossen werden.', 'Discord login could not be completed.');
     default: return String(authError || '').trim();
   }
@@ -98,7 +98,7 @@ function normalizeOauthConfigured(v) { return v === true ? true : v === false ? 
 function resolveSessionLoadErrorMessage(err, t) {
   const msg = String(err?.message || '').trim();
   if (!msg) return t('Session konnte nicht geladen werden.', 'Session could not be loaded.');
-  if (/api route not found/i.test(msg) || msg === 'HTTP 404') return t('Dashboard-API nicht gefunden. Pruefe Backend.', 'Dashboard API not found. Check backend.');
+  if (/api route not found/i.test(msg) || msg === 'HTTP 404') return t('Dashboard-API nicht gefunden. Prüfe Backend.', 'Dashboard API not found. Check backend.');
   if (/failed to fetch/i.test(msg)) return t('Dashboard-API nicht erreichbar.', 'Dashboard API unreachable.');
   return msg;
 }
@@ -346,7 +346,7 @@ export default function DashboardPortal() {
       <section data-testid="dashboard-loading-view" style={{ minHeight: '100vh', background: '#050505', display: 'grid', placeItems: 'center' }}>
         <div style={{ textAlign: 'center' }}>
           <Radio size={40} color="#5865F2" style={{ animation: 'pulse 1.5s infinite' }} />
-          <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 36, marginTop: 16 }}>{t('Dashboard laedt...', 'Loading dashboard...')}</h1>
+          <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 36, marginTop: 16 }}>{t('Dashboard lädt...', 'Loading dashboard...')}</h1>
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
         </div>
       </section>
@@ -391,7 +391,7 @@ export default function DashboardPortal() {
 
   // Sidebar
   const tabs = [
-    { key: 'overview', label: t('Uebersicht', 'Overview'), icon: BarChart3 },
+    { key: 'overview', label: t('Übersicht', 'Overview'), icon: BarChart3 },
     { key: 'events', label: t('Events', 'Events'), icon: CalendarDays },
     { key: 'stations', label: t('Custom Stations', 'Custom stations'), icon: ListMusic },
     { key: 'perms', label: t('Berechtigungen', 'Permissions'), icon: ShieldCheck },
@@ -470,15 +470,15 @@ export default function DashboardPortal() {
         href="/"
         data-testid="sidebar-back-to-main"
         style={{
-          marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
-          border: '1px solid #1A1A2E', background: 'transparent', color: '#71717A', textDecoration: 'none',
-          fontSize: 12, transition: 'all 0.15s',
+          marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px',
+          border: '1px solid rgba(88,101,242,0.45)', background: 'rgba(88,101,242,0.12)', color: '#fff', textDecoration: 'none',
+          fontSize: 13, fontWeight: 600, transition: 'all 0.15s',
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#5865F2'; e.currentTarget.style.color = '#fff'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1A1A2E'; e.currentTarget.style.color = '#71717A'; }}
+        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#818CF8'; e.currentTarget.style.background = 'rgba(88,101,242,0.18)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(88,101,242,0.45)'; e.currentTarget.style.background = 'rgba(88,101,242,0.12)'; }}
       >
         <ArrowLeft size={14} />
-        {t('Zurueck zur Hauptseite', 'Back to main site')}
+        {t('Zurück zur Hauptseite', 'Back to main site')}
       </a>
     </>
   );
@@ -490,6 +490,25 @@ export default function DashboardPortal() {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {loadingData && <span data-testid="dashboard-loading-indicator" style={{ fontSize: 12, color: '#52525B' }}>{t('Lade...', 'Loading...')}</span>}
+        <a
+          href="/?page=home"
+          data-testid="dashboard-topbar-home-link"
+          style={{
+            border: '1px solid rgba(88,101,242,0.45)',
+            background: 'rgba(88,101,242,0.12)',
+            color: '#fff',
+            height: 34,
+            padding: '0 12px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            textDecoration: 'none',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          <ArrowLeft size={13} /> {t('Hauptseite', 'Main site')}
+        </a>
         <div data-testid="dashboard-user-chip" style={{ color: '#71717A', fontSize: 13 }}>{session.user?.username || 'User'}</div>
         <button data-testid="dashboard-logout-button" onClick={logout} style={{
           border: '1px solid #1A1A2E', background: 'transparent', color: '#71717A', height: 34, padding: '0 10px',
@@ -513,7 +532,7 @@ export default function DashboardPortal() {
             <h2 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 26 }}>{t('Dashboard ab PRO', 'Dashboard from PRO')}</h2>
           </div>
           <p style={{ marginTop: 10, color: '#71717A', lineHeight: 1.7 }}>
-            {t('Upgrade auf PRO fuer Events, Rechte und Stats.', 'Upgrade to PRO for events, permissions and stats.')}
+            {t('Upgrade auf PRO für Events, Rechte und Statistiken.', 'Upgrade to PRO for events, permissions and statistics.')}
           </p>
           <a href="/?page=home#premium" data-testid="dashboard-upgrade-link" style={{
             marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 8,

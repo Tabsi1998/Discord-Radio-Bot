@@ -57,7 +57,7 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
   return (
     <div data-testid="emoji-picker-panel" style={{
       position: 'absolute', top: '100%', right: 0, zIndex: 50, marginTop: 4,
-      width: 360, maxHeight: 420, background: '#0A0A0A', border: '1px solid #1A1A2E',
+      width: 'min(420px, calc(100vw - 32px))', maxHeight: 470, background: '#0A0A0A', border: '1px solid #1A1A2E',
       display: 'flex', flexDirection: 'column', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
     }}>
       {/* Header */}
@@ -89,7 +89,7 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
 
       {/* Category Tabs */}
       {!isSearchMode && (
-        <div style={{ display: 'flex', overflowX: 'auto', borderBottom: '1px solid #1A1A2E', padding: '0 4px', gap: 1, scrollbarWidth: 'none' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid #1A1A2E', padding: '6px 6px 2px', gap: 4 }}>
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -97,7 +97,7 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
               onClick={() => setActiveTab(tab.id)}
               style={{
                 border: 'none', background: 'transparent', cursor: 'pointer',
-                padding: '6px 8px', fontSize: 11, whiteSpace: 'nowrap',
+                padding: '6px 9px', fontSize: 11, whiteSpace: 'nowrap',
                 color: activeTab === tab.id ? '#5865F2' : '#52525B',
                 borderBottom: activeTab === tab.id ? '2px solid #5865F2' : '2px solid transparent',
                 fontWeight: activeTab === tab.id ? 600 : 400,
@@ -122,16 +122,16 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
                 <div style={{ fontSize: 10, color: '#52525B', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '4px 2px 6px', fontWeight: 600 }}>
                   {t('Server Emojis', 'Server Emojis')}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))', gap: 6, marginBottom: 10 }}>
                   {filteredServer.map(emoji => (
                     <button
                       key={emoji.id} data-testid={`emoji-btn-${emoji.name}`}
                       onClick={() => onSelectCustom(emoji)} title={`:${emoji.name}:`}
-                      style={{ border: '1px solid transparent', background: 'transparent', cursor: 'pointer', width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 4, transition: 'all 0.1s' }}
+                      style={{ border: '1px solid transparent', background: 'transparent', cursor: 'pointer', width: 40, height: 40, display: 'grid', placeItems: 'center', borderRadius: 6, transition: 'all 0.1s' }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = '#1A1A2E'; e.currentTarget.style.borderColor = '#5865F2'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
                     >
-                      <img src={emoji.url} alt={`:${emoji.name}:`} style={{ width: 22, height: 22, objectFit: 'contain' }} loading="lazy" />
+                      <img src={emoji.url} alt={`:${emoji.name}:`} style={{ width: 24, height: 24, objectFit: 'contain' }} loading="lazy" />
                     </button>
                   ))}
                 </div>
@@ -153,16 +153,16 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
                 {t('Keine Server-Emojis vorhanden.', 'No server emojis available.')}
               </div>
             ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))', gap: 6 }}>
                 {serverEmojis.map(emoji => (
                   <button
                     key={emoji.id} data-testid={`emoji-btn-${emoji.name}`}
                     onClick={() => onSelectCustom(emoji)} title={`:${emoji.name}:`}
-                    style={{ border: '1px solid transparent', background: 'transparent', cursor: 'pointer', width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 4, transition: 'all 0.1s' }}
+                    style={{ border: '1px solid transparent', background: 'transparent', cursor: 'pointer', width: 40, height: 40, display: 'grid', placeItems: 'center', borderRadius: 6, transition: 'all 0.1s' }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = '#1A1A2E'; e.currentTarget.style.borderColor = '#5865F2'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
                   >
-                    <img src={emoji.url} alt={`:${emoji.name}:`} style={{ width: 22, height: 22, objectFit: 'contain' }} loading="lazy" />
+                    <img src={emoji.url} alt={`:${emoji.name}:`} style={{ width: 24, height: 24, objectFit: 'contain' }} loading="lazy" />
                   </button>
                 ))}
               </div>
@@ -173,7 +173,7 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
         {!isSearchMode && !loading && activeTab !== 'server' && (
           <>
             {EMOJI_CATEGORIES.filter(c => c.id === activeTab).map(cat => (
-              <div key={cat.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+              <div key={cat.id} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))', gap: 6 }}>
                 {cat.emojis.map((emoji, i) => (
                   <button
                     key={`${cat.id}-${i}`}
@@ -181,8 +181,8 @@ function EmojiPicker({ serverEmojis, loading, onSelectUnicode, onSelectCustom, o
                     onClick={() => onSelectUnicode(emoji)}
                     style={{
                       border: '1px solid transparent', background: 'transparent', cursor: 'pointer',
-                      width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 4,
-                      fontSize: 20, lineHeight: 1, transition: 'all 0.1s',
+                      width: 40, height: 40, display: 'grid', placeItems: 'center', borderRadius: 6,
+                      fontSize: 22, lineHeight: 1, transition: 'all 0.1s',
                     }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = '#1A1A2E'; e.currentTarget.style.borderColor = '#5865F2'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
@@ -289,8 +289,9 @@ export default function RichMessageEditor({
   };
 
   const insertCustomEmoji = (emoji) => {
-    const prefix = emoji.animated ? 'a' : '';
-    const emojiText = `<${prefix}:${emoji.name}:${emoji.id}>`;
+    const emojiText = emoji.animated
+      ? `<a:${emoji.name}:${emoji.id}>`
+      : `<:${emoji.name}:${emoji.id}>`;
     insertAtCursor(emojiText);
     setShowEmojis(false);
   };
