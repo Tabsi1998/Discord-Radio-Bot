@@ -340,6 +340,14 @@ export default function DashboardPortal() {
     } catch (err) { setError(err.message); }
   };
 
+  const resetStatsForSelectedGuild = useCallback(async () => {
+    if (!selectedGuildId) return;
+    setError('');
+    await apiRequest(`/api/dashboard/stats/reset?serverId=${encodeURIComponent(selectedGuildId)}`, { method: 'DELETE' });
+    await refreshDashboardData({ silent: true });
+    setMessage(t('Statistiken wurden zurückgesetzt.', 'Statistics have been reset.'));
+  }, [apiRequest, refreshDashboardData, selectedGuildId, t]);
+
   // Loading state
   if (loadingSession) {
     return (
@@ -550,7 +558,13 @@ export default function DashboardPortal() {
       {dashboardEnabled && (
         <>
           {activeTab === 'overview' && (
-            <DashboardOverview stats={stats} detailStats={detailStats} t={t} isUltimate={isUltimate} />
+            <DashboardOverview
+              stats={stats}
+              detailStats={detailStats}
+              t={t}
+              isUltimate={isUltimate}
+              onResetStats={resetStatsForSelectedGuild}
+            />
           )}
 
           {activeTab === 'events' && (
@@ -598,12 +612,12 @@ export default function DashboardPortal() {
           )}
 
           {activeTab === 'stats' && isUltimate && (
-            <DashboardStatsPanel stats={stats} detailStats={detailStats} t={t} formatDate={formatDate}
-              onResetStats={async () => {
-                await apiRequest(`/api/dashboard/stats/reset?serverId=${encodeURIComponent(selectedGuildId)}`, { method: 'DELETE' });
-                setStats(null);
-                setDetailStats(null);
-              }}
+            <DashboardStatsPanel
+              stats={stats}
+              detailStats={detailStats}
+              t={t}
+              formatDate={formatDate}
+              onResetStats={resetStatsForSelectedGuild}
             />
           )}
 

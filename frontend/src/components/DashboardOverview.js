@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
+import { RotateCcw } from 'lucide-react';
 
 const COLORS = ['#5865F2', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#F97316'];
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -59,7 +60,9 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-export default function DashboardOverview({ stats, detailStats, t, isUltimate }) {
+export default function DashboardOverview({ stats, detailStats, t, isUltimate, onResetStats }) {
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const basic = stats?.basic || {};
   const isDE = t('de', 'en') === 'de';
   const dayNames = isDE ? DAYS_DE : DAYS_EN;
@@ -101,22 +104,111 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
   // Active sessions
   const activeSessions = detailStats?.activeSessions || [];
 
+  const handleReset = async () => {
+    if (!onResetStats) return;
+    setResetting(true);
+    try {
+      await onResetStats();
+    } finally {
+      setResetting(false);
+      setShowResetConfirm(false);
+    }
+  };
+
   return (
     <section data-testid="dashboard-overview-panel" style={{ display: 'grid', gap: 14 }}>
       {/* Lifetime Stats Info */}
       <div data-testid="lifetime-stats-info" style={{
         background: '#0A0A0A', border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px',
-        display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: '#A1A1AA',
+        display: 'grid', gap: 12, fontSize: 13, color: '#A1A1AA',
       }}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" style={{ flexShrink: 0 }}>
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        </svg>
-        <span>
-          {t(
-            'Lifetime-Statistiken: Die Daten werden bevorzugt in MongoDB gespeichert und bei Bedarf über den lokalen Fallback weitergeführt. Die Werte werden über alle Sessions und Tage akkumuliert.',
-            'Lifetime statistics: Data is primarily stored in MongoDB and continued through the local fallback when needed. Stats are accumulated across all sessions and days.'
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" style={{ flexShrink: 0, marginTop: 1 }}>
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <strong style={{ color: '#D4D4D8', fontSize: 14 }}>
+                {t('Lifetime-Statistiken', 'Lifetime statistics')}
+              </strong>
+              <span>
+                {t(
+                  'Die Werte werden über alle Sessions und Tage akkumuliert. Du kannst sie direkt hier zurücksetzen, ohne den Bot vom Server entfernen zu müssen.',
+                  'Values are accumulated across all sessions and days. You can reset them directly here without removing the bot from the server.'
+                )}
+              </span>
+            </div>
+          </div>
+          {!showResetConfirm ? (
+            <button
+              data-testid="overview-stats-reset-btn"
+              onClick={() => setShowResetConfirm(true)}
+              style={{
+                border: '1px solid #27272A',
+                background: 'transparent',
+                color: '#A1A1AA',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                flexShrink: 0,
+              }}
+            >
+              <RotateCcw size={13} />
+              {t('Statistiken zurücksetzen', 'Reset statistics')}
+            </button>
+          ) : (
+            <div
+              data-testid="overview-stats-reset-confirm"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <span style={{ color: '#FCA5A5', fontSize: 12 }}>
+                {t('Wirklich alles für diesen Server löschen?', 'Really delete everything for this server?')}
+              </span>
+              <button
+                data-testid="overview-stats-reset-confirm-yes"
+                onClick={handleReset}
+                disabled={resetting}
+                style={{
+                  border: '1px solid #EF4444',
+                  background: '#EF4444',
+                  color: '#fff',
+                  padding: '8px 12px',
+                  cursor: resetting ? 'wait' : 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  opacity: resetting ? 0.6 : 1,
+                }}
+              >
+                {resetting ? t('Lösche...', 'Deleting...') : t('Ja, löschen', 'Yes, delete')}
+              </button>
+              <button
+                data-testid="overview-stats-reset-confirm-no"
+                onClick={() => setShowResetConfirm(false)}
+                disabled={resetting}
+                style={{
+                  border: '1px solid #27272A',
+                  background: 'transparent',
+                  color: '#A1A1AA',
+                  padding: '8px 12px',
+                  cursor: resetting ? 'wait' : 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                {t('Abbrechen', 'Cancel')}
+              </button>
+            </div>
           )}
-        </span>
+        </div>
       </div>
 
       {/* Row 1: Key metrics */}
