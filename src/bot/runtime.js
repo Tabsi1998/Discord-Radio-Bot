@@ -571,7 +571,7 @@ class BotRuntime {
       .setTitle(isDe ? `${BRAND.name}: Erste Schritte` : `${BRAND.name}: First steps`)
       .setDescription(
         isDe
-          ? `Danke fuer den Invite auf **${guild?.name || "deinen Server"}**.\nDer Commander nimmt Befehle entgegen, Worker streamen die Musik.`
+          ? `Danke für den Invite auf **${guild?.name || "deinen Server"}**.\nDer Commander nimmt Befehle entgegen, Worker streamen die Musik.`
           : `Thanks for inviting me to **${guild?.name || "your server"}**.\nThe commander handles commands, workers stream the audio.`
       )
       .addFields(
@@ -584,7 +584,7 @@ class BotRuntime {
         {
           name: isDe ? "2) Worker einladen" : "2) Invite worker",
           value: isDe
-            ? "`/invite` oeffnet ein Menue fuer freie Worker-Slots."
+            ? "`/invite` öffnet ein Menü für freie Worker-Slots."
             : "`/invite` opens a menu for free worker slots.",
         },
         {
@@ -596,7 +596,7 @@ class BotRuntime {
         {
           name: isDe ? "4) Hilfe & Setup" : "4) Help & setup",
           value: isDe
-            ? "`/help` fuer komplette Befehlsliste und Tipps."
+            ? "`/help` für komplette Befehlsliste und Tipps."
             : "`/help` for the full command list and tips.",
         }
       );
@@ -1087,9 +1087,9 @@ class BotRuntime {
       ? liveStreams.map((item) => {
         const stationName = clipText(item.stationName || item.stationKey || "-", 80);
         const voiceLabel = item.channelId ? `<#${item.channelId}>` : t("unbekannt", "unknown");
-        return `**${stationName}** - ${voiceLabel} - ${item.listenerCount} ${t("Zuhoerer", "listeners")}`;
+        return `**${stationName}** - ${voiceLabel} - ${item.listenerCount} ${t("Zuhörer", "listeners")}`;
       }).join("\n")
-      : t("Aktuell laeuft auf diesem Server kein Stream.", "No stream is currently running on this server.");
+      : t("Aktuell läuft auf diesem Server kein Stream.", "No stream is currently running on this server.");
 
     // Calculate total listening time (including active sessions)
     const totalListeningMs = stats?.currentTotalListeningMs || stats?.totalListeningMs || 0;
@@ -1118,7 +1118,7 @@ class BotRuntime {
       .setTitle(t("Listening-Stats", "Listening stats"))
       .setDescription(
         t(
-          `Server: **${guild?.name || guildId}**\nLive-Zuhoerer jetzt: **${totalLiveListeners}**`,
+          `Server: **${guild?.name || guildId}**\nLive-Zuhörer jetzt: **${totalLiveListeners}**`,
           `Server: **${guild?.name || guildId}**\nLive listeners now: **${totalLiveListeners}**`
         )
       )
@@ -1129,7 +1129,7 @@ class BotRuntime {
           inline: false,
         },
         {
-          name: t("Gesamte Hoerzeit", "Total listening time"),
+          name: t("Gesamte Hörzeit", "Total listening time"),
           value: totalListeningText,
           inline: true,
         },
@@ -1139,7 +1139,7 @@ class BotRuntime {
           inline: true,
         },
         {
-          name: t("Peak-Zuhoerer", "Peak listeners"),
+          name: t("Peak-Zuhörer", "Peak listeners"),
           value: String(Number(stats?.peakListeners || 0)),
           inline: true,
         },
@@ -1172,7 +1172,7 @@ class BotRuntime {
         {
           name: t("Session-Daten", "Session data"),
           value: t(
-            `Durchschnitt: **${avgSessionText}** | Laengste: **${longestSessionText}**`,
+            `Durchschnitt: **${avgSessionText}** | Längste: **${longestSessionText}**`,
             `Average: **${avgSessionText}** | Longest: **${longestSessionText}**`
           ),
           inline: false,
@@ -1180,7 +1180,7 @@ class BotRuntime {
         {
           name: t("Verbindung", "Connection"),
           value: t(
-            `Verbindungen: **${totalConnections}** | Reconnects: **${totalReconnects}** | Zuverlaessigkeit: **${reliability}%**`,
+            `Verbindungen: **${totalConnections}** | Reconnects: **${totalReconnects}** | Zuverlässigkeit: **${reliability}%**`,
             `Connections: **${totalConnections}** | Reconnects: **${totalReconnects}** | Reliability: **${reliability}%**`
           ),
           inline: false,
@@ -3008,7 +3008,7 @@ class BotRuntime {
       .setTitle(t("Worker-Bots einladen", "Invite worker bots"))
       .setDescription(
         t(
-          `Plan: **${this.formatTierLabel(inviteState.guildTier, language)}** | Verfuegbare Worker: **1-${inviteState.maxIndex}**\nWaehle einen Worker unten aus und nutze den Invite-Button.`,
+          `Plan: **${this.formatTierLabel(inviteState.guildTier, language)}** | Verfügbare Worker: **1-${inviteState.maxIndex}**\nWähle einen Worker unten aus und nutze den Invite-Button.`,
           `Plan: **${this.formatTierLabel(inviteState.guildTier, language)}** | Available workers: **1-${inviteState.maxIndex}**\nSelect a worker below and use the invite button.`
         )
       )
@@ -3154,7 +3154,7 @@ class BotRuntime {
 
     if (interaction.customId.startsWith(INVITE_COMPONENT_PREFIX)) {
       await interaction.reply({
-        content: t("Diese Aktion ist nicht mehr gueltig. Bitte aktualisiere das Menue.", "This action is no longer valid. Please refresh the menu."),
+        content: t("Diese Aktion ist nicht mehr gültig. Bitte aktualisiere das Menü.", "This action is no longer valid. Please refresh the menu."),
         flags: MessageFlags.Ephemeral,
       });
       return true;
@@ -3283,7 +3283,7 @@ class BotRuntime {
 
     if (interaction.customId.startsWith(WORKERS_COMPONENT_PREFIX)) {
       await interaction.reply({
-        content: t("Diese Aktion ist nicht mehr gueltig. Bitte aktualisiere die Ansicht.", "This action is no longer valid. Please refresh the view."),
+        content: t("Diese Aktion ist nicht mehr gültig. Bitte aktualisiere die Ansicht.", "This action is no longer valid. Please refresh the view."),
         flags: MessageFlags.Ephemeral,
       });
       return true;
@@ -3531,7 +3531,7 @@ class BotRuntime {
         enforced: true,
         decision,
         message: t(
-          `Du darfst \`/${command}\` nicht nutzen. Deine Rolle ist dafuer gesperrt (${blocked}).`,
+          `Du darfst \`/${command}\` nicht nutzen. Deine Rolle ist dafür gesperrt (${blocked}).`,
           `You are not allowed to use \`/${command}\`. Your role is blocked for this command (${blocked}).`
         ),
       };
@@ -3556,7 +3556,7 @@ class BotRuntime {
     if (!this.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
         content: t(
-          "Du brauchst die Berechtigung `Server verwalten` fuer `/perm`.",
+          "Du brauchst die Berechtigung `Server verwalten` für `/perm`.",
           "You need the `Manage Server` permission for `/perm`."
         ),
         flags: MessageFlags.Ephemeral,
@@ -3634,14 +3634,14 @@ class BotRuntime {
       if (command) {
         await interaction.reply({
           content: result.changed
-            ? t(`Regeln fuer \`/${command}\` wurden zurueckgesetzt.`, `Rules for \`/${command}\` were reset.`)
-            : t(`Fuer \`/${command}\` waren keine Regeln gesetzt.`, `No rules were configured for \`/${command}\`.`),
+            ? t(`Regeln für \`/${command}\` wurden zurückgesetzt.`, `Rules for \`/${command}\` were reset.`)
+            : t(`Für \`/${command}\` waren keine Regeln gesetzt.`, `No rules were configured for \`/${command}\`.`),
           flags: MessageFlags.Ephemeral,
         });
       } else {
         await interaction.reply({
           content: result.changed
-            ? t("Alle Command-Regeln fuer diesen Server wurden zurueckgesetzt.", "All command rules for this server were reset.")
+            ? t("Alle Command-Regeln für diesen Server wurden zurückgesetzt.", "All command rules for this server were reset.")
             : t("Es waren keine Command-Regeln gesetzt.", "No command rules were configured."),
           flags: MessageFlags.Ephemeral,
         });
@@ -3667,7 +3667,7 @@ class BotRuntime {
       if (!lines.length) {
         await interaction.reply({
           content: command
-            ? t(`Fuer \`/${command}\` sind keine Rollenregeln gesetzt.`, `No role rules are configured for \`/${command}\`.`)
+            ? t(`Für \`/${command}\` sind keine Rollenregeln gesetzt.`, `No role rules are configured for \`/${command}\`.`)
             : t("Keine Command-Rollenregeln gesetzt.", "No command role rules are configured."),
           flags: MessageFlags.Ephemeral,
         });
@@ -3675,7 +3675,7 @@ class BotRuntime {
       }
 
       const header = command
-        ? t(`Regeln fuer \`/${command}\`:`, `Rules for \`/${command}\`:`)
+        ? t(`Regeln für \`/${command}\`:`, `Rules for \`/${command}\`:`)
         : t(`Aktive Command-Rollenregeln (${lines.length}):`, `Active command role rules (${lines.length}):`);
       await this.respondLongInteraction(interaction, `${header}\n${lines.join("\n")}`, { flags: MessageFlags.Ephemeral });
       return;
@@ -3706,7 +3706,7 @@ class BotRuntime {
     const t = (de, en) => languagePick(language, de, en);
     const stationRef = this.normalizeStationReference(rawStationKey);
     if (!stationRef.key || !stationRef.lookupKey) {
-      return { ok: false, message: t("Stations-Key ist ungueltig.", "Station key is invalid.") };
+      return { ok: false, message: t("Stations-Key ist ungültig.", "Station key is invalid.") };
     }
 
     const stations = loadStations();
@@ -3792,7 +3792,7 @@ class BotRuntime {
 
   clearScheduledEventPlaybackInGuild(guildId) {
     const state = this.guildState.get(guildId);
-    if (!state) return { ok: false, error: "Kein State fuer diesen Server." };
+    if (!state) return { ok: false, error: "Kein State für diesen Server." };
     this.clearScheduledEventPlayback(state);
     this.persistState();
     return { ok: true };
@@ -3871,7 +3871,7 @@ class BotRuntime {
     if (!missing.length) return null;
     return languagePick(
       language,
-      `Discord-Server-Event nicht moeglich. Fehlende Rechte: ${missing.join(", ")}.`,
+      `Discord-Server-Event nicht möglich. Fehlende Rechte: ${missing.join(", ")}.`,
       `Discord server event is not possible. Missing permissions: ${missing.join(", ")}.`
     );
   }
@@ -3912,7 +3912,7 @@ class BotRuntime {
     );
     lines.push(`${languagePick(language, "Wiederholung", "Repeat")}: ${getRepeatLabel(event?.repeat, language, { runAtMs: event?.runAtMs, timeZone })}`);
     lines.push(`${languagePick(language, "Zeitzone", "Time zone")}: \`${timeZone}\``);
-    lines.push(`${languagePick(language, "Ankuendigung", "Announcement")}: ${event?.textChannelId ? `<#${event.textChannelId}>` : languagePick(language, "aus", "off")}`);
+    lines.push(`${languagePick(language, "Ankündigung", "Announcement")}: ${event?.textChannelId ? `<#${event.textChannelId}>` : languagePick(language, "aus", "off")}`);
     lines.push(`${languagePick(language, "Server-Event", "Server event")}: ${event?.createDiscordEvent ? (event?.discordScheduledEventId ? `on (\`${event.discordScheduledEventId}\`)` : "on") : "off"}`);
     if (event?.stageTopic) {
       lines.push(`${languagePick(language, "Stage-Thema", "Stage topic")}: \`${event.stageTopic}\``);
@@ -3966,7 +3966,7 @@ class BotRuntime {
         },
         { name: languagePick(language, "Zeitzone", "Time zone"), value: `\`${timeZone}\``, inline: true },
         {
-          name: languagePick(language, "Ankuendigung", "Announcement"),
+          name: languagePick(language, "Ankündigung", "Announcement"),
           value: event?.textChannelId ? `<#${event.textChannelId}>` : languagePick(language, "Aus", "Off"),
           inline: true,
         },
@@ -4083,7 +4083,7 @@ class BotRuntime {
     }
 
     if (!Number.isFinite(runAtMs) || runAtMs <= 0) {
-      return { ok: false, message: languagePick(language, "Startzeit fehlt oder ist ungueltig.", "Start time is missing or invalid.") };
+      return { ok: false, message: languagePick(language, "Startzeit fehlt oder ist ungültig.", "Start time is missing or invalid.") };
     }
 
     let durationMs = Math.max(0, Number.parseInt(String(baseDurationMs || 0), 10) || 0);
@@ -4232,7 +4232,7 @@ class BotRuntime {
 
     const { guild, channel } = await this.resolveGuildVoiceChannel(event.guildId, event.voiceChannelId);
     if (!guild || !channel) {
-      throw new Error("Voice- oder Stage-Channel fuer Server-Event nicht gefunden.");
+      throw new Error("Voice- oder Stage-Channel für Server-Event nicht gefunden.");
     }
 
     const requestedRunAtMs = Number.parseInt(String(runAtMs ?? event.runAtMs ?? 0), 10);
@@ -4289,10 +4289,10 @@ class BotRuntime {
 
     const perms = channel.permissionsFor(me);
     if (!perms?.has(PermissionFlagsBits.Connect)) {
-      throw new Error(`Keine Connect-Berechtigung fuer ${channel.toString()}.`);
+      throw new Error(`Keine Connect-Berechtigung für ${channel.toString()}.`);
     }
     if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
-      throw new Error(`Keine Speak-Berechtigung fuer ${channel.toString()}.`);
+      throw new Error(`Keine Speak-Berechtigung für ${channel.toString()}.`);
     }
 
     const previousChannelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
@@ -4701,7 +4701,7 @@ class BotRuntime {
     if (!this.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
         content: t(
-          "Du brauchst die Berechtigung `Server verwalten` fuer `/event`.",
+          "Du brauchst die Berechtigung `Server verwalten` für `/event`.",
           "You need the `Manage Server` permission for `/event`."
         ),
         flags: MessageFlags.Ephemeral,
@@ -4757,10 +4757,10 @@ class BotRuntime {
       }
       const perms = channel.permissionsFor(me);
       if (!perms?.has(PermissionFlagsBits.Connect)) {
-        return t(`Ich habe keine Connect-Berechtigung fuer ${channel.toString()}.`, `I do not have Connect permission for ${channel.toString()}.`);
+        return t(`Ich habe keine Connect-Berechtigung für ${channel.toString()}.`, `I do not have Connect permission for ${channel.toString()}.`);
       }
       if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
-        return t(`Ich habe keine Speak-Berechtigung fuer ${channel.toString()}.`, `I do not have Speak permission for ${channel.toString()}.`);
+        return t(`Ich habe keine Speak-Berechtigung für ${channel.toString()}.`, `I do not have Speak permission for ${channel.toString()}.`);
       }
       if (createDiscordEvent) {
         return this.validateDiscordScheduledEventPermissions(guild, channel, language);
@@ -5272,7 +5272,7 @@ class BotRuntime {
     if (!channel) {
       return sendError(
         t(
-          "Waehle einen Voice-Channel im Command oder trete selbst einem Voice-Channel bei.",
+          "Wähle einen Voice-Channel im Command oder trete selbst einem Voice-Channel bei.",
           "Select a voice channel in the command or join one yourself."
         )
       );
@@ -5298,7 +5298,7 @@ class BotRuntime {
     if (!perms?.has(PermissionFlagsBits.Connect)) {
       return sendError(
         t(
-          `Ich habe keine Berechtigung fuer ${channel.toString()} (Connect fehlt).`,
+          `Ich habe keine Berechtigung für ${channel.toString()} (Connect fehlt).`,
           `I don't have permission for ${channel.toString()} (Connect missing).`
         )
       );
@@ -5306,7 +5306,7 @@ class BotRuntime {
     if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
       return sendError(
         t(
-          `Ich habe keine Berechtigung fuer ${channel.toString()} (Speak fehlt).`,
+          `Ich habe keine Berechtigung für ${channel.toString()} (Speak fehlt).`,
           `I don't have permission for ${channel.toString()} (Speak missing).`
         )
       );
@@ -5849,7 +5849,7 @@ class BotRuntime {
     // ---- Commander-only commands ----
     if (interaction.commandName === "invite") {
       if (this.role !== "commander" || !this.workerManager) {
-        await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: t("Dieser Befehl ist nur für den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
         return;
       }
 
@@ -5949,7 +5949,7 @@ class BotRuntime {
 
     if (interaction.commandName === "workers") {
       if (this.role !== "commander" || !this.workerManager) {
-        await interaction.reply({ content: t("Dieser Befehl ist nur fuer den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: t("Dieser Befehl ist nur für den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
         return;
       }
 
@@ -5982,7 +5982,7 @@ class BotRuntime {
       }).join("\n");
       const custom = guildTier === "ultimate" ? getGuildStations(interaction.guildId) : {};
       const customList = Object.entries(custom).map(([k, v]) => `\`${k}\` - ${v.name} [CUSTOM]`).join("\n");
-      let content = `**${t("Verfuegbare Stationen", "Available stations")}${tierLabel} (${Object.keys(available).length}):**\n${list}`;
+      let content = `**${t("Verfügbare Stationen", "Available stations")}${tierLabel} (${Object.keys(available).length}):**\n${list}`;
       if (customList) content += `\n\n**${t("Custom Stationen", "Custom stations")} (${Object.keys(custom).length}):**\n${customList}`;
       await this.respondLongInteraction(interaction, content, { flags: MessageFlags.Ephemeral });
       return;
@@ -6508,7 +6508,7 @@ class BotRuntime {
       const custom = getGuildStations(guildId);
       const keys = Object.keys(custom);
       if (keys.length === 0) {
-        await interaction.reply({ content: t("Keine Custom Stationen. Nutze `/addstation` um eine hinzuzufuegen.", "No custom stations. Use `/addstation` to add one."), flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: t("Keine Custom-Stationen. Nutze `/addstation`, um eine hinzuzufügen.", "No custom stations. Use `/addstation` to add one."), flags: MessageFlags.Ephemeral });
       } else {
         const list = keys.map(k => `\`${k}\` - ${custom[k].name}`).join("\n");
         await this.respondLongInteraction(
@@ -6528,7 +6528,7 @@ class BotRuntime {
       if (requiresManagePermission && !this.hasGuildManagePermissions(interaction)) {
         await interaction.reply({
           content: t(
-            "Du brauchst die Berechtigung `Server verwalten` um Lizenz-Aktionen auszufuehren.",
+            "Du brauchst die Berechtigung `Server verwalten`, um Lizenz-Aktionen auszuführen.",
             "You need the `Manage Server` permission to execute license actions."
           ),
           flags: MessageFlags.Ephemeral
@@ -6652,7 +6652,7 @@ class BotRuntime {
 
         await interaction.reply({
           content: t(
-            "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann fuer einen anderen Server genutzt werden.\nNutze `/license activate <key>` um eine neue Lizenz zu aktivieren.",
+            "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann für einen anderen Server genutzt werden.\nNutze `/license activate <key>`, um eine neue Lizenz zu aktivieren.",
             "Server was unlinked from the license. The seat is now free and can be used for another server.\nUse `/license activate <key>` to activate a new license."
           ),
           flags: MessageFlags.Ephemeral,
@@ -6966,7 +6966,7 @@ class BotRuntime {
    */
   stopInGuild(guildId) {
     const state = this.guildState.get(guildId);
-    if (!state) return { ok: false, error: "Kein State fuer diesen Server." };
+    if (!state) return { ok: false, error: "Kein State für diesen Server." };
 
     state.shouldReconnect = false;
     this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });

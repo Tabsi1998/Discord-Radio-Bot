@@ -247,7 +247,7 @@ function parseEventDateInput(rawInput, language = "de", timeZone = EVENT_FALLBAC
         ok: false,
         message: languagePick(
           language,
-          "Ungueltiges Datumsformat. Nutze `DD.MM.YYYY`, `YYYY-MM-DD`, `heute` oder `morgen`.",
+          "Ungültiges Datumsformat. Nutze `DD.MM.YYYY`, `YYYY-MM-DD`, `heute` oder `morgen`.",
           "Invalid date format. Use `DD.MM.YYYY`, `YYYY-MM-DD`, `today`, or `tomorrow`."
         ),
       };
@@ -269,7 +269,7 @@ function parseEventDateInput(rawInput, language = "de", timeZone = EVENT_FALLBAC
   if (!validateCalendarDate(year, month, day)) {
     return {
       ok: false,
-      message: languagePick(language, "Datum ist ungueltig.", "Date is invalid."),
+      message: languagePick(language, "Datum ist ungültig.", "Date is invalid."),
     };
   }
 
@@ -289,7 +289,7 @@ function parseEventTimeInput(rawInput, language = "de") {
   if (!match) {
     return {
       ok: false,
-      message: languagePick(language, "Ungueltige Uhrzeit. Nutze `HH:MM`.", "Invalid time. Use `HH:MM`."),
+      message: languagePick(language, "Ungültige Uhrzeit. Nutze `HH:MM`.", "Invalid time. Use `HH:MM`."),
     };
   }
 
@@ -298,7 +298,7 @@ function parseEventTimeInput(rawInput, language = "de") {
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
     return {
       ok: false,
-      message: languagePick(language, "Uhrzeit ist ungueltig.", "Time is invalid."),
+      message: languagePick(language, "Uhrzeit ist ungültig.", "Time is invalid."),
     };
   }
 
@@ -320,7 +320,7 @@ function buildEventDateTimeFromParts({
       ok: false,
       message: languagePick(
         language,
-        "Zeitzone ungueltig. Beispiele: `Europe/Berlin`, `Europe/Vienna`, `CET`, `MEZ`, `UTC`.",
+        "Zeitzone ungültig. Beispiele: `Europe/Berlin`, `Europe/Vienna`, `CET`, `MEZ`, `UTC`.",
         "Invalid time zone. Examples: `Europe/Berlin`, `Europe/Vienna`, `CET`, `MEZ`, `UTC`."
       ),
     };
@@ -348,7 +348,7 @@ function buildEventDateTimeFromParts({
         ok: false,
         message: languagePick(
           language,
-          "Ungueltiges Format. Nutze `DD.MM.YYYY HH:MM` oder `YYYY-MM-DD HH:MM`.",
+          "Ungültiges Format. Nutze `DD.MM.YYYY HH:MM` oder `YYYY-MM-DD HH:MM`.",
           "Invalid format. Use `DD.MM.YYYY HH:MM` or `YYYY-MM-DD HH:MM`."
         ),
       };
@@ -379,7 +379,7 @@ function buildEventDateTimeFromParts({
         ok: false,
         message: languagePick(
           language,
-          "Die Uhrzeit ist in dieser Zeitzone ungueltig (z.B. DST-Umstellung). Bitte andere Uhrzeit waehlen.",
+          "Die Uhrzeit ist in dieser Zeitzone ungültig (z.B. DST-Umstellung). Bitte andere Uhrzeit wählen.",
           "That local time is invalid in this time zone (for example DST transition). Please choose another time."
         ),
       };
@@ -393,7 +393,7 @@ function buildEventDateTimeFromParts({
   if (!trimmedDate && !trimmedTime) {
     return {
       ok: false,
-      message: languagePick(language, "Startzeit fehlt oder ist ungueltig.", "Start time is missing or invalid."),
+      message: languagePick(language, "Startzeit fehlt oder ist ungültig.", "Start time is missing or invalid."),
     };
   }
 
@@ -482,11 +482,11 @@ function getRepeatLabel(raw, language = "de", { runAtMs = null, timeZone = null 
     ? getWeekdayName(Number(runAtMs), language, timeZone || EVENT_FALLBACK_TIME_ZONE)
     : null;
 
-  if (repeat === "daily") return isDe ? "taeglich" : "daily";
+  if (repeat === "daily") return isDe ? "täglich" : "daily";
   if (repeat === "weekly") {
     return weekday
-      ? (isDe ? `woechentlich (${weekday})` : `weekly (${weekday})`)
-      : (isDe ? "woechentlich" : "weekly");
+      ? (isDe ? `wöchentlich (${weekday})` : `weekly (${weekday})`)
+      : (isDe ? "wöchentlich" : "weekly");
   }
   if (repeat === "monthly_first_weekday") return isDe ? `monatlich (1. ${weekday || "Wochentag"})` : `monthly (1st ${weekday || "weekday"})`;
   if (repeat === "monthly_second_weekday") return isDe ? `monatlich (2. ${weekday || "Wochentag"})` : `monthly (2nd ${weekday || "weekday"})`;

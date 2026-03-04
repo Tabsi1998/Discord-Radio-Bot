@@ -412,17 +412,17 @@ async function sendWeeklyDigest(runtime, guildId, channelId, language = "de") {
   const { EmbedBuilder } = await import("discord.js");
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
-    .setTitle(t("Woechentlicher Radio-Report", "Weekly radio report"))
+    .setTitle(t("Wöchentlicher Radio-Report", "Weekly radio report"))
     .setDescription(t(
-      `Hier ist die Zusammenfassung der letzten 7 Tage fuer **${guild.name}**:`,
+      `Hier ist die Zusammenfassung der letzten 7 Tage für **${guild.name}**:`,
       `Here is the summary for the last 7 days on **${guild.name}**:`
     ))
     .addFields(
-      { name: t("Hoerzeit", "Listening time"), value: formatMsDuration(weekListeningMs), inline: true },
+      { name: t("Hörzeit", "Listening time"), value: formatMsDuration(weekListeningMs), inline: true },
       { name: t("Sessions", "Sessions"), value: String(weekSessions), inline: true },
       { name: t("Starts", "Starts"), value: String(weekStarts), inline: true },
-      { name: t("Peak Zuhoerer", "Peak listeners"), value: String(weekPeak), inline: true },
-      { name: t("Gesamt Hoerzeit", "Total listening"), value: formatMsDuration(stats?.totalListeningMs || 0), inline: true },
+      { name: t("Peak-Zuhörer", "Peak listeners"), value: String(weekPeak), inline: true },
+      { name: t("Gesamte Hörzeit", "Total listening"), value: formatMsDuration(stats?.totalListeningMs || 0), inline: true },
       { name: t("Gesamt Sessions", "Total sessions"), value: String(stats?.totalSessions || 0), inline: true },
       { name: t("Top 5 Stationen", "Top 5 stations"), value: topStations, inline: false },
     )
