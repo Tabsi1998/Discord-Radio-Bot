@@ -148,6 +148,10 @@ function shouldLogFfmpegStderrLine(line) {
     || lc.includes("pulse data corrupt or invalid")
     || lc.includes("not yet implemented in ffmpeg, patches welcome");
   if (noisyDecodeLine) return false;
+  const noisyBrokenPipeLine = lc.includes("broken pipe")
+    || lc.includes("error writing trailer of pipe")
+    || lc.includes("error closing file pipe");
+  if (noisyBrokenPipeLine) return false;
 
   return lc.includes("error")
     || lc.includes("failed")

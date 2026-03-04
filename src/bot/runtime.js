@@ -204,6 +204,42 @@ function toPositiveInt(rawValue, fallbackValue) {
   return parsed;
 }
 
+const IDLE_RESTART_WINDOW_MS = toPositiveInt(process.env.STREAM_IDLE_RESTART_WINDOW_MS, 15 * 60_000);
+const IDLE_RESTART_EXP_STEPS = toPositiveInt(process.env.STREAM_IDLE_RESTART_EXP_STEPS, 6);
+
+function classifyFfmpegExitDetail(line) {
+  const text = String(line || "").trim().toLowerCase();
+  if (!text) return null;
+  if (text.includes("broken pipe") || text.includes("error writing trailer of pipe:1") || text.includes("error closing file pipe:1")) {
+    return "broken-pipe";
+  }
+  if (text.includes("http error")) return "http-error";
+  if (text.includes("timed out") || text.includes("timeout")) return "timeout";
+  if (text.includes("connection reset") || text.includes("connection refused")) return "connection-reset";
+  if (text.includes("invalid data found when processing input")) return "invalid-input";
+  if (isLikelyNetworkFailureLine(text)) return "network-failure";
+  return null;
+}
+
+function resolveStreamRestartReason({
+  reason,
+  earlyIdle = false,
+  recentProcessFailure = false,
+  recentNetworkFailure = false,
+  lastProcessExitDetail = null,
+  idleRestartStreak = 0,
+} = {}) {
+  if (reason === "error") return "audio-player-error";
+  if (earlyIdle) return "idle-early";
+  if (recentNetworkFailure) return "idle-after-network-failure";
+  if (recentProcessFailure && lastProcessExitDetail === "broken-pipe") return "idle-after-broken-pipe";
+  if (recentProcessFailure && lastProcessExitDetail) return `idle-after-${lastProcessExitDetail}`;
+  if (recentProcessFailure) return "idle-after-ffmpeg-exit";
+  if (reason === "idle" && idleRestartStreak > 1) return "provider-eof-repeat";
+  if (reason === "idle") return "provider-eof";
+  return String(reason || "restart");
+}
+
 function resolveWebsiteUrl() {
   const explicit = String(process.env.PUBLIC_WEB_URL || "").trim();
   if (explicit) return explicit;
@@ -255,6 +291,7 @@ class BotRuntime {
     this.listenerStatsTimer = null;
     this.pendingVoiceReconcileTimers = new Map();
     this.scheduledEventInFlight = new Set();
+    this.lastPersistLoggedActiveCount = null;
     this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered(() => {
       this.handleNetworkRecovered();
     });
@@ -365,10 +402,14 @@ class BotRuntime {
         streamRestartTimer: null,
         shouldReconnect: false,
         streamErrorCount: 0,
+        idleRestartStreak: 0,
+        lastIdleRestartAt: 0,
         lastStreamStartAt: null,
         lastProcessExitCode: null,
+        lastProcessExitDetail: null,
         lastProcessExitAt: 0,
         lastNetworkFailureAt: 0,
+        lastStreamEndReason: null,
         nowPlayingRefreshTimer: null,
         nowPlayingMessageId: null,
         nowPlayingChannelId: null,
@@ -1882,7 +1923,10 @@ class BotRuntime {
       state.streamStableTimer = null;
       if (!state.currentStationKey) return;
       state.streamErrorCount = 0;
+      state.idleRestartStreak = 0;
+      state.lastIdleRestartAt = 0;
       state.lastProcessExitCode = null;
+      state.lastProcessExitDetail = null;
       state.lastProcessExitAt = 0;
       state.lastNetworkFailureAt = 0;
       networkRecoveryCoordinator.noteSuccess(`${this.config.name} stable-stream guild=${guildId}`);
@@ -1900,6 +1944,10 @@ class BotRuntime {
         stderrBuffer = lines.pop() || "";
         for (const line of lines) {
           const trimmed = line.trim();
+          const exitDetail = classifyFfmpegExitDetail(trimmed);
+          if (exitDetail) {
+            state.lastProcessExitDetail = exitDetail;
+          }
           if (!isLikelyNetworkFailureLine(trimmed)) continue;
           state.lastNetworkFailureAt = Date.now();
         }
@@ -1914,7 +1962,8 @@ class BotRuntime {
       state.lastProcessExitCode = Number.isFinite(code) ? Number(code) : null;
       if (code && code !== 0) {
         state.lastStreamErrorAt = new Date().toISOString();
-        log("INFO", `[${this.config.name}] ffmpeg exited with code ${code} (guild=${guildId})`);
+        const detail = state.lastProcessExitDetail ? ` detail=${state.lastProcessExitDetail}` : "";
+        log("INFO", `[${this.config.name}] ffmpeg exited with code ${code} (guild=${guildId}${detail})`);
       }
     });
     process.on("error", (err) => {
@@ -1963,6 +2012,16 @@ class BotRuntime {
       && (now - state.lastNetworkFailureAt) <= Math.max(60_000, STREAM_RESTART_MAX_MS);
     const treatAsError = reason === "error" || earlyIdle || recentProcessFailure;
 
+    if (reason === "idle" && !earlyIdle) {
+      const withinIdleWindow = state.lastIdleRestartAt > 0
+        && (now - state.lastIdleRestartAt) <= IDLE_RESTART_WINDOW_MS;
+      state.idleRestartStreak = withinIdleWindow ? (state.idleRestartStreak || 0) + 1 : 1;
+      state.lastIdleRestartAt = now;
+    } else {
+      state.idleRestartStreak = 0;
+      state.lastIdleRestartAt = 0;
+    }
+
     if (treatAsError) {
       state.streamErrorCount = (state.streamErrorCount || 0) + 1;
     } else {
@@ -1970,6 +2029,7 @@ class BotRuntime {
     }
 
     const errorCount = state.streamErrorCount || 0;
+    const idleRestartStreak = state.idleRestartStreak || 0;
     const tierConfig = getTierConfig(guildId);
     let delay = Math.max(1_000, tierConfig.reconnectMs);
 
@@ -1978,6 +2038,15 @@ class BotRuntime {
       delay = Math.min(STREAM_RESTART_MAX_MS, STREAM_RESTART_BASE_MS * Math.pow(2, exp));
     } else {
       delay = Math.max(delay, STREAM_RESTART_BASE_MS);
+    }
+
+    if (!treatAsError && reason === "idle" && idleRestartStreak > 1) {
+      const idleExp = Math.min(idleRestartStreak - 1, IDLE_RESTART_EXP_STEPS);
+      const idlePenalty = Math.min(
+        STREAM_RESTART_MAX_MS,
+        Math.max(delay, STREAM_RESTART_BASE_MS) * Math.pow(1.8, idleExp)
+      );
+      delay = Math.max(delay, idlePenalty);
     }
 
     if (recentNetworkFailure) {
@@ -1998,14 +2067,18 @@ class BotRuntime {
       delay = Math.max(delay, networkCooldownMs);
     }
 
-    const reasonLabel = recentProcessFailure && reason === "idle"
-      ? "idle-after-ffmpeg-exit"
-      : earlyIdle
-        ? "idle-early"
-        : reason;
+    const reasonLabel = resolveStreamRestartReason({
+      reason,
+      earlyIdle,
+      recentProcessFailure,
+      recentNetworkFailure,
+      lastProcessExitDetail: state.lastProcessExitDetail,
+      idleRestartStreak,
+    });
+    state.lastStreamEndReason = reasonLabel;
     log(
       "INFO",
-      `[${this.config.name}] Stream ${reasonLabel} guild=${guildId} lifetimeMs=${streamLifetimeMs} errors=${errorCount}, restart in ${Math.round(delay)}ms`
+      `[${this.config.name}] Stream ${reasonLabel} guild=${guildId} lifetimeMs=${streamLifetimeMs} idleStreak=${idleRestartStreak} errors=${errorCount} ffmpegExit=${state.lastProcessExitCode ?? "-"} ffmpegDetail=${state.lastProcessExitDetail || "-"}, restart in ${Math.round(delay)}ms`
     );
 
     this.scheduleStreamRestart(guildId, state, delay, reasonLabel);
@@ -2040,7 +2113,9 @@ class BotRuntime {
     state.currentStationName = station.name || key;
     state.currentMeta = null;
     state.nowPlayingSignature = null;
+    state.lastStreamEndReason = null;
     state.lastStreamStartAt = Date.now();
+    state.lastProcessExitDetail = null;
     state.lastProcessExitCode = null;
     state.lastProcessExitAt = 0;
     this.armStreamStabilityReset(guildId, state);
@@ -2436,6 +2511,10 @@ class BotRuntime {
     if (!preservePlaybackTarget) {
       state.reconnectAttempts = 0;
       state.streamErrorCount = 0;
+      state.idleRestartStreak = 0;
+      state.lastIdleRestartAt = 0;
+      state.lastProcessExitDetail = null;
+      state.lastStreamEndReason = null;
     }
 
     this.updatePresence();
@@ -7050,12 +7129,17 @@ class BotRuntime {
   }
 
   // === State Persistence: Speichert aktuellen Zustand fuer Auto-Reconnect nach Restart ===
-  persistState() {
+  persistState({ forceLog = false } = {}) {
     const activeCount = [...this.guildState.entries()].filter(
       ([_, s]) => s.currentStationKey && s.lastChannelId && s.connection
     ).length;
     saveBotState(this.config.id, this.guildState);
-    if (activeCount > 0) {
+    const previousActiveCount = Number.isFinite(this.lastPersistLoggedActiveCount)
+      ? this.lastPersistLoggedActiveCount
+      : null;
+    const shouldLog = forceLog || previousActiveCount === null || previousActiveCount !== activeCount;
+    this.lastPersistLoggedActiveCount = activeCount;
+    if (shouldLog && (activeCount > 0 || (previousActiveCount || 0) > 0)) {
       log("INFO", `[${this.config.name}] State gespeichert (${activeCount} aktive Verbindung(en)).`);
     }
   }

@@ -19,6 +19,12 @@ const RECOGNITION_CACHE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_CACHE_TTL_
 const RECOGNITION_FAILURE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS", 180_000, 30_000, 30 * 60_000);
 const RECOGNITION_STREAM_SOFT_FAILURE_TTL_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_STREAM_SOFT_FAILURE_TTL_MS", 180_000, 30_000, 30 * 60_000);
 const RECOGNITION_SOFT_LOG_COOLDOWN_MS = parseEnvInt("NOW_PLAYING_RECOGNITION_SOFT_LOG_COOLDOWN_MS", 10 * 60_000, 60_000, 60 * 60_000);
+const RECOGNITION_NO_MATCH_LOG_COOLDOWN_MS = parseEnvInt(
+  "NOW_PLAYING_RECOGNITION_NO_MATCH_LOG_COOLDOWN_MS",
+  20 * 60_000,
+  5 * 60_000,
+  4 * 60 * 60_000
+);
 const MUSICBRAINZ_MIN_DELAY_MS = parseEnvInt("NOW_PLAYING_MUSICBRAINZ_MIN_DELAY_MS", 1100, 1000, 10_000);
 const ACOUSTID_MIN_DELAY_MS = parseEnvInt("NOW_PLAYING_ACOUSTID_MIN_DELAY_MS", 350, 150, 5_000);
 const RECOGNITION_SCORE_THRESHOLD = Math.max(
@@ -210,16 +216,21 @@ function isSoftRecognitionFailure(error) {
 }
 
 function shouldLogRecognitionFailure(cacheKey, error, message) {
-  if (!isSoftRecognitionFailure(error)) return true;
+  const normalizedMessage = String(message || "").trim().toLowerCase();
+  const isNoMatchLog = normalizedMessage === "acoustid-no-match";
+  if (!isNoMatchLog && !isSoftRecognitionFailure(error)) return true;
 
-  const normalizedKey = `${String(cacheKey || "-").toLowerCase()}|${String(message || "").toLowerCase()}`;
+  const normalizedKey = `${String(cacheKey || "-").toLowerCase()}|${normalizedMessage}`;
   const now = Date.now();
   const nextAllowedAt = recognitionSoftFailureLogCache.get(normalizedKey) || 0;
   if (nextAllowedAt > now) {
     return false;
   }
 
-  recognitionSoftFailureLogCache.set(normalizedKey, now + RECOGNITION_SOFT_LOG_COOLDOWN_MS);
+  const cooldownMs = isNoMatchLog
+    ? RECOGNITION_NO_MATCH_LOG_COOLDOWN_MS
+    : RECOGNITION_SOFT_LOG_COOLDOWN_MS;
+  recognitionSoftFailureLogCache.set(normalizedKey, now + cooldownMs);
   if (recognitionSoftFailureLogCache.size > 500) {
     for (const [key, expiresAt] of recognitionSoftFailureLogCache.entries()) {
       if (expiresAt <= now) {
@@ -683,5 +694,6 @@ export {
   isSoftRecognitionFailure,
   parseFpcalcOutput,
   selectBestAcoustIdMatch,
+  shouldLogRecognitionFailure,
   recognizeTrackFromStream,
 };

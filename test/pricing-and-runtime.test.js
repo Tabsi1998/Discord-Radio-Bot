@@ -31,6 +31,7 @@ import {
   isSoftRecognitionFailure,
   parseFpcalcOutput,
   selectBestAcoustIdMatch,
+  shouldLogRecognitionFailure,
 } from "../src/services/audio-recognition.js";
 import { getDefaultLanguage } from "../src/i18n.js";
 
@@ -83,12 +84,40 @@ test("ffmpeg decode spam is suppressed in default logging mode", () => {
       shouldLogFfmpegStderrLine("HTTP error 502 Bad Gateway"),
       true
     );
+    assert.equal(
+      shouldLogFfmpegStderrLine("Error writing trailer of pipe:1: Broken pipe"),
+      false
+    );
   } finally {
     if (originalVerbosity === undefined) {
       delete process.env.FFMPEG_STDERR_VERBOSITY;
     } else {
       process.env.FFMPEG_STDERR_VERBOSITY = originalVerbosity;
     }
+  }
+});
+
+test("recognition no-match logging is throttled with a longer cooldown", () => {
+  const originalNow = Date.now;
+  const baseNow = 1_700_000_000_000;
+  Date.now = () => baseNow;
+
+  try {
+    assert.equal(
+      shouldLogRecognitionFailure("https://example.com/stream-a", new Error("AcoustID returned no matches"), "acoustid-no-match"),
+      true
+    );
+    assert.equal(
+      shouldLogRecognitionFailure("https://example.com/stream-a", new Error("AcoustID returned no matches"), "acoustid-no-match"),
+      false
+    );
+    Date.now = () => baseNow + (20 * 60_000) + 1;
+    assert.equal(
+      shouldLogRecognitionFailure("https://example.com/stream-a", new Error("AcoustID returned no matches"), "acoustid-no-match"),
+      true
+    );
+  } finally {
+    Date.now = originalNow;
   }
 });
 
@@ -226,6 +255,102 @@ test("programmatic stop routes through resetVoiceSession so listening sessions a
     state: fakeState,
     options: { preservePlaybackTarget: false, clearLastChannel: true },
   });
+});
+
+test("repeated long idle endings progressively back off and change restart reason", () => {
+  const originalNow = Date.now;
+  let now = 1_700_000_000_000;
+  Date.now = () => now;
+
+  const capturedRestarts = [];
+  const fakeRuntime = {
+    config: { name: "OmniFM Test" },
+    isScheduledEventStopDue() {
+      return false;
+    },
+    stopInGuild() {
+      throw new Error("stopInGuild should not be called");
+    },
+    scheduleStreamRestart(guildId, state, delay, reason) {
+      capturedRestarts.push({ guildId, delay, reason, streak: state.idleRestartStreak });
+    },
+  };
+
+  const state = {
+    shouldReconnect: true,
+    currentStationKey: "rockradio",
+    connection: {},
+    activeScheduledEventStopAtMs: 0,
+    activeScheduledEventId: null,
+    lastStreamStartAt: now - (10 * 60_000),
+    lastProcessExitCode: 0,
+    lastProcessExitAt: 0,
+    lastProcessExitDetail: null,
+    lastNetworkFailureAt: 0,
+    streamErrorCount: 0,
+    idleRestartStreak: 0,
+    lastIdleRestartAt: 0,
+  };
+
+  try {
+    BotRuntime.prototype.handleStreamEnd.call(fakeRuntime, "123456789012345678", state, "idle");
+    now += 60_000;
+    state.lastStreamStartAt = now - (10 * 60_000);
+    BotRuntime.prototype.handleStreamEnd.call(fakeRuntime, "123456789012345678", state, "idle");
+
+    assert.equal(capturedRestarts.length, 2);
+    assert.equal(capturedRestarts[0].reason, "provider-eof");
+    assert.equal(capturedRestarts[1].reason, "provider-eof-repeat");
+    assert.ok(capturedRestarts[1].delay > capturedRestarts[0].delay);
+    assert.equal(state.idleRestartStreak, 2);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("idle endings after broken pipe are classified separately", () => {
+  const originalNow = Date.now;
+  const now = 1_700_000_000_000;
+  Date.now = () => now;
+
+  let capturedRestart = null;
+  const fakeRuntime = {
+    config: { name: "OmniFM Test" },
+    isScheduledEventStopDue() {
+      return false;
+    },
+    stopInGuild() {
+      throw new Error("stopInGuild should not be called");
+    },
+    scheduleStreamRestart(guildId, state, delay, reason) {
+      capturedRestart = { guildId, delay, reason, errors: state.streamErrorCount };
+    },
+  };
+
+  const state = {
+    shouldReconnect: true,
+    currentStationKey: "custom:mountainreggaeradio",
+    connection: {},
+    activeScheduledEventStopAtMs: 0,
+    activeScheduledEventId: null,
+    lastStreamStartAt: now - (20 * 60_000),
+    lastProcessExitCode: 1,
+    lastProcessExitAt: now - 500,
+    lastProcessExitDetail: "broken-pipe",
+    lastNetworkFailureAt: 0,
+    streamErrorCount: 0,
+    idleRestartStreak: 0,
+    lastIdleRestartAt: 0,
+  };
+
+  try {
+    BotRuntime.prototype.handleStreamEnd.call(fakeRuntime, "123456789012345678", state, "idle");
+    assert.ok(capturedRestart);
+    assert.equal(capturedRestart.reason, "idle-after-broken-pipe");
+    assert.equal(capturedRestart.errors, 1);
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test("commander live playback snapshots include the commander's own stream and worker streams", () => {
