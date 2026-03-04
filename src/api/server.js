@@ -642,17 +642,29 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
       starts: Number(starts || 0) || 0,
       peakListeners: telemetryStationPeakMap.get(listeningStats.stationNames?.[name] || name) || 0,
     }));
+  const stationTimeBreakdown = Object.entries(listeningStats.stationListeningMs || {})
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 12)
+    .map(([name, listeningMs]) => ({
+      name: listeningStats.stationNames?.[name] || name,
+      listeningMs: Number(listeningMs || 0) || 0,
+      peakListeners: telemetryStationPeakMap.get(listeningStats.stationNames?.[name] || name) || 0,
+    }));
 
   const liveTopStation = liveRows
     .slice()
     .sort((a, b) => b.listeners - a.listeners || String(a.stationName).localeCompare(String(b.stationName)))[0];
-  const historicalTopStation = stationBreakdown[0] || telemetryStationBreakdown[0] || null;
+  const historicalTopStation = stationTimeBreakdown[0] || telemetryStationBreakdown[0] || stationBreakdown[0] || null;
   const topStation = liveTopStation
     ? { name: liveTopStation.stationName || "-", listeners: liveTopStation.listeners || 0 }
     : telemetry.topStation?.name && telemetry.topStation.name !== "-"
       ? telemetry.topStation
       : historicalTopStation
-        ? { name: historicalTopStation.name, listeners: historicalTopStation.peakListeners || 0 }
+        ? {
+            name: historicalTopStation.name,
+            listeners: historicalTopStation.peakListeners || 0,
+            listeningMs: historicalTopStation.listeningMs || 0,
+          }
         : { name: "-", listeners: 0 };
 
   const peakTime = telemetry.peakTime
@@ -693,6 +705,7 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
       : telemetry.listenersByChannel,
     dailyReport: telemetry.dailyReport,
     stationBreakdown: stationBreakdown.length ? stationBreakdown : telemetry.stationBreakdown,
+    stationTimeBreakdown,
     hours: listeningStats.hours || {},
     daysOfWeek: listeningStats.daysOfWeek || {},
     stationListeningMs: listeningStats.stationListeningMs || {},
@@ -1709,6 +1722,7 @@ function startWebServer(runtimes) {
             startedAt: s.startedAt,
             endedAt: s.endedAt,
             durationMs: s.durationMs,
+            humanListeningMs: s.humanListeningMs,
             peakListeners: s.peakListeners,
             avgListeners: s.avgListeners,
           })),
@@ -1720,6 +1734,8 @@ function startWebServer(runtimes) {
             stationName: s.stationName,
             channelId: s.channelId,
             currentDurationMs: s.currentDurationMs,
+            currentHumanListeningMs: s.currentHumanListeningMs,
+            currentAvgListeners: s.currentAvgListeners,
             currentListeners: s.currentListeners,
             peakListeners: s.peakListeners,
           })),

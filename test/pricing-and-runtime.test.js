@@ -207,6 +207,27 @@ test("public bot status omits guild details while dashboard status keeps them", 
   });
 });
 
+test("programmatic stop routes through resetVoiceSession so listening sessions are finalized", () => {
+  let resetArgs = null;
+  const fakeState = { shouldReconnect: true };
+  const fakeRuntime = {
+    guildState: new Map([["guild-1", fakeState]]),
+    resetVoiceSession(guildId, state, options) {
+      resetArgs = { guildId, state, options };
+    },
+  };
+
+  const result = BotRuntime.prototype.stopInGuild.call(fakeRuntime, "guild-1");
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(fakeState.shouldReconnect, false);
+  assert.deepEqual(resetArgs, {
+    guildId: "guild-1",
+    state: fakeState,
+    options: { preservePlaybackTarget: false, clearLastChannel: true },
+  });
+});
+
 test("commander live playback snapshots include the commander's own stream and worker streams", () => {
   const workerRuntime = {
     config: { id: "bot-worker" },

@@ -86,8 +86,6 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
     dowData.push({ day: dayNames[d], starts: Number(dowMap[String(d)] || 0) });
   }
 
-  // Top stations pie chart
-  const stationStarts = detailStats?.listeningStats?.stationStarts || basic.topStation ? {} : {};
   const stationData = Object.entries(
     detailStats?.listeningStats?.stationStarts || stats?.advanced?.stationBreakdown?.reduce((acc, s) => { acc[s.name || s.key] = s.starts || 0; return acc; }, {}) || {}
   ).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, value]) => ({ name: name.length > 20 ? name.slice(0, 18) + '..' : name, value }));
@@ -115,8 +113,8 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
         </svg>
         <span>
           {t(
-            'Lifetime-Statistiken: Alle Daten werden dauerhaft in der MongoDB gespeichert und gehen nicht verloren, solange die Datenbank aktiv ist. Die Stats werden ueber alle Sessions und Tage akkumuliert.',
-            'Lifetime statistics: All data is permanently stored in MongoDB and will not be lost as long as the database is active. Stats are accumulated across all sessions and days.'
+            'Lifetime-Statistiken: Die Daten werden bevorzugt in MongoDB gespeichert und bei Bedarf ueber den lokalen Fallback weitergefuehrt. Die Stats werden ueber alle Sessions und Tage akkumuliert.',
+            'Lifetime statistics: Data is primarily stored in MongoDB and continued through the local fallback when needed. Stats are accumulated across all sessions and days.'
           )}
         </span>
       </div>
@@ -145,7 +143,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate })
               }}>
                 <span style={{ fontWeight: 600 }}>{s.stationName || s.stationKey || '-'}</span>
                 <span style={{ color: '#71717A', fontSize: 13 }}>
-                  {s.currentListeners} {t('Zuhoerer', 'listeners')} | {formatMs(s.currentDurationMs)}
+                  {s.currentListeners} {t('Zuhoerer', 'listeners')} | Avg {s.currentAvgListeners ?? 0} | {t('Hoerzeit', 'Listening')}: {formatMs(s.currentHumanListeningMs)} | {t('Dauer', 'Runtime')}: {formatMs(s.currentDurationMs)}
                 </span>
               </div>
             ))}

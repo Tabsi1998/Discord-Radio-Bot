@@ -6151,27 +6151,8 @@ class BotRuntime {
       }
       
       // Worker/Legacy Mode: lokaler Stop
-      this.syncVoiceChannelStatus(interaction.guildId, "").catch(() => null);
       state.shouldReconnect = false;
-      this.clearScheduledEventPlayback(state);
-      this.clearReconnectTimer(state);
-      this.clearNowPlayingTimer(state);
-      state.player.stop();
-      this.clearCurrentProcess(state);
-
-      if (state.connection) {
-        state.connection.destroy();
-        state.connection = null;
-      }
-
-      state.currentStationKey = null;
-      state.currentStationName = null;
-      state.currentMeta = null;
-      state.nowPlayingSignature = null;
-      state.reconnectAttempts = 0;
-      state.streamErrorCount = 0;
-      this.updatePresence();
-      this.persistState();
+      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
 
       await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), flags: MessageFlags.Ephemeral });
       return;
@@ -6908,27 +6889,8 @@ class BotRuntime {
     const state = this.guildState.get(guildId);
     if (!state) return { ok: false, error: "Kein State fuer diesen Server." };
 
-    this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     state.shouldReconnect = false;
-    this.clearScheduledEventPlayback(state);
-    this.clearReconnectTimer(state);
-    this.clearNowPlayingTimer(state);
-    state.player.stop();
-    this.clearCurrentProcess(state);
-
-    if (state.connection) {
-      state.connection.destroy();
-      state.connection = null;
-    }
-
-    state.currentStationKey = null;
-    state.currentStationName = null;
-    state.currentMeta = null;
-    state.nowPlayingSignature = null;
-    state.reconnectAttempts = 0;
-    state.streamErrorCount = 0;
-    this.updatePresence();
-    this.persistState();
+    this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
 
     return { ok: true };
   }

@@ -231,7 +231,8 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
                 <tr style={{ borderBottom: '1px solid #1A1A2E' }}>
                   <th style={{ textAlign: 'left', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Station', 'Station')}</th>
                   <th style={{ textAlign: 'left', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Start', 'Start')}</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Dauer', 'Duration')}</th>
+                  <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Hoerzeit', 'Listening')}</th>
+                  <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>{t('Dauer', 'Runtime')}</th>
                   <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>Peak</th>
                   <th style={{ textAlign: 'right', padding: '8px 6px', color: '#71717A', fontWeight: 500 }}>Avg</th>
                 </tr>
@@ -244,6 +245,9 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
                     </td>
                     <td style={{ padding: '8px 6px', color: '#A1A1AA' }}>
                       {s.startedAt ? formatDate(s.startedAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                    </td>
+                    <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>
+                      {formatMs(s.humanListeningMs)}
                     </td>
                     <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>
                       {formatMs(s.durationMs)}
