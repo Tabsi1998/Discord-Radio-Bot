@@ -8,7 +8,10 @@ const EVENTS_FILE = path.resolve(__dirname, "..", "scheduled-events.json");
 const SUPPORTED_REPEAT = new Set([
   "none",
   "daily",
+  "weekdays",
   "weekly",
+  "biweekly",
+  "yearly",
   "monthly_first_weekday",
   "monthly_second_weekday",
   "monthly_third_weekday",

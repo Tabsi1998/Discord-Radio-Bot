@@ -1,6 +1,11 @@
 // ============================================================
 // OmniFM: Event Scheduling Time Functions
 // ============================================================
+import {
+  GuildScheduledEventRecurrenceRuleFrequency,
+  GuildScheduledEventRecurrenceRuleMonth,
+  GuildScheduledEventRecurrenceRuleWeekday,
+} from "discord.js";
 import { normalizeLanguage, getDefaultLanguage } from "../i18n.js";
 import { parseEnvInt } from "./helpers.js";
 import { languagePick } from "./language.js";
@@ -8,7 +13,10 @@ import { languagePick } from "./language.js";
 const REPEAT_MODES = new Set([
   "none",
   "daily",
+  "weekdays",
   "weekly",
+  "biweekly",
+  "yearly",
   "monthly_first_weekday",
   "monthly_second_weekday",
   "monthly_third_weekday",
@@ -475,25 +483,149 @@ function normalizeRepeatMode(raw) {
   return "none";
 }
 
+function formatOrdinal(value, language = "de") {
+  const number = Number.parseInt(String(value || 0), 10);
+  if (!Number.isFinite(number) || number <= 0) return String(value || "");
+  if (normalizeLanguage(language, getDefaultLanguage()) === "de") return `${number}.`;
+  const mod10 = number % 10;
+  const mod100 = number % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${number}st`;
+  if (mod10 === 2 && mod100 !== 12) return `${number}nd`;
+  if (mod10 === 3 && mod100 !== 13) return `${number}rd`;
+  return `${number}th`;
+}
+
+function formatMonthDay(utcMs, language = "de", timeZone = EVENT_FALLBACK_TIME_ZONE) {
+  if (!Number.isFinite(Number(utcMs)) || Number(utcMs) <= 0) return null;
+  const locale = normalizeLanguage(language, getDefaultLanguage()) === "de" ? "de-DE" : "en-US";
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE,
+    day: "numeric",
+    month: "long",
+  }).format(new Date(Number(utcMs)));
+}
+
+function mapJsWeekdayToDiscordWeekday(weekdayIndex) {
+  switch (Number(weekdayIndex)) {
+    case 0: return GuildScheduledEventRecurrenceRuleWeekday.Sunday;
+    case 1: return GuildScheduledEventRecurrenceRuleWeekday.Monday;
+    case 2: return GuildScheduledEventRecurrenceRuleWeekday.Tuesday;
+    case 3: return GuildScheduledEventRecurrenceRuleWeekday.Wednesday;
+    case 4: return GuildScheduledEventRecurrenceRuleWeekday.Thursday;
+    case 5: return GuildScheduledEventRecurrenceRuleWeekday.Friday;
+    case 6: return GuildScheduledEventRecurrenceRuleWeekday.Saturday;
+    default: return GuildScheduledEventRecurrenceRuleWeekday.Monday;
+  }
+}
+
+function isWorkdayInTimeZone(utcMs, timeZone = EVENT_FALLBACK_TIME_ZONE) {
+  const weekdayIndex = getWeekdayIndexInTimeZone(utcMs, timeZone);
+  return weekdayIndex >= 1 && weekdayIndex <= 5;
+}
+
+function buildDiscordScheduledEventRecurrenceRule(runAtMs, repeat, timeZone = null) {
+  const base = Number.parseInt(String(runAtMs || ""), 10);
+  const mode = normalizeRepeatMode(repeat);
+  if (!Number.isFinite(base) || base <= 0 || mode === "none") return null;
+
+  const tz = normalizeEventTimeZone(timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+  const baseParts = getZonedPartsFromUtcMs(base, tz);
+  const weekday = mapJsWeekdayToDiscordWeekday(getWeekdayIndexInTimeZone(base, tz));
+  const allWeekdays = [
+    GuildScheduledEventRecurrenceRuleWeekday.Monday,
+    GuildScheduledEventRecurrenceRuleWeekday.Tuesday,
+    GuildScheduledEventRecurrenceRuleWeekday.Wednesday,
+    GuildScheduledEventRecurrenceRuleWeekday.Thursday,
+    GuildScheduledEventRecurrenceRuleWeekday.Friday,
+    GuildScheduledEventRecurrenceRuleWeekday.Saturday,
+    GuildScheduledEventRecurrenceRuleWeekday.Sunday,
+  ];
+  const workdays = [
+    GuildScheduledEventRecurrenceRuleWeekday.Monday,
+    GuildScheduledEventRecurrenceRuleWeekday.Tuesday,
+    GuildScheduledEventRecurrenceRuleWeekday.Wednesday,
+    GuildScheduledEventRecurrenceRuleWeekday.Thursday,
+    GuildScheduledEventRecurrenceRuleWeekday.Friday,
+  ];
+
+  if (mode === "daily") {
+    return {
+      startAt: new Date(base),
+      frequency: GuildScheduledEventRecurrenceRuleFrequency.Daily,
+      interval: 1,
+      byWeekday: allWeekdays,
+    };
+  }
+  if (mode === "weekdays") {
+    return {
+      startAt: new Date(base),
+      frequency: GuildScheduledEventRecurrenceRuleFrequency.Daily,
+      interval: 1,
+      byWeekday: workdays,
+    };
+  }
+  if (mode === "weekly" || mode === "biweekly") {
+    return {
+      startAt: new Date(base),
+      frequency: GuildScheduledEventRecurrenceRuleFrequency.Weekly,
+      interval: mode === "biweekly" ? 2 : 1,
+      byWeekday: [weekday],
+    };
+  }
+  if (mode === "yearly") {
+    return {
+      startAt: new Date(base),
+      frequency: GuildScheduledEventRecurrenceRuleFrequency.Yearly,
+      interval: 1,
+      byMonth: [baseParts.month || GuildScheduledEventRecurrenceRuleMonth.January],
+      byMonthDay: [baseParts.day || 1],
+    };
+  }
+
+  const monthlyNth = MONTHLY_REPEAT_NTH[mode];
+  if (monthlyNth) {
+    return {
+      startAt: new Date(base),
+      frequency: GuildScheduledEventRecurrenceRuleFrequency.Monthly,
+      interval: 1,
+      byNWeekday: [{ n: monthlyNth, day: weekday }],
+    };
+  }
+
+  return null;
+}
+
 function getRepeatLabel(raw, language = "de", { runAtMs = null, timeZone = null } = {}) {
   const repeat = normalizeRepeatMode(raw);
   const isDe = normalizeLanguage(language, getDefaultLanguage()) === "de";
   const weekday = Number.isFinite(Number(runAtMs)) && Number(runAtMs) > 0
     ? getWeekdayName(Number(runAtMs), language, timeZone || EVENT_FALLBACK_TIME_ZONE)
     : null;
+  const monthDay = formatMonthDay(runAtMs, language, timeZone || EVENT_FALLBACK_TIME_ZONE);
 
-  if (repeat === "daily") return isDe ? "täglich" : "daily";
+  if (repeat === "daily") return isDe ? "Jeden Tag" : "Every day";
+  if (repeat === "weekdays") return isDe ? "Werktäglich (Montag bis Freitag)" : "Weekdays (Monday to Friday)";
   if (repeat === "weekly") {
     return weekday
-      ? (isDe ? `wöchentlich (${weekday})` : `weekly (${weekday})`)
-      : (isDe ? "wöchentlich" : "weekly");
+      ? (isDe ? `Jeden ${weekday}` : `Every ${weekday}`)
+      : (isDe ? "Wöchentlich" : "Weekly");
   }
-  if (repeat === "monthly_first_weekday") return isDe ? `monatlich (1. ${weekday || "Wochentag"})` : `monthly (1st ${weekday || "weekday"})`;
-  if (repeat === "monthly_second_weekday") return isDe ? `monatlich (2. ${weekday || "Wochentag"})` : `monthly (2nd ${weekday || "weekday"})`;
-  if (repeat === "monthly_third_weekday") return isDe ? `monatlich (3. ${weekday || "Wochentag"})` : `monthly (3rd ${weekday || "weekday"})`;
-  if (repeat === "monthly_fourth_weekday") return isDe ? `monatlich (4. ${weekday || "Wochentag"})` : `monthly (4th ${weekday || "weekday"})`;
-  if (repeat === "monthly_last_weekday") return isDe ? `monatlich (letzter ${weekday || "Wochentag"})` : `monthly (last ${weekday || "weekday"})`;
-  return isDe ? "einmalig" : "once";
+  if (repeat === "biweekly") {
+    return weekday
+      ? (isDe ? `Alle 2 Wochen (${weekday})` : `Every 2 weeks (${weekday})`)
+      : (isDe ? "Alle 2 Wochen" : "Every 2 weeks");
+  }
+  if (repeat === "monthly_first_weekday") return isDe ? `Jeden ${formatOrdinal(1, language)} ${weekday || "Wochentag"} im Monat` : `Every ${formatOrdinal(1, language)} ${weekday || "weekday"} of the month`;
+  if (repeat === "monthly_second_weekday") return isDe ? `Jeden ${formatOrdinal(2, language)} ${weekday || "Wochentag"} im Monat` : `Every ${formatOrdinal(2, language)} ${weekday || "weekday"} of the month`;
+  if (repeat === "monthly_third_weekday") return isDe ? `Jeden ${formatOrdinal(3, language)} ${weekday || "Wochentag"} im Monat` : `Every ${formatOrdinal(3, language)} ${weekday || "weekday"} of the month`;
+  if (repeat === "monthly_fourth_weekday") return isDe ? `Jeden ${formatOrdinal(4, language)} ${weekday || "Wochentag"} im Monat` : `Every ${formatOrdinal(4, language)} ${weekday || "weekday"} of the month`;
+  if (repeat === "monthly_last_weekday") return isDe ? `Jeden letzten ${weekday || "Wochentag"} im Monat` : `Every last ${weekday || "weekday"} of the month`;
+  if (repeat === "yearly") {
+    return monthDay
+      ? (isDe ? `Jährlich am ${monthDay}` : `Yearly on ${monthDay}`)
+      : (isDe ? "Jährlich" : "Yearly");
+  }
+  return isDe ? "Einmalig" : "Once";
 }
 
 function computeNextEventRunAtMs(runAtMs, repeat, nowMs = Date.now(), timeZone = null) {
@@ -511,15 +643,35 @@ function computeNextEventRunAtMs(runAtMs, repeat, nowMs = Date.now(), timeZone =
     second: 0,
   };
 
-  if (mode === "daily" || mode === "weekly") {
-    const stepDays = mode === "weekly" ? 7 : 1;
+  if (mode === "daily" || mode === "weekdays" || mode === "weekly" || mode === "biweekly") {
+    const stepDays = mode === "weekly" ? 7 : mode === "biweekly" ? 14 : 1;
     let cursor = { year: baseParts.year, month: baseParts.month, day: baseParts.day };
     let next = base;
-    for (let i = 0; i < 5000 && next <= nowMs; i += 1) {
+    for (let i = 0; i < 5000; i += 1) {
+      const isWorkdayCandidate = mode !== "weekdays" || isWorkdayInTimeZone(next, tz);
+      if (next > nowMs && isWorkdayCandidate) {
+        return next;
+      }
       cursor = addDaysCalendar(cursor.year, cursor.month, cursor.day, stepDays);
       next = zonedDateTimeToUtcMs({ ...cursor, ...baseClock }, tz);
     }
-    return next > nowMs ? next : null;
+    return null;
+  }
+
+  if (mode === "yearly") {
+    for (let year = baseParts.year; year < baseParts.year + 400; year += 1) {
+      if (!validateCalendarDate(year, baseParts.month, baseParts.day, baseClock.hour, baseClock.minute)) {
+        continue;
+      }
+      const next = zonedDateTimeToUtcMs({
+        year,
+        month: baseParts.month,
+        day: baseParts.day,
+        ...baseClock,
+      }, tz);
+      if (next > nowMs) return next;
+    }
+    return null;
   }
 
   const monthlyNth = MONTHLY_REPEAT_NTH[mode];
@@ -614,6 +766,8 @@ export {
   formatDateTime,
   normalizeRepeatMode,
   getRepeatLabel,
+  isWorkdayInTimeZone,
+  buildDiscordScheduledEventRecurrenceRule,
   computeNextEventRunAtMs,
   renderEventAnnouncement,
   renderStageTopic,

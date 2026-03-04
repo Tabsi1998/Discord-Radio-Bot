@@ -92,6 +92,8 @@ import {
   normalizeRepeatMode,
   getRepeatLabel,
   normalizeEventTimeZone,
+  isWorkdayInTimeZone,
+  buildDiscordScheduledEventRecurrenceRule,
   computeNextEventRunAtMs,
   renderEventAnnouncement,
   renderStageTopic,
@@ -3841,9 +3843,20 @@ class BotRuntime {
   }
 
   async buildScheduledEventServerDescription(event, stationName, guild = null) {
+    const eventLanguage = event?.guildId ? this.resolveGuildLanguage(event.guildId) : "de";
     const baseDescription = String(event?.description || "").trim();
-    const details = `OmniFM Auto-Event | Station: ${clipText(stationName || event?.stationKey || "-", 120)}`;
-    const description = baseDescription ? `${baseDescription}\n\n${details}` : details;
+    const details = [
+      `OmniFM Auto-Event | Station: ${clipText(stationName || event?.stationKey || "-", 120)}`,
+    ];
+    if (normalizeRepeatMode(event?.repeat || "none") !== "none") {
+      details.push(
+        `${languagePick(eventLanguage, "Wiederholung", "Repeat")}: ${getRepeatLabel(event?.repeat, eventLanguage, {
+          runAtMs: event?.runAtMs,
+          timeZone: event?.timeZone,
+        })}`
+      );
+    }
+    const description = baseDescription ? `${baseDescription}\n\n${details.join("\n")}` : details.join("\n");
     const resolvedDescription = await this.resolveGuildEmojiAliases(description, guild);
     return clipText(resolvedDescription, 1000);
   }
@@ -4259,6 +4272,11 @@ class BotRuntime {
 
     const stationName = clipText(station?.name || event.stationKey || "-", 100) || "-";
     const scheduledEndAtMs = this.getScheduledEventEndAtMs(event, scheduledRunAtMs);
+    const recurrenceRule = buildDiscordScheduledEventRecurrenceRule(
+      scheduledRunAtMs,
+      event?.repeat || "none",
+      event?.timeZone,
+    );
     const payload = {
       name: clipText(event.name || stationName || `${BRAND.name} Event`, 100),
       scheduledStartTime: new Date(scheduledRunAtMs),
@@ -4270,6 +4288,9 @@ class BotRuntime {
       description: await this.buildScheduledEventServerDescription(event, stationName, guild),
       reason: `OmniFM scheduled event ${event.id}`,
     };
+    if (recurrenceRule) {
+      payload.recurrenceRule = recurrenceRule;
+    }
     if (scheduledEndAtMs > scheduledRunAtMs) {
       payload.scheduledEndTime = new Date(scheduledEndAtMs);
     }
@@ -4280,6 +4301,9 @@ class BotRuntime {
     if (!forceCreate && existingId) {
       const existingEvent = await guild.scheduledEvents.fetch(existingId).catch(() => null);
       if (existingEvent) {
+        if (!recurrenceRule) {
+          payload.recurrenceRule = null;
+        }
         scheduledEvent = await existingEvent.edit(payload).catch(() => null);
       }
     }
@@ -4567,7 +4591,7 @@ class BotRuntime {
           try {
             const nextDiscordEvent = await this.syncDiscordScheduledEvent(event, stationResult.station, {
               runAtMs: nextRunAtMs,
-              forceCreate: true,
+              forceCreate: false,
             });
             nextDiscordScheduledEventId = nextDiscordEvent?.id || nextDiscordScheduledEventId;
           } catch (syncErr) {
@@ -4863,6 +4887,16 @@ class BotRuntime {
         });
         return;
       }
+      if (repeat === "weekdays" && !isWorkdayInTimeZone(parsedWindow.runAtMs, parsedWindow.timeZone)) {
+        await interaction.reply({
+          content: t(
+            "Für `weekdays` muss die Startzeit auf Montag bis Freitag liegen.",
+            "For `weekdays`, the start time must fall on Monday to Friday."
+          ),
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
 
       const station = this.resolveStationForGuild(guildId, stationRaw, language);
       if (!station.ok) {
@@ -5040,6 +5074,17 @@ class BotRuntime {
         });
         return;
       }
+      const nextRepeat = repeatRaw ? normalizeRepeatMode(repeatRaw) : existing.repeat;
+      if (nextRepeat === "weekdays" && !isWorkdayInTimeZone(parsedWindow.runAtMs, parsedWindow.timeZone)) {
+        await interaction.reply({
+          content: t(
+            "Für `weekdays` muss die Startzeit auf Montag bis Freitag liegen.",
+            "For `weekdays`, the start time must fall on Monday to Friday."
+          ),
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
 
       let resolvedStation = this.resolveStationForGuild(guildId, existing.stationKey, language);
       if (stationRaw) {
@@ -5065,7 +5110,7 @@ class BotRuntime {
         stageTopic: nextStageTopic || null,
         timeZone: parsedWindow.timeZone,
         createDiscordEvent: nextCreateDiscordEvent,
-        repeat: repeatRaw ? normalizeRepeatMode(repeatRaw) : existing.repeat,
+        repeat: nextRepeat,
         runAtMs: parsedWindow.runAtMs,
         durationMs: parsedWindow.durationMs,
         activeUntilMs: eventIsActive ? parsedWindow.endAtMs : 0,

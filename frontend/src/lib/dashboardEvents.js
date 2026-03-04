@@ -3,7 +3,10 @@ export const EVENT_PLACEHOLDERS = ['{event}', '{station}', '{voice}', '{time}', 
 export const DASHBOARD_EVENT_REPEAT_OPTIONS = [
   { value: 'none', de: 'Keine Wiederholung', en: 'No repeat' },
   { value: 'daily', de: 'Täglich', en: 'Daily' },
+  { value: 'weekdays', de: 'Werktags (Mo-Fr)', en: 'Weekdays (Mon-Fri)' },
   { value: 'weekly', de: 'Wöchentlich', en: 'Weekly' },
+  { value: 'biweekly', de: 'Alle 2 Wochen', en: 'Every 2 weeks' },
+  { value: 'yearly', de: 'Jährlich', en: 'Yearly' },
   { value: 'monthly_first_weekday', de: 'Monatlich (1. Wochentag)', en: 'Monthly (1st weekday)' },
   { value: 'monthly_second_weekday', de: 'Monatlich (2. Wochentag)', en: 'Monthly (2nd weekday)' },
   { value: 'monthly_third_weekday', de: 'Monatlich (3. Wochentag)', en: 'Monthly (3rd weekday)' },
@@ -36,6 +39,80 @@ export function renderEventTemplate(template, values = {}) {
     .replace(/\{end\}/gi, String(values.end || '-'))
     .replace(/\{timezone\}/gi, String(values.timeZone || values.timezone || '-'))
     .trim();
+}
+
+function formatOrdinal(value, language = 'de') {
+  const number = Number.parseInt(String(value || 0), 10);
+  if (!Number.isFinite(number) || number <= 0) return String(value || '');
+  if (String(language || 'de').startsWith('de')) return `${number}.`;
+  const mod10 = number % 10;
+  const mod100 = number % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${number}st`;
+  if (mod10 === 2 && mod100 !== 12) return `${number}nd`;
+  if (mod10 === 3 && mod100 !== 13) return `${number}rd`;
+  return `${number}th`;
+}
+
+function resolveCalendarSource(startsAt) {
+  const text = String(startsAt || '').trim();
+  if (!text) return null;
+
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return {
+      year: Number.parseInt(isoMatch[1], 10),
+      month: Number.parseInt(isoMatch[2], 10),
+      day: Number.parseInt(isoMatch[3], 10),
+    };
+  }
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return {
+    year: parsed.getUTCFullYear(),
+    month: parsed.getUTCMonth() + 1,
+    day: parsed.getUTCDate(),
+  };
+}
+
+function getCalendarDate(startsAt) {
+  const parts = resolveCalendarSource(startsAt);
+  if (!parts) return null;
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0));
+}
+
+function getWeekdayLabel(startsAt, language = 'de') {
+  const date = getCalendarDate(startsAt);
+  if (!date) return null;
+  const locale = String(language || 'de').startsWith('de') ? 'de-DE' : 'en-US';
+  return new Intl.DateTimeFormat(locale, { timeZone: 'UTC', weekday: 'long' }).format(date);
+}
+
+function getMonthDayLabel(startsAt, language = 'de') {
+  const date = getCalendarDate(startsAt);
+  if (!date) return null;
+  const locale = String(language || 'de').startsWith('de') ? 'de-DE' : 'en-US';
+  return new Intl.DateTimeFormat(locale, { timeZone: 'UTC', day: 'numeric', month: 'long' }).format(date);
+}
+
+export function getDashboardRepeatLabel(raw, language = 'de', { startsAt = '' } = {}) {
+  const repeat = String(raw || 'none').trim().toLowerCase();
+  const isDe = String(language || 'de').startsWith('de');
+  const weekday = getWeekdayLabel(startsAt, language);
+  const monthDay = getMonthDayLabel(startsAt, language);
+
+  if (repeat === 'none') return isDe ? 'Keine Wiederholung' : 'No repeat';
+  if (repeat === 'daily') return isDe ? 'Jeden Tag' : 'Every day';
+  if (repeat === 'weekdays') return isDe ? 'Werktäglich (Montag bis Freitag)' : 'Weekdays (Monday to Friday)';
+  if (repeat === 'weekly') return weekday ? (isDe ? `Jeden ${weekday}` : `Every ${weekday}`) : (isDe ? 'Wöchentlich' : 'Weekly');
+  if (repeat === 'biweekly') return weekday ? (isDe ? `Alle 2 Wochen (${weekday})` : `Every 2 weeks (${weekday})`) : (isDe ? 'Alle 2 Wochen' : 'Every 2 weeks');
+  if (repeat === 'yearly') return monthDay ? (isDe ? `Jährlich am ${monthDay}` : `Yearly on ${monthDay}`) : (isDe ? 'Jährlich' : 'Yearly');
+  if (repeat === 'monthly_first_weekday') return isDe ? `Jeden ${formatOrdinal(1, language)} ${weekday || 'Wochentag'} im Monat` : `Every ${formatOrdinal(1, language)} ${weekday || 'weekday'} of the month`;
+  if (repeat === 'monthly_second_weekday') return isDe ? `Jeden ${formatOrdinal(2, language)} ${weekday || 'Wochentag'} im Monat` : `Every ${formatOrdinal(2, language)} ${weekday || 'weekday'} of the month`;
+  if (repeat === 'monthly_third_weekday') return isDe ? `Jeden ${formatOrdinal(3, language)} ${weekday || 'Wochentag'} im Monat` : `Every ${formatOrdinal(3, language)} ${weekday || 'weekday'} of the month`;
+  if (repeat === 'monthly_fourth_weekday') return isDe ? `Jeden ${formatOrdinal(4, language)} ${weekday || 'Wochentag'} im Monat` : `Every ${formatOrdinal(4, language)} ${weekday || 'weekday'} of the month`;
+  if (repeat === 'monthly_last_weekday') return isDe ? `Jeden letzten ${weekday || 'Wochentag'} im Monat` : `Every last ${weekday || 'weekday'} of the month`;
+  return isDe ? 'Keine Wiederholung' : 'No repeat';
 }
 
 export function buildDiscordCustomEmojiToken(emoji) {

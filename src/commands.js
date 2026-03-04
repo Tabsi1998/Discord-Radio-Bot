@@ -70,7 +70,10 @@ function buildRepeatChoices() {
   return [
     choice("One-time", "none", "Einmalig"),
     choice("Daily", "daily", "Täglich"),
+    choice("Weekdays (Mon-Fri)", "weekdays", "Werktags (Mo-Fr)"),
     choice("Weekly (same weekday)", "weekly", "Wöchentlich (gleicher Wochentag)"),
+    choice("Every 2 weeks (same weekday)", "biweekly", "Alle 2 Wochen (gleicher Wochentag)"),
+    choice("Yearly (same date)", "yearly", "Jährlich (gleiches Datum)"),
     choice("Monthly: 1st weekday", "monthly_first_weekday", "Monatlich: 1. Wochentag"),
     choice("Monthly: 2nd weekday", "monthly_second_weekday", "Monatlich: 2. Wochentag"),
     choice("Monthly: 3rd weekday", "monthly_third_weekday", "Monatlich: 3. Wochentag"),

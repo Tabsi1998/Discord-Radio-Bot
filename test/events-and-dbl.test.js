@@ -48,7 +48,23 @@ test("scheduled events keep monthly repeat modes and sync metadata", () => {
   assert.equal(normalized.updatedAt, "2026-03-03T10:00:00.000Z");
 });
 
-test("scheduled events downgrade unsupported dashboard repeat modes to none", () => {
+test("scheduled events accept extended dashboard repeat modes", () => {
+  const normalized = normalizeScheduledEventInput({
+    id: "evt_extended_repeat",
+    guildId: "123456789012345678",
+    botId: "bot-main",
+    name: "Extended Repeat",
+    stationKey: "dance",
+    voiceChannelId: "234567890123456789",
+    runAtMs: Date.now() + 120_000,
+    repeat: "weekdays",
+  });
+
+  assert.ok(normalized);
+  assert.equal(normalized.repeat, "weekdays");
+});
+
+test("scheduled events still downgrade unknown repeat modes to none", () => {
   const normalized = normalizeScheduledEventInput({
     id: "evt_bad_repeat",
     guildId: "123456789012345678",
@@ -57,7 +73,7 @@ test("scheduled events downgrade unsupported dashboard repeat modes to none", ()
     stationKey: "dance",
     voiceChannelId: "234567890123456789",
     runAtMs: Date.now() + 120_000,
-    repeat: "weekdays",
+    repeat: "every_three_days",
   });
 
   assert.ok(normalized);

@@ -40,6 +40,8 @@ import {
   getZonedPartsFromUtcMs,
   normalizeEventTimeZone,
   normalizeRepeatMode,
+  getRepeatLabel,
+  isWorkdayInTimeZone,
 } from "../lib/event-time.js";
 import {
   getCommonSecurityHeaders,
@@ -844,6 +846,8 @@ function buildDashboardEventResponse(eventRow) {
     textChannelId: eventRow?.textChannelId || "",
     enabled: eventRow?.enabled !== false,
     repeat: normalizeRepeatMode(eventRow?.repeat || "none"),
+    repeatLabelDe: getRepeatLabel(eventRow?.repeat || "none", "de", { runAtMs, timeZone: timezone }),
+    repeatLabelEn: getRepeatLabel(eventRow?.repeat || "none", "en", { runAtMs, timeZone: timezone }),
     durationMs: Number(eventRow?.durationMs || 0),
     announceMessage: eventRow?.announceMessage || "",
     description: eventRow?.description || "",
@@ -1067,6 +1071,16 @@ async function normalizeDashboardEventInput(body, {
         language,
         "Mit Discord-Server-Event muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
         "With a Discord server event, the start time must be at least 60 seconds in the future."
+      ),
+    };
+  }
+  if (repeat === "weekdays" && !isWorkdayInTimeZone(parsedWindow.runAtMs, parsedWindow.timeZone || timezone)) {
+    return {
+      ok: false,
+      message: languagePick(
+        language,
+        "Für Werktags-Wiederholung muss die Startzeit auf Montag bis Freitag liegen.",
+        "For weekday recurrence, the start time must fall on Monday to Friday."
       ),
     };
   }

@@ -18,6 +18,7 @@ import {
   buildDiscordEventDescriptionPreview,
   DASHBOARD_EVENT_REPEAT_OPTIONS,
   DASHBOARD_EVENT_TIMEZONE_OPTIONS,
+  getDashboardRepeatLabel,
   renderDiscordMarkdown,
   renderEventTemplate,
 } from '../lib/dashboardEvents';
@@ -132,6 +133,12 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
     detailsPrefix: t('OmniFM Auto-Event | Station', 'OmniFM auto event | Station'),
   });
 
+  const repeatLabel = event?.repeatLabelDe || event?.repeatLabelEn
+    ? t(event.repeatLabelDe || resolveRepeatLabel(event.repeat, t), event.repeatLabelEn || resolveRepeatLabel(event.repeat, t))
+    : getDashboardRepeatLabel(event.repeat, t('de', 'en'), {
+      startsAt: event.startsAtLocal || event.startsAt,
+    });
+
   return (
     <div data-testid={`event-card-${event.id}`} style={{
       border: '1px solid', borderColor: isActive ? '#1A1A2E' : '#27272A',
@@ -146,7 +153,7 @@ function EventCard({ event, onToggle, onDelete, onEdit, t, formatDate, voiceChan
           {isPast && <span style={{ fontSize: 10, color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)', padding: '2px 6px', flexShrink: 0 }}>{t('Vergangen', 'Past')}</span>}
           {event.repeat && event.repeat !== 'none' && (
             <span style={{ fontSize: 10, color: '#06B6D4', border: '1px solid rgba(6,182,212,0.3)', padding: '2px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Repeat size={10} /> {resolveRepeatLabel(event.repeat, t)}
+              <Repeat size={10} /> {repeatLabel}
             </span>
           )}
         </div>
@@ -346,6 +353,15 @@ export default function DashboardEvents({
   }, [onCancelEditEvent]);
 
   const isEditing = Boolean(editingEventId);
+  const repeatOptions = useMemo(
+    () => DASHBOARD_EVENT_REPEAT_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.value === 'none'
+        ? t(option.de, option.en)
+        : getDashboardRepeatLabel(option.value, t('de', 'en'), { startsAt: eventForm.startsAt }),
+    })),
+    [eventForm.startsAt, t]
+  );
 
   return (
     <section data-testid="dashboard-events-panel" style={{ display: 'grid', gap: 14 }}>
@@ -430,7 +446,7 @@ export default function DashboardEvents({
               </InputRow>
 
               <InputRow label={t('Wiederholung', 'Repeat')}>
-                <SelectInput testId="event-repeat-select" value={eventForm.repeat || 'none'} onChange={(e) => setEventForm((current) => ({ ...current, repeat: e.target.value }))} options={DASHBOARD_EVENT_REPEAT_OPTIONS.map((option) => ({ value: option.value, label: t(option.de, option.en) }))} />
+                <SelectInput testId="event-repeat-select" value={eventForm.repeat || 'none'} onChange={(e) => setEventForm((current) => ({ ...current, repeat: e.target.value }))} options={repeatOptions} />
               </InputRow>
 
               <InputRow label={t('Zeitzone', 'Time zone')}>
