@@ -4434,6 +4434,12 @@ class BotRuntime {
     this.clearReconnectTimer(state);
     this.attachConnectionHandlers(guildId, connection);
     networkRecoveryCoordinator.noteSuccess(`${this.config.name} voice-ready guild=${guildId}`);
+    recordConnectionEvent(guildId, {
+      botId: this.config.id || "",
+      eventType: "connect",
+      channelId: channel.id || "",
+      details: "Voice connection ready (restore)",
+    });
 
     if (channel.type === ChannelType.GuildStageVoice) {
       await this.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
@@ -5558,6 +5564,12 @@ class BotRuntime {
     this.clearReconnectTimer(state);
     this.attachConnectionHandlers(guildId, connection);
     networkRecoveryCoordinator.noteSuccess(`${this.config.name} rejoin-ready guild=${guildId}`);
+    recordConnectionEvent(guildId, {
+      botId: this.config.id || "",
+      eventType: "connect",
+      channelId: channel.id || "",
+      details: "Voice reconnect ready",
+    });
     if (channel.type === ChannelType.GuildStageVoice) {
       await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
     }

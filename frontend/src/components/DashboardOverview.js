@@ -4,25 +4,11 @@ import {
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
 import { RotateCcw } from 'lucide-react';
+import { buildReliabilitySummary, formatDashboardDuration } from '../lib/dashboardStats';
 
 const COLORS = ['#5865F2', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#F97316'];
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const DAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function formatMs(ms) {
-  if (!ms || ms <= 0) return '0m';
-  const totalMin = Math.floor(ms / 60000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-function formatMsShort(ms) {
-  if (!ms || ms <= 0) return '0h';
-  const hours = Math.round(ms / 3600000 * 10) / 10;
-  return hours >= 1 ? `${hours}h` : `${Math.round(ms / 60000)}m`;
-}
 
 function StatCard({ label, value, sub, accent = '#00F0FF', testId }) {
   return (
@@ -71,9 +57,17 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
   const totalSessions = basic.totalSessions || 0;
   const avgSession = basic.avgSessionMs || 0;
   const longestSession = basic.longestSessionMs || 0;
-  const totalConnections = basic.totalConnections || 0;
-  const totalErrors = basic.totalConnectionErrors || 0;
-  const reliability = totalConnections > 0 ? Math.round(((totalConnections - totalErrors) / totalConnections) * 100) : 100;
+  const connectionHealth = detailStats?.connectionHealth || null;
+  const reliabilitySummary = buildReliabilitySummary({
+    connects: connectionHealth?.connects ?? basic.totalConnections ?? 0,
+    errors: connectionHealth?.errors ?? basic.totalConnectionErrors ?? 0,
+    t,
+  });
+  const totalListeningShort = formatDashboardDuration(totalListeningMs, { short: true });
+  const totalListeningLong = formatDashboardDuration(totalListeningMs);
+  const reliabilityLabel = connectionHealth
+    ? t('Zuverlässigkeit (7 Tage)', 'Reliability (7 days)')
+    : t('Zuverlässigkeit', 'Reliability');
 
   // Hourly distribution chart data
   const hoursData = [];
@@ -216,9 +210,15 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
         <StatCard testId="metric-listeners" label={t('Live-Zuhörer', 'Live listeners')} value={basic.listenersNow ?? 0} accent="#00F0FF" />
         <StatCard testId="metric-streams" label={t('Aktive Streams', 'Active streams')} value={basic.activeStreams ?? 0} accent="#10B981" />
         <StatCard testId="metric-peak" label={t('Peak-Zuhörer', 'Peak listeners')} value={basic.peakListeners ?? 0} accent="#8B5CF6" />
-        <StatCard testId="metric-total-time" label={t('Gesamte Hörzeit', 'Total listening')} value={formatMsShort(totalListeningMs)} accent="#F59E0B" sub={formatMs(totalListeningMs)} />
-        <StatCard testId="metric-sessions" label={t('Sessions gesamt', 'Total sessions')} value={totalSessions} accent="#06B6D4" />
-        <StatCard testId="metric-reliability" label={t('Zuverlässigkeit', 'Reliability')} value={`${reliability}%`} accent={reliability >= 95 ? '#10B981' : reliability >= 80 ? '#F59E0B' : '#EF4444'} sub={`${totalConnections} ${t('Verbindungen', 'connections')}`} />
+        <StatCard
+          testId="metric-total-time"
+          label={t('Gesamte Hörzeit', 'Total listening')}
+          value={totalListeningShort}
+          accent="#F59E0B"
+          sub={totalListeningLong !== totalListeningShort ? totalListeningLong : undefined}
+        />
+        <StatCard testId="metric-sessions" label={t('Abgeschlossene Sessions', 'Completed sessions')} value={totalSessions} accent="#06B6D4" />
+        <StatCard testId="metric-reliability" label={reliabilityLabel} value={reliabilitySummary.value} accent={reliabilitySummary.accent} sub={reliabilitySummary.sub} />
       </div>
 
       {/* Row 2: Active sessions */}
@@ -235,7 +235,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
               }}>
                 <span style={{ fontWeight: 600 }}>{s.stationName || s.stationKey || '-'}</span>
                 <span style={{ color: '#71717A', fontSize: 13 }}>
-                  {s.currentListeners} {t('Zuhörer', 'listeners')} | Avg {s.currentAvgListeners ?? 0} | {t('Hörzeit', 'Listening')}: {formatMs(s.currentHumanListeningMs)} | {t('Dauer', 'Runtime')}: {formatMs(s.currentDurationMs)}
+                  {s.currentListeners} {t('Zuhörer', 'listeners')} | {t('Durchschn.', 'Avg')} {s.currentAvgListeners ?? 0} | {t('Hörzeit', 'Listening')}: {formatDashboardDuration(s.currentHumanListeningMs)} | {t('Dauer', 'Runtime')}: {formatDashboardDuration(s.currentDurationMs)}
                 </span>
               </div>
             ))}
@@ -246,7 +246,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
       {/* Row 3: Charts */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
         {/* Hourly distribution */}
-        <ChartCard title={t('Aktivität nach Stunde', 'Activity by hour')} testId="chart-hourly">
+        <ChartCard title={t('Starts nach Stunde', 'Starts by hour')} testId="chart-hourly">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={hoursData}>
               <XAxis dataKey="hour" tick={{ fill: '#52525B', fontSize: 10 }} interval={2} />
@@ -258,7 +258,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
         </ChartCard>
 
         {/* Day of week distribution */}
-        <ChartCard title={t('Aktivität nach Wochentag', 'Activity by weekday')} testId="chart-dow">
+        <ChartCard title={t('Starts nach Wochentag', 'Starts by weekday')} testId="chart-dow">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={dowData}>
               <XAxis dataKey="day" tick={{ fill: '#52525B', fontSize: 11 }} />
@@ -273,7 +273,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
       {/* Row 4: Station breakdown + session info */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
         {stationData.length > 0 && (
-          <ChartCard title={t('Station-Verteilung', 'Station breakdown')} testId="chart-stations">
+          <ChartCard title={t('Meist gestartete Stationen', 'Most started stations')} testId="chart-stations">
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={stationData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name }) => name}>
@@ -291,19 +291,19 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
           </h4>
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Durchschn. Session', 'Avg session')}</span>
-              <strong>{formatMs(avgSession)}</strong>
+              <span style={{ color: '#71717A' }}>{t('Durchschn. Hör-Session', 'Avg listening session')}</span>
+              <strong>{formatDashboardDuration(avgSession)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Längste Session', 'Longest session')}</span>
-              <strong>{formatMs(longestSession)}</strong>
+              <span style={{ color: '#71717A' }}>{t('Längste Hör-Session', 'Longest listening session')}</span>
+              <strong>{formatDashboardDuration(longestSession)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Gesamt Starts', 'Total starts')}</span>
+              <span style={{ color: '#71717A' }}>{t('Starts gesamt', 'Lifetime starts')}</span>
               <strong>{basic.totalStarts || 0}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Reconnects', 'Reconnects')}</span>
+              <span style={{ color: '#71717A' }}>{t('Reconnects gesamt', 'Lifetime reconnects')}</span>
               <strong>{basic.totalReconnects || 0}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>

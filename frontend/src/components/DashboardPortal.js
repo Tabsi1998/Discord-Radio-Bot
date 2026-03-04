@@ -669,7 +669,6 @@ export default function DashboardPortal() {
               detailStats={detailStats}
               t={t}
               formatDate={formatDate}
-              onResetStats={resetStatsForSelectedGuild}
             />
           )}
 

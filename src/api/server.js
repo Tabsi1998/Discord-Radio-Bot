@@ -596,6 +596,27 @@ function collectGuildLiveDetails(runtimes, guildId) {
   return rows;
 }
 
+async function buildGuildChannelNameMap(guild, channelIds = []) {
+  const uniqueIds = [...new Set((Array.isArray(channelIds) ? channelIds : []).map((value) => String(value || "").trim()).filter(Boolean))];
+  if (!guild || !uniqueIds.length) return {};
+
+  try {
+    if (typeof guild.channels?.fetch === "function") {
+      await guild.channels.fetch();
+    }
+  } catch {
+    // Ignore channel fetch failures and fall back to cached names only.
+  }
+
+  return uniqueIds.reduce((map, channelId) => {
+    const channel = guild.channels?.cache?.get?.(channelId) || null;
+    if (channel?.name) {
+      map[channelId] = channel.name;
+    }
+    return map;
+  }, {});
+}
+
 function normalizeDashboardTelemetryPayload(rawTelemetry) {
   const source = rawTelemetry && typeof rawTelemetry === "object" ? rawTelemetry : {};
   const listenersByChannel = Array.isArray(source.listenersByChannel)
@@ -1766,6 +1787,11 @@ function startWebServer(runtimes) {
         ]);
 
         const listeningStats = getGuildListeningStats(guild.id) || {};
+        const { guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
+        const voiceChannelNames = await buildGuildChannelNameMap(managedGuild, [
+          ...Object.keys(listeningStats.voiceChannels || {}),
+          ...activeSessions.map((session) => session?.channelId).filter(Boolean),
+        ]);
 
         sendJson(res, 200, {
           serverId: guild.id,
@@ -1784,6 +1810,7 @@ function startWebServer(runtimes) {
             daysOfWeek: listeningStats.daysOfWeek || {},
             commands: listeningStats.commands || {},
             voiceChannels: listeningStats.voiceChannels || {},
+            voiceChannelNames,
             firstSeenAt: listeningStats.firstSeenAt || 0,
           },
           dailyStats,

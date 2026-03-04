@@ -1,21 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area,
 } from 'recharts';
-import { RotateCcw } from 'lucide-react';
+import { buildVoiceChannelUsageRows, formatDashboardDuration } from '../lib/dashboardStats';
 
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const DAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function formatMs(ms) {
-  if (!ms || ms <= 0) return '0m';
-  const totalMin = Math.floor(ms / 60000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -38,23 +29,11 @@ function Section({ title, testId, children }) {
   );
 }
 
-export default function DashboardStatsPanel({ stats, detailStats, t, formatDate, onResetStats }) {
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [resetting, setResetting] = useState(false);
+export default function DashboardStatsPanel({ stats, detailStats, t, formatDate }) {
   const basic = stats?.basic || {};
   const detail = detailStats || {};
   const isDE = t('de', 'en') === 'de';
   const dayNames = isDE ? DAYS_DE : DAYS_EN;
-
-  const handleReset = async () => {
-    setResetting(true);
-    try {
-      if (onResetStats) await onResetStats();
-    } finally {
-      setResetting(false);
-      setShowResetConfirm(false);
-    }
-  };
 
   const ls = detail.listeningStats || {};
 
@@ -95,10 +74,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
   const connHealth = detail.connectionHealth || {};
 
   // Voice channel usage
-  const channelData = Object.entries(ls.voiceChannels || {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([id, count]) => ({ id, count }));
+  const channelData = buildVoiceChannelUsageRows(ls.voiceChannels, ls.voiceChannelNames);
 
   // Hourly heatmap data
   const hoursMap = ls.hours || {};
@@ -106,57 +82,6 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
 
   return (
     <section data-testid="dashboard-stats-detail-panel" style={{ display: 'grid', gap: 12 }}>
-      {/* Stats Reset */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        {!showResetConfirm ? (
-          <button
-            data-testid="stats-reset-btn"
-            onClick={() => setShowResetConfirm(true)}
-            style={{
-              border: '1px solid #27272A', background: 'transparent', color: '#71717A',
-              padding: '6px 14px', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6,
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#EF4444'; e.currentTarget.style.color = '#EF4444'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#27272A'; e.currentTarget.style.color = '#71717A'; }}
-          >
-            <RotateCcw size={13} />
-            {t('Statistiken zurücksetzen', 'Reset statistics')}
-          </button>
-        ) : (
-          <div data-testid="stats-reset-confirm" style={{
-            display: 'flex', alignItems: 'center', gap: 10, background: '#1A0505', border: '1px solid #7F1D1D',
-            padding: '8px 14px',
-          }}>
-            <span style={{ fontSize: 12, color: '#FCA5A5' }}>
-              {t('Alle Statistiken für diesen Server unwiderruflich löschen?', 'Permanently delete all statistics for this server?')}
-            </span>
-            <button
-              data-testid="stats-reset-confirm-yes"
-              onClick={handleReset}
-              disabled={resetting}
-              style={{
-                border: '1px solid #EF4444', background: '#EF4444', color: '#fff',
-                padding: '4px 12px', cursor: resetting ? 'wait' : 'pointer', fontSize: 12, fontWeight: 600,
-                opacity: resetting ? 0.6 : 1,
-              }}
-            >
-              {resetting ? t('Lösche...', 'Deleting...') : t('Ja, löschen', 'Yes, delete')}
-            </button>
-            <button
-              data-testid="stats-reset-confirm-no"
-              onClick={() => setShowResetConfirm(false)}
-              style={{
-                border: '1px solid #27272A', background: 'transparent', color: '#A1A1AA',
-                padding: '4px 12px', cursor: 'pointer', fontSize: 12,
-              }}
-            >
-              {t('Abbrechen', 'Cancel')}
-            </button>
-          </div>
-        )}
-      </div>
-
       {/* Daily listening hours trend */}
       {dailyData.length > 0 && (
         <Section title={t('Hörzeit-Verlauf (Tage)', 'Listening hours trend (days)')} testId="stats-daily-hours">
@@ -247,10 +172,10 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
                       {s.startedAt ? formatDate(s.startedAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
                     </td>
                     <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>
-                      {formatMs(s.humanListeningMs)}
+                      {formatDashboardDuration(s.humanListeningMs)}
                     </td>
                     <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>
-                      {formatMs(s.durationMs)}
+                      {formatDashboardDuration(s.durationMs)}
                     </td>
                     <td style={{ padding: '8px 6px', textAlign: 'right', color: '#8B5CF6' }}>{s.peakListeners ?? '-'}</td>
                     <td style={{ padding: '8px 6px', textAlign: 'right', color: '#71717A' }}>{s.avgListeners ?? '-'}</td>
@@ -310,7 +235,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate,
               return (
                 <div key={ch.id} data-testid={`channel-row-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ minWidth: 180, fontSize: 13, color: '#A1A1AA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {ch.id}
+                    {ch.name}
                   </span>
                   <div style={{ flex: 1, height: 16, background: '#0F0F1A', position: 'relative' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: '#5865F2', transition: 'width 0.3s' }} />
