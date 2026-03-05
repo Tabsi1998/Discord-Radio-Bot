@@ -382,6 +382,15 @@ export function buildCommandBuilders() {
     "Show the status of all worker bots on this server",
     "Zeigt den Status aller Worker-Bots auf diesem Server"
   );
+  workers.addStringOption((option) => option
+    .setName("view")
+    .setDescription("Where to show the worker status")
+    .setDescriptionLocalizations(de("Wo der Worker-Status angezeigt werden soll"))
+    .setRequired(false)
+    .addChoices(
+      choice("Private (ephemeral)", "private", "Privat (ephemeral)"),
+      choice("Server panel", "panel", "Server-Panel")
+    ));
 
   return [
     help,

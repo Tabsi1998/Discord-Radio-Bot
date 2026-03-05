@@ -281,6 +281,7 @@ const INVITE_COMPONENT_ID_SELECT = `${INVITE_COMPONENT_PREFIX}select`;
 const INVITE_COMPONENT_ID_CLOSE = `${INVITE_COMPONENT_PREFIX}close`;
 const WORKERS_COMPONENT_PREFIX = "omnifm:workers:";
 const WORKERS_COMPONENT_ID_REFRESH = `${WORKERS_COMPONENT_PREFIX}refresh`;
+const WORKERS_COMPONENT_ID_PAGE_PREFIX = `${WORKERS_COMPONENT_PREFIX}page:`;
 
 
 const VOICE_CHANNEL_STATUS_ENABLED = String(process.env.VOICE_CHANNEL_STATUS_ENABLED ?? "1") !== "0";
@@ -2388,36 +2389,42 @@ class BotRuntime {
   }
 
   buildPresenceActivity() {
-    const activeStations = [];
-    for (const state of this.guildState.values()) {
-      if (!state.currentStationKey || !state.connection) continue;
-      activeStations.push(clipText(state.currentStationName || state.currentStationKey, 96));
-    }
+    const activeStreams = [...this.guildState.values()].filter((state) => state.currentStationKey && state.connection).length;
+    const connectedGuilds = Number(this.client?.guilds?.cache?.size || 0) || 0;
+    const publicUrlRaw = String(process.env.PUBLIC_WEB_URL || WEBSITE_URL || "").trim();
+    const publicLabel = publicUrlRaw
+      ? clipText(publicUrlRaw.replace(/^https?:\/\//i, "").replace(/\/+$/, ""), 48)
+      : "";
+    const workerSlot = Number(this.config?.index || 0) || null;
 
-    const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
-
-    if (activeStations.length === 0) {
+    if (this.role === "commander") {
+      if (activeStreams > 0) {
+        return {
+          type: ActivityType.Watching,
+          name: clipText(`🛰 Commander | ${activeStreams} active servers | /workers`, 120),
+        };
+      }
       return {
-        type: ActivityType.Listening,
-        name: publicUrl ? `${BRAND.name} | /play | ${publicUrl}` : `${BRAND.name} | /play`
+        type: ActivityType.Watching,
+        name: clipText(
+          publicLabel
+            ? `🛰 Commander | ${connectedGuilds} servers | ${publicLabel}`
+            : `🛰 Commander | ${connectedGuilds} servers | /play`,
+          120
+        ),
       };
     }
 
-    if (activeStations.length === 1) {
+    if (activeStreams > 0) {
       return {
         type: ActivityType.Listening,
-        name: activeStations[0]
+        name: clipText(`🤖 Worker ${workerSlot || "?"} | ${activeStreams} active servers`, 120),
       };
     }
 
-    // Mehrere Guilds: Zwischen Station-Namen rotieren
-    if (!this._presenceRotationIndex) this._presenceRotationIndex = 0;
-    this._presenceRotationIndex = this._presenceRotationIndex % activeStations.length;
-    const currentStation = activeStations[this._presenceRotationIndex];
-    this._presenceRotationIndex++;
     return {
       type: ActivityType.Listening,
-      name: `${currentStation} (+${activeStations.length - 1})`
+      name: clipText(`🤖 Worker ${workerSlot || "?"} | ready`, 120),
     };
   }
 
@@ -2433,13 +2440,8 @@ class BotRuntime {
       log("ERROR", `[${this.config.name}] Presence update fehlgeschlagen: ${err?.message || err}`);
     }
 
-    // Rotation starten/stoppen basierend auf Anzahl aktiver Guilds
-    const activeCount = [...this.guildState.values()].filter(s => s.currentStationKey).length;
-    if (activeCount > 1) {
-      this.startPresenceRotation();
-    } else {
-      this.stopPresenceRotation();
-    }
+    // Presence no longer rotates by station names. Keep timer disabled.
+    this.stopPresenceRotation();
   }
 
   startPresenceRotation() {
@@ -3193,7 +3195,7 @@ class BotRuntime {
     return false;
   }
 
-  async buildWorkersStatusPayload(interaction, { hint = "" } = {}) {
+  async buildWorkersStatusPayload(interaction, { hint = "", page = 0 } = {}) {
     const { t, language } = this.createInteractionTranslator(interaction);
     const guildId = String(interaction?.guildId || "").trim();
     if (!guildId) {
@@ -3210,6 +3212,8 @@ class BotRuntime {
     const guildTier = getTier(guildId);
     const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
     const statuses = this.workerManager.getAllStatuses();
+    const onlineCount = statuses.filter((ws) => ws?.online).length;
+    const activeTotal = statuses.reduce((sum, ws) => sum + (Number(ws?.activeStreams || 0) || 0), 0);
     const lines = [];
 
     for (const ws of statuses) {
@@ -3223,40 +3227,69 @@ class BotRuntime {
       let statusEmoji = "";
       let statusText = "";
       if (tierLocked) {
-        statusEmoji = "---";
+        statusEmoji = "🔒";
         statusText = t("(Upgrade erforderlich)", "(Upgrade required)");
       } else if (!ws.online) {
-        statusEmoji = "---";
+        statusEmoji = "🔴";
         statusText = t("Offline", "Offline");
       } else if (!inGuild) {
-        statusEmoji = "---";
+        statusEmoji = "📨";
         statusText = t("Nicht eingeladen", "Not invited");
       } else if (streaming) {
-        statusEmoji = ">>>";
-        statusText = `${t("Spielt", "Playing")}: ${streaming.stationName || streaming.stationKey || "-"}`;
+        statusEmoji = "🟢";
+        statusText = t("Aktiv auf diesem Server", "Active on this server");
       } else {
-        statusEmoji = "...";
+        statusEmoji = "🟡";
         statusText = t("Bereit", "Ready");
       }
 
       const botIndexText = ws.botIndex ? `, BOT_${ws.botIndex}` : "";
       lines.push(
-        `\`${statusEmoji}\` **${ws.name}** - ${statusText} (${ws.totalGuilds} Server, ${ws.activeStreams} aktiv, ${t("Slot", "Slot")} ${ws.index}${botIndexText})`
+        `${statusEmoji} **${ws.name}** - ${statusText} (${ws.totalGuilds} ${t("Server", "servers")}, ${ws.activeStreams} ${t("aktiv", "active")}, ${t("Slot", "Slot")} ${ws.index}${botIndexText})`
       );
     }
+
+    const pagedLines = [];
+    let currentPageLines = [];
+    let currentLength = 0;
+    const maxFieldLength = 1024;
+    for (const rawLine of lines) {
+      const line = clipText(String(rawLine || "-"), 320);
+      const nextLength = currentPageLines.length > 0
+        ? currentLength + 1 + line.length
+        : line.length;
+      if (nextLength > maxFieldLength && currentPageLines.length > 0) {
+        pagedLines.push(currentPageLines.join("\n"));
+        currentPageLines = [line];
+        currentLength = line.length;
+      } else {
+        currentPageLines.push(line);
+        currentLength = nextLength;
+      }
+    }
+    if (currentPageLines.length > 0) {
+      pagedLines.push(currentPageLines.join("\n"));
+    }
+    if (pagedLines.length === 0) {
+      pagedLines.push("-");
+    }
+
+    const totalPages = Math.max(1, pagedLines.length);
+    const resolvedPage = Math.max(0, Math.min(totalPages - 1, Number.parseInt(String(page || 0), 10) || 0));
+    const summaryValue = pagedLines[resolvedPage] || "-";
 
     const summaryEmbed = new EmbedBuilder()
       .setColor(BRAND.color)
       .setTitle(t("Worker-Status", "Worker status"))
       .setDescription(
         t(
-          `Plan: **${this.formatTierLabel(guildTier, language)}** | Freigeschaltet: **1-${maxIndex}**`,
-          `Plan: **${this.formatTierLabel(guildTier, language)}** | Unlocked: **1-${maxIndex}**`
+          `Plan: **${this.formatTierLabel(guildTier, language)}** | Freigeschaltet: **1-${maxIndex}**\nOnline: **${onlineCount}/${statuses.length}** | Aktiv: **${activeTotal}**`,
+          `Plan: **${this.formatTierLabel(guildTier, language)}** | Unlocked: **1-${maxIndex}**\nOnline: **${onlineCount}/${statuses.length}** | Active: **${activeTotal}**`
         )
       )
       .addFields({
         name: t("Uebersicht", "Overview"),
-        value: lines.join("\n").slice(0, 1024) || "-",
+        value: summaryValue,
         inline: false,
       });
 
@@ -3267,12 +3300,28 @@ class BotRuntime {
         inline: false,
       });
     }
+    summaryEmbed.setFooter({
+      text: t(
+        `Seite ${resolvedPage + 1}/${totalPages} | 🟢 Spielt | 🟡 Bereit | 🔴 Offline | 📨 Nicht eingeladen | 🔒 Upgrade`,
+        `Page ${resolvedPage + 1}/${totalPages} | 🟢 Playing | 🟡 Ready | 🔴 Offline | 📨 Not invited | 🔒 Upgrade`
+      ),
+    });
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(INVITE_COMPONENT_ID_OPEN)
         .setStyle(ButtonStyle.Primary)
         .setLabel(t("Worker einladen", "Invite worker")),
+      new ButtonBuilder()
+        .setCustomId(`${WORKERS_COMPONENT_ID_PAGE_PREFIX}${resolvedPage - 1}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("Zurueck", "Back"))
+        .setDisabled(resolvedPage <= 0),
+      new ButtonBuilder()
+        .setCustomId(`${WORKERS_COMPONENT_ID_PAGE_PREFIX}${resolvedPage + 1}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("Weiter", "Next"))
+        .setDisabled(resolvedPage >= (totalPages - 1)),
       new ButtonBuilder()
         .setCustomId(WORKERS_COMPONENT_ID_REFRESH)
         .setStyle(ButtonStyle.Secondary)
@@ -3307,6 +3356,21 @@ class BotRuntime {
 
     if (interaction.customId === WORKERS_COMPONENT_ID_REFRESH) {
       const payload = await this.buildWorkersStatusPayload(interaction);
+      await interaction.update(payload);
+      return true;
+    }
+
+    if (interaction.customId.startsWith(WORKERS_COMPONENT_ID_PAGE_PREFIX)) {
+      const rawPage = interaction.customId.slice(WORKERS_COMPONENT_ID_PAGE_PREFIX.length);
+      const nextPage = Number.parseInt(rawPage, 10);
+      if (!Number.isFinite(nextPage) || nextPage < 0) {
+        await interaction.reply({
+          content: t("Diese Aktion ist nicht mehr gueltig. Bitte aktualisiere die Ansicht.", "This action is no longer valid. Please refresh the view."),
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+      const payload = await this.buildWorkersStatusPayload(interaction, { page: nextPage });
       await interaction.update(payload);
       return true;
     }
@@ -6087,6 +6151,60 @@ class BotRuntime {
         });
         return;
       }
+      const view = String(interaction.options?.getString?.("view") || "private").trim().toLowerCase();
+      if (view === "panel") {
+        if (!this.hasGuildManagePermissions(interaction)) {
+          await interaction.reply({
+            content: t(
+              "Du brauchst die Berechtigung `Server verwalten`, um ein öffentliches Worker-Panel zu posten.",
+              "You need the `Manage Server` permission to post a public worker panel."
+            ),
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const channel = interaction.channel;
+        if (!channel?.isTextBased?.()) {
+          await interaction.reply({
+            content: t(
+              "In diesem Channel kann ich kein Panel posten. Nutze einen Text-Channel.",
+              "I cannot post a panel in this channel. Use a text channel."
+            ),
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const payload = await this.buildWorkersStatusPayload(interaction, {
+          hint: t(
+            "Dieses Panel bleibt im Channel sichtbar und kann über die Buttons aktualisiert werden.",
+            "This panel stays visible in the channel and can be refreshed with the buttons."
+          ),
+        });
+        try {
+          const panelMessage = await channel.send(payload);
+          const createdLabel = t("Nachricht erstellt.", "Message created.");
+          await interaction.reply({
+            content: t(
+              `Worker-Panel gepostet: ${panelMessage?.url || createdLabel}`,
+              `Worker panel posted: ${panelMessage?.url || createdLabel}`
+            ),
+            flags: MessageFlags.Ephemeral,
+          });
+        } catch (err) {
+          await interaction.reply({
+            content: t(
+              "Worker-Panel konnte nicht gepostet werden. Prüfe meine Schreibrechte in diesem Channel.",
+              "Could not post the worker panel. Check my send-message permission in this channel."
+            ),
+            flags: MessageFlags.Ephemeral,
+          });
+          log("WARN", `[${this.config.name}] Workers panel post failed guild=${guildId} channel=${channel?.id || "-"}: ${err?.message || err}`);
+        }
+        return;
+      }
+
       const payload = await this.buildWorkersStatusPayload(interaction);
       await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
       return;
@@ -6460,35 +6578,77 @@ class BotRuntime {
       const gid = interaction.guildId;
       const tierConfig = getTierConfig(gid);
       const license = getLicense(gid);
+      const tierColor = tierConfig.tier === "ultimate"
+        ? BRAND.ultimateColor
+        : (tierConfig.tier === "pro" ? BRAND.proColor : BRAND.color);
+      const dashboardUrl = withLanguageParam(DASHBOARD_URL, language);
+      const premiumUrl = withLanguageParam(BRAND.upgradeUrl || WEBSITE_URL, language);
 
-      const tierEmoji = { free: "", pro: " [PRO]", ultimate: " [ULTIMATE]" };
-      const lines = [
-        `**${BRAND.name}** ${t("Premium Status", "Premium status")}${tierEmoji[tierConfig.tier] || ""}`,
-        `Server: ${interaction.guild?.name || gid}`,
-        `${t("Server-ID", "Server ID")}: ${gid}`,
-        `Plan: ${tierConfig.name}`,
-        `Audio: ${tierConfig.bitrate} Opus`,
-        `Reconnect: ${tierConfig.reconnectMs}ms`,
-        `${t("Max Bots", "Max bots")}: ${tierConfig.maxBots}`,
-      ];
+      let licenseSummary = t("Keine aktive Lizenz.", "No active license.");
       if (license && !license.expired) {
         const expDate = new Date(license.expiresAt).toLocaleDateString(t("de-DE", "en-US"));
-        lines.push(
-          t(
-            `Laeuft ab: ${expDate} (${license.remainingDays} Tage uebrig)`,
-            `Expires: ${expDate} (${license.remainingDays} day${license.remainingDays === 1 ? "" : "s"} left)`
-          )
+        licenseSummary = t(
+          `Aktiv bis ${expDate} (${license.remainingDays} Tage uebrig)`,
+          `Active until ${expDate} (${license.remainingDays} day${license.remainingDays === 1 ? "" : "s"} left)`
         );
       } else if (license && license.expired) {
-        lines.push(t("Status: ABGELAUFEN", "Status: EXPIRED"));
+        licenseSummary = t("Abgelaufen", "Expired");
       }
+
+      const premiumEmbed = new EmbedBuilder()
+        .setColor(tierColor)
+        .setTitle(t("Premium-Status", "Premium status"))
+        .setDescription(`${BRAND.name} | ${tierConfig.name}`)
+        .addFields(
+          {
+            name: t("Server", "Server"),
+            value: `${clipText(interaction.guild?.name || gid, 120)}\n\`${gid}\``,
+            inline: false,
+          },
+          {
+            name: t("Plan", "Plan"),
+            value: [
+              `**${tierConfig.name}**`,
+              `Audio: ${tierConfig.bitrate} Opus`,
+              `Reconnect: ${tierConfig.reconnectMs}ms`,
+              `${t("Max Bots", "Max bots")}: ${tierConfig.maxBots}`,
+            ].join("\n"),
+            inline: true,
+          },
+          {
+            name: t("Lizenz", "License"),
+            value: licenseSummary,
+            inline: true,
+          }
+        );
+
       if (tierConfig.tier === "free") {
-        lines.push("", t(`Upgrade auf ${BRAND.name} Pro/Ultimate für höhere Qualität!`, `Upgrade to ${BRAND.name} Pro/Ultimate for higher quality!`));
-        lines.push(t("Infos & Support: https://discord.gg/UeRkfGS43R", "Info & support: https://discord.gg/UeRkfGS43R"));
-      } else {
-        lines.push("", "Support: https://discord.gg/UeRkfGS43R");
+        premiumEmbed.addFields({
+          name: t("Upgrade", "Upgrade"),
+          value: t(
+            `Upgrade auf ${BRAND.name} Pro oder Ultimate fuer bessere Audioqualitaet, mehr Worker und schnellere Reconnects.`,
+            `Upgrade to ${BRAND.name} Pro or Ultimate for better audio quality, more workers, and faster reconnects.`
+          ),
+          inline: false,
+        });
       }
-      await interaction.reply({ content: lines.join("\n"), flags: MessageFlags.Ephemeral });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel(t("Dashboard", "Dashboard"))
+          .setURL(dashboardUrl),
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel(t("Premium", "Premium"))
+          .setURL(premiumUrl),
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel(t("Support", "Support"))
+          .setURL(SUPPORT_URL)
+      );
+
+      await interaction.reply({ embeds: [premiumEmbed], components: [row], flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -6532,20 +6692,48 @@ class BotRuntime {
       const restartPending = activeState.streamRestartTimer ? t("ja", "yes") : t("nein", "no");
       const reconnectPending = activeState.reconnectTimer ? t("ja", "yes") : t("nein", "no");
       const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+      const resolvedChannel = /^\d{16,22}$/.test(String(channelId))
+        ? `<#${channelId}>`
+        : String(channelId || "-");
 
-      const content = [
-        `Bot: ${activeRuntime.config.name}`,
-        `Server: ${interaction.guild?.name || interaction.guildId}`,
-        `Plan: ${diag.tier.toUpperCase()} | preset=${diag.preset} | transcode=${diag.transcodeEnabled ? "on" : "off"} (${diag.transcodeMode})`,
-        `Bitrate Ziel: ${diag.bitrateOverride || "-"} (${diag.requestedBitrateKbps}k) | Profil: ${diag.profile}`,
-        `FFmpeg Buffer: queue=${diag.queue} probe=${diag.probeSize} analyzeUs=${diag.analyzeUs}`,
-        `Verbunden: ${connected} | Channel: ${channelId} | Station: ${station}`,
-        `Stream-Laufzeit: ${diag.streamLifetimeSec}s | Errors in Reihe: ${activeState.streamErrorCount || 0}`,
-        `Restart geplant: ${restartPending} | Reconnect geplant: ${reconnectPending}`,
-        `Netz-Cooldown: ${networkHoldMs > 0 ? `${Math.round(networkHoldMs)}ms` : "0ms"}`,
-      ].join("\n");
+      const diagEmbed = new EmbedBuilder()
+        .setColor(connected === t("ja", "yes") ? BRAND.proColor : BRAND.color)
+        .setTitle(t("Stream-Diagnose", "Stream diagnostics"))
+        .setDescription(`${activeRuntime.config.name} | ${interaction.guild?.name || interaction.guildId}`)
+        .addFields(
+          {
+            name: t("Stream-Profil", "Stream profile"),
+            value: [
+              `Plan: ${diag.tier.toUpperCase()}`,
+              `preset=${diag.preset}`,
+              `transcode=${diag.transcodeEnabled ? "on" : "off"} (${diag.transcodeMode})`,
+              `${t("Bitrate Ziel", "Target bitrate")}: ${diag.bitrateOverride || "-"} (${diag.requestedBitrateKbps}k)`,
+              `${t("Profil", "Profile")}: ${diag.profile}`,
+            ].join("\n"),
+            inline: false,
+          },
+          {
+            name: "FFmpeg",
+            value: `queue=${diag.queue} | probe=${diag.probeSize} | analyzeUs=${diag.analyzeUs}`,
+            inline: false,
+          },
+          {
+            name: t("Wiedergabe", "Playback"),
+            value: [
+              `${t("Verbunden", "Connected")}: ${connected}`,
+              `Channel: ${resolvedChannel}`,
+              `Station: ${station}`,
+              `${t("Stream-Laufzeit", "Stream lifetime")}: ${diag.streamLifetimeSec}s`,
+              `${t("Fehler (Reihe)", "Errors (streak)")}: ${activeState.streamErrorCount || 0}`,
+              `${t("Restart geplant", "Restart pending")}: ${restartPending}`,
+              `${t("Reconnect geplant", "Reconnect pending")}: ${reconnectPending}`,
+              `${t("Netz-Cooldown", "Network cooldown")}: ${networkHoldMs > 0 ? `${Math.round(networkHoldMs)}ms` : "0ms"}`,
+            ].join("\n"),
+            inline: false,
+          }
+        );
 
-      await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [diagEmbed], flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -6563,19 +6751,39 @@ class BotRuntime {
       const load = os.loadavg().map((v) => v.toFixed(2)).join(", ");
       const mem = `${Math.round(process.memoryUsage().rss / (1024 * 1024))}MB`;
       const station = activeState.currentStationKey || "-";
+      const resolvedChannel = /^\d{16,22}$/.test(String(channelId))
+        ? `<#${channelId}>`
+        : String(channelId || "-");
 
-      const content = [
-        `Bot: ${activeRuntime.config.name}`,
-        `${t("Guilds (dieser Bot)", "Guilds (this bot)")}: ${activeRuntime.client.guilds.cache.size}`,
-        `${t("Verbunden", "Connected")}: ${connected}`,
-        `Channel: ${channelId}`,
-        `Station: ${station}`,
-        `Uptime: ${uptimeSec}s`,
-        `Load: ${load}`,
-        `RAM: ${mem}`
-      ].join("\n");
+      const statusEmbed = new EmbedBuilder()
+        .setColor(connected === t("ja", "yes") ? BRAND.proColor : BRAND.color)
+        .setTitle(t("Bot-Status", "Bot status"))
+        .setDescription(`${activeRuntime.config.name} | ${interaction.guild?.name || interaction.guildId}`)
+        .addFields(
+          {
+            name: t("Runtime", "Runtime"),
+            value: [
+              `${t("Guilds (dieser Bot)", "Guilds (this bot)")}: ${activeRuntime.client.guilds.cache.size}`,
+              `Uptime: ${uptimeSec}s`,
+              `Load: ${load}`,
+              `RAM: ${mem}`,
+            ].join("\n"),
+            inline: false,
+          },
+          {
+            name: t("Wiedergabe", "Playback"),
+            value: [
+              `${t("Verbunden", "Connected")}: ${connected}`,
+              `Channel: ${resolvedChannel}`,
+              `Station: ${station}`,
+              `${t("Reconnects", "Reconnects")}: ${activeState.reconnectCount || 0}`,
+              `${t("Fehler (Reihe)", "Errors (streak)")}: ${activeState.streamErrorCount || 0}`,
+            ].join("\n"),
+            inline: false,
+          }
+        );
 
-      await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [statusEmbed], flags: MessageFlags.Ephemeral });
       return;
     }
 

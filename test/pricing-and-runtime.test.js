@@ -261,6 +261,95 @@ test("help payload exposes dashboard, website, support and premium links", () =>
   assert.equal(linkButtons[3].label, "💎 Premium");
 });
 
+test("workers status payload paginates and exposes page controls", async () => {
+  const statuses = Array.from({ length: 18 }, (_, index) => ({
+    index: index + 1,
+    botIndex: index + 1,
+    name: `Worker ${index + 1}`,
+    online: true,
+    totalGuilds: 100 + index,
+    activeStreams: index % 4,
+    streams: index === 0 ? [{ guildId: "guild-1", stationName: "Deep House Session" }] : [],
+  }));
+
+  const fakeRuntime = {
+    workerManager: {
+      getMaxWorkerIndex() {
+        return 16;
+      },
+      getAllStatuses() {
+        return statuses;
+      },
+      getWorkerByIndex() {
+        return {
+          client: {
+            guilds: {
+              cache: {
+                has(guildId) {
+                  return guildId === "guild-1";
+                },
+              },
+            },
+          },
+        };
+      },
+    },
+    createInteractionTranslator() {
+      return {
+        language: "en",
+        t: (de, en) => en,
+      };
+    },
+    formatTierLabel() {
+      return "Free";
+    },
+  };
+
+  const interaction = { guildId: "guild-1" };
+  const firstPage = await BotRuntime.prototype.buildWorkersStatusPayload.call(fakeRuntime, interaction, { page: 0 });
+  const secondPage = await BotRuntime.prototype.buildWorkersStatusPayload.call(fakeRuntime, interaction, { page: 1 });
+
+  const firstValue = firstPage?.embeds?.[0]?.data?.fields?.[0]?.value || "";
+  const secondValue = secondPage?.embeds?.[0]?.data?.fields?.[0]?.value || "";
+  assert.notEqual(firstValue, secondValue);
+  assert.match(String(firstPage?.embeds?.[0]?.data?.footer?.text || ""), /^Page 1\/\d+/);
+  assert.match(String(secondPage?.embeds?.[0]?.data?.footer?.text || ""), /^Page 2\/\d+/);
+
+  const firstButtons = firstPage?.components?.[0]?.components?.map((button) => button?.data || {}) || [];
+  assert.equal(firstButtons.length, 4);
+  assert.equal(firstButtons[1]?.disabled, true);
+  assert.equal(firstButtons[2]?.disabled, false);
+  assert.match(String(firstButtons[2]?.custom_id || ""), /^omnifm:workers:page:/);
+});
+
+test("presence summarizes role and active server counts instead of station names", () => {
+  const commanderRuntime = {
+    role: "commander",
+    config: { index: 1 },
+    client: { guilds: { cache: { size: 42 } } },
+    guildState: new Map([
+      ["g1", { currentStationKey: "chill", currentStationName: "Chillout FM", connection: {} }],
+      ["g2", { currentStationKey: "hiphop", currentStationName: "Hip Hop Radio", connection: {} }],
+    ]),
+  };
+  const workerRuntime = {
+    role: "worker",
+    config: { index: 7 },
+    client: { guilds: { cache: { size: 8 } } },
+    guildState: new Map([
+      ["g1", { currentStationKey: "house", currentStationName: "House Beats", connection: {} }],
+    ]),
+  };
+
+  const commanderPresence = BotRuntime.prototype.buildPresenceActivity.call(commanderRuntime);
+  const workerPresence = BotRuntime.prototype.buildPresenceActivity.call(workerRuntime);
+
+  assert.match(String(commanderPresence?.name || ""), /Commander \| 2 active servers/);
+  assert.doesNotMatch(String(commanderPresence?.name || ""), /Chillout FM|Hip Hop Radio/);
+  assert.match(String(workerPresence?.name || ""), /Worker 7 \| 1 active servers/);
+  assert.doesNotMatch(String(workerPresence?.name || ""), /House Beats/);
+});
+
 test("programmatic stop routes through resetVoiceSession so listening sessions are finalized", () => {
   let resetArgs = null;
   const fakeState = { shouldReconnect: true };
@@ -724,4 +813,17 @@ test("slash commands expose English defaults with German localizations", () => {
   assert.ok(language);
   assert.equal(language.description, "Manage the language for this server");
   assert.equal(language.description_localizations.de, "Sprache für diesen Server verwalten");
+});
+
+test("workers command exposes private and panel view options", () => {
+  const commands = buildCommandsJson();
+  const workers = commands.find((command) => command.name === "workers");
+  assert.ok(workers);
+
+  const viewOption = (workers.options || []).find((option) => option.name === "view");
+  assert.ok(viewOption);
+  const choices = Array.isArray(viewOption.choices) ? viewOption.choices : [];
+  assert.equal(choices.length, 2);
+  assert.equal(choices[0].value, "private");
+  assert.equal(choices[1].value, "panel");
 });
