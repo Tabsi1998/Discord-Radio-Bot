@@ -252,6 +252,27 @@ function resolveWebsiteUrl() {
 }
 
 const WEBSITE_URL = resolveWebsiteUrl();
+function resolveDashboardUrl() {
+  const base = String(WEBSITE_URL || "").replace(/\/+$/, "");
+  return `${base}/?page=dashboard`;
+}
+const DASHBOARD_URL = resolveDashboardUrl();
+function withLanguageParam(url, language) {
+  const safeUrl = String(url || "").trim();
+  if (!safeUrl) return safeUrl;
+  const lang = normalizeLanguage(language, getDefaultLanguage());
+  try {
+    const parsed = new URL(safeUrl);
+    parsed.searchParams.set("lang", lang);
+    return parsed.toString();
+  } catch {
+    const hashIndex = safeUrl.indexOf("#");
+    const base = hashIndex >= 0 ? safeUrl.slice(0, hashIndex) : safeUrl;
+    const hash = hashIndex >= 0 ? safeUrl.slice(hashIndex) : "";
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}lang=${encodeURIComponent(lang)}${hash}`;
+  }
+}
 const SUPPORT_URL = "https://discord.gg/UeRkfGS43R";
 const INVITE_COMPONENT_PREFIX = "omnifm:invite:";
 const INVITE_COMPONENT_ID_OPEN = `${INVITE_COMPONENT_PREFIX}open`;
@@ -568,6 +589,8 @@ class BotRuntime {
   buildOnboardingMessagePayload(guild) {
     const language = this.resolveGuildLanguage(guild?.id);
     const isDe = language === "de";
+    const dashboardUrl = withLanguageParam(DASHBOARD_URL, language);
+    const websiteUrl = withLanguageParam(WEBSITE_URL, language);
 
     const embed = new EmbedBuilder()
       .setColor(BRAND.color)
@@ -607,11 +630,15 @@ class BotRuntime {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "Website" : "Website")
-        .setURL(WEBSITE_URL),
+        .setLabel(isDe ? "📊 Dashboard" : "📊 Dashboard")
+        .setURL(dashboardUrl),
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "Support" : "Support")
+        .setLabel(isDe ? "🌐 Website" : "🌐 Website")
+        .setURL(websiteUrl),
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "🛟 Support" : "🛟 Support")
         .setURL(SUPPORT_URL)
     );
 
@@ -3335,6 +3362,8 @@ class BotRuntime {
   buildHelpMessage(interaction) {
     const language = this.resolveInteractionLanguage(interaction);
     const isDe = language === "de";
+    const dashboardUrl = withLanguageParam(DASHBOARD_URL, language);
+    const websiteUrl = withLanguageParam(WEBSITE_URL, language);
     const guildId = interaction?.guildId;
     const tierConfig = guildId ? getTierConfig(guildId) : PLANS.free;
 
@@ -3359,6 +3388,13 @@ class BotRuntime {
           value: isDe
             ? "OmniFM erkennt Server- und Discord-Sprache automatisch. Mit `/language set value:de|en` kannst du sie fest setzen."
             : "OmniFM auto-detects the server/Discord language. Use `/language set value:de|en` to force it.",
+          inline: false,
+        },
+        {
+          name: isDe ? "Dashboard" : "Dashboard",
+          value: isDe
+            ? "Web-Dashboard mit SSO: Statistiken, Events, Abo und Server-Einstellungen."
+            : "Web dashboard with SSO: stats, events, subscription, and server settings.",
           inline: false,
         }
       );
@@ -3452,15 +3488,19 @@ class BotRuntime {
     const linkRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "Website" : "Website")
-        .setURL(WEBSITE_URL),
+        .setLabel(isDe ? "📊 Dashboard" : "📊 Dashboard")
+        .setURL(dashboardUrl),
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "Support" : "Support")
+        .setLabel(isDe ? "🌐 Website" : "🌐 Website")
+        .setURL(websiteUrl),
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(isDe ? "🛟 Support" : "🛟 Support")
         .setURL(SUPPORT_URL),
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "Premium" : "Premium")
+        .setLabel(isDe ? "💎 Premium" : "💎 Premium")
         .setURL(BRAND.upgradeUrl || WEBSITE_URL)
     );
 
@@ -7187,6 +7227,9 @@ class BotRuntime {
         listenerCount: this.getCurrentListenerCount(guildId, state),
         volume: state.volume,
         playing: Boolean(state.connection && state.currentStationKey),
+        reconnectAttempts: Number(state.reconnectAttempts || 0) || 0,
+        streamErrorCount: Number(state.streamErrorCount || 0) || 0,
+        shouldReconnect: state.shouldReconnect === true,
         meta: state.currentMeta || null,
       });
     }

@@ -232,8 +232,33 @@ test("public bot status omits guild details while dashboard status keeps them", 
     listenerCount: 7,
     volume: 80,
     playing: true,
+    reconnectAttempts: 0,
+    streamErrorCount: 0,
+    shouldReconnect: false,
     meta: { title: "Hidden Track" },
   });
+});
+
+test("help payload exposes dashboard, website, support and premium links", () => {
+  const fakeRuntime = {
+    resolveInteractionLanguage() {
+      return "en";
+    },
+  };
+
+  const payload = BotRuntime.prototype.buildHelpMessage.call(fakeRuntime, {
+    guildId: "guild-1",
+    guild: { name: "Guild One" },
+  });
+
+  const linkButtons = payload.components?.[0]?.components?.map((button) => button?.data || {}) || [];
+  assert.equal(linkButtons.length, 4);
+  assert.equal(linkButtons[0].label, "📊 Dashboard");
+  assert.match(String(linkButtons[0].url || ""), /\?page=dashboard&lang=en$/);
+  assert.equal(linkButtons[1].label, "🌐 Website");
+  assert.match(String(linkButtons[1].url || ""), /\?lang=en$/);
+  assert.equal(linkButtons[2].label, "🛟 Support");
+  assert.equal(linkButtons[3].label, "💎 Premium");
 });
 
 test("programmatic stop routes through resetVoiceSession so listening sessions are finalized", () => {

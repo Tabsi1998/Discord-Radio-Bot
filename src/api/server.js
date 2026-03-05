@@ -590,6 +590,9 @@ function collectGuildLiveDetails(runtimes, guildId) {
         channelId: detail.channelId || null,
         channelName: detail.channelName || detail.channelId || "Voice",
         listeners: Number(detail.listenerCount || 0) || 0,
+        reconnectAttempts: Number(detail.reconnectAttempts || 0) || 0,
+        streamErrorCount: Number(detail.streamErrorCount || 0) || 0,
+        shouldReconnect: detail.shouldReconnect === true,
       });
     }
   }
@@ -665,6 +668,52 @@ function normalizeDashboardTelemetryPayload(rawTelemetry) {
     dailyReport,
     stationBreakdown,
     updatedAt: clipText(source.updatedAt || new Date().toISOString(), 80),
+  };
+}
+
+function buildEventInsights(events, listeningStats, nowMs = Date.now()) {
+  const list = Array.isArray(events) ? events : [];
+  const stationStarts = listeningStats?.stationStarts || {};
+  const stationListeningMs = listeningStats?.stationListeningMs || {};
+  const stationNames = listeningStats?.stationNames || {};
+
+  const configured = list.length;
+  const active = list.filter((eventRow) => eventRow?.enabled !== false).length;
+  const enabledEvents = list.filter((eventRow) => eventRow?.enabled !== false);
+  const nextEvent = enabledEvents
+    .filter((eventRow) => Number.parseInt(String(eventRow?.runAtMs || 0), 10) > nowMs)
+    .sort((a, b) => Number.parseInt(String(a?.runAtMs || 0), 10) - Number.parseInt(String(b?.runAtMs || 0), 10))[0] || null;
+
+  const repeats = Object.entries(enabledEvents.reduce((map, eventRow) => {
+    const repeat = normalizeRepeatMode(eventRow?.repeat || "none");
+    map[repeat] = (map[repeat] || 0) + 1;
+    return map;
+  }, {}))
+    .map(([repeat, count]) => ({ repeat, count: Number(count || 0) || 0 }))
+    .sort((a, b) => b.count - a.count || a.repeat.localeCompare(b.repeat));
+
+  const topStations = Object.entries(enabledEvents.reduce((map, eventRow) => {
+    const stationKey = String(eventRow?.stationKey || "").trim();
+    if (!stationKey) return map;
+    map[stationKey] = (map[stationKey] || 0) + 1;
+    return map;
+  }, {}))
+    .map(([stationKey, eventCount]) => ({
+      stationKey,
+      stationName: stationNames?.[stationKey] || stationKey,
+      eventCount: Number(eventCount || 0) || 0,
+      starts: Number(stationStarts?.[stationKey] || 0) || 0,
+      listeningMs: Number(stationListeningMs?.[stationKey] || 0) || 0,
+    }))
+    .sort((a, b) => b.listeningMs - a.listeningMs || b.eventCount - a.eventCount || a.stationName.localeCompare(b.stationName))
+    .slice(0, 8);
+
+  return {
+    configured,
+    active,
+    nextRunAt: nextEvent?.runAtMs ? new Date(Number(nextEvent.runAtMs)).toISOString() : null,
+    repeats,
+    topStations,
   };
 }
 
@@ -758,6 +807,31 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     return { basic, advanced: null };
   }
 
+  const unstableStreams = liveRows
+    .map((row) => {
+      const streamErrors = Number(row.streamErrorCount || 0) || 0;
+      const reconnectAttempts = Number(row.reconnectAttempts || 0) || 0;
+      const issueScore = (streamErrors * 2) + reconnectAttempts;
+      return {
+        botId: row.botId,
+        botName: row.botName,
+        stationKey: row.stationKey,
+        stationName: row.stationName,
+        channelId: row.channelId,
+        channelName: row.channelName,
+        listeners: row.listeners,
+        streamErrors,
+        reconnectAttempts,
+        shouldReconnect: row.shouldReconnect === true,
+        issueScore,
+      };
+    })
+    .filter((row) => row.issueScore > 0)
+    .sort((a, b) => b.issueScore - a.issueScore || b.listeners - a.listeners || a.stationName.localeCompare(b.stationName))
+    .slice(0, 8);
+
+  const eventInsights = buildEventInsights(events, listeningStats);
+
   const advanced = {
     listenersByChannel: listenersByChannel.size
       ? [...listenersByChannel.values()].sort((a, b) => b.listeners - a.listeners || a.name.localeCompare(b.name))
@@ -771,6 +845,8 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     commands: listeningStats.commands || {},
     voiceChannels: listeningStats.voiceChannels || {},
     firstSeenAt: listeningStats.firstSeenAt || 0,
+    unstableStreams,
+    eventInsights,
   };
 
   return { basic, advanced };
@@ -1781,7 +1857,7 @@ function startWebServer(runtimes) {
         const [dailyStats, sessionHistory, connectionHealth, listenerTimeline, activeSessions] = await Promise.all([
           getGuildDailyStats(guild.id, days),
           getGuildSessionHistory(guild.id, 20),
-          getGuildConnectionHealth(guild.id, 7),
+          getGuildConnectionHealth(guild.id, days),
           getGuildListenerTimeline(guild.id, 24),
           Promise.resolve(getActiveSessionsForGuild(guild.id)),
         ]);
@@ -1792,10 +1868,35 @@ function startWebServer(runtimes) {
           ...Object.keys(listeningStats.voiceChannels || {}),
           ...activeSessions.map((session) => session?.channelId).filter(Boolean),
         ]);
+        const events = listScheduledEvents({ guildId: guild.id });
+        const eventInsights = buildEventInsights(events, listeningStats);
+        const unstableStreams = collectGuildLiveDetails(runtimes, guild.id)
+          .map((row) => {
+            const streamErrors = Number(row.streamErrorCount || 0) || 0;
+            const reconnectAttempts = Number(row.reconnectAttempts || 0) || 0;
+            const issueScore = (streamErrors * 2) + reconnectAttempts;
+            return {
+              botId: row.botId,
+              botName: row.botName,
+              stationKey: row.stationKey,
+              stationName: row.stationName,
+              channelId: row.channelId,
+              channelName: row.channelName,
+              listeners: row.listeners,
+              streamErrors,
+              reconnectAttempts,
+              shouldReconnect: row.shouldReconnect === true,
+              issueScore,
+            };
+          })
+          .filter((row) => row.issueScore > 0)
+          .sort((a, b) => b.issueScore - a.issueScore || b.listeners - a.listeners || a.stationName.localeCompare(b.stationName))
+          .slice(0, 12);
 
         sendJson(res, 200, {
           serverId: guild.id,
           tier: guild.tier,
+          days,
           listeningStats: {
             totalListeningMs: listeningStats.currentTotalListeningMs || listeningStats.totalListeningMs || 0,
             totalSessions: listeningStats.totalSessions || 0,
@@ -1826,7 +1927,10 @@ function startWebServer(runtimes) {
             avgListeners: s.avgListeners,
           })),
           connectionHealth,
+          connectionWindowDays: days,
           listenerTimeline,
+          unstableStreams,
+          eventInsights,
           activeSessions: activeSessions.map((s) => ({
             botId: s.botId,
             stationKey: s.stationKey,

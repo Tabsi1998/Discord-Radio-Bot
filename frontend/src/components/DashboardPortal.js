@@ -162,6 +162,7 @@ export default function DashboardPortal() {
   });
   const [stats, setStats] = useState({ basic: null, advanced: null, tier: 'free' });
   const [detailStats, setDetailStats] = useState(null);
+  const [detailDays, setDetailDays] = useState(30);
 
   const selectedGuild = useMemo(() => (session.guilds || []).find((g) => g.id === selectedGuildId) || null, [session.guilds, selectedGuildId]);
   const dashboardEnabled = Boolean(selectedGuild?.dashboardEnabled);
@@ -209,7 +210,7 @@ export default function DashboardPortal() {
 
       // Fetch detail stats for Ultimate users
       if (isUltimate) {
-        requests.push(apiRequest(`/api/dashboard/stats/detail?serverId=${encodeURIComponent(selectedGuildId)}&days=30`).catch(() => null));
+        requests.push(apiRequest(`/api/dashboard/stats/detail?serverId=${encodeURIComponent(selectedGuildId)}&days=${encodeURIComponent(String(detailDays))}`).catch(() => null));
       }
 
       const results = await Promise.all(requests);
@@ -233,7 +234,7 @@ export default function DashboardPortal() {
         setLoadingData(false);
       }
     }
-  }, [apiRequest, dashboardEnabled, isUltimate, selectedGuild?.tier, selectedGuildId, t]);
+  }, [apiRequest, dashboardEnabled, detailDays, isUltimate, selectedGuild?.tier, selectedGuildId, t]);
 
   useEffect(() => { refreshSession(); }, [refreshSession]);
   useEffect(() => { if (selectedGuildId) window.localStorage.setItem('omnifm.dashboard.guildId', selectedGuildId); }, [selectedGuildId]);
@@ -528,6 +529,28 @@ export default function DashboardPortal() {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {loadingData && <span data-testid="dashboard-loading-indicator" style={{ fontSize: 12, color: '#52525B' }}>{t('Lade...', 'Loading...')}</span>}
+        {activeTab === 'stats' && isUltimate && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#A1A1AA', fontSize: 12 }}>
+            <span>{t('Zeitraum', 'Range')}</span>
+            <select
+              data-testid="dashboard-stats-range-select"
+              value={detailDays}
+              onChange={(e) => setDetailDays(Math.max(1, Math.min(90, Number.parseInt(String(e.target.value || '30'), 10) || 30)))}
+              style={{
+                height: 34,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.04)',
+                color: '#fff',
+                padding: '0 8px',
+                fontSize: 12,
+              }}
+            >
+              <option value={7}>{t('7 Tage', '7 days')}</option>
+              <option value={30}>{t('30 Tage', '30 days')}</option>
+              <option value={90}>{t('90 Tage', '90 days')}</option>
+            </select>
+          </label>
+        )}
         <button
           type="button"
           data-testid="dashboard-language-toggle"

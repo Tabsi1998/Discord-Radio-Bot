@@ -58,6 +58,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
   const avgSession = basic.avgSessionMs || 0;
   const longestSession = basic.longestSessionMs || 0;
   const connectionHealth = detailStats?.connectionHealth || null;
+  const connectionWindowDays = Number(detailStats?.connectionWindowDays || detailStats?.days || 0) || 0;
   const reliabilitySummary = buildReliabilitySummary({
     connects: connectionHealth?.connects ?? basic.totalConnections ?? 0,
     errors: connectionHealth?.errors ?? basic.totalConnectionErrors ?? 0,
@@ -66,7 +67,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
   const totalListeningShort = formatDashboardDuration(totalListeningMs, { short: true });
   const totalListeningLong = formatDashboardDuration(totalListeningMs);
   const reliabilityLabel = connectionHealth
-    ? t('Zuverlässigkeit (7 Tage)', 'Reliability (7 days)')
+    ? t(`Zuverlässigkeit (${connectionWindowDays || 7} Tage)`, `Reliability (${connectionWindowDays || 7} days)`)
     : t('Zuverlässigkeit', 'Reliability');
 
   // Hourly distribution chart data

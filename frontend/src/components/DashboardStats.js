@@ -8,6 +8,23 @@ import { buildVoiceChannelUsageRows, formatDashboardDuration } from '../lib/dash
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const DAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+function formatRepeatModeLabel(repeat, t) {
+  switch (String(repeat || '').trim().toLowerCase()) {
+    case 'none': return t('Keine Wiederholung', 'No repeat');
+    case 'daily': return t('Täglich', 'Daily');
+    case 'weekdays': return t('Werktags', 'Weekdays');
+    case 'weekly': return t('Wöchentlich', 'Weekly');
+    case 'biweekly': return t('Alle 2 Wochen', 'Every 2 weeks');
+    case 'yearly': return t('Jährlich', 'Yearly');
+    case 'monthly_first_weekday': return t('Monatlich (1. Wochentag)', 'Monthly (1st weekday)');
+    case 'monthly_second_weekday': return t('Monatlich (2. Wochentag)', 'Monthly (2nd weekday)');
+    case 'monthly_third_weekday': return t('Monatlich (3. Wochentag)', 'Monthly (3rd weekday)');
+    case 'monthly_fourth_weekday': return t('Monatlich (4. Wochentag)', 'Monthly (4th weekday)');
+    case 'monthly_last_weekday': return t('Monatlich (letzter Wochentag)', 'Monthly (last weekday)');
+    default: return String(repeat || '-');
+  }
+}
+
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -36,6 +53,9 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
   const dayNames = isDE ? DAYS_DE : DAYS_EN;
 
   const ls = detail.listeningStats || {};
+  const detailDays = Math.max(1, Number.parseInt(String(detail.days || detail.connectionWindowDays || 30), 10) || 30);
+  const unstableStreams = Array.isArray(detail.unstableStreams) ? detail.unstableStreams : [];
+  const eventInsights = detail.eventInsights && typeof detail.eventInsights === 'object' ? detail.eventInsights : null;
 
   // Station listening time ranking
   const stationTimeData = Object.entries(ls.stationListeningMs || {})
@@ -84,7 +104,7 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
     <section data-testid="dashboard-stats-detail-panel" style={{ display: 'grid', gap: 12 }}>
       {/* Daily listening hours trend */}
       {dailyData.length > 0 && (
-        <Section title={t('Hörzeit-Verlauf (Tage)', 'Listening hours trend (days)')} testId="stats-daily-hours">
+        <Section title={t(`Hörzeit-Verlauf (${detailDays} Tage)`, `Listening hours trend (${detailDays} days)`)} testId="stats-daily-hours">
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={dailyData}>
               <defs>
@@ -187,8 +207,89 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
         </Section>
       )}
 
+      {/* Unstable stream candidates */}
+      {unstableStreams.length > 0 && (
+        <Section title={t('Instabile Streams (live)', 'Unstable streams (live)')} testId="stats-unstable-streams">
+          <div style={{ display: 'grid', gap: 6 }}>
+            {unstableStreams.map((row, i) => (
+              <div key={`${row.botId || 'bot'}-${row.stationKey || i}`} data-testid={`unstable-stream-row-${i}`} style={{
+                border: '1px solid #1A1A2E',
+                background: '#050505',
+                padding: '8px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                flexWrap: 'wrap',
+              }}>
+                <span style={{ fontWeight: 600 }}>
+                  {row.stationName || row.stationKey || '-'}
+                </span>
+                <span style={{ color: '#A1A1AA', fontSize: 12 }}>
+                  {row.botName || row.botId || 'Bot'} | {t('Reconnects', 'Reconnects')}: {row.reconnectAttempts ?? 0} | {t('Fehler-Streak', 'Error streak')}: {row.streamErrors ?? 0} | {t('Zuhörer', 'Listeners')}: {row.listeners ?? 0}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Event analytics */}
+      {eventInsights && (
+        <Section title={t('Event-Analytics', 'Event analytics')} testId="stats-event-analytics">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 12 }}>
+            <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
+              <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('Events gesamt', 'Total events')}</div>
+              <strong style={{ fontSize: 24, color: '#8B5CF6' }}>{eventInsights.configured || 0}</strong>
+            </div>
+            <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
+              <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('Aktive Events', 'Active events')}</div>
+              <strong style={{ fontSize: 24, color: '#10B981' }}>{eventInsights.active || 0}</strong>
+            </div>
+            <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
+              <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('Nächster Run', 'Next run')}</div>
+              <strong style={{ fontSize: 14, color: '#D4D4D8' }}>
+                {eventInsights.nextRunAt ? formatDate(eventInsights.nextRunAt, { dateStyle: 'medium', timeStyle: 'short' }) : t('Keiner', 'None')}
+              </strong>
+            </div>
+          </div>
+
+          {Array.isArray(eventInsights.repeats) && eventInsights.repeats.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ color: '#71717A', fontSize: 12, marginBottom: 6 }}>{t('Wiederholungen', 'Recurrence')}</div>
+              <div style={{ display: 'grid', gap: 4 }}>
+                {eventInsights.repeats.map((item, i) => (
+                  <div key={`${item.repeat}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span>{formatRepeatModeLabel(item.repeat, t)}</span>
+                    <strong>{item.count || 0}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {Array.isArray(eventInsights.topStations) && eventInsights.topStations.length > 0 && (
+            <div>
+              <div style={{ color: '#71717A', fontSize: 12, marginBottom: 6 }}>{t('Event-Stationen (Top)', 'Top event stations')}</div>
+              <div style={{ display: 'grid', gap: 4 }}>
+                {eventInsights.topStations.map((row, i) => (
+                  <div key={`${row.stationKey || row.stationName || i}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {row.stationName || row.stationKey || '-'}
+                    </span>
+                    <strong>
+                      {row.eventCount || 0} {t('Events', 'events')} | {Math.round((Number(row.listeningMs || 0) / 60000) * 10) / 10}m
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
+
       {/* Connection health */}
-      <Section title={t('Verbindungsgesundheit (7 Tage)', 'Connection health (7 days)')} testId="stats-connection-health">
+      <Section title={t(`Verbindungsgesundheit (${detailDays} Tage)`, `Connection health (${detailDays} days)`)} testId="stats-connection-health">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 12 }}>
           <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
             <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('Verbindungen', 'Connects')}</div>
