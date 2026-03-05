@@ -57,6 +57,8 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
   const totalSessions = basic.totalSessions || 0;
   const avgSession = basic.avgSessionMs || 0;
   const longestSession = basic.longestSessionMs || 0;
+  const topStationByStarts = basic.topStationByStarts || null;
+  const topStationByListening = basic.topStationByListening || null;
   const connectionHealth = detailStats?.connectionHealth || null;
   const connectionWindowDays = Number(detailStats?.connectionWindowDays || detailStats?.days || 0) || 0;
   const reliabilitySummary = buildReliabilitySummary({
@@ -274,7 +276,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
       {/* Row 4: Station breakdown + session info */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
         {stationData.length > 0 && (
-          <ChartCard title={t('Meist gestartete Stationen', 'Most started stations')} testId="chart-stations">
+          <ChartCard title={t('Meist gestartete Stationen (Starts)', 'Most started stations (starts)')} testId="chart-stations">
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={stationData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name }) => name}>
@@ -290,13 +292,19 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
           <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 16, color: '#D4D4D8', marginBottom: 14 }}>
             {t('Session-Details', 'Session details')}
           </h4>
+          <p style={{ color: '#71717A', fontSize: 12, marginTop: -6, marginBottom: 12 }}>
+            {t(
+              'Eine Session ist ein abgeschlossener Stream-Lauf pro Bot (Start bis Stop/Neustart).',
+              'A session is one completed stream run per bot (start until stop/restart).'
+            )}
+          </p>
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Durchschn. Hör-Session', 'Avg listening session')}</span>
+              <span style={{ color: '#71717A' }}>{t('Durchschn. Hörzeit / Session', 'Avg listening time / session')}</span>
               <strong>{formatDashboardDuration(avgSession)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Längste Hör-Session', 'Longest listening session')}</span>
+              <span style={{ color: '#71717A' }}>{t('Längste Hörzeit / Session', 'Longest listening time / session')}</span>
               <strong>{formatDashboardDuration(longestSession)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
@@ -307,9 +315,17 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
               <span style={{ color: '#71717A' }}>{t('Reconnects gesamt', 'Lifetime reconnects')}</span>
               <strong>{basic.totalReconnects || 0}</strong>
             </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
+              <span style={{ color: '#71717A' }}>{t('Top Station (Hörzeit)', 'Top station (listening time)')}</span>
+              <strong style={{ maxWidth: 180, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                {topStationByListening?.name || basic.topStation?.name || '-'}
+              </strong>
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#71717A' }}>{t('Top Station', 'Top station')}</span>
-              <strong style={{ maxWidth: 180, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{basic.topStation?.name || '-'}</strong>
+              <span style={{ color: '#71717A' }}>{t('Meist gestartet', 'Most started')}</span>
+              <strong style={{ maxWidth: 180, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                {topStationByStarts?.name || '-'}
+              </strong>
             </div>
           </div>
         </div>

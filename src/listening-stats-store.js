@@ -734,7 +734,12 @@ export async function endListeningSession(guildId, { botId = "" } = {}) {
     if (stats.totalSessions > 0) {
       stats.avgSessionMs = Math.round(stats.totalListeningMs / stats.totalSessions);
     }
-    incrementBucket(stats.stationListeningMs, session.stationKey, humanListeningMs, 120);
+    const stationListeningIncrement = Math.max(0, Number(humanListeningMs || 0) || 0);
+    if (stationListeningIncrement > 0) {
+      const stationListeningKey = normalizeText(session.stationKey, 120) || "unknown";
+      stats.stationListeningMs[stationListeningKey] =
+        normalizeCount(stats.stationListeningMs[stationListeningKey]) + stationListeningIncrement;
+    }
   }
 
   appendFallbackSessionHistory(gid, completedSession);

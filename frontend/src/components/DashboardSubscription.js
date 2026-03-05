@@ -71,15 +71,21 @@ function DashboardCheckoutModal({
   locale,
   onSubmit,
   allowUpgrade,
+  hasBillingEmail,
 }) {
   const [months, setMonths] = useState(3);
   const [tier, setTier] = useState(initialTier);
+  const [billingEmail, setBillingEmail] = useState('');
   const accent = TIER_COLORS[tier] || '#8B5CF6';
+  const requiresBillingEmail = hasBillingEmail === false;
+  const normalizedBillingEmail = String(billingEmail || '').trim().toLowerCase();
+  const hasValidBillingEmailInput = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedBillingEmail);
 
   useEffect(() => {
     if (!open) return;
     setTier(initialTier);
     setMonths(initialTier === 'ultimate' ? 1 : 3);
+    setBillingEmail('');
   }, [initialTier, open]);
 
   useEffect(() => {
@@ -148,8 +154,8 @@ function DashboardCheckoutModal({
             </h3>
             <p style={{ color: '#A1A1AA', marginTop: 8, lineHeight: 1.6, fontSize: 14 }}>
               {t(
-                'Stripe öffnet sich direkt mit der bestehenden Lizenz-E-Mail. Du wählst nur Laufzeit und bei Pro optional das Upgrade auf Ultimate.',
-                'Stripe opens directly with the existing license email. You only choose the duration and, for Pro, optionally an upgrade to Ultimate.'
+                'Stripe öffnet sich direkt mit der hinterlegten Lizenz-E-Mail. Du wählst nur Laufzeit und bei Pro optional das Upgrade auf Ultimate.',
+                'Stripe opens directly with the stored license email. You only choose the duration and, for Pro, optionally an upgrade to Ultimate.'
               )}
             </p>
           </div>
@@ -207,6 +213,34 @@ function DashboardCheckoutModal({
           </div>
         </div>
 
+        {requiresBillingEmail ? (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              {t('Abrechnungs-E-Mail', 'Billing email')}
+            </div>
+            <input
+              type="email"
+              value={billingEmail}
+              onChange={(event) => setBillingEmail(event.target.value)}
+              placeholder={t('name@beispiel.de', 'name@example.com')}
+              style={{
+                height: 42,
+                border: `1px solid ${hasValidBillingEmailInput || !normalizedBillingEmail ? '#1A1A2E' : 'rgba(252,165,165,0.4)'}`,
+                background: '#050505',
+                color: '#fff',
+                padding: '0 12px',
+                outline: 'none',
+              }}
+            />
+            <div style={{ fontSize: 12, color: '#A1A1AA' }}>
+              {t(
+                'Für diese Lizenz ist keine gültige E-Mail gespeichert. Bitte hier eingeben, damit Stripe geöffnet werden kann.',
+                'No valid email is stored for this license. Enter one here so Stripe can open.'
+              )}
+            </div>
+          </div>
+        ) : null}
+
         <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 16, display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
             <span style={{ color: '#71717A' }}>{t('Zielplan', 'Target plan')}</span>
@@ -230,15 +264,16 @@ function DashboardCheckoutModal({
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button
-            onClick={() => onSubmit({ months, tier })}
-            disabled={loading}
+            onClick={() => onSubmit({ months, tier, email: normalizedBillingEmail || undefined })}
+            disabled={loading || (requiresBillingEmail && !hasValidBillingEmailInput)}
             style={{
               border: 'none',
               background: accent,
               color: '#fff',
               padding: '12px 16px',
               fontWeight: 700,
-              cursor: loading ? 'wait' : 'pointer',
+              cursor: (loading || (requiresBillingEmail && !hasValidBillingEmailInput)) ? 'not-allowed' : 'pointer',
+              opacity: (loading || (requiresBillingEmail && !hasValidBillingEmailInput)) ? 0.65 : 1,
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
@@ -333,7 +368,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
     setCheckoutOpen(true);
   }, []);
 
-  const startCheckout = useCallback(async ({ months, tier }) => {
+  const startCheckout = useCallback(async ({ months, tier, email }) => {
     if (!selectedGuildId) return;
     setCheckoutLoading(true);
     setCheckoutError('');
@@ -343,6 +378,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
         body: JSON.stringify({
           months,
           tier,
+          email,
           language: locale,
           returnUrl: `${window.location.origin}/?page=dashboard&lang=${encodeURIComponent(locale)}`,
         }),
@@ -629,6 +665,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
         locale={localeMeta.intl}
         onSubmit={startCheckout}
         allowUpgrade={canUpgradeToUltimate}
+        hasBillingEmail={lic ? Boolean(lic.hasBillingEmail || lic.emailMasked) : true}
       />
     </section>
   );

@@ -300,6 +300,31 @@ export function extendLicense(licenseId, months) {
   return lic;
 }
 
+export function updateLicenseContactEmail(licenseId, contactEmail, preferredLanguage = "") {
+  const lid = String(licenseId || "").trim();
+  const normalizedEmail = normalizeContactEmail(contactEmail);
+  if (!lid || !normalizedEmail) return null;
+
+  const data = load();
+  const lic = data.licenses[lid];
+  if (!lic) return null;
+
+  lic.contactEmail = normalizedEmail;
+  if (preferredLanguage) {
+    lic.preferredLanguage = normalizeLanguage(preferredLanguage, getDefaultLanguage());
+  }
+  lic.updatedAt = new Date().toISOString();
+  save(data);
+
+  return {
+    ...lic,
+    expired: isExpired(lic),
+    remainingDays: remainingDays(lic),
+    seatsUsed: (lic.linkedServerIds || []).length,
+    seatsAvailable: Number(lic.seats || 0) - (lic.linkedServerIds || []).length,
+  };
+}
+
 export function listLicensesByContactEmail(email) {
   const normalizedEmail = normalizeContactEmail(email);
   if (!normalizedEmail) return [];

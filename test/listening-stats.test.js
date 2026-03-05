@@ -179,6 +179,28 @@ test("guild listening stats include active station listening time before a sessi
   });
 });
 
+test("sessions without listeners do not add synthetic station listening time", async () => {
+  await withIsolatedStatsStore(async ({ setNow }) => {
+    const startedAtMs = Date.UTC(2026, 2, 4, 15, 0, 0);
+    setNow(startedAtMs);
+    startListeningSession(TEST_GUILD_ID, {
+      botId: "bot-3",
+      stationKey: "silentstation",
+      stationName: "Silent Station",
+      channelId: "voice-3",
+      listenerCount: 0,
+    });
+
+    setNow(startedAtMs + (10 * 60 * 1000));
+    await endListeningSession(TEST_GUILD_ID, { botId: "bot-3" });
+
+    const stats = getGuildListeningStats(TEST_GUILD_ID);
+    assert.equal(stats.totalSessions, 1);
+    assert.equal(stats.totalListeningMs, 0);
+    assert.equal(stats.stationListeningMs.silentstation, undefined);
+  });
+});
+
 test("listener timeline fallback deduplicates unchanged samples but keeps later buckets and changes", async () => {
   await withIsolatedStatsStore(async ({ setNow }) => {
     const startedAtMs = Date.UTC(2026, 2, 4, 9, 0, 0);

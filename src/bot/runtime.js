@@ -4428,11 +4428,14 @@ class BotRuntime {
 
     // Debug + state change logging for voice connection diagnostics
     connection.on("stateChange", (oldState, newState) => {
-      log("INFO", `[${botName}] VoiceState: ${oldState.status} -> ${newState.status} guild=${guildId}`);
+      const oldStatus = String(oldState?.status || "");
+      const newStatus = String(newState?.status || "");
+      if (!newStatus || oldStatus === newStatus) return;
+      log("INFO", `[${botName}] VoiceState: ${oldStatus} -> ${newStatus} guild=${guildId}`);
       // Workaround: Force networking reconfiguration when connection drops from Ready to Connecting
       if (
-        newState.status === VoiceConnectionStatus.Connecting &&
-        (oldState.status === VoiceConnectionStatus.Ready || oldState.status === VoiceConnectionStatus.Signalling)
+        newStatus === VoiceConnectionStatus.Connecting &&
+        (oldStatus === VoiceConnectionStatus.Ready || oldStatus === VoiceConnectionStatus.Signalling)
       ) {
         try { connection.configureNetworking(); } catch {}
       }
@@ -5564,10 +5567,13 @@ class BotRuntime {
     });
 
     connection.on("stateChange", (oldState, newState) => {
-      log("INFO", `[${botName}] ReconnectVoiceState: ${oldState.status} -> ${newState.status} guild=${guildId}`);
+      const oldStatus = String(oldState?.status || "");
+      const newStatus = String(newState?.status || "");
+      if (!newStatus || oldStatus === newStatus) return;
+      log("INFO", `[${botName}] ReconnectVoiceState: ${oldStatus} -> ${newStatus} guild=${guildId}`);
       if (
-        newState.status === VoiceConnectionStatus.Connecting &&
-        (oldState.status === VoiceConnectionStatus.Ready || oldState.status === VoiceConnectionStatus.Signalling)
+        newStatus === VoiceConnectionStatus.Connecting &&
+        (oldStatus === VoiceConnectionStatus.Ready || oldStatus === VoiceConnectionStatus.Signalling)
       ) {
         try { connection.configureNetworking(); } catch {}
       }

@@ -79,6 +79,7 @@ import {
   linkServerToLicense,
   unlinkServerFromLicense,
   listLicensesByContactEmail,
+  updateLicenseContactEmail,
   isSessionProcessed,
   isEventProcessed,
   markEventProcessed,
@@ -760,9 +761,12 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     }));
 
   const liveTopStation = liveRows
+    .filter((row) => (Number(row.listeners || 0) || 0) > 0)
     .slice()
     .sort((a, b) => b.listeners - a.listeners || String(a.stationName).localeCompare(String(b.stationName)))[0];
-  const historicalTopStation = stationTimeBreakdown[0] || telemetryStationBreakdown[0] || stationBreakdown[0] || null;
+  const topStationByStarts = stationBreakdown[0] || null;
+  const topStationByListening = stationTimeBreakdown[0] || null;
+  const historicalTopStation = topStationByListening || telemetryStationBreakdown[0] || topStationByStarts || null;
   const topStation = liveTopStation
     ? { name: liveTopStation.stationName || "-", listeners: liveTopStation.listeners || 0 }
     : telemetry.topStation?.name && telemetry.topStation.name !== "-"
@@ -789,6 +793,20 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     peakListeners,
     peakTime,
     topStation,
+    topStationByStarts: topStationByStarts
+      ? {
+          name: topStationByStarts.name || "-",
+          starts: Number(topStationByStarts.starts || 0) || 0,
+          peakListeners: Number(topStationByStarts.peakListeners || 0) || 0,
+        }
+      : null,
+    topStationByListening: topStationByListening
+      ? {
+          name: topStationByListening.name || "-",
+          listeningMs: Number(topStationByListening.listeningMs || 0) || 0,
+          peakListeners: Number(topStationByListening.peakListeners || 0) || 0,
+        }
+      : null,
     eventsConfigured: events.length,
     eventsActive: events.filter((item) => item?.enabled !== false).length,
     permRules: Object.keys(permissionRules || {}).length,
@@ -2690,6 +2708,7 @@ function startWebServer(runtimes) {
         const maskedEmail = emailParts.length === 2
           ? emailParts[0].slice(0, 2) + "***@" + emailParts[1]
           : "";
+        const hasBillingEmail = isValidEmailAddress(email);
         result.license = {
           plan: license.plan || license.tier || "free",
           seats,
@@ -2701,6 +2720,7 @@ function startWebServer(runtimes) {
           billingPeriod: license.billingPeriod || "monthly",
           durationMonths: license.durationMonths || null,
           emailMasked: maskedEmail,
+          hasBillingEmail,
         };
       }
 
@@ -2736,12 +2756,28 @@ function startWebServer(runtimes) {
           return;
         }
 
-        const licenseEmail = String(license.contactEmail || license.email || "").trim().toLowerCase();
+        const providedBillingEmail = String(body?.email || "").trim().toLowerCase();
+        let licenseEmail = String(license.contactEmail || license.email || "").trim().toLowerCase();
+        if (providedBillingEmail) {
+          if (!isValidEmailAddress(providedBillingEmail)) {
+            sendJson(res, 400, {
+              error: t(
+                "Bitte eine gültige Abrechnungs-E-Mail eingeben.",
+                "Please enter a valid billing email address."
+              ),
+            });
+            return;
+          }
+          licenseEmail = providedBillingEmail;
+          if (license?.id && licenseEmail !== String(license.contactEmail || "").trim().toLowerCase()) {
+            updateLicenseContactEmail(license.id, licenseEmail, checkoutLanguage);
+          }
+        }
         if (!isValidEmailAddress(licenseEmail)) {
           sendJson(res, 400, {
             error: t(
-              "Für diese Lizenz ist keine gültige Abrechnungs-E-Mail hinterlegt.",
-              "No valid billing email is stored for this license."
+              "Für diese Lizenz ist keine gültige Abrechnungs-E-Mail hinterlegt. Bitte gib unten eine E-Mail ein.",
+              "No valid billing email is stored for this license. Please enter one below."
             ),
           });
           return;
