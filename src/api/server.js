@@ -2545,7 +2545,7 @@ function startWebServer(runtimes) {
         key, name: st.name || key, url: st.url || "", genre: st.genre || "", country: st.country || "",
       })).sort((a, b) => a.name.localeCompare(b.name));
 
-      const customStations = getCustomStations(guildInfo.id);
+      const customStations = guildInfo.tier === "ultimate" ? getCustomStations(guildInfo.id) : {};
       const customList = Object.entries(customStations).map(([key, st]) => ({
         key, name: st.name || key, url: st.url || "", genre: st.genre || "", custom: true,
       })).sort((a, b) => a.name.localeCompare(b.name));
@@ -2567,6 +2567,16 @@ function startWebServer(runtimes) {
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
+      if (guildInfo.tier !== "ultimate") {
+        sendLocalizedError(
+          res,
+          403,
+          language,
+          "Custom-Stationen sind nur für Ultimate verfügbar.",
+          "Custom stations are only available for Ultimate."
+        );
+        return;
+      }
 
       if (req.method === "GET") {
         const stations = getCustomStations(guildInfo.id);

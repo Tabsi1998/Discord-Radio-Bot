@@ -32,6 +32,18 @@ test("renderDiscordMarkdown resolves :name: aliases with server emojis", () => {
   assert.doesNotMatch(html, /&lt;:danceblob:&gt;/);
 });
 
+test("renderDiscordMarkdown only keeps safe http/https markdown links", () => {
+  const html = renderDiscordMarkdown(
+    "[safe](https://example.com/path?q=1) [blocked](javascript:alert(1)) [broken](https://example.com/\" onmouseover=\"alert(1))"
+  );
+
+  assert.match(html, /<a href="https:\/\/example\.com\/path\?q=1"/);
+  assert.doesNotMatch(html, /href="javascript:alert\(1\)"/);
+  assert.doesNotMatch(html, /onmouseover=/);
+  assert.match(html, />blocked<\/span>/);
+  assert.match(html, />broken<\/span>/);
+});
+
 test("getDashboardRepeatLabel mirrors Discord-style recurrence labels", () => {
   assert.equal(getDashboardRepeatLabel("weekly", "de", { startsAt: "2026-03-06T22:00" }), "Jeden Freitag");
   assert.equal(getDashboardRepeatLabel("yearly", "de", { startsAt: "2026-03-06T22:00" }), "Jährlich am 6. März");

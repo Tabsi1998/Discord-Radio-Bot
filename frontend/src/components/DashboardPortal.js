@@ -28,6 +28,7 @@ const EMPTY_EVENT_FORM = Object.freeze({
   createDiscordEvent: false,
   enabled: true,
 });
+const ULTIMATE_ONLY_TABS = new Set(['stats', 'stations']);
 
 function buildEmptyEventForm() {
   return { ...EMPTY_EVENT_FORM };
@@ -250,6 +251,11 @@ export default function DashboardPortal() {
     setEditingEventId('');
     setEventForm(buildEmptyEventForm());
   }, [selectedGuildId]);
+  useEffect(() => {
+    if (!isUltimate && ULTIMATE_ONLY_TABS.has(activeTab)) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, isUltimate]);
 
   const resetEventEditor = useCallback(() => {
     setEditingEventId('');
@@ -432,7 +438,7 @@ export default function DashboardPortal() {
   const tabs = [
     { key: 'overview', label: t('Übersicht', 'Overview'), icon: BarChart3 },
     { key: 'events', label: t('Events', 'Events'), icon: CalendarDays },
-    { key: 'stations', label: t('Custom-Stationen', 'Custom stations'), icon: ListMusic },
+    { key: 'stations', label: t('Custom-Stationen', 'Custom stations'), icon: ListMusic, ultimateOnly: true },
     { key: 'perms', label: t('Berechtigungen', 'Permissions'), icon: ShieldCheck },
     { key: 'stats', label: t('Statistiken', 'Statistics'), icon: TrendingUp, ultimateOnly: true },
     { key: 'subscription', label: t('Abo', 'Subscription'), icon: CreditCard },
@@ -655,8 +661,20 @@ export default function DashboardPortal() {
             />
           )}
 
-          {activeTab === 'stations' && (
+          {activeTab === 'stations' && isUltimate && (
             <DashboardCustomStations apiRequest={apiRequest} selectedGuildId={selectedGuildId} t={t} />
+          )}
+
+          {activeTab === 'stations' && !isUltimate && (
+            <div data-testid="stations-ultimate-gate" style={{ border: '1px solid #1A1A2E', background: '#080808', padding: 24, textAlign: 'center' }}>
+              <Crown size={32} color="#8B5CF6" style={{ margin: '0 auto' }} />
+              <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 22, marginTop: 12 }}>
+                {t('Custom-Stationen nur mit Ultimate', 'Custom stations are Ultimate-only')}
+              </h3>
+              <p style={{ color: '#52525B', marginTop: 8, maxWidth: 440, margin: '8px auto 0' }}>
+                {t('Eigene Stream-URLs und die Verwaltung von Custom-Stationen sind mit Ultimate verfügbar.', 'Custom stream URLs and station management are available with Ultimate.')}
+              </p>
+            </div>
           )}
 
           {activeTab === 'perms' && (

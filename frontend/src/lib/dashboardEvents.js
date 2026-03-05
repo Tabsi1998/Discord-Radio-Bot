@@ -171,6 +171,33 @@ export function renderDiscordMarkdown(text, options = {}) {
     return token;
   });
 
+  const escapeHtmlAttribute = (value) => String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const decodeBasicEntities = (value) => String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+
+  const sanitizeLinkHref = (rawHref) => {
+    const decoded = decodeBasicEntities(rawHref).trim();
+    if (!decoded || /[\u0000-\u001F\u007F\s]/.test(decoded)) return '';
+    try {
+      const parsed = new URL(decoded);
+      const protocol = String(parsed.protocol || '').toLowerCase();
+      if (protocol !== 'http:' && protocol !== 'https:') return '';
+      return parsed.toString();
+    } catch {
+      return '';
+    }
+  };
+
   rendered = rendered
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -183,7 +210,11 @@ export function renderDiscordMarkdown(text, options = {}) {
     .replace(/__(.+?)__/g, '<u>$1</u>')
     .replace(/~~(.+?)~~/g, '<s>$1</s>')
     .replace(/^> (.+)$/gm, '<div style="border-left:3px solid #4f545c;padding-left:10px;color:#a1a1aa">$1</div>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#5865F2;text-decoration:none" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
+      const safeHref = sanitizeLinkHref(href);
+      if (!safeHref) return `<span style="color:#a1a1aa">${label}</span>`;
+      return `<a href="${escapeHtmlAttribute(safeHref)}" style="color:#5865F2;text-decoration:none" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    })
     .replace(/\n/g, '<br/>');
 
   for (const { token, html } of emojiTokens) {
