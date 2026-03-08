@@ -763,6 +763,8 @@ export default function DashboardPortal() {
               t={t}
               isUltimate={canViewAdvancedStats}
               onResetStats={resetStatsForSelectedGuild}
+              showBasicHealth={capabilities.basicHealth === true}
+              formatDate={formatDate}
             />
           )}
 

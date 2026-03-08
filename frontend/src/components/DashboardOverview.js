@@ -4,7 +4,12 @@ import {
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
 import { RotateCcw } from 'lucide-react';
-import { buildReliabilitySummary, formatDashboardDuration } from '../lib/dashboardStats';
+import {
+  buildDashboardHealthAlerts,
+  buildDashboardHealthStatus,
+  buildReliabilitySummary,
+  formatDashboardDuration,
+} from '../lib/dashboardStats';
 
 const COLORS = ['#5865F2', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#F97316'];
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -46,7 +51,30 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-export default function DashboardOverview({ stats, detailStats, t, isUltimate, onResetStats }) {
+function getBotStatusPresentation(status, t) {
+  switch (String(status || '').trim()) {
+    case 'offline':
+      return { label: t('Offline', 'Offline'), color: '#FCA5A5' };
+    case 'recovering':
+      return { label: t('Recovering', 'Recovering'), color: '#FCD34D' };
+    case 'degraded':
+      return { label: t('Instabil', 'Degraded'), color: '#FCD34D' };
+    case 'streaming':
+      return { label: t('Live', 'Live'), color: '#6EE7B7' };
+    default:
+      return { label: t('Idle', 'Idle'), color: '#A1A1AA' };
+  }
+}
+
+export default function DashboardOverview({
+  stats,
+  detailStats,
+  t,
+  isUltimate,
+  onResetStats,
+  showBasicHealth = false,
+  formatDate = null,
+}) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetting, setResetting] = useState(false);
   const basic = stats?.basic || {};
@@ -69,37 +97,54 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
   const totalListeningShort = formatDashboardDuration(totalListeningMs, { short: true });
   const totalListeningLong = formatDashboardDuration(totalListeningMs);
   const reliabilityLabel = connectionHealth
-    ? t(`Zuverlässigkeit (${connectionWindowDays || 7} Tage)`, `Reliability (${connectionWindowDays || 7} days)`)
-    : t('Zuverlässigkeit', 'Reliability');
+    ? t(`Zuverlaessigkeit (${connectionWindowDays || 7} Tage)`, `Reliability (${connectionWindowDays || 7} days)`)
+    : t('Zuverlaessigkeit', 'Reliability');
+  const basicHealth = basic.health || null;
+  const healthStatus = buildDashboardHealthStatus(basicHealth, t);
+  const healthAlerts = buildDashboardHealthAlerts(basicHealth, t);
+  const healthBots = Array.isArray(basicHealth?.bots) ? basicHealth.bots : [];
+  const healthNextEventLabel = basicHealth?.nextEventAt && typeof formatDate === 'function'
+    ? formatDate(basicHealth.nextEventAt, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    : '';
 
-  // Hourly distribution chart data
   const hoursData = [];
   const hoursMap = detailStats?.listeningStats?.hours || stats?.advanced?.hours || {};
-  for (let h = 0; h < 24; h++) {
+  for (let h = 0; h < 24; h += 1) {
     hoursData.push({ hour: `${String(h).padStart(2, '0')}:00`, starts: Number(hoursMap[String(h)] || 0) });
   }
 
-  // Day of week distribution
   const dowData = [];
   const dowMap = detailStats?.listeningStats?.daysOfWeek || stats?.advanced?.daysOfWeek || {};
-  for (let d = 0; d < 7; d++) {
+  for (let d = 0; d < 7; d += 1) {
     dowData.push({ day: dayNames[d], starts: Number(dowMap[String(d)] || 0) });
   }
 
   const stationData = Object.entries(
-    detailStats?.listeningStats?.stationStarts || stats?.advanced?.stationBreakdown?.reduce((acc, s) => { acc[s.name || s.key] = s.starts || 0; return acc; }, {}) || {}
-  ).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, value]) => ({ name: name.length > 20 ? name.slice(0, 18) + '..' : name, value }));
+    detailStats?.listeningStats?.stationStarts
+      || stats?.advanced?.stationBreakdown?.reduce((acc, s) => {
+        acc[s.name || s.key] = s.starts || 0;
+        return acc;
+      }, {})
+      || {}
+  ).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, value]) => ({
+    name: name.length > 20 ? `${name.slice(0, 18)}..` : name,
+    value,
+  }));
 
-  // Daily trend from detail stats
-  const dailyData = (detailStats?.dailyStats || []).slice().reverse().map(d => ({
+  const dailyData = (detailStats?.dailyStats || []).slice().reverse().map((d) => ({
     date: d.date?.slice(5) || '',
     starts: d.totalStarts || 0,
     hours: Math.round((d.totalListeningMs || 0) / 3600000 * 10) / 10,
     peak: d.peakListeners || 0,
   }));
 
-  // Active sessions
   const activeSessions = detailStats?.activeSessions || [];
+  void isUltimate;
 
   const handleReset = async () => {
     if (!onResetStats) return;
@@ -114,7 +159,6 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
 
   return (
     <section data-testid="dashboard-overview-panel" style={{ display: 'grid', gap: 14 }}>
-      {/* Lifetime Stats Info */}
       <div data-testid="lifetime-stats-info" style={{
         background: '#0A0A0A', border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px',
         display: 'grid', gap: 12, fontSize: 13, color: '#A1A1AA',
@@ -130,7 +174,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
               </strong>
               <span>
                 {t(
-                  'Die Werte werden über alle Sessions und Tage akkumuliert. Du kannst sie direkt hier zurücksetzen, ohne den Bot vom Server entfernen zu müssen.',
+                  'Die Werte werden ueber alle Sessions und Tage akkumuliert. Du kannst sie direkt hier zuruecksetzen, ohne den Bot vom Server entfernen zu muessen.',
                   'Values are accumulated across all sessions and days. You can reset them directly here without removing the bot from the server.'
                 )}
               </span>
@@ -155,7 +199,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
               }}
             >
               <RotateCcw size={13} />
-              {t('Statistiken zurücksetzen', 'Reset statistics')}
+              {t('Statistiken zuruecksetzen', 'Reset statistics')}
             </button>
           ) : (
             <div
@@ -169,7 +213,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
               }}
             >
               <span style={{ color: '#FCA5A5', fontSize: 12 }}>
-                {t('Wirklich alles für diesen Server löschen?', 'Really delete everything for this server?')}
+                {t('Wirklich alles fuer diesen Server loeschen?', 'Really delete everything for this server?')}
               </span>
               <button
                 data-testid="overview-stats-reset-confirm-yes"
@@ -186,7 +230,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
                   opacity: resetting ? 0.6 : 1,
                 }}
               >
-                {resetting ? t('Lösche...', 'Deleting...') : t('Ja, löschen', 'Yes, delete')}
+                {resetting ? t('Loesche...', 'Deleting...') : t('Ja, loeschen', 'Yes, delete')}
               </button>
               <button
                 data-testid="overview-stats-reset-confirm-no"
@@ -208,14 +252,13 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
         </div>
       </div>
 
-      {/* Row 1: Key metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-        <StatCard testId="metric-listeners" label={t('Live-Zuhörer', 'Live listeners')} value={basic.listenersNow ?? 0} accent="#00F0FF" />
+        <StatCard testId="metric-listeners" label={t('Live-Zuhoerer', 'Live listeners')} value={basic.listenersNow ?? 0} accent="#00F0FF" />
         <StatCard testId="metric-streams" label={t('Aktive Streams', 'Active streams')} value={basic.activeStreams ?? 0} accent="#10B981" />
-        <StatCard testId="metric-peak" label={t('Peak-Zuhörer', 'Peak listeners')} value={basic.peakListeners ?? 0} accent="#8B5CF6" />
+        <StatCard testId="metric-peak" label={t('Peak-Zuhoerer', 'Peak listeners')} value={basic.peakListeners ?? 0} accent="#8B5CF6" />
         <StatCard
           testId="metric-total-time"
-          label={t('Gesamte Hörzeit', 'Total listening')}
+          label={t('Gesamte Hoerzeit', 'Total listening')}
           value={totalListeningShort}
           accent="#F59E0B"
           sub={totalListeningLong !== totalListeningShort ? totalListeningLong : undefined}
@@ -224,7 +267,158 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
         <StatCard testId="metric-reliability" label={reliabilityLabel} value={reliabilitySummary.value} accent={reliabilitySummary.accent} sub={reliabilitySummary.sub} />
       </div>
 
-      {/* Row 2: Active sessions */}
+      {showBasicHealth && (
+        <div data-testid="dashboard-health-panel" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16, display: 'grid', gap: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div>
+              <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 16, color: '#D4D4D8' }}>
+                {t('Server-Health', 'Server health')}
+              </h4>
+              <p style={{ color: '#71717A', fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>
+                {t(
+                  'Schneller Betriebsstatus fuer Bots, Streams und geplante Events.',
+                  'Quick operational status for bots, streams, and scheduled events.'
+                )}
+              </p>
+            </div>
+            <div style={{
+              border: `1px solid ${healthStatus.accent}44`,
+              background: `${healthStatus.accent}14`,
+              color: healthStatus.accent,
+              padding: '10px 12px',
+              minWidth: 180,
+            }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.9 }}>
+                {t('Status', 'Status')}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700 }}>{healthStatus.label}</div>
+              <div style={{ marginTop: 4, fontSize: 12, color: '#A1A1AA' }}>{healthStatus.sub}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+            <StatCard testId="health-managed-bots" label={t('Verwaltete Bots', 'Managed bots')} value={basicHealth?.managedBots ?? 0} accent="#A5B4FC" />
+            <StatCard testId="health-recovering-streams" label={t('Recovering Streams', 'Recovering streams')} value={basicHealth?.recoveringStreams ?? 0} accent="#F59E0B" />
+            <StatCard testId="health-reconnect-attempts" label={t('Reconnects live', 'Live reconnects')} value={basicHealth?.reconnectAttempts ?? 0} accent="#06B6D4" />
+            <StatCard testId="health-stream-errors" label={t('Stream-Fehler live', 'Live stream errors')} value={basicHealth?.streamErrors ?? 0} accent="#EF4444" />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+            <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 12 }}>
+              <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                {t('Streams & Channel', 'Streams & channel')}
+              </div>
+              <div style={{ marginTop: 8, display: 'grid', gap: 6, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: '#71717A' }}>{t('Aktive Streams', 'Active streams')}</span>
+                  <strong>{basicHealth?.liveStreams ?? 0}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: '#71717A' }}>{t('Voice-Channels', 'Voice channels')}</span>
+                  <strong>{basicHealth?.activeVoiceChannels ?? 0}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: '#71717A' }}>{t('Live-Zuhoerer', 'Live listeners')}</span>
+                  <strong>{basicHealth?.listenersNow ?? 0}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 12 }}>
+              <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                {t('Events', 'Events')}
+              </div>
+              <div style={{ marginTop: 8, display: 'grid', gap: 6, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: '#71717A' }}>{t('Konfiguriert', 'Configured')}</span>
+                  <strong>{basicHealth?.eventsConfigured ?? 0}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: '#71717A' }}>{t('Aktiv', 'Active')}</span>
+                  <strong>{basicHealth?.eventsActive ?? 0}</strong>
+                </div>
+                <div style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ color: '#71717A' }}>{t('Naechstes Event', 'Next event')}</span>
+                  <strong style={{ color: '#D4D4D8' }}>
+                    {basicHealth?.nextEventTitle || t('Keines geplant', 'No event scheduled')}
+                  </strong>
+                  {healthNextEventLabel && (
+                    <span style={{ color: '#71717A', fontSize: 12 }}>{healthNextEventLabel}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: 8 }}>
+            {healthAlerts.map((alert, index) => (
+              <div
+                key={`${alert.severity}-${index}`}
+                data-testid={`dashboard-health-alert-${index}`}
+                style={{
+                  border: `1px solid ${alert.severity === 'critical' ? 'rgba(239,68,68,0.25)' : alert.severity === 'warning' ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)'}`,
+                  background: alert.severity === 'critical'
+                    ? 'rgba(127,29,29,0.12)'
+                    : alert.severity === 'warning'
+                      ? 'rgba(120,53,15,0.12)'
+                      : 'rgba(6,78,59,0.12)',
+                  color: alert.severity === 'critical' ? '#FCA5A5' : alert.severity === 'warning' ? '#FCD34D' : '#6EE7B7',
+                  padding: '10px 12px',
+                  fontSize: 13,
+                }}
+              >
+                {alert.message}
+              </div>
+            ))}
+          </div>
+
+          {healthBots.length > 0 && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ color: '#D4D4D8', fontSize: 14, fontWeight: 600 }}>
+                {t('Bot-Status pro Instanz', 'Bot status by instance')}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
+                {healthBots.map((bot) => {
+                  const botStatus = getBotStatusPresentation(bot.status, t);
+                  return (
+                    <div key={bot.botId || bot.botName} data-testid={`dashboard-health-bot-${bot.botId || bot.botName}`} style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px', display: 'grid', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                        <strong>{bot.botName || t('Bot', 'Bot')}</strong>
+                        <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: botStatus.color }}>
+                          {botStatus.label}
+                        </span>
+                      </div>
+                      <div style={{ color: '#71717A', fontSize: 12 }}>
+                        {String(bot.role || '').toUpperCase()}
+                      </div>
+                      <div style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                          <span style={{ color: '#71717A' }}>{t('Zuhoerer', 'Listeners')}</span>
+                          <span>{bot.listeners ?? 0}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                          <span style={{ color: '#71717A' }}>{t('Reconnects', 'Reconnects')}</span>
+                          <span>{bot.reconnectAttempts ?? 0}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                          <span style={{ color: '#71717A' }}>{t('Fehler', 'Errors')}</span>
+                          <span>{bot.streamErrorCount ?? 0}</span>
+                        </div>
+                      </div>
+                      {(bot.stationName || bot.channelName) && (
+                        <div style={{ color: '#A1A1AA', fontSize: 12 }}>
+                          {[bot.stationName, bot.channelName ? `#${bot.channelName}` : ''].filter(Boolean).join(' | ')}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {activeSessions.length > 0 && (
         <div data-testid="active-sessions-panel" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
           <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 16, color: '#D4D4D8', marginBottom: 10 }}>
@@ -238,7 +432,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
               }}>
                 <span style={{ fontWeight: 600 }}>{s.stationName || s.stationKey || '-'}</span>
                 <span style={{ color: '#71717A', fontSize: 13 }}>
-                  {s.currentListeners} {t('Zuhörer', 'listeners')} | {t('Durchschn.', 'Avg')} {s.currentAvgListeners ?? 0} | {t('Hörzeit', 'Listening')}: {formatDashboardDuration(s.currentHumanListeningMs)} | {t('Dauer', 'Runtime')}: {formatDashboardDuration(s.currentDurationMs)}
+                  {s.currentListeners} {t('Zuhoerer', 'listeners')} | {t('Durchschn.', 'Avg')} {s.currentAvgListeners ?? 0} | {t('Hoerzeit', 'Listening')}: {formatDashboardDuration(s.currentHumanListeningMs)} | {t('Dauer', 'Runtime')}: {formatDashboardDuration(s.currentDurationMs)}
                 </span>
               </div>
             ))}
@@ -246,9 +440,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
         </div>
       )}
 
-      {/* Row 3: Charts */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
-        {/* Hourly distribution */}
         <ChartCard title={t('Starts nach Stunde', 'Starts by hour')} testId="chart-hourly">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={hoursData}>
@@ -260,7 +452,6 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Day of week distribution */}
         <ChartCard title={t('Starts nach Wochentag', 'Starts by weekday')} testId="chart-dow">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={dowData}>
@@ -273,7 +464,6 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
         </ChartCard>
       </div>
 
-      {/* Row 4: Station breakdown + session info */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
         {stationData.length > 0 && (
           <ChartCard title={t('Meist gestartete Stationen (Starts)', 'Most started stations (starts)')} testId="chart-stations">
@@ -300,11 +490,11 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
           </p>
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Durchschn. Hörzeit / Session', 'Avg listening time / session')}</span>
+              <span style={{ color: '#71717A' }}>{t('Durchschn. Hoerzeit / Session', 'Avg listening time / session')}</span>
               <strong>{formatDashboardDuration(avgSession)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Längste Hörzeit / Session', 'Longest listening time / session')}</span>
+              <span style={{ color: '#71717A' }}>{t('Laengste Hoerzeit / Session', 'Longest listening time / session')}</span>
               <strong>{formatDashboardDuration(longestSession)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
@@ -316,7 +506,7 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
               <strong>{basic.totalReconnects || 0}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Top Station (Hörzeit)', 'Top station (listening time)')}</span>
+              <span style={{ color: '#71717A' }}>{t('Top Station (Hoerzeit)', 'Top station (listening time)')}</span>
               <strong style={{ maxWidth: 180, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                 {topStationByListening?.name || basic.topStation?.name || '-'}
               </strong>
@@ -331,9 +521,8 @@ export default function DashboardOverview({ stats, detailStats, t, isUltimate, o
         </div>
       </div>
 
-      {/* Row 5: Daily trend (only with MongoDB detail data) */}
       {dailyData.length > 0 && (
-        <ChartCard title={t('Tägl. Trend (letzte 30 Tage)', 'Daily trend (last 30 days)')} testId="chart-daily-trend">
+        <ChartCard title={t('Taegl. Trend (letzte 30 Tage)', 'Daily trend (last 30 days)')} testId="chart-daily-trend">
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={dailyData}>
               <defs>

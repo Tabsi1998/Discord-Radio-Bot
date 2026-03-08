@@ -140,6 +140,33 @@ function createRuntimeStub() {
         listeners: 0,
       };
     },
+    getDashboardStatus() {
+      return {
+        id: "bot-test-1",
+        botId: "bot-test-1",
+        name: "OmniFM Test",
+        role: "commander",
+        requiredTier: "free",
+        ready: true,
+        servers: 1,
+        users: 12,
+        connections: 1,
+        listeners: 4,
+        guildDetails: [{
+          guildId: GUILD_ID,
+          guildName: "OmniFM Test Guild",
+          stationKey: "rock",
+          stationName: "Rock FM",
+          channelId: VOICE_CHANNEL_ID,
+          channelName: "radio-lounge",
+          listenerCount: 4,
+          playing: true,
+          reconnectAttempts: 2,
+          streamErrorCount: 1,
+          shouldReconnect: true,
+        }],
+      };
+    },
     buildStatusSnapshot() {
       return {
         id: "bot-test-1",
@@ -352,6 +379,20 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(previewResponse.payload.conflicts.length, 1);
   assert.equal(previewResponse.payload.conflicts[0].severity, "error");
   assert.match(previewResponse.payload.conflicts[0].message, /Existing Show/);
+
+  const statsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/stats?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(statsResponse.status, 200);
+  assert.equal(statsResponse.payload.basic.health.status, "warning");
+  assert.equal(statsResponse.payload.basic.health.managedBots, 1);
+  assert.equal(statsResponse.payload.basic.health.liveStreams, 1);
+  assert.equal(statsResponse.payload.basic.health.recoveringStreams, 1);
+  assert.equal(statsResponse.payload.basic.health.streamErrors, 1);
+  assert.equal(statsResponse.payload.basic.health.nextEventTitle, "Existing Show");
+  assert.equal(statsResponse.payload.basic.health.alerts.length >= 1, true);
 
   const initialPerms = await requestJson(
     baseUrl,

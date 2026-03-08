@@ -632,12 +632,16 @@ function getLocalizedJsonBodyError(language, status) {
   );
 }
 
-function resolveRuntimeForGuild(runtimes, guildId) {
-  const sorted = [...runtimes].sort((a, b) => {
+function sortDashboardRuntimes(runtimes) {
+  return [...(Array.isArray(runtimes) ? runtimes : [])].sort((a, b) => {
     if (a.role === "commander" && b.role !== "commander") return -1;
     if (a.role !== "commander" && b.role === "commander") return 1;
     return Number(a?.config?.index || 0) - Number(b?.config?.index || 0);
   });
+}
+
+function resolveRuntimeForGuild(runtimes, guildId) {
+  const sorted = sortDashboardRuntimes(runtimes);
 
   for (const runtime of sorted) {
     const guild = runtime?.client?.guilds?.cache?.get?.(guildId) || null;
@@ -673,6 +677,131 @@ function collectGuildLiveDetails(runtimes, guildId) {
     }
   }
   return rows;
+}
+
+function collectGuildBotHealthRows(runtimes, guildId) {
+  const rows = [];
+  for (const runtime of sortDashboardRuntimes(runtimes)) {
+    const guild = runtime?.client?.guilds?.cache?.get?.(guildId) || null;
+    if (!guild) continue;
+
+    const status = typeof runtime?.getDashboardStatus === "function"
+      ? runtime.getDashboardStatus()
+      : (typeof runtime?.getPublicStatus === "function" ? runtime.getPublicStatus() : {});
+    const guildDetails = Array.isArray(status?.guildDetails) ? status.guildDetails : [];
+    const detail = guildDetails.find((entry) => String(entry?.guildId || "") === String(guildId)) || null;
+    const reconnectAttempts = Number(detail?.reconnectAttempts || 0) || 0;
+    const streamErrorCount = Number(detail?.streamErrorCount || 0) || 0;
+    const playing = detail?.playing === true;
+    const shouldReconnect = detail?.shouldReconnect === true;
+
+    let botStatus = "idle";
+    if (runtime?.client?.isReady?.() !== true) {
+      botStatus = "offline";
+    } else if (shouldReconnect) {
+      botStatus = "recovering";
+    } else if (playing && (reconnectAttempts > 0 || streamErrorCount > 0)) {
+      botStatus = "degraded";
+    } else if (playing) {
+      botStatus = "streaming";
+    }
+
+    rows.push({
+      botId: status?.botId || status?.id || runtime?.config?.id || null,
+      botName: status?.name || runtime?.config?.name || "Bot",
+      role: runtime?.role || status?.role || "worker",
+      ready: runtime?.client?.isReady?.() === true,
+      status: botStatus,
+      playing,
+      listeners: Number(detail?.listenerCount || 0) || 0,
+      reconnectAttempts,
+      streamErrorCount,
+      shouldReconnect,
+      channelId: detail?.channelId || null,
+      channelName: detail?.channelName || detail?.channelId || null,
+      stationKey: detail?.stationKey || null,
+      stationName: detail?.stationName || detail?.stationKey || null,
+    });
+  }
+  return rows;
+}
+
+function buildDashboardHealthSummary(serverId, runtimes, {
+  liveRows = null,
+  listenersNow = null,
+  activeStreams = null,
+  events = null,
+} = {}) {
+  const botRows = collectGuildBotHealthRows(runtimes, serverId);
+  const activeLiveRows = Array.isArray(liveRows) ? liveRows : collectGuildLiveDetails(runtimes, serverId);
+  const eventRows = Array.isArray(events) ? events : listScheduledEvents({ guildId: serverId });
+  const enabledEvents = eventRows.filter((entry) => entry?.enabled !== false);
+  const nextEvent = enabledEvents
+    .filter((entry) => Number.parseInt(String(entry?.runAtMs || 0), 10) > Date.now())
+    .sort((a, b) => Number.parseInt(String(a?.runAtMs || 0), 10) - Number.parseInt(String(b?.runAtMs || 0), 10))[0] || null;
+
+  const managedBots = botRows.length;
+  const readyBots = botRows.filter((row) => row.ready).length;
+  const liveStreamCount = Number(activeStreams ?? activeLiveRows.length) || 0;
+  const activeVoiceChannels = new Set(
+    activeLiveRows.map((row) => String(row?.channelId || row?.channelName || "").trim()).filter(Boolean)
+  ).size;
+  const recoveringStreams = activeLiveRows.filter((row) => row?.shouldReconnect === true).length;
+  const degradedStreams = activeLiveRows.filter((row) => {
+    const reconnectAttempts = Number(row?.reconnectAttempts || 0) || 0;
+    const streamErrors = Number(row?.streamErrorCount || 0) || 0;
+    return reconnectAttempts > 0 || streamErrors > 0;
+  }).length;
+  const reconnectAttempts = activeLiveRows.reduce((sum, row) => sum + (Number(row?.reconnectAttempts || 0) || 0), 0);
+  const streamErrors = activeLiveRows.reduce((sum, row) => sum + (Number(row?.streamErrorCount || 0) || 0), 0);
+  const unavailableBots = Math.max(0, managedBots - readyBots);
+
+  let status = "healthy";
+  if (managedBots <= 0 || (readyBots <= 0 && managedBots > 0)) {
+    status = "critical";
+  } else if (unavailableBots > 0 || recoveringStreams > 0 || degradedStreams > 0) {
+    status = "warning";
+  }
+
+  const alerts = [];
+  if (managedBots <= 0) {
+    alerts.push({ code: "no_bot_available", severity: "critical", count: 1 });
+  } else if (unavailableBots > 0) {
+    alerts.push({
+      code: "bot_unavailable",
+      severity: readyBots <= 0 ? "critical" : "warning",
+      count: unavailableBots,
+    });
+  }
+  if (recoveringStreams > 0) {
+    alerts.push({ code: "stream_recovering", severity: "warning", count: recoveringStreams });
+  }
+  if (degradedStreams > 0) {
+    alerts.push({
+      code: "stream_unstable",
+      severity: streamErrors >= 3 ? "critical" : "warning",
+      count: degradedStreams,
+    });
+  }
+
+  return {
+    status,
+    managedBots,
+    readyBots,
+    liveStreams: liveStreamCount,
+    activeVoiceChannels,
+    listenersNow: Number(listenersNow ?? 0) || 0,
+    recoveringStreams,
+    degradedStreams,
+    reconnectAttempts,
+    streamErrors,
+    eventsConfigured: eventRows.length,
+    eventsActive: enabledEvents.length,
+    nextEventAt: nextEvent?.runAtMs ? new Date(Number(nextEvent.runAtMs)).toISOString() : null,
+    nextEventTitle: clipText(nextEvent?.name || "", 120) || null,
+    alerts,
+    bots: botRows,
+  };
 }
 
 async function buildGuildChannelNameMap(guild, channelIds = []) {
@@ -894,6 +1023,12 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     totalReconnects: Number(listeningStats.totalReconnects || 0),
     totalConnectionErrors: Number(listeningStats.totalConnectionErrors || 0),
     updatedAt: telemetry.updatedAt || new Date().toISOString(),
+    health: buildDashboardHealthSummary(serverId, runtimes, {
+      liveRows,
+      listenersNow,
+      activeStreams,
+      events,
+    }),
   };
 
   if (tier !== "ultimate") {
