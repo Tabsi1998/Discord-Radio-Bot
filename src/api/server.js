@@ -66,6 +66,10 @@ import {
   enforceApiRateLimit,
   getClientIp,
 } from "../lib/api-helpers.js";
+import {
+  buildWeeklyDigestMeta,
+  normalizeWeeklyDigestConfig,
+} from "../lib/weekly-digest.js";
 import { loadStations, filterStationsByTier } from "../stations-store.js";
 import { buildPublicStationCatalog } from "../lib/public-stations.js";
 import {
@@ -188,6 +192,76 @@ function buildServerCapabilityPayload(serverId) {
       seats: getServerSeats(guildId),
     },
     upgradeHints: buildUpgradeHints(tier, getBlockedCapabilitiesForServer(guildId)),
+  };
+}
+
+function buildDashboardSelectableStations(guildId) {
+  const tier = getTier(guildId);
+  const scopedStations = filterStationsByTier(loadStations().stations || {}, tier);
+  const customStations = getCustomStations(guildId) || {};
+  const entries = [];
+
+  for (const [key, station] of Object.entries(customStations)) {
+    const normalizedKey = `custom:${String(key || "").trim().toLowerCase()}`;
+    entries.push({
+      value: normalizedKey,
+      name: station?.name || key,
+      label: `${station?.name || key} (Custom)`,
+      tier: "ultimate",
+      isCustom: true,
+    });
+  }
+
+  for (const [key, station] of Object.entries(scopedStations)) {
+    const tierLabel = String(station?.tier || "free").trim().toLowerCase();
+    const suffix = tierLabel === "free" ? "" : ` (${tierLabel.charAt(0).toUpperCase()}${tierLabel.slice(1)})`;
+    entries.push({
+      value: key,
+      name: station?.name || key,
+      label: `${station?.name || key}${suffix}`,
+      tier: tierLabel,
+      isCustom: false,
+    });
+  }
+
+  return entries;
+}
+
+function buildDashboardFallbackStationPreview(guildId, rawFallbackStation) {
+  const selectedValue = String(rawFallbackStation || "").trim().toLowerCase();
+  if (!selectedValue) {
+    return {
+      configured: false,
+      valid: true,
+      key: "",
+      name: "",
+      label: "",
+      tier: null,
+      isCustom: false,
+    };
+  }
+
+  const match = buildDashboardSelectableStations(guildId).find((entry) => entry.value === selectedValue) || null;
+  if (!match) {
+    return {
+      configured: true,
+      valid: false,
+      key: selectedValue,
+      name: "",
+      label: selectedValue,
+      tier: null,
+      isCustom: selectedValue.startsWith("custom:"),
+    };
+  }
+
+  return {
+    configured: true,
+    valid: true,
+    key: match.value,
+    name: match.name,
+    label: match.label,
+    tier: match.tier,
+    isCustom: match.isCustom,
   };
 }
 
@@ -3531,21 +3605,23 @@ function startWebServer(runtimes) {
             settings = await getDatabase().collection("guild_settings").findOne({ guildId: guildInfo.id }, { projection: { _id: 0 } }) || {};
           } catch {}
         }
+        const weeklyDigest = normalizeWeeklyDigestConfig(settings.weeklyDigest || {}, language);
+        const fallbackStation = String(settings.fallbackStation || "").trim().toLowerCase();
         sendJson(res, 200, {
           guildId: guildInfo.id,
           tier: guildInfo.tier,
           capabilities: buildServerCapabilityPayload(guildInfo.id).capabilities,
-          weeklyDigest: settings.weeklyDigest || { enabled: false, channelId: "", dayOfWeek: 1, hour: 9, language: "de" },
-          fallbackStation: settings.fallbackStation || "",
+          weeklyDigest,
+          weeklyDigestMeta: buildWeeklyDigestMeta(weeklyDigest, {
+            lastSentAt: settings.weeklyDigestLastSent || null,
+          }),
+          fallbackStation,
+          fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
         });
         return;
       }
 
       if (req.method === "PUT") {
-        if (!isDbConnected() || !getDatabase()) {
-          sendLocalizedError(res, 503, language, "MongoDB nicht verbunden.", "MongoDB is not connected.");
-          return;
-        }
         try {
           const body = await readJsonBody();
           const updates = { guildId: guildInfo.id };
@@ -3555,14 +3631,17 @@ function startWebServer(runtimes) {
               sendLocalizedError(res, 403, language, "Wöchentlicher Digest ist erst ab Pro verfügbar.", "Weekly digest is only available from Pro.");
               return;
             }
-            const wd = body.weeklyDigest;
-            updates.weeklyDigest = {
-              enabled: wd.enabled === true,
-              channelId: String(wd.channelId || "").trim(),
-              dayOfWeek: Math.max(0, Math.min(6, Number(wd.dayOfWeek) || 1)),
-              hour: Math.max(0, Math.min(23, Number(wd.hour) || 9)),
-              language: String(wd.language || "de").slice(0, 5),
-            };
+            updates.weeklyDigest = normalizeWeeklyDigestConfig(body.weeklyDigest, language);
+            if (updates.weeklyDigest.enabled && !updates.weeklyDigest.channelId) {
+              sendLocalizedError(
+                res,
+                400,
+                language,
+                "Fuer einen aktiven Digest muss ein Text-Channel ausgewaehlt werden.",
+                "An active digest requires a selected text channel."
+              );
+              return;
+            }
           }
 
           if (body?.fallbackStation !== undefined) {
@@ -3571,14 +3650,51 @@ function startWebServer(runtimes) {
               return;
             }
             updates.fallbackStation = clipText(body.fallbackStation || "", 120).trim().toLowerCase();
+            const fallbackPreview = buildDashboardFallbackStationPreview(guildInfo.id, updates.fallbackStation);
+            if (updates.fallbackStation && fallbackPreview.valid !== true) {
+              sendLocalizedError(
+                res,
+                400,
+                language,
+                "Die gewaehlte Fallback-Station ist fuer diesen Server nicht verfuegbar.",
+                "The selected fallback station is not available for this server."
+              );
+              return;
+            }
           }
+
+          if (!isDbConnected() || !getDatabase()) {
+            sendLocalizedError(res, 503, language, "MongoDB nicht verbunden.", "MongoDB is not connected.");
+            return;
+          }
+
+          const currentSettings = await getDatabase().collection("guild_settings").findOne(
+            { guildId: guildInfo.id },
+            { projection: { _id: 0 } }
+          ) || {};
 
           await getDatabase().collection("guild_settings").updateOne(
             { guildId: guildInfo.id },
             { $set: updates },
             { upsert: true }
           );
-          sendJson(res, 200, { success: true, ...updates });
+          const weeklyDigest = updates.weeklyDigest
+            || normalizeWeeklyDigestConfig(currentSettings.weeklyDigest || {}, language);
+          const fallbackStation = Object.prototype.hasOwnProperty.call(updates, "fallbackStation")
+            ? updates.fallbackStation
+            : String(currentSettings.fallbackStation || "").trim().toLowerCase();
+          sendJson(res, 200, {
+            success: true,
+            guildId: guildInfo.id,
+            tier: guildInfo.tier,
+            capabilities: buildServerCapabilityPayload(guildInfo.id).capabilities,
+            weeklyDigest,
+            weeklyDigestMeta: buildWeeklyDigestMeta(weeklyDigest, {
+              lastSentAt: currentSettings.weeklyDigestLastSent || null,
+            }),
+            fallbackStation,
+            fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
+          });
         } catch (err) {
           sendJson(res, 400, { error: err?.message || languagePick(language, "Ungültige Anfrage.", "Invalid request.") });
         }

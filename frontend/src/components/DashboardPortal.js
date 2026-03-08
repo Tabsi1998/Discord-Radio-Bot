@@ -873,6 +873,7 @@ export default function DashboardPortal() {
               selectedGuildId={selectedGuildId}
               t={t}
               capabilities={capabilities}
+              formatDate={formatDate}
             />
           )}
         </>

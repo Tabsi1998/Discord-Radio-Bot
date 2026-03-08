@@ -350,6 +350,63 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(capabilityResponse.payload.upgradeHints.nextTier, "ultimate");
   assert.ok(capabilityResponse.payload.upgradeHints.blockedFeatures.includes("advancedAnalytics"));
 
+  const settingsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    { headers: { ...authHeaders, "X-OmniFM-Language": "de" } }
+  );
+  assert.equal(settingsResponse.status, 200);
+  assert.equal(settingsResponse.payload.weeklyDigest.language, "de");
+  assert.equal(settingsResponse.payload.weeklyDigestMeta.ready, false);
+  assert.equal(typeof settingsResponse.payload.weeklyDigestMeta.nextRunAt, "string");
+  assert.equal(settingsResponse.payload.fallbackStation, "");
+  assert.equal(settingsResponse.payload.fallbackStationPreview.valid, true);
+
+  const invalidDigestSettings = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        weeklyDigest: {
+          enabled: true,
+          channelId: "",
+          dayOfWeek: 1,
+          hour: 9,
+          language: "en",
+        },
+      }),
+    }
+  );
+  assert.equal(invalidDigestSettings.status, 400);
+  assert.match(invalidDigestSettings.payload.error, /text channel/i);
+
+  activePlan = "ultimate";
+  activeSeats = 2;
+  const invalidFallbackSettings = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fallbackStation: "custom:missing-station",
+      }),
+    }
+  );
+  assert.equal(invalidFallbackSettings.status, 400);
+  assert.match(invalidFallbackSettings.payload.error, /fallback station/i);
+  activePlan = "pro";
+
   const previewResponse = await requestJson(
     baseUrl,
     `/api/dashboard/events/preview?serverId=${GUILD_ID}`,

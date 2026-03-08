@@ -364,6 +364,10 @@ setInterval(() => {
 // ---- Weekly Stats Digest ----
 import { getGuildListeningStats, getGlobalStats, getGuildDailyStats } from "./listening-stats-store.js";
 import { getDb, isConnected as isMongoConnected } from "./lib/db.js";
+import {
+  normalizeWeeklyDigestConfig,
+  shouldSendWeeklyDigest,
+} from "./lib/weekly-digest.js";
 
 const DIGEST_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
 
@@ -444,24 +448,15 @@ async function sendWeeklyDigest(runtime, guildId, channelId, language = "de") {
 setInterval(async () => {
   if (!isMongoConnected() || !getDb()) return;
   const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
-  const hour = now.getHours();
 
   // Only check on Monday at 9:00-10:00 (or whenever configured)
   try {
     const settings = await getDb().collection("guild_settings").find({ "weeklyDigest.enabled": true }).toArray();
     for (const setting of settings) {
-      const config = setting.weeklyDigest || {};
-      const targetDay = config.dayOfWeek ?? 1; // Default Monday
-      const targetHour = config.hour ?? 9; // Default 9 AM
-
-      if (dayOfWeek !== targetDay || hour !== targetHour) continue;
-
-      const lastSent = setting.weeklyDigestLastSent ? new Date(setting.weeklyDigestLastSent) : null;
-      if (lastSent && (now - lastSent) < 23 * 3600000) continue; // Already sent today
-
+      const config = normalizeWeeklyDigestConfig(setting.weeklyDigest || {});
       const channelId = config.channelId;
       if (!channelId || !setting.guildId) continue;
+      if (!shouldSendWeeklyDigest(config, { now, lastSentAt: setting.weeklyDigestLastSent || null })) continue;
 
       for (const runtime of runtimes) {
         if (runtime.client.guilds.cache.has(setting.guildId)) {
