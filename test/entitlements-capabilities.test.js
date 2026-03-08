@@ -9,7 +9,11 @@ import {
   setLicenseProvider,
   buildUpgradeHints,
 } from "../src/core/entitlements.js";
-import { normalizeDashboardCapabilityPayload } from "../frontend/src/lib/dashboardCapabilities.js";
+import {
+  getDashboardBlockedFeatureLabels,
+  getDashboardCapabilityRequiredTier,
+  normalizeDashboardCapabilityPayload,
+} from "../frontend/src/lib/dashboardCapabilities.js";
 
 test("plan capabilities preserve free, pro, and ultimate package boundaries", () => {
   const freeCapabilities = getPlanCapabilities("free", { apiShape: true });
@@ -61,4 +65,22 @@ test("dashboard capability payload normalization fills defaults", () => {
   assert.equal(normalized.capabilities.dashboardAccess, true);
   assert.equal(normalized.capabilities.advancedAnalytics, false);
   assert.deepEqual(normalized.upgradeHints.blockedFeatures, ["advancedAnalytics"]);
+});
+
+test("dashboard blocked feature labels stay user-facing and deduplicated", () => {
+  const t = (_de, en) => en;
+  const labels = getDashboardBlockedFeatureLabels(
+    ["advancedAnalytics", "customStationUrls", "advancedAnalytics"],
+    t,
+    5
+  );
+
+  assert.deepEqual(labels, ["Advanced analytics", "Custom stations"]);
+});
+
+test("dashboard capability required tiers keep pro and ultimate package boundaries", () => {
+  assert.equal(getDashboardCapabilityRequiredTier("dashboardAccess"), "pro");
+  assert.equal(getDashboardCapabilityRequiredTier("eventScheduler"), "pro");
+  assert.equal(getDashboardCapabilityRequiredTier("customStationUrls"), "ultimate");
+  assert.equal(getDashboardCapabilityRequiredTier("advancedAnalytics"), "ultimate");
 });

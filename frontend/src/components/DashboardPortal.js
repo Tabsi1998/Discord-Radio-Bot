@@ -8,7 +8,11 @@ import DashboardEvents from './DashboardEvents';
 import DashboardCustomStations from './DashboardCustomStations';
 import DashboardSettings from './DashboardSettings';
 import DashboardSubscription from './DashboardSubscription';
-import { normalizeDashboardCapabilityPayload } from '../lib/dashboardCapabilities';
+import {
+  getDashboardBlockedFeatureLabels,
+  getDashboardCapabilityRequiredTier,
+  normalizeDashboardCapabilityPayload,
+} from '../lib/dashboardCapabilities';
 
 const PERMISSION_COMMANDS = [
   'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',
@@ -200,6 +204,12 @@ export default function DashboardPortal() {
   const canManagePermissions = capabilities.rolePermissions === true;
   const canManageCustomStations = capabilities.customStationUrls === true;
   const canViewAdvancedStats = capabilities.advancedAnalytics === true;
+  const blockedFeatureLabels = useMemo(
+    () => getDashboardBlockedFeatureLabels(effectiveCapabilityPayload.upgradeHints.blockedFeatures, t, 4),
+    [effectiveCapabilityPayload.upgradeHints.blockedFeatures, t]
+  );
+  const nextUpgradeTier = String(effectiveCapabilityPayload.upgradeHints.nextTier || '').trim().toLowerCase();
+  const nextUpgradeLabel = nextUpgradeTier ? nextUpgradeTier.toUpperCase() : '';
   const tabs = useMemo(() => ([
     { key: 'overview', label: t('Übersicht', 'Overview'), icon: BarChart3, requiredCapability: 'dashboardAccess' },
     { key: 'events', label: t('Events', 'Events'), icon: CalendarDays, requiredCapability: 'eventScheduler' },
@@ -525,20 +535,36 @@ export default function DashboardPortal() {
           const Icon = entry.icon;
           const active = activeTab === entry.key;
           const locked = entry.requiredCapability ? capabilities[entry.requiredCapability] !== true : false;
+          const requiredTier = entry.requiredCapability ? getDashboardCapabilityRequiredTier(entry.requiredCapability) : null;
+          const requiredTierLabel = requiredTier ? String(requiredTier).toUpperCase() : '';
           return (
             <button
               key={entry.key} data-testid={`dashboard-tab-${entry.key}`}
-              onClick={() => !locked && setActiveTab(entry.key)}
+              onClick={() => setActiveTab(locked ? 'subscription' : entry.key)}
               style={{
-                border: '1px solid', borderColor: active ? '#5865F2' : '#1A1A2E',
+                border: '1px solid', borderColor: active ? '#5865F2' : locked ? 'rgba(139,92,246,0.24)' : '#1A1A2E',
                 background: active ? 'rgba(88,101,242,0.1)' : 'transparent',
-                color: locked ? '#3F3F46' : '#fff', height: 40, display: 'flex', alignItems: 'center', gap: 10,
-                padding: '0 12px', cursor: locked ? 'not-allowed' : 'pointer', fontSize: 13, transition: 'all 0.15s',
+                color: locked ? '#A1A1AA' : '#fff', height: 40, display: 'flex', alignItems: 'center', gap: 10,
+                padding: '0 12px', cursor: 'pointer', fontSize: 13, transition: 'all 0.15s',
               }}
             >
-              <Icon size={15} color={active ? '#5865F2' : locked ? '#3F3F46' : '#71717A'} />
+              <Icon size={15} color={active ? '#5865F2' : locked ? '#C4B5FD' : '#71717A'} />
               {entry.label}
-              {locked && <Lock size={12} color="#3F3F46" style={{ marginLeft: 'auto' }} />}
+              {locked && (
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {requiredTierLabel && (
+                    <span style={{
+                      fontSize: 10,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: requiredTier === 'ultimate' ? '#C4B5FD' : '#86EFAC',
+                    }}>
+                      {requiredTierLabel}
+                    </span>
+                  )}
+                  <Lock size={12} color="#A78BFA" />
+                </span>
+              )}
             </button>
           );
         })}
@@ -559,6 +585,41 @@ export default function DashboardPortal() {
           <div style={{ marginTop: 4, fontFamily: "'Outfit', sans-serif", fontSize: 18, color: selectedGuild.tier === 'ultimate' ? '#8B5CF6' : selectedGuild.tier === 'pro' ? '#10B981' : '#71717A', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             {String(selectedGuild.tier || 'free').toUpperCase()}
             <CreditCard size={14} color="#52525B" />
+          </div>
+        </button>
+      )}
+
+      {selectedGuild && blockedFeatureLabels.length > 0 && (
+        <button
+          type="button"
+          data-testid="sidebar-upgrade-hint"
+          onClick={() => setActiveTab('subscription')}
+          style={{
+            marginTop: 12,
+            width: '100%',
+            border: '1px solid rgba(139,92,246,0.35)',
+            background: 'rgba(88,28,135,0.16)',
+            color: '#fff',
+            padding: '12px 14px',
+            textAlign: 'left',
+            display: 'grid',
+            gap: 6,
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#C4B5FD', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              {nextUpgradeLabel
+                ? t(`Nächster Schritt: ${nextUpgradeLabel}`, `Next step: ${nextUpgradeLabel}`)
+                : t('Upgrade-Pfad', 'Upgrade path')}
+            </span>
+            <Crown size={14} color="#C4B5FD" />
+          </div>
+          <div style={{ fontSize: 13, color: '#E9D5FF', lineHeight: 1.5 }}>
+            {t('Aktuell gesperrt auf diesem Server', 'Currently locked on this server')}
+          </div>
+          <div style={{ fontSize: 12, color: '#D4D4D8', lineHeight: 1.5 }}>
+            {blockedFeatureLabels.join(' • ')}
           </div>
         </button>
       )}
@@ -685,7 +746,12 @@ export default function DashboardPortal() {
       )}
 
       {activeTab === 'subscription' && (
-        <DashboardSubscription apiRequest={apiRequest} selectedGuildId={selectedGuildId} t={t} />
+        <DashboardSubscription
+          apiRequest={apiRequest}
+          selectedGuildId={selectedGuildId}
+          t={t}
+          capabilityPayload={effectiveCapabilityPayload}
+        />
       )}
 
       {dashboardEnabled && (

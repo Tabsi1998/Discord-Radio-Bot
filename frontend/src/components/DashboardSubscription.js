@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { getDashboardBlockedFeatureLabels } from '../lib/dashboardCapabilities';
 
 const TIER_COLORS = { free: '#71717A', pro: '#10B981', ultimate: '#8B5CF6' };
 const TIER_LABELS = { free: 'Free', pro: 'Pro', ultimate: 'Ultimate' };
@@ -302,7 +303,7 @@ function DashboardCheckoutModal({
   );
 }
 
-export default function DashboardSubscription({ apiRequest, selectedGuildId, t }) {
+export default function DashboardSubscription({ apiRequest, selectedGuildId, t, capabilityPayload = null }) {
   const { locale, localeMeta, formatDate } = useI18n();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -334,6 +335,12 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
   const isExpiringSoon = !isExpired && lic?.remainingDays != null && lic.remainingDays <= 7;
   const canManagePaidPlan = lic && ['pro', 'ultimate'].includes(String(lic.plan || effectiveTier || '').toLowerCase());
   const canUpgradeToUltimate = String(lic?.plan || effectiveTier || '').toLowerCase() === 'pro';
+  const blockedFeatureLabels = useMemo(
+    () => getDashboardBlockedFeatureLabels(capabilityPayload?.upgradeHints?.blockedFeatures, t, 6),
+    [capabilityPayload?.upgradeHints?.blockedFeatures, t]
+  );
+  const nextUpgradeTier = String(capabilityPayload?.upgradeHints?.nextTier || '').trim().toLowerCase();
+  const nextUpgradeLabel = nextUpgradeTier ? nextUpgradeTier.toUpperCase() : '';
 
   const planFeatures = useMemo(() => {
     if (effectiveTier === 'ultimate') {
@@ -642,6 +649,44 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t }
           </div>
         ) : null}
       </div>
+
+      {blockedFeatureLabels.length > 0 ? (
+        <div
+          data-testid="subscription-locked-features-card"
+          style={{
+            background: '#0A0A0A',
+            border: '1px solid rgba(139,92,246,0.25)',
+            padding: 16,
+            display: 'grid',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 18, color: '#D4D4D8' }}>
+                {t('Aktuell gesperrte Funktionen', 'Currently locked features')}
+              </h4>
+              <div style={{ marginTop: 6, color: '#A1A1AA', fontSize: 13, lineHeight: 1.6 }}>
+                {nextUpgradeLabel
+                  ? t(
+                    `NÃ¤chster sinnvoller Schritt fÃ¼r diesen Server: ${nextUpgradeLabel}.`,
+                    `Best next step for this server: ${nextUpgradeLabel}.`
+                  )
+                  : t(
+                    'Diese Funktionen sind auf diesem Server aktuell noch nicht freigeschaltet.',
+                    'These features are not unlocked on this server yet.'
+                  )}
+              </div>
+            </div>
+            <Crown size={20} color="#C4B5FD" />
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {blockedFeatureLabels.map((feature) => (
+              <FeatureRow key={feature} label={feature} />
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div data-testid="subscription-features-card" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
         <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 18, marginBottom: 14, color: '#D4D4D8' }}>
