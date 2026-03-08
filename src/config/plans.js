@@ -4,6 +4,67 @@
 
 export const PLAN_ORDER = ["free", "pro", "ultimate"];
 
+export const CAPABILITIES = {
+  dashboard_access: {
+    apiKey: "dashboardAccess",
+    minPlan: "pro",
+    label: "Dashboard-Zugriff",
+  },
+  event_scheduler: {
+    apiKey: "eventScheduler",
+    minPlan: "pro",
+    label: "Event-Scheduler",
+  },
+  role_permissions: {
+    apiKey: "rolePermissions",
+    minPlan: "pro",
+    label: "Rollenbasierte Berechtigungen",
+  },
+  weekly_digest: {
+    apiKey: "weeklyDigest",
+    minPlan: "pro",
+    label: "Woechentlicher Digest",
+  },
+  basic_health: {
+    apiKey: "basicHealth",
+    minPlan: "pro",
+    label: "Basis-Health-Ansicht",
+  },
+  custom_station_urls: {
+    apiKey: "customStationUrls",
+    minPlan: "ultimate",
+    label: "Custom-Station-URLs",
+  },
+  advanced_analytics: {
+    apiKey: "advancedAnalytics",
+    minPlan: "ultimate",
+    label: "Erweiterte Analytics",
+  },
+  failover_rules: {
+    apiKey: "failoverRules",
+    minPlan: "ultimate",
+    label: "Failover-Regeln",
+  },
+  license_workspace: {
+    apiKey: "licenseWorkspace",
+    minPlan: "ultimate",
+    label: "Lizenz-Workspace",
+  },
+  exports_webhooks: {
+    apiKey: "exportsWebhooks",
+    minPlan: "ultimate",
+    label: "Exporte und Webhooks",
+  },
+};
+
+export const CAPABILITY_KEYS = Object.freeze(Object.keys(CAPABILITIES));
+export const CAPABILITY_API_KEYS = Object.freeze(
+  Object.fromEntries(CAPABILITY_KEYS.map((key) => [key, CAPABILITIES[key].apiKey]))
+);
+export const CAPABILITY_LABELS = Object.freeze(
+  Object.fromEntries(CAPABILITY_KEYS.map((key) => [key, CAPABILITIES[key].label]))
+);
+
 export const PLANS = {
   free: {
     id: "free",
@@ -21,6 +82,24 @@ export const PLANS = {
       customStationURLs: false,
       commandPermissions: false,
       scheduledEvents: false,
+    },
+    capabilities: {
+      dashboard_access: false,
+      event_scheduler: false,
+      role_permissions: false,
+      weekly_digest: false,
+      basic_health: false,
+      custom_station_urls: false,
+      advanced_analytics: false,
+      failover_rules: false,
+      license_workspace: false,
+      exports_webhooks: false,
+    },
+    limits: {
+      maxBots: 2,
+      bitrate: "64k",
+      bitrateNum: 64,
+      reconnectMs: 5000,
     },
   },
   pro: {
@@ -40,6 +119,24 @@ export const PLANS = {
       commandPermissions: true,
       scheduledEvents: true,
     },
+    capabilities: {
+      dashboard_access: true,
+      event_scheduler: true,
+      role_permissions: true,
+      weekly_digest: true,
+      basic_health: true,
+      custom_station_urls: false,
+      advanced_analytics: false,
+      failover_rules: false,
+      license_workspace: false,
+      exports_webhooks: false,
+    },
+    limits: {
+      maxBots: 8,
+      bitrate: "128k",
+      bitrateNum: 128,
+      reconnectMs: 1500,
+    },
   },
   ultimate: {
     id: "ultimate",
@@ -57,6 +154,24 @@ export const PLANS = {
       customStationURLs: true,
       commandPermissions: true,
       scheduledEvents: true,
+    },
+    capabilities: {
+      dashboard_access: true,
+      event_scheduler: true,
+      role_permissions: true,
+      weekly_digest: true,
+      basic_health: true,
+      custom_station_urls: true,
+      advanced_analytics: true,
+      failover_rules: true,
+      license_workspace: true,
+      exports_webhooks: true,
+    },
+    limits: {
+      maxBots: 16,
+      bitrate: "320k",
+      bitrateNum: 320,
+      reconnectMs: 400,
     },
   },
 };

@@ -1,3 +1,9 @@
+"""Legacy/reference FastAPI backend for OmniFM.
+
+This module is feature-frozen. The canonical production backend is the
+Node.js implementation in ``src/api/server.js``.
+"""
+
 import os
 import json
 import re

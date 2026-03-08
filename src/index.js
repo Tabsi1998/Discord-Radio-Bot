@@ -71,7 +71,11 @@ await initStationsStore();
 setLicenseProvider((serverId) => {
   const license = getServerLicense(serverId);
   if (!license) return null;
-  return { plan: license.plan || license.tier || "free", active: !license.expired };
+  return {
+    plan: license.plan || license.tier || "free",
+    active: Boolean(license.active) && !Boolean(license.expired),
+    seats: Math.max(1, Number(license.seats || 1) || 1),
+  };
 });
 
 // ---- Bot Startup: Commander/Worker Architecture ----

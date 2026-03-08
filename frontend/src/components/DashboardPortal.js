@@ -8,6 +8,7 @@ import DashboardEvents from './DashboardEvents';
 import DashboardCustomStations from './DashboardCustomStations';
 import DashboardSettings from './DashboardSettings';
 import DashboardSubscription from './DashboardSubscription';
+import { normalizeDashboardCapabilityPayload } from '../lib/dashboardCapabilities';
 
 const PERMISSION_COMMANDS = [
   'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',
@@ -28,7 +29,23 @@ const EMPTY_EVENT_FORM = Object.freeze({
   createDiscordEvent: false,
   enabled: true,
 });
-const ULTIMATE_ONLY_TABS = new Set(['stats', 'stations']);
+
+function buildEmptyPermissionsDraft() {
+  const base = {};
+  PERMISSION_COMMANDS.forEach((command) => { base[command] = []; });
+  return base;
+}
+
+function buildPermissionsDraftFromPayload(permsPayload) {
+  const draft = buildEmptyPermissionsDraft();
+  const rules = Array.isArray(permsPayload?.rules) ? permsPayload.rules : [];
+  rules.forEach((rule) => {
+    const command = String(rule?.command || '').trim().toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(draft, command)) return;
+    draft[command] = Array.isArray(rule?.allowRoleIds) ? [...new Set(rule.allowRoleIds.filter(Boolean))] : [];
+  });
+  return draft;
+}
 
 function buildEmptyEventForm() {
   return { ...EMPTY_EVENT_FORM };
@@ -156,18 +173,42 @@ export default function DashboardPortal() {
   const [events, setEvents] = useState([]);
   const [eventForm, setEventForm] = useState(() => buildEmptyEventForm());
   const [editingEventId, setEditingEventId] = useState('');
-  const [permsDraft, setPermsDraft] = useState(() => {
-    const base = {};
-    PERMISSION_COMMANDS.forEach((c) => { base[c] = ''; });
-    return base;
-  });
+  const [permsDraft, setPermsDraft] = useState(() => buildEmptyPermissionsDraft());
+  const [availableRoles, setAvailableRoles] = useState([]);
+  const [capabilityPayload, setCapabilityPayload] = useState(null);
   const [stats, setStats] = useState({ basic: null, advanced: null, tier: 'free' });
   const [detailStats, setDetailStats] = useState(null);
   const [detailDays, setDetailDays] = useState(30);
 
   const selectedGuild = useMemo(() => (session.guilds || []).find((g) => g.id === selectedGuildId) || null, [session.guilds, selectedGuildId]);
-  const dashboardEnabled = Boolean(selectedGuild?.dashboardEnabled);
-  const isUltimate = selectedGuild?.tier === 'ultimate';
+  const sessionCapabilityPayload = useMemo(() => normalizeDashboardCapabilityPayload(selectedGuild ? {
+    serverId: selectedGuild.id,
+    tier: selectedGuild.tier,
+    capabilities: selectedGuild.capabilities,
+    limits: selectedGuild.limits,
+    upgradeHints: selectedGuild.upgradeHints,
+  } : null), [selectedGuild]);
+  const effectiveCapabilityPayload = useMemo(() => {
+    if (capabilityPayload?.serverId && capabilityPayload.serverId === selectedGuildId) {
+      return normalizeDashboardCapabilityPayload(capabilityPayload);
+    }
+    return sessionCapabilityPayload;
+  }, [capabilityPayload, selectedGuildId, sessionCapabilityPayload]);
+  const capabilities = effectiveCapabilityPayload.capabilities;
+  const dashboardEnabled = capabilities.dashboardAccess === true;
+  const canManageEvents = capabilities.eventScheduler === true;
+  const canManagePermissions = capabilities.rolePermissions === true;
+  const canManageCustomStations = capabilities.customStationUrls === true;
+  const canViewAdvancedStats = capabilities.advancedAnalytics === true;
+  const tabs = useMemo(() => ([
+    { key: 'overview', label: t('Übersicht', 'Overview'), icon: BarChart3, requiredCapability: 'dashboardAccess' },
+    { key: 'events', label: t('Events', 'Events'), icon: CalendarDays, requiredCapability: 'eventScheduler' },
+    { key: 'stations', label: t('Custom-Stationen', 'Custom stations'), icon: ListMusic, requiredCapability: 'customStationUrls' },
+    { key: 'perms', label: t('Berechtigungen', 'Permissions'), icon: ShieldCheck, requiredCapability: 'rolePermissions' },
+    { key: 'stats', label: t('Statistiken', 'Statistics'), icon: TrendingUp, requiredCapability: 'advancedAnalytics' },
+    { key: 'subscription', label: t('Abo', 'Subscription'), icon: CreditCard },
+    { key: 'settings', label: t('Einstellungen', 'Settings'), icon: Settings, requiredCapability: 'dashboardAccess' },
+  ]), [t]);
 
   const refreshSession = useCallback(async () => {
     setLoadingSession(true);
@@ -195,6 +236,22 @@ export default function DashboardPortal() {
 
   useEffect(() => { if (!session.authenticated) setError((c) => c || authErrorMessage); }, [authErrorMessage, session.authenticated]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!session.authenticated || !selectedGuildId) {
+      setCapabilityPayload(null);
+      return () => { cancelled = true; };
+    }
+    apiRequest(`/api/dashboard/capabilities?serverId=${encodeURIComponent(selectedGuildId)}`)
+      .then((payload) => {
+        if (!cancelled) setCapabilityPayload(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setCapabilityPayload(null);
+      });
+    return () => { cancelled = true; };
+  }, [apiRequest, selectedGuildId, session.authenticated]);
+
   const refreshDashboardData = useCallback(async ({ silent = false } = {}) => {
     if (!selectedGuildId || !dashboardEnabled) return;
     if (!silent) {
@@ -203,31 +260,33 @@ export default function DashboardPortal() {
     }
     setError('');
     try {
-      const requests = [
+      const [
+        statsPayload,
+        eventsPayload,
+        permsPayload,
+        rolesPayload,
+        detailPayload,
+      ] = await Promise.all([
         apiRequest(`/api/dashboard/stats?serverId=${encodeURIComponent(selectedGuildId)}`),
-        apiRequest(`/api/dashboard/events?serverId=${encodeURIComponent(selectedGuildId)}`),
-        apiRequest(`/api/dashboard/perms?serverId=${encodeURIComponent(selectedGuildId)}`),
-      ];
-
-      // Fetch detail stats for Ultimate users
-      if (isUltimate) {
-        requests.push(apiRequest(`/api/dashboard/stats/detail?serverId=${encodeURIComponent(selectedGuildId)}&days=${encodeURIComponent(String(detailDays))}`).catch(() => null));
-      }
-
-      const results = await Promise.all(requests);
-      const [statsPayload, eventsPayload, permsPayload] = results;
-      const detailPayload = results[3] || null;
+        canManageEvents
+          ? apiRequest(`/api/dashboard/events?serverId=${encodeURIComponent(selectedGuildId)}`)
+          : Promise.resolve({ events: [] }),
+        canManagePermissions
+          ? apiRequest(`/api/dashboard/perms?serverId=${encodeURIComponent(selectedGuildId)}`)
+          : Promise.resolve({ rules: [] }),
+        canManagePermissions
+          ? apiRequest(`/api/dashboard/roles?serverId=${encodeURIComponent(selectedGuildId)}`)
+          : Promise.resolve({ roles: [] }),
+        canViewAdvancedStats
+          ? apiRequest(`/api/dashboard/stats/detail?serverId=${encodeURIComponent(selectedGuildId)}&days=${encodeURIComponent(String(detailDays))}`).catch(() => null)
+          : Promise.resolve(null),
+      ]);
 
       setStats({ tier: statsPayload.tier || selectedGuild?.tier || 'free', basic: statsPayload.basic || null, advanced: statsPayload.advanced || null });
       setDetailStats(detailPayload);
-      setEvents(sortDashboardEvents(Array.isArray(eventsPayload.events) ? eventsPayload.events : []));
-
-      const nextDraft = {};
-      PERMISSION_COMMANDS.forEach((c) => {
-        const roles = permsPayload.commandRoleMap?.[c] || [];
-        nextDraft[c] = Array.isArray(roles) ? roles.join(', ') : '';
-      });
-      setPermsDraft(nextDraft);
+      setEvents(sortDashboardEvents(Array.isArray(eventsPayload?.events) ? eventsPayload.events : []));
+      setAvailableRoles(Array.isArray(rolesPayload?.roles) ? rolesPayload.roles : []);
+      setPermsDraft(buildPermissionsDraftFromPayload(permsPayload));
     } catch (err) {
       setError(err.message || t('Dashboard-Daten konnten nicht geladen werden.', 'Dashboard data could not be loaded.'));
     } finally {
@@ -235,7 +294,7 @@ export default function DashboardPortal() {
         setLoadingData(false);
       }
     }
-  }, [apiRequest, dashboardEnabled, detailDays, isUltimate, selectedGuild?.tier, selectedGuildId, t]);
+  }, [apiRequest, canManageEvents, canManagePermissions, canViewAdvancedStats, dashboardEnabled, detailDays, selectedGuild?.tier, selectedGuildId, t]);
 
   useEffect(() => { refreshSession(); }, [refreshSession]);
   useEffect(() => { if (selectedGuildId) window.localStorage.setItem('omnifm.dashboard.guildId', selectedGuildId); }, [selectedGuildId]);
@@ -252,10 +311,11 @@ export default function DashboardPortal() {
     setEventForm(buildEmptyEventForm());
   }, [selectedGuildId]);
   useEffect(() => {
-    if (!isUltimate && ULTIMATE_ONLY_TABS.has(activeTab)) {
-      setActiveTab('overview');
+    const activeTabConfig = tabs.find((entry) => entry.key === activeTab);
+    if (activeTabConfig?.requiredCapability && capabilities[activeTabConfig.requiredCapability] !== true) {
+      setActiveTab(dashboardEnabled ? 'overview' : 'subscription');
     }
-  }, [activeTab, isUltimate]);
+  }, [activeTab, capabilities, dashboardEnabled, tabs]);
 
   const resetEventEditor = useCallback(() => {
     setEditingEventId('');
@@ -341,15 +401,17 @@ export default function DashboardPortal() {
   const savePerms = async () => {
     if (!selectedGuildId) return;
     setError(''); setMessage('');
-    const commandRoleMap = {};
-    Object.entries(permsDraft).forEach(([cmd, raw]) => {
-      const normalized = String(raw || '').split(',').map((v) => v.trim()).filter(Boolean);
-      commandRoleMap[cmd] = [...new Set(normalized)];
-    });
     try {
-      await apiRequest(`/api/dashboard/perms?serverId=${encodeURIComponent(selectedGuildId)}`, {
-        method: 'PUT', body: JSON.stringify({ commandRoleMap }),
+      const payload = await apiRequest(`/api/dashboard/perms?serverId=${encodeURIComponent(selectedGuildId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          rules: PERMISSION_COMMANDS.map((command) => ({
+            command,
+            allowRoleIds: Array.isArray(permsDraft[command]) ? [...new Set(permsDraft[command].filter(Boolean))] : [],
+          })),
+        }),
       });
+      setPermsDraft(buildPermissionsDraftFromPayload(payload));
       setMessage(t('Berechtigungen gespeichert.', 'Permissions saved.'));
     } catch (err) { setError(err.message); }
   };
@@ -435,16 +497,6 @@ export default function DashboardPortal() {
   }
 
   // Sidebar
-  const tabs = [
-    { key: 'overview', label: t('Übersicht', 'Overview'), icon: BarChart3 },
-    { key: 'events', label: t('Events', 'Events'), icon: CalendarDays },
-    { key: 'stations', label: t('Custom-Stationen', 'Custom stations'), icon: ListMusic, ultimateOnly: true },
-    { key: 'perms', label: t('Berechtigungen', 'Permissions'), icon: ShieldCheck },
-    { key: 'stats', label: t('Statistiken', 'Statistics'), icon: TrendingUp, ultimateOnly: true },
-    { key: 'subscription', label: t('Abo', 'Subscription'), icon: CreditCard },
-    { key: 'settings', label: t('Einstellungen', 'Settings'), icon: Settings },
-  ];
-
   const sidebar = (
     <>
       <div data-testid="dashboard-brand" style={{ marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -472,7 +524,7 @@ export default function DashboardPortal() {
         {tabs.map((entry) => {
           const Icon = entry.icon;
           const active = activeTab === entry.key;
-          const locked = entry.ultimateOnly && !isUltimate;
+          const locked = entry.requiredCapability ? capabilities[entry.requiredCapability] !== true : false;
           return (
             <button
               key={entry.key} data-testid={`dashboard-tab-${entry.key}`}
@@ -535,7 +587,7 @@ export default function DashboardPortal() {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {loadingData && <span data-testid="dashboard-loading-indicator" style={{ fontSize: 12, color: '#52525B' }}>{t('Lade...', 'Loading...')}</span>}
-        {activeTab === 'stats' && isUltimate && (
+        {activeTab === 'stats' && canViewAdvancedStats && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#A1A1AA', fontSize: 12 }}>
             <span>{t('Zeitraum', 'Range')}</span>
             <select
@@ -643,12 +695,12 @@ export default function DashboardPortal() {
               stats={stats}
               detailStats={detailStats}
               t={t}
-              isUltimate={isUltimate}
+              isUltimate={canViewAdvancedStats}
               onResetStats={resetStatsForSelectedGuild}
             />
           )}
 
-          {activeTab === 'events' && (
+          {activeTab === 'events' && canManageEvents && (
             <DashboardEvents
               events={events} eventForm={eventForm} setEventForm={setEventForm}
               editingEventId={editingEventId}
@@ -661,11 +713,11 @@ export default function DashboardPortal() {
             />
           )}
 
-          {activeTab === 'stations' && isUltimate && (
+          {activeTab === 'stations' && canManageCustomStations && (
             <DashboardCustomStations apiRequest={apiRequest} selectedGuildId={selectedGuildId} t={t} />
           )}
 
-          {activeTab === 'stations' && !isUltimate && (
+          {activeTab === 'stations' && !canManageCustomStations && (
             <div data-testid="stations-ultimate-gate" style={{ border: '1px solid #1A1A2E', background: '#080808', padding: 24, textAlign: 'center' }}>
               <Crown size={32} color="#8B5CF6" style={{ margin: '0 auto' }} />
               <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 22, marginTop: 12 }}>
@@ -677,22 +729,43 @@ export default function DashboardPortal() {
             </div>
           )}
 
-          {activeTab === 'perms' && (
+          {activeTab === 'perms' && canManagePermissions && (
             <section data-testid="dashboard-perms-panel" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
               <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Rollenrechte pro Command', 'Role permissions by command')}</h3>
               <p style={{ color: '#52525B', marginTop: 6, fontSize: 13, lineHeight: 1.6 }}>
-                {t('Komma-getrennte Rollennamen oder IDs.', 'Comma-separated role names or IDs.')}
+                {t('Mehrfachauswahl mit echten Discord-Rollen.', 'Multi-select with real Discord roles.')}
               </p>
+              {!availableRoles.length && (
+                <div style={{ marginTop: 12, color: '#A1A1AA', fontSize: 13 }}>
+                  {t('Keine Rollen gefunden oder Bot ist gerade nicht auf diesem Server verbunden.', 'No roles found or the bot is currently not connected to this server.')}
+                </div>
+              )}
               <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
                 {PERMISSION_COMMANDS.map((cmd) => (
                   <label key={cmd} data-testid={`perm-row-${cmd}`} style={{ display: 'grid', gap: 4 }}>
                     <span style={{ color: '#52525B', fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>/{cmd}</span>
-                    <input
-                      data-testid={`perm-input-${cmd}`} value={permsDraft[cmd] || ''}
-                      onChange={(e) => setPermsDraft((c) => ({ ...c, [cmd]: e.target.value }))}
-                      placeholder={t('Rollen', 'Roles')}
-                      style={{ height: 36, border: '1px solid #1A1A2E', background: '#050505', color: '#fff', padding: '0 10px', fontSize: 13 }}
-                    />
+                    <select
+                      multiple
+                      size={Math.min(6, Math.max(3, availableRoles.length || 3))}
+                      data-testid={`perm-input-${cmd}`}
+                      value={Array.isArray(permsDraft[cmd]) ? permsDraft[cmd] : []}
+                      onChange={(e) => {
+                        const selectedRoleIds = Array.from(e.target.selectedOptions, (option) => option.value);
+                        setPermsDraft((current) => ({ ...current, [cmd]: selectedRoleIds }));
+                      }}
+                      style={{ minHeight: 96, border: '1px solid #1A1A2E', background: '#050505', color: '#fff', padding: '8px 10px', fontSize: 13 }}
+                    >
+                      {availableRoles.map((role) => (
+                        <option key={role.id} value={role.id}>
+                          {role.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ color: '#71717A', fontSize: 11 }}>
+                      {(permsDraft[cmd] || []).length
+                        ? (availableRoles.filter((role) => (permsDraft[cmd] || []).includes(role.id)).map((role) => role.name).join(', ') || `${(permsDraft[cmd] || []).length} ${t('Rollen ausgewählt', 'roles selected')}`)
+                        : t('Keine Rollen ausgewählt.', 'No roles selected.')}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -704,7 +777,7 @@ export default function DashboardPortal() {
             </section>
           )}
 
-          {activeTab === 'stats' && isUltimate && (
+          {activeTab === 'stats' && canViewAdvancedStats && (
             <DashboardStatsPanel
               stats={stats}
               detailStats={detailStats}
@@ -713,7 +786,7 @@ export default function DashboardPortal() {
             />
           )}
 
-          {activeTab === 'stats' && !isUltimate && (
+          {activeTab === 'stats' && !canViewAdvancedStats && (
             <div data-testid="stats-ultimate-gate" style={{ border: '1px solid #1A1A2E', background: '#080808', padding: 24, textAlign: 'center' }}>
               <Crown size={32} color="#8B5CF6" style={{ margin: '0 auto' }} />
               <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 22, marginTop: 12 }}>
@@ -726,7 +799,12 @@ export default function DashboardPortal() {
           )}
 
           {activeTab === 'settings' && (
-            <DashboardSettings apiRequest={apiRequest} selectedGuildId={selectedGuildId} t={t} isUltimate={isUltimate} />
+            <DashboardSettings
+              apiRequest={apiRequest}
+              selectedGuildId={selectedGuildId}
+              t={t}
+              capabilities={capabilities}
+            />
           )}
         </>
       )}

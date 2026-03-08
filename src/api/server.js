@@ -5,9 +5,10 @@ import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 import { randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { ChannelType, PermissionFlagsBits } from "discord.js";
 
-import { log, webDir, webRootSource, frontendBuildStamp } from "../lib/logging.js";
+import { log, webDir, webRootSource, frontendBuildStamp, rootDir } from "../lib/logging.js";
 import {
   TIERS,
   TIER_RANK,
@@ -72,7 +73,16 @@ import {
   updateGuildStation as updateCustomStation,
   removeGuildStation as removeCustomStation,
 } from "../custom-stations.js";
-import { getTier, checkFeatureAccess, getServerPlanConfig } from "../core/entitlements.js";
+import {
+  getTier,
+  checkFeatureAccess,
+  getServerPlanConfig,
+  getServerCapabilities,
+  getPlanLimits,
+  getServerSeats,
+  serverHasCapability,
+  buildUpgradeHints,
+} from "../core/entitlements.js";
 import {
   getServerLicense,
   getLicenseById,
@@ -97,7 +107,7 @@ import {
   listRecentRedemptions,
   getOffer,
 } from "../coupon-store.js";
-import { PLANS, BRAND } from "../config/plans.js";
+import { PLANS, BRAND, CAPABILITY_KEYS } from "../config/plans.js";
 import {
   getDashboardTelemetry,
   setDashboardTelemetry,
@@ -140,6 +150,7 @@ import {
 
 const appStartTime = Date.now();
 const webhookEventsInFlight = new Set();
+let binaryHealthCache = null;
 
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
@@ -157,6 +168,64 @@ function extractMailbox(rawValue) {
   if (bracketMatch?.[1]) return bracketMatch[1].trim();
   const plainMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
   return plainMatch?.[0] || "";
+}
+
+function getBlockedCapabilitiesForServer(serverId) {
+  return CAPABILITY_KEYS.filter((capabilityKey) => !serverHasCapability(serverId, capabilityKey));
+}
+
+function buildServerCapabilityPayload(serverId) {
+  const guildId = String(serverId || "").trim();
+  const tier = getTier(guildId);
+  const limits = getPlanLimits(tier);
+  return {
+    serverId: guildId,
+    tier,
+    capabilities: getServerCapabilities(guildId, { apiShape: true }),
+    limits: {
+      ...limits,
+      seats: getServerSeats(guildId),
+    },
+    upgradeHints: buildUpgradeHints(tier, getBlockedCapabilitiesForServer(guildId)),
+  };
+}
+
+function getHealthBinaryProbe() {
+  const cacheAgeMs = 30_000;
+  if (binaryHealthCache && (Date.now() - binaryHealthCache.checkedAt) < cacheAgeMs) {
+    return binaryHealthCache;
+  }
+
+  const probe = (command, variants = [["-version"], ["--version"]]) => {
+    for (const args of variants) {
+      try {
+        const result = spawnSync(command, args, {
+          encoding: "utf8",
+          timeout: 2_000,
+          windowsHide: true,
+        });
+        if (result.error) continue;
+        const firstLine = String(result.stdout || result.stderr || "").split(/\r?\n/).find(Boolean) || "";
+        return {
+          available: result.status === 0,
+          version: firstLine.trim() || null,
+          status: result.status,
+        };
+      } catch {}
+    }
+    return {
+      available: false,
+      version: null,
+      status: null,
+    };
+  };
+
+  binaryHealthCache = {
+    checkedAt: Date.now(),
+    ffmpeg: probe("ffmpeg"),
+    fpcalc: probe("fpcalc"),
+  };
+  return binaryHealthCache;
 }
 
 function buildPublicLegalNotice() {
@@ -501,16 +570,21 @@ function resolveDashboardGuildsForSession(sessionPayload) {
   return guilds
     .filter((guild) => guild && /^\d{17,22}$/.test(String(guild.id || "")) && hasManageGuildPermission(guild.permissions))
     .map((guild) => {
-      const tier = getTier(guild.id);
+      const entitlement = buildServerCapabilityPayload(guild.id);
       return {
         id: guild.id,
         name: clipText(guild.name || guild.id, 120),
         icon: clipText(guild.icon || "", 120),
         owner: Boolean(guild.owner),
         permissions: String(guild.permissions || "0"),
-        tier,
-        dashboardEnabled: (TIER_RANK[tier] || 0) >= (TIER_RANK.pro || 1),
-        ultimateEnabled: tier === "ultimate",
+        tier: entitlement.tier,
+        capabilities: entitlement.capabilities,
+        limits: entitlement.limits,
+        upgradeHints: entitlement.upgradeHints,
+        dashboardEnabled: entitlement.capabilities.dashboardAccess === true,
+        ultimateEnabled: entitlement.capabilities.advancedAnalytics === true
+          || entitlement.capabilities.customStationUrls === true
+          || entitlement.capabilities.failoverRules === true,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -925,6 +999,73 @@ function formatDashboardPermissionMapForClient(commandRules, guild) {
   }
 
   return output;
+}
+
+function formatDashboardPermissionRulesForClient(commandRules, guild) {
+  const roleCollection = guild?.roles?.cache || new Map();
+  return getSupportedPermissionCommands().map((command) => {
+    const rule = commandRules?.[command];
+    const allowRoleIds = Array.isArray(rule?.allowRoleIds) ? [...new Set(rule.allowRoleIds)] : [];
+    return {
+      command,
+      allowRoleIds,
+      allowRoles: allowRoleIds.map((roleId) => ({
+        id: roleId,
+        name: roleCollection.get(roleId)?.name || roleId,
+      })),
+    };
+  });
+}
+
+function extractDashboardPermissionRuleTokens(rawRule) {
+  const tokens = [];
+  for (const roleId of Array.isArray(rawRule?.allowRoleIds) ? rawRule.allowRoleIds : []) {
+    tokens.push(roleId);
+  }
+  for (const roleEntry of Array.isArray(rawRule?.allowRoles) ? rawRule.allowRoles : []) {
+    if (typeof roleEntry === "string") {
+      tokens.push(roleEntry);
+      continue;
+    }
+    if (!roleEntry || typeof roleEntry !== "object") continue;
+    tokens.push(roleEntry.id || roleEntry.roleId || roleEntry.name || "");
+  }
+  return tokens.filter(Boolean);
+}
+
+async function resolveDashboardPermissionRuleUpdates(guild, body) {
+  const supportedCommands = getSupportedPermissionCommands();
+  const unresolved = [];
+  const resolvedCommands = [];
+
+  if (Array.isArray(body?.rules)) {
+    for (const rawRule of body.rules) {
+      const command = String(rawRule?.command || "").trim().replace(/^\//, "").toLowerCase();
+      if (!supportedCommands.includes(command)) continue;
+      const resolved = await resolveGuildRoleIds(guild, extractDashboardPermissionRuleTokens(rawRule));
+      if (resolved.unresolved.length) {
+        unresolved.push(`${command}: ${resolved.unresolved.join(", ")}`);
+        continue;
+      }
+      resolvedCommands.push({ command, roleIds: resolved.roleIds });
+    }
+    return { supportedCommands, unresolved, resolvedCommands };
+  }
+
+  const incomingMap = body?.commandRoleMap && typeof body.commandRoleMap === "object"
+    ? body.commandRoleMap
+    : {};
+  for (const [rawCommand, rawRoles] of Object.entries(incomingMap)) {
+    const command = String(rawCommand || "").trim().replace(/^\//, "").toLowerCase();
+    if (!supportedCommands.includes(command)) continue;
+    const resolved = await resolveGuildRoleIds(guild, rawRoles);
+    if (resolved.unresolved.length) {
+      unresolved.push(`${command}: ${resolved.unresolved.join(", ")}`);
+      continue;
+    }
+    resolvedCommands.push({ command, roleIds: resolved.roleIds });
+  }
+  return { supportedCommands, unresolved, resolvedCommands };
 }
 
 function hasOwnDashboardField(payload, field) {
@@ -1473,6 +1614,92 @@ function startWebServer(runtimes) {
       return;
     }
 
+    if (requestUrl.pathname === "/api/health/detail") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      if (!isAdminApiRequest(req)) {
+        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+        return;
+      }
+
+      const { getDb, isConnected } = await import("../lib/db.js");
+      const binaryProbe = getHealthBinaryProbe();
+      const readyBots = runtimes.filter((runtime) => runtime.client.isReady()).length;
+      const runtimeDetails = runtimes.map((runtime) => {
+        const snapshot = runtime.buildStatusSnapshot();
+        return {
+          id: snapshot.id,
+          name: snapshot.name,
+          role: snapshot.role,
+          requiredTier: snapshot.requiredTier,
+          ready: snapshot.ready,
+          servers: snapshot.servers,
+          listeners: snapshot.listeners,
+          connections: snapshot.connections,
+          uptimeSec: snapshot.uptimeSec,
+          error: snapshot.error,
+        };
+      });
+
+      sendJson(res, 200, {
+        ok: true,
+        status: readyBots > 0 ? "online" : "degraded",
+        brand: BRAND.name,
+        timestamp: new Date().toISOString(),
+        uptimeSec: Math.floor((Date.now() - appStartTime) / 1000),
+        container: {
+          pid: process.pid,
+          nodeVersion: process.version,
+          platform: process.platform,
+          arch: process.arch,
+          webRootSource,
+          frontendBuildStamp,
+        },
+        discord: {
+          bots: runtimes.length,
+          readyBots,
+          runtimes: runtimeDetails,
+        },
+        db: {
+          connected: isConnected(),
+          database: getDb()?.databaseName || null,
+          fallbackActive: !isConnected(),
+        },
+        stripe: {
+          configured: Boolean(getStripeSecretKey()),
+        },
+        binaries: {
+          ffmpeg: binaryProbe.ffmpeg,
+          fpcalc: binaryProbe.fpcalc,
+        },
+        stores: {
+          dashboardSessions: {
+            backend: "json-file",
+            filePresent: fs.existsSync(path.join(rootDir, "dashboard.json")),
+          },
+          premiumLicenses: {
+            backend: "json-file",
+            filePresent: fs.existsSync(path.join(rootDir, "premium.json")),
+          },
+          commandPermissions: {
+            backend: "json-file",
+            filePresent: fs.existsSync(path.join(rootDir, "command-permissions.json")),
+          },
+          customStations: {
+            backend: "json-file",
+            filePresent: fs.existsSync(path.join(rootDir, "custom-stations.json")),
+          },
+          listeningStats: {
+            backend: isConnected() ? "mongodb+json-fallback" : "json-fallback",
+            dbConnected: isConnected(),
+          },
+        },
+      });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/discordbotlist/status") {
       if (req.method !== "GET") {
         methodNotAllowed(res, ["GET"]);
@@ -1769,6 +1996,26 @@ function startWebServer(runtimes) {
       return;
     }
 
+    if (requestUrl.pathname === "/api/dashboard/capabilities") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
+        return;
+      }
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) {
+        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
+        return;
+      }
+      sendJson(res, 200, buildServerCapabilityPayload(guild.id));
+      return;
+    }
+
     if (requestUrl.pathname === "/api/dashboard/stats") {
       const { language } = getDashboardRequestTranslator(req, requestUrl);
       if (req.method !== "GET") {
@@ -1786,7 +2033,7 @@ function startWebServer(runtimes) {
         sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
-      if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
+      if (!serverHasCapability(guild.id, "dashboard_access")) {
         sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro.");
         return;
       }
@@ -1796,7 +2043,7 @@ function startWebServer(runtimes) {
         serverId: guild.id,
         tier: guild.tier,
         basic: statsPayload.basic,
-        advanced: guild.tier === "ultimate" ? statsPayload.advanced : null,
+        advanced: serverHasCapability(guild.id, "advanced_analytics") ? statsPayload.advanced : null,
       });
       return;
     }
@@ -1809,6 +2056,10 @@ function startWebServer(runtimes) {
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guild) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
+      if (!serverHasCapability(guild.id, "dashboard_access")) {
+        sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfÃ¼gbar.", "Dashboard is only available from Pro.");
+        return;
+      }
 
       const gid = guild.id;
       const deletedCounts = {};
@@ -1859,7 +2110,7 @@ function startWebServer(runtimes) {
         sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
-      if (guild.tier !== "ultimate") {
+      if (!serverHasCapability(guild.id, "advanced_analytics")) {
         sendLocalizedError(
           res,
           403,
@@ -2033,7 +2284,7 @@ function startWebServer(runtimes) {
         sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
-      if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
+      if (!serverHasCapability(guild.id, "event_scheduler")) {
         sendLocalizedError(res, 403, language, "Events sind erst ab Pro verfügbar.", "Events are only available from Pro.");
         return;
       }
@@ -2169,7 +2420,7 @@ function startWebServer(runtimes) {
         sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
-      if ((TIER_RANK[guild.tier] || 0) < (TIER_RANK.pro || 1)) {
+      if (!serverHasCapability(guild.id, "event_scheduler")) {
         sendLocalizedError(res, 403, language, "Events sind erst ab Pro verfügbar.", "Events are only available from Pro.");
         return;
       }
@@ -2373,7 +2624,7 @@ function startWebServer(runtimes) {
         sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
         return;
       }
-      if ((TIER_RANK[guildInfo.tier] || 0) < (TIER_RANK.pro || 1)) {
+      if (!serverHasCapability(guildInfo.id, "role_permissions")) {
         sendLocalizedError(res, 403, language, "Berechtigungen sind erst ab Pro verfügbar.", "Permissions are only available from Pro.");
         return;
       }
@@ -2388,6 +2639,7 @@ function startWebServer(runtimes) {
         sendJson(res, 200, {
           serverId: guildInfo.id,
           tier: guildInfo.tier,
+          rules: formatDashboardPermissionRulesForClient(rules, guild),
           commandRoleMap: formatDashboardPermissionMapForClient(rules, guild),
           updatedAt: null,
         });
@@ -2397,23 +2649,7 @@ function startWebServer(runtimes) {
       if (req.method === "PUT") {
         try {
           const body = await readJsonBody();
-          const incomingMap = body?.commandRoleMap && typeof body.commandRoleMap === "object"
-            ? body.commandRoleMap
-            : {};
-          const supportedCommands = getSupportedPermissionCommands();
-          const unresolved = [];
-          const resolvedCommands = [];
-
-          for (const [rawCommand, rawRoles] of Object.entries(incomingMap)) {
-            const command = String(rawCommand || "").trim().replace(/^\//, "").toLowerCase();
-            if (!supportedCommands.includes(command)) continue;
-            const resolved = await resolveGuildRoleIds(guild, rawRoles);
-            if (resolved.unresolved.length) {
-              unresolved.push(`${command}: ${resolved.unresolved.join(", ")}`);
-              continue;
-            }
-            resolvedCommands.push({ command, roleIds: resolved.roleIds });
-          }
+          const { supportedCommands, unresolved, resolvedCommands } = await resolveDashboardPermissionRuleUpdates(guild, body);
 
           if (unresolved.length) {
             sendJson(res, 400, {
@@ -2440,6 +2676,7 @@ function startWebServer(runtimes) {
           sendJson(res, 200, {
             success: true,
             serverId: guildInfo.id,
+            rules: formatDashboardPermissionRulesForClient(rules, guild),
             commandRoleMap: formatDashboardPermissionMapForClient(rules, guild),
             updatedAt: new Date().toISOString(),
           });
@@ -2466,6 +2703,7 @@ function startWebServer(runtimes) {
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
+      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
 
       const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
       if (!guild) { sendJson(res, 200, { voiceChannels: [], textChannels: [] }); return; }
@@ -2492,6 +2730,7 @@ function startWebServer(runtimes) {
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
+      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
 
       const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
       if (!guild) { sendJson(res, 200, { emojis: [] }); return; }
@@ -2524,6 +2763,7 @@ function startWebServer(runtimes) {
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
+      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
 
       const allStations = loadStations();
       const tierStations = filterStationsByTier(allStations.stations || {}, guildInfo.tier);
@@ -2545,7 +2785,7 @@ function startWebServer(runtimes) {
         key, name: st.name || key, url: st.url || "", genre: st.genre || "", country: st.country || "",
       })).sort((a, b) => a.name.localeCompare(b.name));
 
-      const customStations = guildInfo.tier === "ultimate" ? getCustomStations(guildInfo.id) : {};
+      const customStations = serverHasCapability(guildInfo.id, "custom_station_urls") ? getCustomStations(guildInfo.id) : {};
       const customList = Object.entries(customStations).map(([key, st]) => ({
         key, name: st.name || key, url: st.url || "", genre: st.genre || "", custom: true,
       })).sort((a, b) => a.name.localeCompare(b.name));
@@ -2567,7 +2807,8 @@ function startWebServer(runtimes) {
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
-      if (guildInfo.tier !== "ultimate") {
+      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
+      if (!serverHasCapability(guildInfo.id, "custom_station_urls")) {
         sendLocalizedError(
           res,
           403,
@@ -2674,6 +2915,7 @@ function startWebServer(runtimes) {
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
+      if (!serverHasCapability(guildInfo.id, "role_permissions")) { sendLocalizedError(res, 403, language, "Berechtigungen sind erst ab Pro verfügbar.", "Permissions are only available from Pro."); return; }
 
       const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
       if (!guild) { sendJson(res, 200, { roles: [] }); return; }
@@ -2700,13 +2942,19 @@ function startWebServer(runtimes) {
 
       const license = getLicense(guildInfo.id);
       const effectiveTier = String(license?.plan || guildInfo.tier || "free").trim().toLowerCase();
+      const capabilityPayload = buildServerCapabilityPayload(guildInfo.id);
       const result = {
         serverId: guildInfo.id,
         tier: guildInfo.tier,
         effectiveTier,
         tierName: effectiveTier === "ultimate" ? "Ultimate" : effectiveTier === "pro" ? "Pro" : "Free",
-        dashboardEnabled: guildInfo.dashboardEnabled,
-        ultimateEnabled: guildInfo.ultimateEnabled,
+        capabilities: capabilityPayload.capabilities,
+        limits: capabilityPayload.limits,
+        upgradeHints: capabilityPayload.upgradeHints,
+        dashboardEnabled: capabilityPayload.capabilities.dashboardAccess === true,
+        ultimateEnabled: capabilityPayload.capabilities.advancedAnalytics === true
+          || capabilityPayload.capabilities.customStationUrls === true
+          || capabilityPayload.capabilities.failoverRules === true,
         license: null,
       };
 
@@ -2930,6 +3178,7 @@ function startWebServer(runtimes) {
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
+      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
 
       const { getDb: getDatabase, isConnected: isDbConnected } = await import("../lib/db.js");
 
@@ -2943,6 +3192,7 @@ function startWebServer(runtimes) {
         sendJson(res, 200, {
           guildId: guildInfo.id,
           tier: guildInfo.tier,
+          capabilities: buildServerCapabilityPayload(guildInfo.id).capabilities,
           weeklyDigest: settings.weeklyDigest || { enabled: false, channelId: "", dayOfWeek: 1, hour: 9, language: "de" },
           fallbackStation: settings.fallbackStation || "",
         });
@@ -2959,6 +3209,10 @@ function startWebServer(runtimes) {
           const updates = { guildId: guildInfo.id };
 
           if (body?.weeklyDigest && typeof body.weeklyDigest === "object") {
+            if (!serverHasCapability(guildInfo.id, "weekly_digest")) {
+              sendLocalizedError(res, 403, language, "Wöchentlicher Digest ist erst ab Pro verfügbar.", "Weekly digest is only available from Pro.");
+              return;
+            }
             const wd = body.weeklyDigest;
             updates.weeklyDigest = {
               enabled: wd.enabled === true,
@@ -2970,7 +3224,7 @@ function startWebServer(runtimes) {
           }
 
           if (body?.fallbackStation !== undefined) {
-            if (guildInfo.tier !== "ultimate") {
+            if (!serverHasCapability(guildInfo.id, "failover_rules")) {
               sendLocalizedError(res, 403, language, "Fallback-Station ist nur für Ultimate verfügbar.", "Fallback station is only available for Ultimate.");
               return;
             }

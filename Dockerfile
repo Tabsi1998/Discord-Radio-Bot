@@ -5,7 +5,7 @@ FROM node:22-slim AS frontend-builder
 WORKDIR /frontend
 
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY frontend/ ./
 RUN npm run build
@@ -36,7 +36,7 @@ RUN set -eux; \
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 COPY src ./src
 COPY web ./web

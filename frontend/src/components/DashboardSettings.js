@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, Clock, Calendar, Radio, Shield, Save } from 'lucide-react';
+import { Calendar, Shield, Save } from 'lucide-react';
+import { DASHBOARD_CAPABILITY_DEFAULTS } from '../lib/dashboardCapabilities';
 
 const DAYS = [
   { value: 0, de: 'Sonntag', en: 'Sunday' },
@@ -11,7 +12,7 @@ const DAYS = [
   { value: 6, de: 'Samstag', en: 'Saturday' },
 ];
 
-export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUltimate }) {
+export default function DashboardSettings({ apiRequest, selectedGuildId, t, capabilities = DASHBOARD_CAPABILITY_DEFAULTS }) {
   const [settings, setSettings] = useState(null);
   const [textChannels, setTextChannels] = useState([]);
   const [stations, setStations] = useState({ free: [], pro: [], ultimate: [], custom: [] });
@@ -64,27 +65,33 @@ export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUl
   useEffect(() => { load(); }, [load]);
 
   const save = async () => {
-    setError(''); setMessage('');
+    setError('');
+    setMessage('');
     try {
       const body = {};
-      if (settings?.weeklyDigest) body.weeklyDigest = settings.weeklyDigest;
-      if (settings?.fallbackStation !== undefined) body.fallbackStation = settings.fallbackStation;
+      if (capabilities.weeklyDigest === true && settings?.weeklyDigest) body.weeklyDigest = settings.weeklyDigest;
+      if (capabilities.failoverRules === true && settings?.fallbackStation !== undefined) body.fallbackStation = settings.fallbackStation;
       await apiRequest(`/api/dashboard/settings?serverId=${encodeURIComponent(selectedGuildId)}`, {
-        method: 'PUT', body: JSON.stringify(body),
+        method: 'PUT',
+        body: JSON.stringify(body),
       });
       setMessage(t('Einstellungen gespeichert.', 'Settings saved.'));
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   if (loading) return <div style={{ color: '#52525B', textAlign: 'center', padding: 40 }}>{t('Lade...', 'Loading...')}</div>;
 
   const wd = settings?.weeklyDigest || { enabled: false, channelId: '', dayOfWeek: 1, hour: 9, language: 'de' };
+  const canManageWeeklyDigest = capabilities.weeklyDigest === true;
+  const canManageFallbackStation = capabilities.failoverRules === true;
 
   const allStations = [
-    ...stations.custom.map(s => ({ value: `custom:${s.key}`, label: `${s.name} (Custom)` })),
-    ...stations.free.map(s => ({ value: s.key, label: s.name })),
-    ...stations.pro.map(s => ({ value: s.key, label: `${s.name} (Pro)` })),
-    ...stations.ultimate.map(s => ({ value: s.key, label: `${s.name} (Ultimate)` })),
+    ...stations.custom.map((station) => ({ value: `custom:${station.key}`, label: `${station.name} (Custom)` })),
+    ...stations.free.map((station) => ({ value: station.key, label: station.name })),
+    ...stations.pro.map((station) => ({ value: station.key, label: `${station.name} (Pro)` })),
+    ...stations.ultimate.map((station) => ({ value: station.key, label: `${station.name} (Ultimate)` })),
   ];
 
   return (
@@ -92,11 +99,11 @@ export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUl
       {error && <div style={{ border: '1px solid rgba(252,165,165,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', fontSize: 13 }}>{error}</div>}
       {message && <div style={{ border: '1px solid rgba(16,185,129,0.25)', background: 'rgba(6,95,70,0.12)', padding: '10px 12px', color: '#6EE7B7', fontSize: 13 }}>{message}</div>}
 
-      {/* Weekly Digest */}
-      <div data-testid="settings-weekly-digest" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
+      <div data-testid="settings-weekly-digest" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16, opacity: canManageWeeklyDigest ? 1 : 0.6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <Calendar size={18} color="#5865F2" />
           <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Wöchentlicher Stats-Digest', 'Weekly stats digest')}</h3>
+          {!canManageWeeklyDigest && <span style={{ fontSize: 11, color: '#10B981', border: '1px solid rgba(16,185,129,0.3)', padding: '2px 8px' }}>PRO</span>}
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
           {t(
@@ -107,46 +114,63 @@ export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUl
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
           <label data-testid="digest-enabled-toggle" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, padding: '10px 0' }}>
-            <input type="checkbox" checked={wd.enabled} onChange={(e) => setSettings(c => ({ ...c, weeklyDigest: { ...wd, enabled: e.target.checked } }))} style={{ width: 16, height: 16, accentColor: '#5865F2' }} />
+            <input
+              type="checkbox"
+              disabled={!canManageWeeklyDigest}
+              checked={wd.enabled}
+              onChange={(e) => setSettings((current) => ({ ...current, weeklyDigest: { ...wd, enabled: e.target.checked } }))}
+              style={{ width: 16, height: 16, accentColor: '#5865F2' }}
+            />
             {t('Aktiviert', 'Enabled')}
           </label>
 
           <div>
             <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Channel', 'Channel')}</label>
-            <select data-testid="digest-channel-select" value={wd.channelId} onChange={(e) => setSettings(c => ({ ...c, weeklyDigest: { ...wd, channelId: e.target.value } }))} style={{
-              width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
-            }}>
+            <select
+              data-testid="digest-channel-select"
+              disabled={!canManageWeeklyDigest}
+              value={wd.channelId}
+              onChange={(e) => setSettings((current) => ({ ...current, weeklyDigest: { ...wd, channelId: e.target.value } }))}
+              style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13 }}
+            >
               <option value="">{t('Channel wählen...', 'Select channel...')}</option>
-              {textChannels.map(ch => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}
+              {textChannels.map((channel) => <option key={channel.id} value={channel.id}>#{channel.name}</option>)}
             </select>
           </div>
 
           <div>
             <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Wochentag', 'Day')}</label>
-            <select data-testid="digest-day-select" value={wd.dayOfWeek} onChange={(e) => setSettings(c => ({ ...c, weeklyDigest: { ...wd, dayOfWeek: Number(e.target.value) } }))} style={{
-              width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
-            }}>
-              {DAYS.map(d => <option key={d.value} value={d.value}>{t(d.de, d.en)}</option>)}
+            <select
+              data-testid="digest-day-select"
+              disabled={!canManageWeeklyDigest}
+              value={wd.dayOfWeek}
+              onChange={(e) => setSettings((current) => ({ ...current, weeklyDigest: { ...wd, dayOfWeek: Number(e.target.value) } }))}
+              style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13 }}
+            >
+              {DAYS.map((day) => <option key={day.value} value={day.value}>{t(day.de, day.en)}</option>)}
             </select>
           </div>
 
           <div>
             <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Uhrzeit', 'Hour')}</label>
-            <select data-testid="digest-hour-select" value={wd.hour} onChange={(e) => setSettings(c => ({ ...c, weeklyDigest: { ...wd, hour: Number(e.target.value) } }))} style={{
-              width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13,
-            }}>
-              {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+            <select
+              data-testid="digest-hour-select"
+              disabled={!canManageWeeklyDigest}
+              value={wd.hour}
+              onChange={(e) => setSettings((current) => ({ ...current, weeklyDigest: { ...wd, hour: Number(e.target.value) } }))}
+              style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13 }}
+            >
+              {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}
             </select>
           </div>
         </div>
       </div>
 
-      {/* Fallback Station (Ultimate only) */}
-      <div data-testid="settings-fallback-station" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16, opacity: isUltimate ? 1 : 0.5 }}>
+      <div data-testid="settings-fallback-station" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16, opacity: canManageFallbackStation ? 1 : 0.5 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <Shield size={18} color="#8B5CF6" />
           <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Fallback-Station', 'Fallback station')}</h3>
-          {!isUltimate && <span style={{ fontSize: 11, color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.3)', padding: '2px 8px' }}>ULTIMATE</span>}
+          {!canManageFallbackStation && <span style={{ fontSize: 11, color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.3)', padding: '2px 8px' }}>ULTIMATE</span>}
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
           {t(
@@ -154,18 +178,33 @@ export default function DashboardSettings({ apiRequest, selectedGuildId, t, isUl
             'Automatically used when a station is unreachable. Instead of silence, the bot switches to this station.'
           )}
         </p>
-        <select data-testid="fallback-station-select" disabled={!isUltimate} value={settings?.fallbackStation || ''} onChange={(e) => setSettings(c => ({ ...c, fallbackStation: e.target.value }))} style={{
-          width: '100%', maxWidth: 400, height: 40, padding: '0 10px', border: '1px solid #1A1A2E',
-          background: '#050505', color: isUltimate ? '#fff' : '#3F3F46', boxSizing: 'border-box', fontSize: 13,
-        }}>
+        <select
+          data-testid="fallback-station-select"
+          disabled={!canManageFallbackStation}
+          value={settings?.fallbackStation || ''}
+          onChange={(e) => setSettings((current) => ({ ...current, fallbackStation: e.target.value }))}
+          style={{
+            width: '100%',
+            maxWidth: 400,
+            height: 40,
+            padding: '0 10px',
+            border: '1px solid #1A1A2E',
+            background: '#050505',
+            color: canManageFallbackStation ? '#fff' : '#3F3F46',
+            boxSizing: 'border-box',
+            fontSize: 13,
+          }}
+        >
           <option value="">{t('Keine Fallback-Station', 'No fallback station')}</option>
-          {allStations.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          {allStations.map((station) => <option key={station.value} value={station.value}>{station.label}</option>)}
         </select>
       </div>
 
-      <button data-testid="settings-save-btn" onClick={save} style={{
-        height: 42, border: 'none', background: '#10B981', color: '#042f2e', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 14,
-      }}>
+      <button
+        data-testid="settings-save-btn"
+        onClick={save}
+        style={{ height: 42, border: 'none', background: '#10B981', color: '#042f2e', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 14 }}
+      >
         <Save size={16} /> {t('Einstellungen speichern', 'Save settings')}
       </button>
     </section>

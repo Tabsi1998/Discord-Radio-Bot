@@ -1,5 +1,7 @@
 # OmniFM v3
 
+Node.js (`src/api/server.js`) is the canonical production backend. The Python implementation in `backend/server.py` remains in the repository only as a legacy/reference path and is feature-frozen.
+
 OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium licensing, scheduled events, live now-playing embeds, server statistics, DiscordBotList sync, and optional audio fingerprint fallback for weak station metadata.
 
 ## What it does
@@ -53,6 +55,8 @@ After installation:
 docker compose up -d --build
 docker compose logs -f omnifm
 ```
+
+The production path uses the Node app started from `src/index.js`. `backend/` is not part of the primary install, run, or test flow anymore.
 
 ## Daily management
 
