@@ -5,6 +5,7 @@ import {
 } from 'recharts';
 import { RotateCcw } from 'lucide-react';
 import {
+  buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
   buildDashboardHealthStatus,
   buildReliabilitySummary,
@@ -72,6 +73,7 @@ export default function DashboardOverview({
   t,
   isUltimate,
   onResetStats,
+  onOpenSubscription = null,
   showBasicHealth = false,
   formatDate = null,
 }) {
@@ -103,6 +105,8 @@ export default function DashboardOverview({
   const healthStatus = buildDashboardHealthStatus(basicHealth, t);
   const healthAlerts = buildDashboardHealthAlerts(basicHealth, t);
   const healthBots = Array.isArray(basicHealth?.bots) ? basicHealth.bots : [];
+  const analyticsUpgradeHint = buildDashboardAnalyticsUpgradeHint({ isUltimate, t });
+  const showAdvancedAnalytics = analyticsUpgradeHint == null;
   const healthNextEventLabel = basicHealth?.nextEventAt && typeof formatDate === 'function'
     ? formatDate(basicHealth.nextEventAt, {
       month: 'short',
@@ -144,7 +148,6 @@ export default function DashboardOverview({
   }));
 
   const activeSessions = detailStats?.activeSessions || [];
-  void isUltimate;
 
   const handleReset = async () => {
     if (!onResetStats) return;
@@ -440,32 +443,105 @@ export default function DashboardOverview({
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
-        <ChartCard title={t('Starts nach Stunde', 'Starts by hour')} testId="chart-hourly">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={hoursData}>
-              <XAxis dataKey="hour" tick={{ fill: '#52525B', fontSize: 10 }} interval={2} />
-              <YAxis tick={{ fill: '#52525B', fontSize: 10 }} width={30} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="starts" fill="#5865F2" radius={[2, 2, 0, 0]} name={t('Starts', 'Starts')} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
+      {showAdvancedAnalytics && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
+          <ChartCard title={t('Starts nach Stunde', 'Starts by hour')} testId="chart-hourly">
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={hoursData}>
+                <XAxis dataKey="hour" tick={{ fill: '#52525B', fontSize: 10 }} interval={2} />
+                <YAxis tick={{ fill: '#52525B', fontSize: 10 }} width={30} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="starts" fill="#5865F2" radius={[2, 2, 0, 0]} name={t('Starts', 'Starts')} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
 
-        <ChartCard title={t('Starts nach Wochentag', 'Starts by weekday')} testId="chart-dow">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={dowData}>
-              <XAxis dataKey="day" tick={{ fill: '#52525B', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#52525B', fontSize: 10 }} width={30} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="starts" fill="#8B5CF6" radius={[2, 2, 0, 0]} name={t('Starts', 'Starts')} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
+          <ChartCard title={t('Starts nach Wochentag', 'Starts by weekday')} testId="chart-dow">
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={dowData}>
+                <XAxis dataKey="day" tick={{ fill: '#52525B', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#52525B', fontSize: 10 }} width={30} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="starts" fill="#8B5CF6" radius={[2, 2, 0, 0]} name={t('Starts', 'Starts')} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
-        {stationData.length > 0 && (
+        {!showAdvancedAnalytics && analyticsUpgradeHint && (
+          <div
+            data-testid="overview-ultimate-analytics-hint"
+            style={{
+              background: 'linear-gradient(135deg, rgba(76,29,149,0.22), rgba(8,8,8,0.92))',
+              border: '1px solid rgba(139,92,246,0.28)',
+              padding: 16,
+              display: 'grid',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'grid', gap: 8 }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 'fit-content',
+                padding: '4px 8px',
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '0.12em',
+                color: '#DDD6FE',
+                border: '1px solid rgba(196,181,253,0.3)',
+                background: 'rgba(91,33,182,0.2)',
+              }}>
+                {analyticsUpgradeHint.badge}
+              </span>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 18, color: '#F5F3FF' }}>
+                  {analyticsUpgradeHint.title}
+                </h4>
+                <p style={{ color: '#D4D4D8', fontSize: 13, lineHeight: 1.65 }}>
+                  {analyticsUpgradeHint.description}
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {analyticsUpgradeHint.bullets.map((bullet, index) => (
+                <div key={index} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', color: '#DDD6FE', fontSize: 13 }}>
+                  <span style={{ color: '#8B5CF6', fontWeight: 700 }}>+</span>
+                  <span>{bullet}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ color: '#A78BFA', fontSize: 12 }}>
+              {t(
+                'Upgrade im Subscription-Bereich, um die erweiterten Analytics fuer diesen Server freizuschalten.',
+                'Upgrade in the subscription area to unlock advanced analytics for this server.'
+              )}
+            </div>
+            {typeof onOpenSubscription === 'function' && (
+              <button
+                data-testid="overview-ultimate-analytics-upgrade-btn"
+                onClick={onOpenSubscription}
+                style={{
+                  border: '1px solid rgba(196,181,253,0.4)',
+                  background: 'rgba(91,33,182,0.24)',
+                  color: '#F5F3FF',
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  width: 'fit-content',
+                }}
+              >
+                {t('Zu Ultimate wechseln', 'Switch to Ultimate')}
+              </button>
+            )}
+          </div>
+        )}
+
+        {showAdvancedAnalytics && stationData.length > 0 && (
           <ChartCard title={t('Meist gestartete Stationen (Starts)', 'Most started stations (starts)')} testId="chart-stations">
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
@@ -521,7 +597,7 @@ export default function DashboardOverview({
         </div>
       </div>
 
-      {dailyData.length > 0 && (
+      {showAdvancedAnalytics && dailyData.length > 0 && (
         <ChartCard title={t('Taegl. Trend (letzte 30 Tage)', 'Daily trend (last 30 days)')} testId="chart-daily-trend">
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={dailyData}>

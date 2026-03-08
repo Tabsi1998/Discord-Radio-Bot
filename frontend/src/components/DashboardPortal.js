@@ -763,6 +763,7 @@ export default function DashboardPortal() {
               t={t}
               isUltimate={canViewAdvancedStats}
               onResetStats={resetStatsForSelectedGuild}
+              onOpenSubscription={() => setActiveTab('subscription')}
               showBasicHealth={capabilities.basicHealth === true}
               formatDate={formatDate}
             />

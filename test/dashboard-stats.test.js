@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
   buildDashboardHealthStatus,
   buildReliabilitySummary,
@@ -88,4 +89,16 @@ test("buildDashboardHealthAlerts derives actionable alert rows from health count
   assert.match(alerts[0].message, /1 bot/);
   assert.match(alerts[1].message, /reconnecting/i);
   assert.equal(alerts[2].severity, "critical");
+});
+
+test("buildDashboardAnalyticsUpgradeHint only targets non-ultimate overview users", () => {
+  const t = (_de, en) => en;
+  const proHint = buildDashboardAnalyticsUpgradeHint({ isUltimate: false, t });
+  const ultimateHint = buildDashboardAnalyticsUpgradeHint({ isUltimate: true, t });
+
+  assert.equal(ultimateHint, null);
+  assert.equal(proHint.requiredTier, "ultimate");
+  assert.equal(proHint.badge, "ULTIMATE");
+  assert.equal(proHint.bullets.length, 3);
+  assert.match(proHint.description, /exclusive to the Ultimate plan/i);
 });

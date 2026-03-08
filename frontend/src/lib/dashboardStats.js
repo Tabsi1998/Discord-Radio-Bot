@@ -182,7 +182,27 @@ function buildDashboardHealthAlerts(source = {}, t = (de, en) => de) {
   return alerts;
 }
 
+function buildDashboardAnalyticsUpgradeHint({ isUltimate = false, t = (de, en) => de } = {}) {
+  if (isUltimate) return null;
+
+  return {
+    requiredTier: "ultimate",
+    badge: "ULTIMATE",
+    title: t("Ultimate Analytics", "Ultimate analytics"),
+    description: t(
+      "Stundenmuster, Wochentage, Stations-Breakdowns und Tagestrends sind exklusiv im Ultimate-Paket enthalten.",
+      "Hourly trends, weekday patterns, station breakdowns, and daily trends are exclusive to the Ultimate plan."
+    ),
+    bullets: [
+      t("Starts nach Stunde und Wochentag", "Starts by hour and weekday"),
+      t("Stations-Breakdown pro Server", "Station breakdown per server"),
+      t("Taegliche Trendkurve der letzten 30 Tage", "Daily trend curve for the last 30 days"),
+    ],
+  };
+}
+
 export {
+  buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
   buildDashboardHealthStatus,
   formatDashboardDuration,
