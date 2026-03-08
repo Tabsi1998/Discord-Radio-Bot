@@ -41,6 +41,178 @@ export function renderEventTemplate(template, values = {}) {
     .trim();
 }
 
+function padDatePart(value) {
+  return String(value || 0).padStart(2, '0');
+}
+
+function formatLocalDateTimeInput(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  return [
+    date.getFullYear(),
+    padDatePart(date.getMonth() + 1),
+    padDatePart(date.getDate()),
+  ].join('-') + `T${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
+}
+
+function withLocalTime(date, hour, minute) {
+  const next = new Date(date.getTime());
+  next.setHours(hour, minute, 0, 0);
+  return next;
+}
+
+function addLocalDays(date, days) {
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() + Number(days || 0));
+  return next;
+}
+
+function findNextWeekdayOccurrence(now, weekday, hour, minute) {
+  const targetWeekday = Number(weekday);
+  for (let dayOffset = 0; dayOffset < 14; dayOffset += 1) {
+    const candidateDate = addLocalDays(now, dayOffset);
+    if (candidateDate.getDay() !== targetWeekday) continue;
+    const candidate = withLocalTime(candidateDate, hour, minute);
+    if (candidate.getTime() > now.getTime()) {
+      return candidate;
+    }
+  }
+  return withLocalTime(addLocalDays(now, 7), hour, minute);
+}
+
+function findNextWorkdayOccurrence(now, hour, minute) {
+  for (let dayOffset = 0; dayOffset < 14; dayOffset += 1) {
+    const candidateDate = addLocalDays(now, dayOffset);
+    const weekday = candidateDate.getDay();
+    if (weekday === 0 || weekday === 6) continue;
+    const candidate = withLocalTime(candidateDate, hour, minute);
+    if (candidate.getTime() > now.getTime()) {
+      return candidate;
+    }
+  }
+  return withLocalTime(addLocalDays(now, 1), hour, minute);
+}
+
+export function buildDashboardEventTemplatePresets(t) {
+  return [
+    {
+      id: 'prime_time',
+      label: t('Prime Time', 'Prime Time'),
+      summary: t('2h Show mit Discord-Event und klarer Ankuendigung', '2h show with Discord event and clear announcement'),
+      title: t('Prime Time Radio', 'Prime Time Radio'),
+      durationMinutes: '120',
+      announceMessage: '**{event}** startet jetzt mit **{station}** in {voice}.\nStart: {time}',
+      description: 'Live-Show mit **{station}**.\n\nStart: {time}\nEnde: {end}\nOrt: {voice}',
+      stageTopic: '{event} | {station}',
+      createDiscordEvent: true,
+    },
+    {
+      id: 'drive_time',
+      label: t('Drive Time', 'Drive Time'),
+      summary: t('90 Min. kompakter Slot fuer Feierabend oder Morning Run', '90 min compact slot for after-work or morning runs'),
+      title: t('Drive Time', 'Drive Time'),
+      durationMinutes: '90',
+      announceMessage: 'Jetzt live: **{event}** mit **{station}** in {voice}.',
+      description: 'Schneller Radio-Slot mit **{station}**.\n\nStart: {time}\nVoice: {voice}',
+      stageTopic: '{event} - {station}',
+      createDiscordEvent: true,
+    },
+    {
+      id: 'listener_picks',
+      label: t('Listener Picks', 'Listener Picks'),
+      summary: t('Interaktive Session mit Requests und Voting-Hinweis', 'Interactive session with requests and voting note'),
+      title: t('Listener Picks', 'Listener Picks'),
+      durationMinutes: '120',
+      announceMessage: '**{event}** laeuft jetzt. Postet eure Wuensche und hoert **{station}** in {voice}.',
+      description: 'Community-Session mit **{station}**.\n\nWuensche und Reaktionen direkt im Discord sammeln.\nStart: {time}',
+      stageTopic: '{event} | Community',
+      createDiscordEvent: true,
+    },
+    {
+      id: 'night_shift',
+      label: t('Night Shift', 'Night Shift'),
+      summary: t('Laengerer Abendblock mit ruhiger Discord-Ankuendigung', 'Longer evening block with softer Discord announcement'),
+      title: t('Night Shift', 'Night Shift'),
+      durationMinutes: '180',
+      announceMessage: '**{event}** ist jetzt live. Lehne dich zurueck und hoere **{station}** in {voice}.',
+      description: 'Abendprogramm mit **{station}**.\n\nStart: {time}\nGeplantes Ende: {end}',
+      stageTopic: '{event} - {station}',
+      createDiscordEvent: false,
+    },
+  ];
+}
+
+export function buildDashboardSchedulePresets(t, now = new Date()) {
+  const current = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const tonight = withLocalTime(current, 20, 0);
+  const tonightOrTomorrow = tonight.getTime() > current.getTime() ? tonight : withLocalTime(addLocalDays(current, 1), 20, 0);
+  const tomorrow = withLocalTime(addLocalDays(current, 1), 18, 0);
+  const nextWorkday = findNextWorkdayOccurrence(current, 8, 0);
+  const nextFriday = findNextWeekdayOccurrence(current, 5, 20, 0);
+  const nextSaturday = findNextWeekdayOccurrence(current, 6, 18, 0);
+
+  return [
+    {
+      id: 'tonight_20',
+      label: t('Naechster Slot 20:00', 'Next slot 20:00'),
+      summary: t('Einmalig am naechsten moeglichen Abend-Slot', 'One-time on the next possible evening slot'),
+      startsAt: formatLocalDateTimeInput(tonightOrTomorrow),
+      repeat: 'none',
+    },
+    {
+      id: 'tomorrow_18',
+      label: t('Morgen 18:00', 'Tomorrow 18:00'),
+      summary: t('Einmalig morgen Abend', 'One-time tomorrow evening'),
+      startsAt: formatLocalDateTimeInput(tomorrow),
+      repeat: 'none',
+    },
+    {
+      id: 'workdays_08',
+      label: t('Werktags 08:00', 'Weekdays 08:00'),
+      summary: t('Naechster Werktag plus Wiederholung Mo-Fr', 'Next workday plus Mon-Fri recurrence'),
+      startsAt: formatLocalDateTimeInput(nextWorkday),
+      repeat: 'weekdays',
+    },
+    {
+      id: 'friday_20',
+      label: t('Freitag 20:00', 'Friday 20:00'),
+      summary: t('Naechster Freitag mit woechentlicher Wiederholung', 'Next Friday with weekly recurrence'),
+      startsAt: formatLocalDateTimeInput(nextFriday),
+      repeat: 'weekly',
+    },
+    {
+      id: 'saturday_18',
+      label: t('Samstag 18:00', 'Saturday 18:00'),
+      summary: t('Naechster Samstag mit woechentlicher Wiederholung', 'Next Saturday with weekly recurrence'),
+      startsAt: formatLocalDateTimeInput(nextSaturday),
+      repeat: 'weekly',
+    },
+  ];
+}
+
+export function applyDashboardEventTemplate(currentForm, template) {
+  const form = currentForm && typeof currentForm === 'object' ? currentForm : {};
+  const preset = template && typeof template === 'object' ? template : {};
+  return {
+    ...form,
+    title: String(preset.title || form.title || ''),
+    durationMinutes: String(preset.durationMinutes || form.durationMinutes || ''),
+    announceMessage: String(preset.announceMessage || ''),
+    description: String(preset.description || ''),
+    stageTopic: String(preset.stageTopic || ''),
+    createDiscordEvent: preset.createDiscordEvent === true,
+  };
+}
+
+export function applyDashboardSchedulePreset(currentForm, preset) {
+  const form = currentForm && typeof currentForm === 'object' ? currentForm : {};
+  const schedulePreset = preset && typeof preset === 'object' ? preset : {};
+  return {
+    ...form,
+    startsAt: String(schedulePreset.startsAt || form.startsAt || ''),
+    repeat: String(schedulePreset.repeat || form.repeat || 'none'),
+  };
+}
+
 function formatOrdinal(value, language = 'de') {
   const number = Number.parseInt(String(value || 0), 10);
   if (!Number.isFinite(number) || number <= 0) return String(value || '');

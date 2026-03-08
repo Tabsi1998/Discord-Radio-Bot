@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import RichMessageEditor from './RichMessageEditor';
 import {
+  applyDashboardEventTemplate,
+  applyDashboardSchedulePreset,
+  buildDashboardEventTemplatePresets,
+  buildDashboardSchedulePresets,
   buildDiscordEventDescriptionPreview,
   DASHBOARD_EVENT_REPEAT_OPTIONS,
   DASHBOARD_EVENT_TIMEZONE_OPTIONS,
@@ -427,6 +431,8 @@ export default function DashboardEvents({
     })),
     [eventForm.startsAt, t]
   );
+  const eventTemplatePresets = useMemo(() => buildDashboardEventTemplatePresets(t), [t]);
+  const schedulePresets = useMemo(() => buildDashboardSchedulePresets(t), [t]);
 
   return (
     <section data-testid="dashboard-events-panel" style={{ display: 'grid', gap: 14 }}>
@@ -457,6 +463,102 @@ export default function DashboardEvents({
               </div>
               <div style={{ color: '#52525B', fontSize: 12 }}>
                 {t('Das Discord-Server-Event wird jetzt direkt beim Speichern synchronisiert.', 'The Discord server event is now synced directly on save.')}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div
+                data-testid="event-template-presets"
+                style={{
+                  border: '1px solid #1A1A2E',
+                  background: '#050505',
+                  padding: 14,
+                  display: 'grid',
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                      {t('Event-Templates', 'Event templates')}
+                    </div>
+                    <div style={{ color: '#71717A', fontSize: 12, marginTop: 4 }}>
+                      {t(
+                        'Fuellt Titel, Dauer, Discord-Nachricht und Beschreibung mit einer Vorlage.',
+                        'Fills title, duration, Discord message and description from a template.'
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                  {eventTemplatePresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      data-testid={`event-template-${preset.id}`}
+                      onClick={() => setEventForm((current) => applyDashboardEventTemplate(current, preset))}
+                      style={{
+                        border: '1px solid rgba(88,101,242,0.24)',
+                        background: 'rgba(88,101,242,0.08)',
+                        color: '#fff',
+                        padding: '12px 12px',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        display: 'grid',
+                        gap: 4,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{preset.label}</span>
+                      <span style={{ fontSize: 12, color: '#A1A1AA', lineHeight: 1.5 }}>{preset.summary}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                data-testid="event-schedule-presets"
+                style={{
+                  border: '1px solid #1A1A2E',
+                  background: '#050505',
+                  padding: 14,
+                  display: 'grid',
+                  gap: 10,
+                }}
+              >
+                <div>
+                  <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                    {t('Termin-Presets', 'Schedule presets')}
+                  </div>
+                  <div style={{ color: '#71717A', fontSize: 12, marginTop: 4 }}>
+                    {t(
+                      'Setzt Startzeit und Wiederholung fuer haeufige Event-Muster.',
+                      'Sets start time and recurrence for common event patterns.'
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                  {schedulePresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      data-testid={`event-schedule-preset-${preset.id}`}
+                      onClick={() => setEventForm((current) => applyDashboardSchedulePreset(current, preset))}
+                      style={{
+                        border: '1px solid rgba(6,182,212,0.24)',
+                        background: 'rgba(8,145,178,0.08)',
+                        color: '#fff',
+                        padding: '12px 12px',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        display: 'grid',
+                        gap: 4,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{preset.label}</span>
+                      <span style={{ fontSize: 12, color: '#A1A1AA', lineHeight: 1.5 }}>{preset.summary}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
