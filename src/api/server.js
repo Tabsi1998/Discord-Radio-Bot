@@ -43,6 +43,7 @@ import {
   normalizeRepeatMode,
   getRepeatLabel,
   isWorkdayInTimeZone,
+  computeNextEventRunAtMs,
 } from "../lib/event-time.js";
 import {
   getCommonSecurityHeaders,
@@ -1116,6 +1117,119 @@ function buildDashboardEventResponse(eventRow) {
     createdAt: eventRow?.createdAt || new Date().toISOString(),
     updatedAt: eventRow?.updatedAt || eventRow?.createdAt || new Date().toISOString(),
   };
+}
+
+function buildDashboardPreviewOccurrenceRow(runAtMs, durationMs, timezone) {
+  const safeRunAtMs = Number.parseInt(String(runAtMs || 0), 10);
+  const safeDurationMs = Math.max(0, Number(durationMs || 0) || 0);
+  const safeTimezone = normalizeEventTimeZone(timezone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
+  const endAtMs = safeDurationMs > 0 ? safeRunAtMs + safeDurationMs : 0;
+
+  return {
+    runAtMs: safeRunAtMs,
+    durationMs: safeDurationMs,
+    startsAt: safeRunAtMs > 0 ? new Date(safeRunAtMs).toISOString() : "",
+    startsAtLocal: formatDashboardDateTimeLocal(safeRunAtMs, safeTimezone),
+    endsAt: endAtMs > 0 ? new Date(endAtMs).toISOString() : "",
+    endsAtLocal: endAtMs > 0 ? formatDashboardDateTimeLocal(endAtMs, safeTimezone) : "",
+  };
+}
+
+function buildDashboardSchedulePreviewRows(eventRow, limit = 5) {
+  const rows = [];
+  const safeLimit = Math.max(1, Math.min(10, Number(limit || 5) || 5));
+  const repeat = normalizeRepeatMode(eventRow?.repeat || "none");
+  const timezone = normalizeEventTimeZone(eventRow?.timeZone || eventRow?.timezone, EVENT_FALLBACK_TIME_ZONE)
+    || EVENT_FALLBACK_TIME_ZONE;
+  let runAtMs = Number.parseInt(String(eventRow?.runAtMs || 0), 10);
+  const durationMs = Math.max(0, Number(eventRow?.durationMs || 0) || 0);
+
+  for (let index = 0; index < safeLimit; index += 1) {
+    if (!Number.isFinite(runAtMs) || runAtMs <= 0) break;
+    rows.push(buildDashboardPreviewOccurrenceRow(runAtMs, durationMs, timezone));
+    if (repeat === "none") break;
+    runAtMs = computeNextEventRunAtMs(runAtMs, repeat, runAtMs, timezone);
+  }
+
+  return rows;
+}
+
+function buildDashboardEventConflicts(candidateEvent, scheduledEvents, { language = "de", ignoreEventId = "" } = {}) {
+  const candidateRows = buildDashboardSchedulePreviewRows(candidateEvent, 5);
+  const seen = new Set();
+  const conflicts = [];
+  const candidateDurationMs = Math.max(0, Number(candidateEvent?.durationMs || 0) || 0);
+
+  for (const existingEvent of Array.isArray(scheduledEvents) ? scheduledEvents : []) {
+    if (!existingEvent || existingEvent.enabled === false) continue;
+    if (String(existingEvent.id || "") === String(ignoreEventId || "")) continue;
+    if (String(existingEvent.voiceChannelId || "") !== String(candidateEvent?.voiceChannelId || "")) continue;
+
+    const existingRows = buildDashboardSchedulePreviewRows(existingEvent, 5);
+    const existingDurationMs = Math.max(0, Number(existingEvent?.durationMs || 0) || 0);
+    const existingResponse = buildDashboardEventResponse(existingEvent);
+
+    for (const candidateRow of candidateRows) {
+      for (const existingRow of existingRows) {
+        let severity = "";
+        let message = "";
+
+        if (candidateDurationMs > 0 && existingDurationMs > 0) {
+          const candidateEndAtMs = candidateRow.runAtMs + candidateDurationMs;
+          const existingEndAtMs = existingRow.runAtMs + existingDurationMs;
+          if (candidateRow.runAtMs < existingEndAtMs && existingRow.runAtMs < candidateEndAtMs) {
+            severity = "error";
+            message = languagePick(
+              language,
+              `Überlappt mit "${existingEvent.name}" im selben Voice-Channel.`,
+              `Overlaps with "${existingEvent.name}" in the same voice channel.`
+            );
+          }
+        } else if (candidateDurationMs <= 0 && existingRow.runAtMs >= candidateRow.runAtMs) {
+          severity = "warning";
+          message = languagePick(
+            language,
+            `Dieses Event hat kein Enddatum und könnte "${existingEvent.name}" blockieren.`,
+            `This event has no end time and may block "${existingEvent.name}".`
+          );
+        } else if (existingDurationMs <= 0 && existingRow.runAtMs <= candidateRow.runAtMs) {
+          severity = "warning";
+          message = languagePick(
+            language,
+            `"${existingEvent.name}" hat kein Enddatum und könnte dieses Event blockieren.`,
+            `"${existingEvent.name}" has no end time and may block this event.`
+          );
+        }
+
+        if (!severity || !message) continue;
+
+        const key = `${existingEvent.id}:${candidateRow.runAtMs}:${existingRow.runAtMs}:${severity}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        conflicts.push({
+          severity,
+          message,
+          eventId: existingResponse.id,
+          title: existingResponse.title,
+          repeat: existingResponse.repeat,
+          repeatLabelDe: existingResponse.repeatLabelDe,
+          repeatLabelEn: existingResponse.repeatLabelEn,
+          startsAt: existingRow.startsAt,
+          startsAtLocal: existingRow.startsAtLocal,
+          endsAt: existingRow.endsAt,
+          endsAtLocal: existingRow.endsAtLocal,
+          channelId: existingResponse.channelId,
+        });
+      }
+    }
+  }
+
+  return conflicts.sort((a, b) => {
+    const severityOrder = { error: 0, warning: 1 };
+    const severityDelta = (severityOrder[a.severity] ?? 99) - (severityOrder[b.severity] ?? 99);
+    if (severityDelta !== 0) return severityDelta;
+    return String(a.startsAt || "").localeCompare(String(b.startsAt || ""));
+  });
 }
 
 function parseDashboardStartsAtInput(payload) {
@@ -2267,6 +2381,99 @@ function startWebServer(runtimes) {
           return;
         }
         sendLocalizedError(res, 500, language, "Telemetry konnte nicht gespeichert werden.", "Telemetry could not be saved.");
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/events/preview") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
+        return;
+      }
+
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) {
+        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
+        return;
+      }
+      if (!serverHasCapability(guild.id, "event_scheduler")) {
+        sendLocalizedError(res, 403, language, "Events sind erst ab Pro verfügbar.", "Events are only available from Pro.");
+        return;
+      }
+
+      try {
+        const body = await readJsonBody();
+        const eventId = String(body?.eventId || body?.id || "").trim();
+        const existingEvent = eventId ? getScheduledEvent(eventId) : null;
+        if (existingEvent && String(existingEvent.guildId || "") !== guild.id) {
+          sendJson(res, 404, { error: translateScheduledEventStoreMessage("Event nicht gefunden.", language) });
+          return;
+        }
+
+        const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
+        if (!runtime || !managedGuild) {
+          sendLocalizedError(res, 400, language, "Der Bot ist auf diesem Server aktuell nicht verfügbar.", "The bot is currently unavailable on this server.");
+          return;
+        }
+
+        const normalized = await normalizeDashboardEventInput(body, {
+          guildId: guild.id,
+          botId: existingEvent?.botId || runtime?.config?.id || "",
+          runtime,
+          existingEvent,
+          language,
+        });
+        if (!normalized.ok) {
+          sendJson(res, 400, { error: normalized.message });
+          return;
+        }
+
+        const channelValidation = await validateDashboardEventChannels(runtime, managedGuild, normalized.event, language);
+        if (!channelValidation.ok) {
+          sendJson(res, 400, { error: channelValidation.message });
+          return;
+        }
+
+        const previewEvent = {
+          ...normalized.event,
+          id: existingEvent?.id || "",
+          createdAt: existingEvent?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        const conflicts = buildDashboardEventConflicts(
+          previewEvent,
+          listScheduledEvents({ guildId: guild.id }),
+          { language, ignoreEventId: existingEvent?.id || "" }
+        );
+
+        sendJson(res, 200, {
+          success: true,
+          serverId: guild.id,
+          event: {
+            ...buildDashboardEventResponse(previewEvent),
+            stationName: normalized.station?.station?.name || normalized.station?.key || previewEvent.stationKey,
+          },
+          schedule: {
+            nextRuns: buildDashboardSchedulePreviewRows(previewEvent, 5),
+            repeatLabelDe: getRepeatLabel(previewEvent.repeat || "none", "de", { runAtMs: previewEvent.runAtMs, timeZone: previewEvent.timeZone }),
+            repeatLabelEn: getRepeatLabel(previewEvent.repeat || "none", "en", { runAtMs: previewEvent.runAtMs, timeZone: previewEvent.timeZone }),
+            hasConflicts: conflicts.length > 0,
+          },
+          conflicts,
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
+          return;
+        }
+        sendLocalizedError(res, 500, language, "Event-Vorschau konnte nicht erstellt werden.", "Event preview could not be generated.");
       }
       return;
     }

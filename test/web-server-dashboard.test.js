@@ -11,12 +11,15 @@ import {
   setDashboardAuthSession,
   deleteDashboardAuthSession,
 } from "../src/dashboard-store.js";
+import { createScheduledEvent } from "../src/scheduled-events-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const GUILD_ID = "123456789012345678";
 const ROLE_DJ_ID = "223456789012345678";
 const ROLE_ADMIN_ID = "323456789012345678";
+const VOICE_CHANNEL_ID = "423456789012345678";
+const TEXT_CHANNEL_ID = "523456789012345678";
 
 async function snapshotFile(filePath) {
   try {
@@ -60,6 +63,28 @@ function createGuildStub() {
     [ROLE_DJ_ID, { id: ROLE_DJ_ID, name: "DJ", managed: false, hexColor: "#5865F2", position: 2 }],
     [ROLE_ADMIN_ID, { id: ROLE_ADMIN_ID, name: "Admin", managed: false, hexColor: "#10B981", position: 1 }],
   ]);
+  const voiceChannel = {
+    id: VOICE_CHANNEL_ID,
+    guildId: GUILD_ID,
+    name: "radio-lounge",
+    type: 2,
+    isVoiceBased: () => true,
+    permissionsFor: () => ({ has: () => true }),
+    toString: () => `<#${VOICE_CHANNEL_ID}>`,
+  };
+  const textChannel = {
+    id: TEXT_CHANNEL_ID,
+    guildId: GUILD_ID,
+    name: "announcements",
+    type: 0,
+    send: async () => null,
+    permissionsFor: () => ({ has: () => true }),
+    toString: () => `<#${TEXT_CHANNEL_ID}>`,
+  };
+  const channels = new Map([
+    [VOICE_CHANNEL_ID, voiceChannel],
+    [TEXT_CHANNEL_ID, textChannel],
+  ]);
 
   return {
     id: GUILD_ID,
@@ -69,8 +94,8 @@ function createGuildStub() {
       fetch: async () => roles,
     },
     channels: {
-      cache: new Map(),
-      fetch: async () => new Map(),
+      cache: channels,
+      fetch: async (channelId) => (channelId ? channels.get(channelId) || null : channels),
     },
     emojis: {
       cache: new Map(),
@@ -129,6 +154,62 @@ function createRuntimeStub() {
         error: null,
       };
     },
+    normalizeClearableText(value, maxLen) {
+      const text = String(value || "").trim();
+      return text ? text.slice(0, maxLen) : null;
+    },
+    resolveStationForGuild(_guildId, rawStationKey) {
+      const key = String(rawStationKey || "").trim().toLowerCase();
+      if (!key) {
+        return { ok: false, message: "Station key is invalid." };
+      }
+      return {
+        ok: true,
+        key,
+        station: {
+          name: key === "rock" ? "Rock FM" : "Test Station",
+        },
+      };
+    },
+    parseEventWindowInput({
+      startRaw = "",
+      baseRunAtMs = 0,
+      baseDurationMs = 0,
+      requestedTimeZone = "Europe/Vienna",
+    } = {}) {
+      let runAtMs = Number.parseInt(String(baseRunAtMs || 0), 10);
+      if (String(startRaw || "").trim()) {
+        const normalized = String(startRaw).trim();
+        const isoLike = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)
+          ? `${normalized}:00.000Z`
+          : normalized;
+        runAtMs = Date.parse(isoLike);
+      }
+      if (!Number.isFinite(runAtMs) || runAtMs <= 0) {
+        return { ok: false, message: "Start time is invalid." };
+      }
+      const durationMs = Math.max(0, Number(baseDurationMs || 0) || 0);
+      return {
+        ok: true,
+        runAtMs,
+        timeZone: requestedTimeZone,
+        durationMs,
+        endAtMs: durationMs > 0 ? runAtMs + durationMs : 0,
+      };
+    },
+    async resolveBotMember() {
+      return { id: "bot-test-user" };
+    },
+    async resolveGuildVoiceChannel(guildId, channelId) {
+      const selectedGuild = guilds.get(guildId) || null;
+      return {
+        guild: selectedGuild,
+        channel: selectedGuild?.channels?.cache?.get(channelId) || null,
+      };
+    },
+    validateDiscordScheduledEventPermissions() {
+      return null;
+    },
   };
 }
 
@@ -148,6 +229,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "dashboard.json.bak"),
     path.join(repoRoot, "command-permissions.json"),
     path.join(repoRoot, "command-permissions.json.bak"),
+    path.join(repoRoot, "scheduled-events.json"),
   ];
   const snapshots = new Map();
   for (const filePath of trackedFiles) {
@@ -189,6 +271,23 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     expiresAt: nowTs + 3600,
   });
 
+  const scheduledEventsFile = path.join(repoRoot, "scheduled-events.json");
+  await fs.rm(scheduledEventsFile, { force: true });
+  const conflictStartMs = Date.parse("2026-03-15T20:00:00.000Z");
+  const seededEvent = createScheduledEvent({
+    guildId: GUILD_ID,
+    botId: "bot-test-1",
+    name: "Existing Show",
+    stationKey: "rock",
+    voiceChannelId: VOICE_CHANNEL_ID,
+    textChannelId: TEXT_CHANNEL_ID,
+    runAtMs: conflictStartMs,
+    durationMs: 60 * 60 * 1000,
+    repeat: "none",
+    timeZone: "Europe/Vienna",
+  });
+  assert.equal(seededEvent.ok, true);
+
   const server = startWebServer([createRuntimeStub()]);
   await once(server, "listening");
   const address = server.address();
@@ -223,6 +322,36 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(capabilityResponse.payload.limits.seats, 2);
   assert.equal(capabilityResponse.payload.upgradeHints.nextTier, "ultimate");
   assert.ok(capabilityResponse.payload.upgradeHints.blockedFeatures.includes("advancedAnalytics"));
+
+  const previewResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/events/preview?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Preview Show",
+        stationKey: "rock",
+        channelId: VOICE_CHANNEL_ID,
+        textChannelId: TEXT_CHANNEL_ID,
+        startsAtLocal: "2026-03-15T20:00",
+        timezone: "Europe/Vienna",
+        durationMs: 30 * 60 * 1000,
+        repeat: "none",
+        createDiscordEvent: false,
+      }),
+    }
+  );
+  assert.equal(previewResponse.status, 200);
+  assert.equal(previewResponse.payload.event.stationName, "Rock FM");
+  assert.equal(previewResponse.payload.schedule.nextRuns.length, 1);
+  assert.equal(previewResponse.payload.schedule.hasConflicts, true);
+  assert.equal(previewResponse.payload.conflicts.length, 1);
+  assert.equal(previewResponse.payload.conflicts[0].severity, "error");
+  assert.match(previewResponse.payload.conflicts[0].message, /Existing Show/);
 
   const initialPerms = await requestJson(
     baseUrl,

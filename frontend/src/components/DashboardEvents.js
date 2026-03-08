@@ -253,7 +253,11 @@ export default function DashboardEvents({
   const [textChannels, setTextChannels] = useState([]);
   const [stations, setStations] = useState({ free: [], pro: [], ultimate: [], custom: [] });
   const [serverEmojis, setServerEmojis] = useState([]);
+  const [previewData, setPreviewData] = useState(null);
+  const [previewError, setPreviewError] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
   const loadTokenRef = useRef(0);
+  const previewTokenRef = useRef(0);
 
   const loadChannelsAndStations = useCallback(async () => {
     const loadToken = ++loadTokenRef.current;
@@ -339,6 +343,67 @@ export default function DashboardEvents({
     }),
     [eventForm.description, selectedStationLabel, t]
   );
+  const previewScheduleRows = Array.isArray(previewData?.schedule?.nextRuns) ? previewData.schedule.nextRuns : [];
+  const previewConflicts = Array.isArray(previewData?.conflicts) ? previewData.conflicts : [];
+  const previewRepeatLabel = previewData?.schedule
+    ? t(
+      previewData.schedule.repeatLabelDe || 'Einmalig',
+      previewData.schedule.repeatLabelEn || 'One-time'
+    )
+    : '';
+
+  useEffect(() => {
+    const durationMinutes = Math.max(0, Number(eventForm.durationMinutes || 0) || 0);
+    const hasRequiredFields = Boolean(
+      showForm
+      && selectedGuildId
+      && String(eventForm.title || '').trim()
+      && String(eventForm.stationKey || '').trim()
+      && String(eventForm.channelId || '').trim()
+      && String(eventForm.startsAt || '').trim()
+    );
+
+    if (!hasRequiredFields) {
+      previewTokenRef.current += 1;
+      setPreviewData(null);
+      setPreviewError('');
+      setPreviewLoading(false);
+      return undefined;
+    }
+
+    const previewToken = ++previewTokenRef.current;
+    const timer = window.setTimeout(async () => {
+      setPreviewLoading(true);
+      setPreviewError('');
+      try {
+        const payload = await apiRequest(`/api/dashboard/events/preview?serverId=${encodeURIComponent(selectedGuildId)}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            eventId: editingEventId || '',
+            ...eventForm,
+            startsAtLocal: eventForm.startsAt,
+            durationMs: durationMinutes > 0 ? durationMinutes * 60000 : 0,
+          }),
+        });
+        if (previewToken !== previewTokenRef.current) return;
+        setPreviewData(payload);
+        setPreviewError('');
+      } catch (err) {
+        if (previewToken !== previewTokenRef.current) return;
+        setPreviewData(null);
+        setPreviewError(err.message || t('Vorschau konnte nicht geladen werden.', 'Preview could not be loaded.'));
+      } finally {
+        if (previewToken === previewTokenRef.current) {
+          setPreviewLoading(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      previewTokenRef.current += 1;
+      window.clearTimeout(timer);
+    };
+  }, [apiRequest, editingEventId, eventForm, selectedGuildId, showForm, t]);
 
   const handleSave = useCallback(async () => {
     const result = await onSaveEvent();
@@ -494,6 +559,137 @@ export default function DashboardEvents({
               showToolbar={true}
               emptyPreviewText={t('Keine Beschreibung', 'No description')}
             />
+
+            <div
+              data-testid="event-schedule-preview"
+              style={{
+                border: '1px solid #1A1A2E',
+                background: '#050505',
+                padding: 14,
+                display: 'grid',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Clock size={16} color="#A5B4FC" />
+                  <div>
+                    <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                      {t('Zeitplan-Vorschau', 'Schedule preview')}
+                    </div>
+                    <div style={{ color: '#71717A', fontSize: 12 }}>
+                      {previewData
+                        ? previewRepeatLabel
+                        : t(
+                          'Wird automatisch aktualisiert, sobald die Pflichtfelder gesetzt sind.',
+                          'Updates automatically once the required fields are filled in.'
+                        )}
+                    </div>
+                  </div>
+                </div>
+                {previewLoading && (
+                  <div style={{ color: '#A5B4FC', fontSize: 12 }}>
+                    {t('Aktualisiere Vorschau...', 'Updating preview...')}
+                  </div>
+                )}
+              </div>
+
+              {previewError && (
+                <div
+                  data-testid="event-preview-error"
+                  style={{
+                    border: '1px solid rgba(252,165,165,0.25)',
+                    background: 'rgba(127,29,29,0.12)',
+                    padding: '10px 12px',
+                    color: '#FCA5A5',
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>{previewError}</span>
+                </div>
+              )}
+
+              {!previewError && previewData && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                    {previewScheduleRows.map((row, index) => (
+                      <div
+                        key={`${row.startsAt || row.runAtMs || index}-${index}`}
+                        data-testid={`event-preview-run-${index}`}
+                        style={{
+                          border: '1px solid #1A1A2E',
+                          background: '#0A0A0A',
+                          padding: '10px 12px',
+                          display: 'grid',
+                          gap: 4,
+                        }}
+                      >
+                        <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                          {index === 0 ? t('Nächster Start', 'Next start') : t('Weitere Ausführung', 'Upcoming run')}
+                        </div>
+                        <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                          {row.startsAtLocal || row.startsAt || '-'}
+                        </div>
+                        <div style={{ color: '#71717A', fontSize: 12 }}>
+                          {row.endsAtLocal
+                            ? t(`Endet ${row.endsAtLocal}`, `Ends ${row.endsAtLocal}`)
+                            : t('Ohne Endzeit', 'No end time')}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div data-testid="event-preview-conflicts" style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                      <AlertTriangle size={15} color={previewConflicts.length > 0 ? '#FCA5A5' : '#10B981'} />
+                      {t('Konfliktprüfung', 'Conflict check')}
+                    </div>
+                    {previewConflicts.length > 0 ? previewConflicts.map((conflict, index) => (
+                      <div
+                        key={`${conflict.eventId || 'conflict'}-${index}`}
+                        data-testid={`event-preview-conflict-${index}`}
+                        style={{
+                          border: `1px solid ${conflict.severity === 'error' ? 'rgba(252,165,165,0.25)' : 'rgba(245,158,11,0.25)'}`,
+                          background: conflict.severity === 'error' ? 'rgba(127,29,29,0.12)' : 'rgba(120,53,15,0.12)',
+                          padding: '10px 12px',
+                          display: 'grid',
+                          gap: 4,
+                        }}
+                      >
+                        <div style={{ color: conflict.severity === 'error' ? '#FCA5A5' : '#FCD34D', fontWeight: 600 }}>
+                          {conflict.title || t('Bestehendes Event', 'Existing event')}
+                        </div>
+                        <div style={{ color: '#D4D4D8', fontSize: 13 }}>
+                          {conflict.message}
+                        </div>
+                        <div style={{ color: '#71717A', fontSize: 12 }}>
+                          {conflict.startsAtLocal || conflict.startsAt || '-'}
+                          {conflict.endsAtLocal ? ` -> ${conflict.endsAtLocal}` : ` -> ${t('offen', 'open')}`}
+                        </div>
+                      </div>
+                    )) : (
+                      <div
+                        data-testid="event-preview-conflict-free"
+                        style={{
+                          border: '1px solid rgba(16,185,129,0.25)',
+                          background: 'rgba(6,78,59,0.12)',
+                          padding: '10px 12px',
+                          color: '#6EE7B7',
+                        }}
+                      >
+                        {t(
+                          'Keine Überschneidungen im gewählten Voice-Channel gefunden.',
+                          'No overlaps found in the selected voice channel.'
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button data-testid="event-create-btn" onClick={handleSave} style={{
