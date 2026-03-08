@@ -157,6 +157,14 @@ If privacy-specific fields are omitted, OmniFM falls back to the imprint data wh
 - `/play` is routed to an already active worker in the same voice channel whenever possible.
 - Premium limits are enforced by worker slot, not raw `BOT_N` index.
 
+### Slash command registration
+
+- Default is `COMMAND_REGISTRATION_MODE=guild`.
+- `guild` keeps command rollout fast and predictable, which fits the commander/worker setup best.
+- `global` registers commands only globally for the commander and skips guild sync.
+- `hybrid` does both: global commander commands plus guild sync for faster rollout in joined servers.
+- Worker bots should not expose slash commands because only the commander handles interactions.
+
 ### Runtime flow
 
 1. User runs a slash command on the commander.
@@ -237,6 +245,7 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | `BOT_1_NAME`, `BOT_2_NAME`, ... | Display names |
 | `BOT_1_TIER`, `BOT_2_TIER`, ... | `free`, `pro`, or `ultimate` |
 | `COMMANDER_BOT_INDEX` | Which `BOT_N` acts as commander |
+| `COMMAND_REGISTRATION_MODE` | `guild` (default), `global`, or `hybrid` |
 
 ### Web and API
 
@@ -249,6 +258,8 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | `CORS_ALLOWED_ORIGINS` | Allowed browser origins |
 | `CHECKOUT_RETURN_ORIGINS` | Allowed Stripe return URLs |
 | `API_ADMIN_TOKEN` | Admin token for sensitive API routes |
+| `SYNC_GUILD_COMMANDS_ON_BOOT` | Legacy fallback for guild mode if `COMMAND_REGISTRATION_MODE` is unset |
+| `CLEAN_GLOBAL_COMMANDS_ON_BOOT` | Removes stale global commands when commander/workers should not expose them |
 
 ### Premium and billing
 

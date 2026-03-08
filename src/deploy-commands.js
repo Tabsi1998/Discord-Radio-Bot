@@ -3,11 +3,18 @@ import { REST } from "@discordjs/rest";
 import { Routes } from "discord.js";
 import { loadBotConfigs } from "./bot-config.js";
 import { buildCommandsJson } from "./commands.js";
+import {
+  resolveCommandRegistrationMode,
+  usesGlobalCommandRegistration,
+  usesGuildCommandRegistration,
+} from "./discord/commandRegistrationMode.js";
 
 dotenv.config();
 
 const commands = buildCommandsJson();
-const syncGuildCommands = String(process.env.SYNC_GUILD_COMMANDS_ON_BOOT ?? "1") !== "0";
+const commandRegistrationMode = resolveCommandRegistrationMode(process.env);
+const syncGuildCommands = usesGuildCommandRegistration(commandRegistrationMode);
+const syncGlobalCommands = usesGlobalCommandRegistration(commandRegistrationMode);
 const cleanGlobalCommands = String(process.env.CLEAN_GLOBAL_COMMANDS_ON_BOOT ?? "1") !== "0";
 let bots;
 
@@ -48,16 +55,14 @@ for (const bot of bots) {
       continue;
     }
 
-    if (syncGuildCommands) {
-      if (cleanGlobalCommands) {
-        await rest.put(Routes.applicationCommands(runtimeClientId), { body: [] });
-        console.log(`Commander ${bot.name}: globale Slash-Commands bereinigt (nur Guild-Sync aktiv).`);
-      } else {
-        console.log(`Ueberspringe globale Slash-Commands fuer Commander ${bot.name} (${runtimeClientId}) (nur Guild-Sync aktiv).`);
-      }
-    } else {
+    if (syncGlobalCommands) {
       console.log(`Registriere globale Slash-Commands fuer Commander ${bot.name} (${runtimeClientId})...`);
       await rest.put(Routes.applicationCommands(runtimeClientId), { body: commands });
+    } else if (cleanGlobalCommands) {
+      await rest.put(Routes.applicationCommands(runtimeClientId), { body: [] });
+      console.log(`Commander ${bot.name}: globale Slash-Commands bereinigt (Modus ${commandRegistrationMode}).`);
+    } else {
+      console.log(`Ueberspringe globale Slash-Commands fuer Commander ${bot.name} (${runtimeClientId}) (Modus ${commandRegistrationMode}).`);
     }
     console.log("Fertig.");
   } catch (err) {
@@ -66,10 +71,12 @@ for (const bot of bots) {
   }
 }
 
-if (syncGuildCommands) {
-  console.log("Global-Command-Deploy uebersprungen (nur Guild-Sync). Nur der Commander synchronisiert Guild-Commands beim Bot-Start.");
+if (syncGuildCommands && syncGlobalCommands) {
+  console.log("Hybrid-Modus aktiv: globale Commands fuer den Commander registriert, Guild-Sync bleibt beim Bot-Start aktiv.");
+} else if (syncGuildCommands) {
+  console.log("Global-Command-Deploy uebersprungen (Guild-Modus). Nur der Commander synchronisiert Guild-Commands beim Bot-Start.");
 } else {
-  console.log("Globale Commands fuer Commander registriert (Worker haben keine Commands).");
+  console.log("Globale Commands fuer Commander registriert (Global-Modus, Worker haben keine Commands).");
 }
 
 if (failedBots.length > 0) {
