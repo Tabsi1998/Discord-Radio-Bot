@@ -43,8 +43,21 @@ function Equalizer() {
   );
 }
 
-function Hero({ stats }) {
-  const { copy, formatNumber } = useI18n();
+function resolvePrimaryInviteUrl(bots) {
+  if (!Array.isArray(bots) || bots.length === 0) return '#bots';
+
+  const commanderBot = bots.find((bot) => String(bot?.role || '').toLowerCase() === 'commander')
+    || bots.find((bot) => String(bot?.name || '').toLowerCase().includes('dj'))
+    || bots.find((bot) => String(bot?.requiredTier || 'free').toLowerCase() === 'free' && (bot?.inviteUrl || bot?.invite_url))
+    || bots[0];
+
+  return commanderBot?.inviteUrl || commanderBot?.invite_url || '#bots';
+}
+
+function Hero({ stats, bots }) {
+  const { copy, formatNumber, locale } = useI18n();
+  const inviteUrl = resolvePrimaryInviteUrl(bots);
+  const subtitleTail = String(locale || '').startsWith('de') ? 'ausfuehren.' : 'to get started.';
   const heroStats = [
     { label: copy.hero.stats.servers, value: stats.servers || 0, color: '#00F0FF' },
     { label: copy.hero.stats.stations, value: stats.stations || 0, color: '#39FF14' },
@@ -155,7 +168,7 @@ function Hero({ stats }) {
           >
             {copy.hero.subtitleLead}{' '}
             <span style={{ color: '#fff', fontWeight: 600 }}>/play</span>{' '}
-            {copy.hero.subtitleTail}
+            {subtitleTail}
           </p>
 
           <div style={{
@@ -166,8 +179,10 @@ function Hero({ stats }) {
             animation: 'hero-fade-in 0.6s ease-out 0.4s both',
           }}>
             <a
-              href="#bots"
+              href={inviteUrl}
               data-testid="hero-cta-invite"
+              target={inviteUrl.startsWith('http') ? '_blank' : undefined}
+              rel={inviteUrl.startsWith('http') ? 'noopener noreferrer' : undefined}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',

@@ -49,7 +49,7 @@ const LOCALE_MESSAGES = {
       titleLead: 'Dein Discord',
       titleAccent: 'Radio.',
       titleTail: '24/7 Live.',
-      subtitleLead: 'Ein Commander-Bot steuert, Worker-Bots streamen. 120+ Radiosender, Opus-Audio, Auto-Reconnect. Lade den Bot ein und',
+      subtitleLead: '24/7 Discord-Radio mit 120+ Stationen, stabiler Worker-Architektur, Dashboard-Kontrolle und sauberem Reconnect. Lade den Bot ein und',
       subtitleTail: 'drücken.',
       ctaInvite: 'Bot einladen',
       ctaFlow: 'Wie es funktioniert',
@@ -57,6 +57,30 @@ const LOCALE_MESSAGES = {
         servers: 'Server',
         stations: 'Stationen',
         bots: 'Bots',
+      },
+    },
+    trustBar: {
+      items: {
+        stations: {
+          label: 'Stationen',
+          detail: 'Live-Katalog fuer Free und Pro, direkt auf der Website vorhoerbar.',
+        },
+        network: {
+          label: 'Bot-Netzwerk',
+          detail: 'Commander plus Worker-Skalierung fuer mehrere parallele Streams.',
+        },
+        dashboard: {
+          label: 'Dashboard',
+          detail: 'Events, Rollenrechte, Health und Server-Steuerung ab Pro.',
+        },
+        reliability: {
+          label: 'Reliability',
+          detail: 'Reconnect, klare Tiers und ein sauberer Upgrade-Pfad fuer wachsende Server.',
+        },
+      },
+      values: {
+        dashboard: 'Pro+',
+        reliability: '24/7',
       },
     },
     features: {
@@ -116,10 +140,33 @@ const LOCALE_MESSAGES = {
         },
       ],
     },
+    whyOmniFM: {
+      eyebrow: 'Warum OmniFM',
+      title: 'Nicht nur ein Radio-Bot, sondern ein sauberes Discord-Setup',
+      subtitle: 'OmniFM ist am staerksten, wenn Musik, Stabilitaet und Server-Verwaltung zusammenkommen. Genau diese Kombination muss die Website klar verkaufen.',
+      cards: {
+        radio: {
+          title: 'Sofort startklar',
+          desc: 'Einladen, /play ausfuehren und direkt Radio hoeren. Kein schweres Setup, bevor der erste Nutzen sichtbar wird.',
+        },
+        workers: {
+          title: 'Mehr als ein einzelner Bot',
+          desc: 'Die Worker-Architektur verteilt Streams sauber und macht parallele Nutzung fuer groessere Communities planbar.',
+        },
+        control: {
+          title: 'Steuerung fuer Admins',
+          desc: 'Dashboard, Events, Rollenrechte und Statusansichten geben Pro-Servern echte Kontrolle statt nur mehr Sendern.',
+        },
+        growth: {
+          title: 'Wachstum ohne Bruch',
+          desc: 'Free, Pro und Ultimate bauen logisch aufeinander auf und decken von Einstieg bis Operator-Setup denselben Produktkern ab.',
+        },
+      },
+    },
     workers: {
       eyebrow: 'Architektur',
       title: 'Commander / Worker System',
-      subtitle: 'Ein Commander-Bot steuert die Befehle, Worker-Bots streamen die Musik. Mehr Worker bedeuten mehr gleichzeitige Streams.',
+      subtitle: 'Der Commander nimmt Befehle an, Worker tragen die eigentlichen Streams. So bleibt das Setup fuer mehrere Channel, Events und groessere Server stabil.',
       tierCards: {
         free: { name: 'Free', maxWorkers: 'Max. Worker-Bots' },
         pro: { name: 'Pro', maxWorkers: 'Max. Worker-Bots' },
@@ -142,6 +189,31 @@ const LOCALE_MESSAGES = {
       delegated: 'Delegiert an Worker',
       empty: 'Keine Worker konfiguriert. Lege weitere Worker-Tokens in der .env an (BOT_2_TOKEN, BOT_3_TOKEN, ...).',
       loading: 'Lade Worker-Status...',
+    },
+    dashboardShowcase: {
+      eyebrow: 'Dashboard und Betrieb',
+      title: 'Pro und Ultimate bringen echte Server-Steuerung',
+      subtitle: 'OmniFM ist nicht nur ein Bot zum Starten von Streams. Mit dem Dashboard wird daraus ein verwaltbares System fuer Events, Rechte, Health, Analytics und Automatisierung.',
+      cards: {
+        events: {
+          title: 'Event-Scheduler',
+          desc: 'Plane automatische Starts fuer wiederkehrende Sessions, Community-Abende oder feste Musik-Slots.',
+        },
+        permissions: {
+          title: 'Rollenrechte pro Command',
+          desc: 'Lege sauber fest, wer /event, /perm oder andere sensible Befehle auf deinem Server nutzen darf.',
+        },
+        health: {
+          title: 'Health und Analytics',
+          desc: 'Behalte Server-Status, Basis-Metriken und in Ultimate auch tiefere Analytics im Blick.',
+        },
+        automation: {
+          title: 'Custom Stations und Webhooks',
+          desc: 'Ultimate erweitert OmniFM fuer Power-User mit eigenen Stationen, Exporten und Automatisierungs-Hooks.',
+        },
+      },
+      primaryCta: 'Dashboard ansehen',
+      secondaryCta: 'Plaene vergleichen',
     },
     bots: {
       eyebrow: 'Commander Bot',
@@ -270,6 +342,38 @@ const LOCALE_MESSAGES = {
         { command: '/stats', free: '—', pro: 'Basis-Stats', ultimate: 'Erweiterte Analytics' },
         { command: '/addstation', free: '—', pro: '—', ultimate: 'Ja (Custom-URL)' },
         { command: '/workers', free: '—', pro: 'Ja', ultimate: 'Priorisiert' },
+      ],
+    },
+    faq: {
+      eyebrow: 'FAQ',
+      title: 'Die wichtigsten Fragen vor dem Start',
+      subtitle: 'Der Einstieg soll schnell sein, der Upgrade-Pfad klar und die Architektur verstaendlich bleiben.',
+      items: [
+        {
+          key: 'start',
+          question: 'Wie schnell kann ich OmniFM starten?',
+          answer: 'Im Normalfall in unter einer Minute: Bot einladen, Voice-Channel oeffnen, /play nutzen und eine Station auswaehlen.',
+        },
+        {
+          key: 'free',
+          question: 'Was ist im Free-Plan enthalten?',
+          answer: 'Free deckt den starken Einstieg ab: bis zu 2 Bots, 20 freie Stationen, Basis-Commands und ein klarer Invite-Flow.',
+        },
+        {
+          key: 'pro',
+          question: 'Wann lohnt sich Pro?',
+          answer: 'Pro lohnt sich, sobald du deinen Server aktiv verwalten willst: Dashboard, Event-Scheduler, Rollenrechte, Weekly Digest und Health sind die Kernargumente.',
+        },
+        {
+          key: 'ultimate',
+          question: 'Wann brauche ich Ultimate?',
+          answer: 'Ultimate ist fuer Power-User und Betreiber gedacht, die Custom Stations, tiefere Analytics, Failover und Automatisierung benoetigen.',
+        },
+        {
+          key: 'workers',
+          question: 'Wie funktionieren Commander und Worker?',
+          answer: 'Der Commander nimmt die Befehle an. Worker fuehren die Streams aus. Dadurch kann OmniFM mehrere parallele Streams sauber verteilen und stabil halten.',
+        },
       ],
     },
     premium: {
@@ -492,7 +596,7 @@ const LOCALE_MESSAGES = {
       titleLead: 'Your Discord',
       titleAccent: 'Radio.',
       titleTail: '24/7 Live.',
-      subtitleLead: 'One commander bot coordinates everything while worker bots carry the streams. 120+ stations, Opus audio, auto-reconnect. Invite the bot and press',
+      subtitleLead: '24/7 Discord radio with 120+ stations, worker-based reliability, dashboard control, and clean reconnect behavior. Invite the bot and run',
       subtitleTail: '.',
       ctaInvite: 'Invite bot',
       ctaFlow: 'How it works',
@@ -500,6 +604,30 @@ const LOCALE_MESSAGES = {
         servers: 'Servers',
         stations: 'Stations',
         bots: 'Bots',
+      },
+    },
+    trustBar: {
+      items: {
+        stations: {
+          label: 'Stations',
+          detail: 'Live catalog for Free and Pro, with direct preview on the website.',
+        },
+        network: {
+          label: 'Bot network',
+          detail: 'Commander plus worker scaling for multiple parallel streams.',
+        },
+        dashboard: {
+          label: 'Dashboard',
+          detail: 'Events, permissions, health, and server control from Pro upward.',
+        },
+        reliability: {
+          label: 'Reliability',
+          detail: 'Reconnect, clear tiers, and a clean upgrade path for growing servers.',
+        },
+      },
+      values: {
+        dashboard: 'Pro+',
+        reliability: '24/7',
       },
     },
     features: {
@@ -559,10 +687,33 @@ const LOCALE_MESSAGES = {
         },
       ],
     },
+    whyOmniFM: {
+      eyebrow: 'Why OmniFM',
+      title: 'Not just a radio bot, but a clean Discord operating setup',
+      subtitle: 'OmniFM is strongest when music, reliability, and server management work together. The website should make that combination obvious.',
+      cards: {
+        radio: {
+          title: 'Fast to start',
+          desc: 'Invite the bot, run /play, and start listening immediately. No heavy setup before the first real value appears.',
+        },
+        workers: {
+          title: 'More than a single bot',
+          desc: 'The worker architecture distributes streams cleanly and makes parallel usage predictable for larger communities.',
+        },
+        control: {
+          title: 'Control for admins',
+          desc: 'Dashboard access, events, role permissions, and status views give Pro servers real control instead of only more stations.',
+        },
+        growth: {
+          title: 'Growth without friction',
+          desc: 'Free, Pro, and Ultimate build on the same product core, from quick entry to operator-grade setup.',
+        },
+      },
+    },
     workers: {
       eyebrow: 'Architecture',
       title: 'Commander / Worker System',
-      subtitle: 'One commander bot handles commands while worker bots deliver the streams. More workers mean more simultaneous channels.',
+      subtitle: 'The commander accepts commands while workers carry the actual streams. That keeps the setup stable for multiple channels, events, and larger servers.',
       tierCards: {
         free: { name: 'Free', maxWorkers: 'Max worker bots' },
         pro: { name: 'Pro', maxWorkers: 'Max worker bots' },
@@ -585,6 +736,31 @@ const LOCALE_MESSAGES = {
       delegated: 'Delegated to workers',
       empty: 'No workers configured yet. Add more worker tokens in your .env file (BOT_2_TOKEN, BOT_3_TOKEN, ...).',
       loading: 'Loading worker status...',
+    },
+    dashboardShowcase: {
+      eyebrow: 'Dashboard and operations',
+      title: 'Pro and Ultimate add real server control',
+      subtitle: 'OmniFM is not only a bot that starts streams. The dashboard turns it into a manageable system for events, permissions, health, analytics, and automation.',
+      cards: {
+        events: {
+          title: 'Event scheduler',
+          desc: 'Plan automatic starts for recurring sessions, community nights, or fixed music slots.',
+        },
+        permissions: {
+          title: 'Role permissions per command',
+          desc: 'Define exactly who can use /event, /perm, and other sensitive commands on your server.',
+        },
+        health: {
+          title: 'Health and analytics',
+          desc: 'Track server status, core metrics, and in Ultimate also deeper analytics views.',
+        },
+        automation: {
+          title: 'Custom stations and webhooks',
+          desc: 'Ultimate expands OmniFM for power users with custom stations, exports, and automation hooks.',
+        },
+      },
+      primaryCta: 'Open dashboard',
+      secondaryCta: 'Compare plans',
     },
     bots: {
       eyebrow: 'Commander Bot',
@@ -713,6 +889,38 @@ const LOCALE_MESSAGES = {
         { command: '/stats', free: '—', pro: 'Basic stats', ultimate: 'Advanced analytics' },
         { command: '/addstation', free: '—', pro: '—', ultimate: 'Yes (custom URL)' },
         { command: '/workers', free: '—', pro: 'Yes', ultimate: 'Prioritized' },
+      ],
+    },
+    faq: {
+      eyebrow: 'FAQ',
+      title: 'The most important questions before you start',
+      subtitle: 'The first run should be fast, the upgrade path should be clear, and the architecture should stay understandable.',
+      items: [
+        {
+          key: 'start',
+          question: 'How fast can I start with OmniFM?',
+          answer: 'Usually in under a minute: invite the bot, open a voice channel, run /play, and choose a station.',
+        },
+        {
+          key: 'free',
+          question: 'What is included in the Free plan?',
+          answer: 'Free covers the strong entry point: up to 2 bots, 20 free stations, core commands, and a clear invite flow.',
+        },
+        {
+          key: 'pro',
+          question: 'When is Pro worth it?',
+          answer: 'Pro becomes valuable as soon as you actively manage a server: dashboard access, event scheduling, role permissions, weekly digest, and health are the key reasons.',
+        },
+        {
+          key: 'ultimate',
+          question: 'When do I need Ultimate?',
+          answer: 'Ultimate is for power users and operators who need custom stations, deeper analytics, failover behavior, and automation options.',
+        },
+        {
+          key: 'workers',
+          question: 'How do commander and workers work?',
+          answer: 'The commander accepts commands. Workers execute the streams. That allows OmniFM to distribute multiple parallel streams cleanly and keep them stable.',
+        },
       ],
     },
     premium: {

@@ -3,6 +3,9 @@ import Hero from './components/Hero';
 import BotDirectory from './components/BotDirectory';
 import WorkerDashboard from './components/WorkerDashboard';
 import Features from './components/Features';
+import TrustBar from './components/TrustBar';
+import WhyOmniFM from './components/WhyOmniFM';
+import DashboardShowcase from './components/DashboardShowcase';
 import StationBrowser from './components/StationBrowser';
 import Commands from './components/Commands';
 import Premium from './components/Premium';
@@ -13,6 +16,7 @@ import Navbar from './components/Navbar';
 import PlanMatrix from './components/PlanMatrix';
 import CommandMatrix from './components/CommandMatrix';
 import DashboardPortal from './components/DashboardPortal';
+import FaqSection from './components/FaqSection';
 import { I18nProvider } from './i18n';
 import { buildApiUrl } from './lib/api';
 
@@ -214,15 +218,19 @@ function AppContent() {
     <div data-testid="app-root" style={{ position: 'relative', minHeight: '100vh' }}>
       <div className="noise-overlay" />
       <Navbar page={currentPage} />
-      <Hero stats={stats} />
+      <Hero stats={stats} bots={bots} />
+      <TrustBar stats={stats} />
       <Features />
+      <WhyOmniFM />
+      <DashboardShowcase />
       <WorkerDashboard />
       <BotDirectory bots={bots} loading={loading} />
       <StationBrowser stations={stations} loading={loading} />
-      <Commands commands={commands} loading={loading} />
       <Premium />
       <PlanMatrix />
+      <Commands commands={commands} loading={loading} />
       <CommandMatrix />
+      <FaqSection />
       <StatsFooter stats={stats} />
     </div>
   );

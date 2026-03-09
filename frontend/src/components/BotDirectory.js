@@ -252,7 +252,10 @@ function BotCard({ bot, index, copy, formatNumber }) {
 function BotDirectory({ bots, loading }) {
   const { copy, formatNumber } = useI18n();
   const commanderBot = Array.isArray(bots)
-    ? bots.find((bot) => (bot.index || 0) === 1 || bot.botId === 'bot-1') || bots[0]
+    ? bots.find((bot) => String(bot?.role || '').toLowerCase() === 'commander')
+      || bots.find((bot) => String(bot?.name || '').toLowerCase().includes('dj'))
+      || bots.find((bot) => (bot.index || 0) === 1 || bot.botId === 'bot-1')
+      || bots[0]
     : null;
 
   return (
