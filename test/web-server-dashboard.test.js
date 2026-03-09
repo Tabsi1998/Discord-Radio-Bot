@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
 import { once } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -277,6 +278,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     WEB_PORT: "0",
     WEB_BIND: "127.0.0.1",
     API_ADMIN_TOKEN: "test-admin-token",
+    OMNIFM_ALLOW_LOCAL_WEBHOOKS: "1",
   });
 
   let activePlan = "pro";
@@ -334,6 +336,26 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(seededEvent.ok, true);
 
   const runtimeStub = createRuntimeStub();
+  const webhookRequests = [];
+  const webhookServer = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const rawBody = Buffer.concat(chunks).toString("utf8");
+    webhookRequests.push({
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      payload: JSON.parse(rawBody || "{}"),
+    });
+    res.writeHead(204);
+    res.end();
+  });
+  webhookServer.listen(0, "127.0.0.1");
+  await once(webhookServer, "listening");
+  const webhookAddress = webhookServer.address();
+  const webhookUrl = `http://127.0.0.1:${webhookAddress.port}/exports`;
   const server = startWebServer([runtimeStub]);
   await once(server, "listening");
   const address = server.address();
@@ -341,6 +363,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
 
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => webhookServer.close(resolve));
     deleteDashboardAuthSession(sessionToken);
     setLicenseProvider(() => null);
     restoreEnv();
@@ -386,6 +409,9 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.deepEqual(settingsResponse.payload.failoverChainPreview, []);
   assert.equal(settingsResponse.payload.fallbackStation, "");
   assert.equal(settingsResponse.payload.fallbackStationPreview.valid, true);
+  assert.equal(settingsResponse.payload.exportsWebhook.enabled, false);
+  assert.equal(settingsResponse.payload.exportsWebhook.url, "");
+  assert.deepEqual(settingsResponse.payload.exportsWebhook.events, []);
 
   const invalidDigestSettings = await requestJson(
     baseUrl,
@@ -474,6 +500,32 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(detailStatsResponse.status, 200);
   assert.equal(detailStatsResponse.payload.connectionHealth.timeline.length, 30);
 
+  const webhookTestResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/exports/webhook-test?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        exportsWebhook: {
+          enabled: false,
+          url: webhookUrl,
+          secret: "test-secret",
+          events: ["stats_exported", "custom_stations_exported"],
+        },
+      }),
+    }
+  );
+  assert.equal(webhookTestResponse.status, 200);
+  assert.equal(webhookTestResponse.payload.delivery.delivered, true);
+  assert.equal(webhookRequests.length, 1);
+  assert.equal(webhookRequests[0].headers["x-omnifm-event"], "test");
+  assert.equal(webhookRequests[0].headers["x-omnifm-webhook-secret"], "test-secret");
+  assert.equal(webhookRequests[0].payload.event, "test");
+
   const initialCustomStationsResponse = await requestJson(
     baseUrl,
     `/api/dashboard/custom-stations?serverId=${GUILD_ID}`,
@@ -539,6 +591,32 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(customStationsResponse.payload.stations[0].folder, "Featured");
   assert.deepEqual(customStationsResponse.payload.stations[0].tags, ["featured", "live"]);
 
+  const exportSettingsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        exportsWebhook: {
+          enabled: true,
+          url: webhookUrl,
+          secret: "test-secret",
+          events: ["stats_exported", "custom_stations_exported"],
+        },
+      }),
+    }
+  );
+  assert.equal(exportSettingsResponse.status, mongoAvailable ? 200 : 503);
+  if (mongoAvailable) {
+    assert.equal(exportSettingsResponse.payload.exportsWebhook.enabled, true);
+    assert.equal(exportSettingsResponse.payload.exportsWebhook.url, webhookUrl);
+    assert.deepEqual(exportSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "custom_stations_exported"]);
+  }
+
   const stationsResponse = await requestJson(
     baseUrl,
     `/api/dashboard/stations?serverId=${GUILD_ID}`,
@@ -548,6 +626,35 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(stationsResponse.payload.custom.length, 1);
   assert.equal(stationsResponse.payload.custom[0].folder, "Featured");
   assert.deepEqual(stationsResponse.payload.custom[0].tags, ["featured", "live"]);
+
+  const statsExportResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/exports/stats?serverId=${GUILD_ID}&days=14`,
+    { headers: authHeaders }
+  );
+  assert.equal(statsExportResponse.status, 200);
+  assert.equal(statsExportResponse.payload.exportType, "stats");
+  assert.equal(statsExportResponse.payload.detail.days, 14);
+  if (mongoAvailable) {
+    assert.equal(statsExportResponse.payload.webhookDelivery.delivered, true);
+    assert.equal(webhookRequests.length, 2);
+    assert.equal(webhookRequests[1].payload.event, "stats_exported");
+  }
+
+  const stationsExportResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/exports/custom-stations?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(stationsExportResponse.status, 200);
+  assert.equal(stationsExportResponse.payload.exportType, "custom_stations");
+  assert.equal(stationsExportResponse.payload.stations.length, 1);
+  if (mongoAvailable) {
+    assert.equal(stationsExportResponse.payload.webhookDelivery.delivered, true);
+    assert.equal(webhookRequests.length, 3);
+    assert.equal(webhookRequests[2].payload.event, "custom_stations_exported");
+  }
+
   const availableFailoverStations = [
     ...(stationsResponse.payload.custom || []).map((station) => `custom:${station.key}`),
     ...(stationsResponse.payload.free || []).map((station) => station.key),

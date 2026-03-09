@@ -8,6 +8,13 @@ import {
   getConfiguredFailoverChain,
   normalizeFailoverChain,
 } from '../lib/dashboardSettings';
+import {
+  DASHBOARD_EXPORT_WEBHOOK_EVENTS,
+  normalizeDashboardExportsWebhookConfig,
+  buildDashboardExportsWebhookSummary,
+  getDashboardExportWebhookEventLabel,
+  buildDashboardExportDownloadName,
+} from '../lib/dashboardExports';
 
 const DAYS = [
   { value: 0, de: 'Sonntag', en: 'Sunday' },
@@ -33,6 +40,8 @@ export default function DashboardSettings({
   const [digestPreview, setDigestPreview] = useState(null);
   const [digestPreviewLoading, setDigestPreviewLoading] = useState(false);
   const [digestTestSending, setDigestTestSending] = useState(false);
+  const [webhookTestSending, setWebhookTestSending] = useState(false);
+  const [exportLoadingKey, setExportLoadingKey] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -82,6 +91,8 @@ export default function DashboardSettings({
       setDigestPreview(null);
       setDigestPreviewLoading(false);
       setDigestTestSending(false);
+      setWebhookTestSending(false);
+      setExportLoadingKey('');
       return;
     }
     setLoading(true);
@@ -92,6 +103,8 @@ export default function DashboardSettings({
     setStations({ free: [], pro: [], ultimate: [], custom: [] });
     setPendingFailoverStation('');
     setDigestPreview(null);
+    setWebhookTestSending(false);
+    setExportLoadingKey('');
     try {
       const [settingsResult, channelsResult, stationsResult] = await Promise.all([
         apiRequest(`/api/dashboard/settings?serverId=${encodeURIComponent(selectedGuildId)}`),
@@ -99,7 +112,11 @@ export default function DashboardSettings({
         apiRequest(`/api/dashboard/stations?serverId=${encodeURIComponent(selectedGuildId)}`),
       ]);
       if (loadToken !== loadTokenRef.current) return;
-      setSettings(settingsResult);
+      const nextSettings = {
+        ...(settingsResult || {}),
+        exportsWebhook: normalizeDashboardExportsWebhookConfig(settingsResult?.exportsWebhook),
+      };
+      setSettings(nextSettings);
       setTextChannels(channelsResult.textChannels || []);
       setStations({
         free: stationsResult.free || [],
@@ -109,7 +126,7 @@ export default function DashboardSettings({
       });
       setPendingFailoverStation('');
       if (capabilities.weeklyDigest === true) {
-        await loadDigestPreview(settingsResult?.weeklyDigest || {}, { silent: true });
+        await loadDigestPreview(nextSettings?.weeklyDigest || {}, { silent: true });
       }
     } catch (err) {
       if (loadToken !== loadTokenRef.current) return;
@@ -129,11 +146,16 @@ export default function DashboardSettings({
       const body = {};
       if (capabilities.weeklyDigest === true && settings?.weeklyDigest) body.weeklyDigest = settings.weeklyDigest;
       if (capabilities.failoverRules === true) body.failoverChain = getConfiguredFailoverChain(settings);
+      if (capabilities.exportsWebhooks === true && settings?.exportsWebhook) body.exportsWebhook = settings.exportsWebhook;
       const result = await apiRequest(`/api/dashboard/settings?serverId=${encodeURIComponent(selectedGuildId)}`, {
         method: 'PUT',
         body: JSON.stringify(body),
       });
-      setSettings((current) => ({ ...(current || {}), ...(result || {}) }));
+      setSettings((current) => ({
+        ...(current || {}),
+        ...(result || {}),
+        exportsWebhook: normalizeDashboardExportsWebhookConfig(result?.exportsWebhook || current?.exportsWebhook),
+      }));
       if (capabilities.weeklyDigest === true) {
         await loadDigestPreview(result?.weeklyDigest || settings?.weeklyDigest || {}, { silent: true });
       }
@@ -146,11 +168,14 @@ export default function DashboardSettings({
   if (loading) return <div style={{ color: '#52525B', textAlign: 'center', padding: 40 }}>{t('Lade...', 'Loading...')}</div>;
 
   const wd = settings?.weeklyDigest || { enabled: false, channelId: '', dayOfWeek: 1, hour: 9, language: 'de' };
+  const exportsWebhook = normalizeDashboardExportsWebhookConfig(settings?.exportsWebhook);
   const canManageWeeklyDigest = capabilities.weeklyDigest === true;
   const canManageFallbackStation = capabilities.failoverRules === true;
+  const canManageExports = capabilities.exportsWebhooks === true;
   const configuredFailoverChain = getConfiguredFailoverChain(settings);
   const digestSummary = buildWeeklyDigestSummary(settings, t, formatDate);
   const fallbackSummary = buildFallbackStationSummary(settings, t);
+  const exportsSummary = buildDashboardExportsWebhookSummary(exportsWebhook, t);
   const digestPreviewGeneratedLabel = digestPreview?.generatedAt
     ? (typeof formatDate === 'function'
       ? formatDate(digestPreview.generatedAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -186,6 +211,83 @@ export default function DashboardSettings({
       setError(err.message);
     } finally {
       setDigestTestSending(false);
+    }
+  };
+
+  const updateExportsWebhook = (patch) => {
+    setSettings((current) => ({
+      ...(current || {}),
+      exportsWebhook: normalizeDashboardExportsWebhookConfig({
+        ...(current?.exportsWebhook || {}),
+        ...(patch || {}),
+      }),
+    }));
+  };
+
+  const toggleExportsWebhookEvent = (eventKey) => {
+    const normalizedKey = String(eventKey || '').trim().toLowerCase();
+    const nextEvents = exportsWebhook.events.includes(normalizedKey)
+      ? exportsWebhook.events.filter((entry) => entry !== normalizedKey)
+      : [...exportsWebhook.events, normalizedKey];
+    updateExportsWebhook({ events: nextEvents });
+  };
+
+  const downloadDashboardExport = async (kind, path) => {
+    setError('');
+    setMessage('');
+    setExportLoadingKey(kind);
+    try {
+      const result = await apiRequest(path);
+      const fileName = buildDashboardExportDownloadName(kind, selectedGuildId, result?.exportedAt || new Date());
+      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(objectUrl);
+
+      const webhookSuffix = result?.webhookDelivery?.attempted
+        ? (result.webhookDelivery.delivered
+          ? t(' Webhook wurde ebenfalls ausgeloest.', ' Webhook was triggered as well.')
+          : t(' Export gespeichert, aber Webhook fehlgeschlagen.', ' Export downloaded, but the webhook failed.'))
+        : '';
+      setMessage(
+        t(
+          `Export erfolgreich heruntergeladen.${webhookSuffix}`,
+          `Export downloaded successfully.${webhookSuffix}`
+        )
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setExportLoadingKey('');
+    }
+  };
+
+  const sendWebhookTest = async () => {
+    setError('');
+    setMessage('');
+    setWebhookTestSending(true);
+    try {
+      const result = await apiRequest(`/api/dashboard/exports/webhook-test?serverId=${encodeURIComponent(selectedGuildId)}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          exportsWebhook,
+        }),
+      });
+      setMessage(
+        t(
+          `Webhook-Test erfolgreich gesendet (Status ${result?.delivery?.status || 200}).`,
+          `Webhook test sent successfully (status ${result?.delivery?.status || 200}).`
+        )
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setWebhookTestSending(false);
     }
   };
 
@@ -608,6 +710,133 @@ export default function DashboardSettings({
             style={{ height: 40, padding: '0 14px', border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(91,33,182,0.18)', color: canManageFallbackStation && pendingFailoverStation ? '#DDD6FE' : '#3F3F46', cursor: canManageFallbackStation && pendingFailoverStation ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}
           >
             <Plus size={14} /> {t('Hinzufuegen', 'Add')}
+          </button>
+        </div>
+      </div>
+
+      <div data-testid="settings-exports-webhooks" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16, opacity: canManageExports ? 1 : 0.5 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <Shield size={18} color="#F59E0B" />
+          <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Exporte & Webhooks', 'Exports & webhooks')}</h3>
+          {!canManageExports && <span style={{ fontSize: 11, color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.3)', padding: '2px 8px' }}>ULTIMATE</span>}
+        </div>
+        <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
+          {t(
+            'Ultimate-Server koennen Stats und Custom-Stationen als JSON exportieren und diese Exporte optional an Automationen weiterleiten.',
+            'Ultimate servers can export stats and custom stations as JSON and optionally forward these exports to automations.'
+          )}
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 14 }}>
+          <div data-testid="exports-status-card" style={{ border: `1px solid ${exportsSummary.statusAccent}33`, background: `${exportsSummary.statusAccent}14`, padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: exportsSummary.statusAccent }}>
+              {t('Status', 'Status')}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700, color: '#fff' }}>{exportsSummary.statusLabel}</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: '#A1A1AA', lineHeight: 1.6 }}>{exportsSummary.description}</div>
+          </div>
+
+          <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>
+              {t('Webhook-Ziel', 'Webhook target')}
+            </div>
+            <div data-testid="exports-webhook-url-label" style={{ marginTop: 6, fontSize: 14, fontWeight: 600, color: '#D4D4D8', wordBreak: 'break-all' }}>
+              {exportsWebhook.url || t('Noch keine URL hinterlegt', 'No URL configured yet')}
+            </div>
+          </div>
+
+          <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>
+              {t('Ausloeser', 'Triggers')}
+            </div>
+            <div data-testid="exports-webhook-events-count" style={{ marginTop: 6, fontSize: 16, fontWeight: 600, color: '#D4D4D8' }}>
+              {exportsWebhook.events.length} / {DASHBOARD_EXPORT_WEBHOOK_EVENTS.length}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, color: '#71717A' }}>
+              {exportsWebhook.secret ? t('Secret gesetzt', 'Secret configured') : t('Ohne Secret', 'No secret')}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 14 }}>
+          <label data-testid="exports-webhook-enabled-toggle" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, padding: '10px 0' }}>
+            <input
+              type="checkbox"
+              disabled={!canManageExports}
+              checked={exportsWebhook.enabled}
+              onChange={(e) => updateExportsWebhook({ enabled: e.target.checked })}
+              style={{ width: 16, height: 16, accentColor: '#F59E0B' }}
+            />
+            {t('Automatisch bei Exporten senden', 'Send automatically on exports')}
+          </label>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Webhook-URL', 'Webhook URL')}</label>
+            <input
+              data-testid="exports-webhook-url-input"
+              disabled={!canManageExports}
+              value={exportsWebhook.url}
+              onChange={(e) => updateExportsWebhook({ url: e.target.value })}
+              placeholder="https://example.com/omnifm"
+              style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13 }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Secret', 'Secret')}</label>
+            <input
+              data-testid="exports-webhook-secret-input"
+              disabled={!canManageExports}
+              value={exportsWebhook.secret}
+              onChange={(e) => updateExportsWebhook({ secret: e.target.value })}
+              placeholder={t('Optional', 'Optional')}
+              style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13 }}
+            />
+          </div>
+        </div>
+
+        <div data-testid="exports-webhook-event-list" style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
+          {DASHBOARD_EXPORT_WEBHOOK_EVENTS.map((event) => (
+            <label key={event.key} style={{ display: 'flex', alignItems: 'center', gap: 10, color: canManageExports ? '#D4D4D8' : '#52525B', fontSize: 13 }}>
+              <input
+                type="checkbox"
+                disabled={!canManageExports}
+                checked={exportsWebhook.events.includes(event.key)}
+                onChange={() => toggleExportsWebhookEvent(event.key)}
+                style={{ width: 15, height: 15, accentColor: '#F59E0B' }}
+              />
+              {getDashboardExportWebhookEventLabel(event.key, t)}
+            </label>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            data-testid="export-stats-btn"
+            disabled={!canManageExports || exportLoadingKey === 'stats'}
+            onClick={() => downloadDashboardExport('stats', `/api/dashboard/exports/stats?serverId=${encodeURIComponent(selectedGuildId)}&days=30`)}
+            style={{ height: 40, padding: '0 14px', border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(120,53,15,0.16)', color: canManageExports ? '#FDE68A' : '#3F3F46', cursor: canManageExports ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600 }}
+          >
+            {exportLoadingKey === 'stats' ? t('Exportiere Stats...', 'Exporting stats...') : t('Stats-Export laden', 'Download stats export')}
+          </button>
+          <button
+            type="button"
+            data-testid="export-custom-stations-btn"
+            disabled={!canManageExports || exportLoadingKey === 'custom-stations'}
+            onClick={() => downloadDashboardExport('custom-stations', `/api/dashboard/exports/custom-stations?serverId=${encodeURIComponent(selectedGuildId)}`)}
+            style={{ height: 40, padding: '0 14px', border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(120,53,15,0.16)', color: canManageExports ? '#FDE68A' : '#3F3F46', cursor: canManageExports ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600 }}
+          >
+            {exportLoadingKey === 'custom-stations' ? t('Exportiere Stationen...', 'Exporting stations...') : t('Stations-Export laden', 'Download stations export')}
+          </button>
+          <button
+            type="button"
+            data-testid="export-webhook-test-btn"
+            disabled={!canManageExports || !exportsWebhook.url || webhookTestSending}
+            onClick={sendWebhookTest}
+            style={{ height: 40, padding: '0 14px', border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(6,95,70,0.16)', color: canManageExports && exportsWebhook.url ? '#BBF7D0' : '#3F3F46', cursor: canManageExports && exportsWebhook.url && !webhookTestSending ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600 }}
+          >
+            {webhookTestSending ? t('Sende Test...', 'Sending test...') : t('Webhook testen', 'Test webhook')}
           </button>
         </div>
       </div>

@@ -73,6 +73,14 @@ import {
   normalizeWeeklyDigestConfig,
 } from "../lib/weekly-digest.js";
 import {
+  DEFAULT_DASHBOARD_EXPORTS_WEBHOOK_CONFIG,
+  normalizeDashboardExportsWebhookConfig,
+  validateDashboardExportsWebhookConfig,
+  shouldDeliverDashboardWebhook,
+  buildDashboardWebhookPayload,
+  deliverDashboardWebhook,
+} from "../lib/dashboard-webhooks.js";
+import {
   getPrimaryFailoverStation,
   normalizeFailoverChain,
 } from "../lib/failover-chain.js";
@@ -211,6 +219,14 @@ function mapDashboardCustomStation(key, station) {
     tags: Array.isArray(station?.tags) ? station.tags : [],
     custom: true,
   };
+}
+
+function buildDashboardExportsWebhookResponse(rawConfig) {
+  return normalizeDashboardExportsWebhookConfig(
+    rawConfig && typeof rawConfig === "object"
+      ? rawConfig
+      : DEFAULT_DASHBOARD_EXPORTS_WEBHOOK_CONFIG
+  );
 }
 
 function buildDashboardSelectableStations(guildId) {
@@ -1244,6 +1260,99 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
   };
 
   return { basic, advanced };
+}
+
+async function buildDashboardDetailStatsPayload(guild, runtimes, days = 30) {
+  const safeDays = Math.min(90, Math.max(1, Number.parseInt(String(days || "30"), 10) || 30));
+  const [dailyStats, sessionHistory, connectionHealth, listenerTimeline, activeSessions] = await Promise.all([
+    getGuildDailyStats(guild.id, safeDays),
+    getGuildSessionHistory(guild.id, 20),
+    getGuildConnectionHealth(guild.id, safeDays),
+    getGuildListenerTimeline(guild.id, 24),
+    Promise.resolve(getActiveSessionsForGuild(guild.id)),
+  ]);
+
+  const listeningStats = getGuildListeningStats(guild.id) || {};
+  const { guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
+  const voiceChannelNames = await buildGuildChannelNameMap(managedGuild, [
+    ...Object.keys(listeningStats.voiceChannels || {}),
+    ...activeSessions.map((session) => session?.channelId).filter(Boolean),
+  ]);
+  const events = listScheduledEvents({ guildId: guild.id });
+  const eventInsights = buildEventInsights(events, listeningStats);
+  const unstableStreams = collectGuildLiveDetails(runtimes, guild.id)
+    .map((row) => {
+      const streamErrors = Number(row.streamErrorCount || 0) || 0;
+      const reconnectAttempts = Number(row.reconnectAttempts || 0) || 0;
+      const issueScore = (streamErrors * 2) + reconnectAttempts;
+      return {
+        botId: row.botId,
+        botName: row.botName,
+        stationKey: row.stationKey,
+        stationName: row.stationName,
+        channelId: row.channelId,
+        channelName: row.channelName,
+        listeners: row.listeners,
+        streamErrors,
+        reconnectAttempts,
+        shouldReconnect: row.shouldReconnect === true,
+        issueScore,
+      };
+    })
+    .filter((row) => row.issueScore > 0)
+    .sort((a, b) => b.issueScore - a.issueScore || b.listeners - a.listeners || a.stationName.localeCompare(b.stationName))
+    .slice(0, 12);
+
+  return {
+    serverId: guild.id,
+    tier: guild.tier,
+    days: safeDays,
+    listeningStats: {
+      totalListeningMs: listeningStats.currentTotalListeningMs || listeningStats.totalListeningMs || 0,
+      totalSessions: listeningStats.totalSessions || 0,
+      avgSessionMs: listeningStats.avgSessionMs || 0,
+      longestSessionMs: listeningStats.longestSessionMs || 0,
+      totalStarts: listeningStats.totalStarts || 0,
+      peakListeners: listeningStats.peakListeners || 0,
+      stationStarts: listeningStats.stationStarts || {},
+      stationListeningMs: listeningStats.stationListeningMs || {},
+      stationNames: listeningStats.stationNames || {},
+      hours: listeningStats.hours || {},
+      daysOfWeek: listeningStats.daysOfWeek || {},
+      commands: listeningStats.commands || {},
+      voiceChannels: listeningStats.voiceChannels || {},
+      voiceChannelNames,
+      firstSeenAt: listeningStats.firstSeenAt || 0,
+    },
+    dailyStats,
+    sessionHistory: sessionHistory.map((s) => ({
+      stationKey: s.stationKey,
+      stationName: s.stationName,
+      channelId: s.channelId,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt,
+      durationMs: s.durationMs,
+      humanListeningMs: s.humanListeningMs,
+      peakListeners: s.peakListeners,
+      avgListeners: s.avgListeners,
+    })),
+    connectionHealth,
+    connectionWindowDays: safeDays,
+    listenerTimeline,
+    unstableStreams,
+    eventInsights,
+    activeSessions: activeSessions.map((s) => ({
+      botId: s.botId,
+      stationKey: s.stationKey,
+      stationName: s.stationName,
+      channelId: s.channelId,
+      currentDurationMs: s.currentDurationMs,
+      currentHumanListeningMs: s.currentHumanListeningMs,
+      currentAvgListeners: s.currentAvgListeners,
+      currentListeners: s.currentListeners,
+      peakListeners: s.peakListeners,
+    })),
+  };
 }
 
 function normalizeDashboardRoleToken(rawValue) {
@@ -2537,96 +2646,12 @@ function startWebServer(runtimes) {
       }
 
       try {
-        const days = Math.min(90, Math.max(1, Number.parseInt(String(requestUrl.searchParams.get("days") || "30"), 10) || 30));
-        const [dailyStats, sessionHistory, connectionHealth, listenerTimeline, activeSessions] = await Promise.all([
-          getGuildDailyStats(guild.id, days),
-          getGuildSessionHistory(guild.id, 20),
-          getGuildConnectionHealth(guild.id, days),
-          getGuildListenerTimeline(guild.id, 24),
-          Promise.resolve(getActiveSessionsForGuild(guild.id)),
-        ]);
-
-        const listeningStats = getGuildListeningStats(guild.id) || {};
-        const { guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
-        const voiceChannelNames = await buildGuildChannelNameMap(managedGuild, [
-          ...Object.keys(listeningStats.voiceChannels || {}),
-          ...activeSessions.map((session) => session?.channelId).filter(Boolean),
-        ]);
-        const events = listScheduledEvents({ guildId: guild.id });
-        const eventInsights = buildEventInsights(events, listeningStats);
-        const unstableStreams = collectGuildLiveDetails(runtimes, guild.id)
-          .map((row) => {
-            const streamErrors = Number(row.streamErrorCount || 0) || 0;
-            const reconnectAttempts = Number(row.reconnectAttempts || 0) || 0;
-            const issueScore = (streamErrors * 2) + reconnectAttempts;
-            return {
-              botId: row.botId,
-              botName: row.botName,
-              stationKey: row.stationKey,
-              stationName: row.stationName,
-              channelId: row.channelId,
-              channelName: row.channelName,
-              listeners: row.listeners,
-              streamErrors,
-              reconnectAttempts,
-              shouldReconnect: row.shouldReconnect === true,
-              issueScore,
-            };
-          })
-          .filter((row) => row.issueScore > 0)
-          .sort((a, b) => b.issueScore - a.issueScore || b.listeners - a.listeners || a.stationName.localeCompare(b.stationName))
-          .slice(0, 12);
-
-        sendJson(res, 200, {
-          serverId: guild.id,
-          tier: guild.tier,
-          days,
-          listeningStats: {
-            totalListeningMs: listeningStats.currentTotalListeningMs || listeningStats.totalListeningMs || 0,
-            totalSessions: listeningStats.totalSessions || 0,
-            avgSessionMs: listeningStats.avgSessionMs || 0,
-            longestSessionMs: listeningStats.longestSessionMs || 0,
-            totalStarts: listeningStats.totalStarts || 0,
-            peakListeners: listeningStats.peakListeners || 0,
-            stationStarts: listeningStats.stationStarts || {},
-            stationListeningMs: listeningStats.stationListeningMs || {},
-            stationNames: listeningStats.stationNames || {},
-            hours: listeningStats.hours || {},
-            daysOfWeek: listeningStats.daysOfWeek || {},
-            commands: listeningStats.commands || {},
-            voiceChannels: listeningStats.voiceChannels || {},
-            voiceChannelNames,
-            firstSeenAt: listeningStats.firstSeenAt || 0,
-          },
-          dailyStats,
-          sessionHistory: sessionHistory.map((s) => ({
-            stationKey: s.stationKey,
-            stationName: s.stationName,
-            channelId: s.channelId,
-            startedAt: s.startedAt,
-            endedAt: s.endedAt,
-            durationMs: s.durationMs,
-            humanListeningMs: s.humanListeningMs,
-            peakListeners: s.peakListeners,
-            avgListeners: s.avgListeners,
-          })),
-          connectionHealth,
-          connectionWindowDays: days,
-          listenerTimeline,
-          unstableStreams,
-          eventInsights,
-          activeSessions: activeSessions.map((s) => ({
-            botId: s.botId,
-            stationKey: s.stationKey,
-            stationName: s.stationName,
-            channelId: s.channelId,
-            currentDurationMs: s.currentDurationMs,
-            currentHumanListeningMs: s.currentHumanListeningMs,
-            currentAvgListeners: s.currentAvgListeners,
-            currentListeners: s.currentListeners,
-            peakListeners: s.peakListeners,
-          })),
-        });
+        const detailPayload = await buildDashboardDetailStatsPayload(
+          guild,
+          runtimes,
+          requestUrl.searchParams.get("days") || "30"
+        );
+        sendJson(res, 200, detailPayload);
       } catch (err) {
         log("ERROR", `Dashboard detail stats error: ${err?.message || err}`);
         sendLocalizedError(
@@ -3820,6 +3845,237 @@ function startWebServer(runtimes) {
       return;
     }
 
+    if (requestUrl.pathname === "/api/dashboard/exports/webhook-test") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
+      if (!serverHasCapability(guildInfo.id, "exports_webhooks")) {
+        sendLocalizedError(res, 403, language, "Exporte und Webhooks sind nur fuer Ultimate verfuegbar.", "Exports and webhooks are only available for Ultimate.");
+        return;
+      }
+
+      try {
+        const body = await readJsonBody();
+        const { getDb: getDatabase, isConnected: isDbConnected } = await import("../lib/db.js");
+        let currentSettings = {};
+        if (isDbConnected() && getDatabase()) {
+          currentSettings = await getDatabase().collection("guild_settings").findOne(
+            { guildId: guildInfo.id },
+            { projection: { _id: 0 } }
+          ) || {};
+        }
+
+        const candidateConfig = body?.exportsWebhook && typeof body.exportsWebhook === "object"
+          ? body.exportsWebhook
+          : currentSettings.exportsWebhook || {};
+        const validatedWebhook = await validateDashboardExportsWebhookConfig(candidateConfig);
+        if (!validatedWebhook.ok) {
+          sendJson(res, 400, { error: validatedWebhook.error });
+          return;
+        }
+        if (!validatedWebhook.config.url) {
+          sendLocalizedError(
+            res,
+            400,
+            language,
+            "Bitte zuerst eine Webhook-URL hinterlegen.",
+            "Please configure a webhook URL first."
+          );
+          return;
+        }
+
+        const payload = buildDashboardWebhookPayload("test", {
+          server: {
+            id: guildInfo.id,
+            name: guildInfo.name || "",
+            tier: guildInfo.tier,
+          },
+          actor: session.user || null,
+          payload: {
+            message: languagePick(
+              language,
+              "Dies ist ein manueller Dashboard-Test fuer OmniFM Exporte/Webhooks.",
+              "This is a manual dashboard test for OmniFM exports/webhooks."
+            ),
+            enabled: validatedWebhook.config.enabled === true,
+            events: validatedWebhook.config.events,
+          },
+        });
+
+        const delivery = await deliverDashboardWebhook(validatedWebhook.config, "test", payload);
+        if (!delivery.delivered) {
+          sendJson(res, 502, {
+            error: delivery.error || languagePick(language, "Webhook-Test fehlgeschlagen.", "Webhook test failed."),
+            delivery,
+          });
+          return;
+        }
+
+        sendJson(res, 200, {
+          success: true,
+          serverId: guildInfo.id,
+          tier: guildInfo.tier,
+          payloadPreview: payload,
+          delivery,
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
+          return;
+        }
+        sendLocalizedError(res, 500, language, "Webhook-Test konnte nicht gesendet werden.", "Webhook test could not be sent.");
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/exports/stats") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
+      if (!serverHasCapability(guild.id, "exports_webhooks")) {
+        sendLocalizedError(res, 403, language, "Exporte sind nur fuer Ultimate verfuegbar.", "Exports are only available for Ultimate.");
+        return;
+      }
+
+      try {
+        const detailPayload = await buildDashboardDetailStatsPayload(
+          guild,
+          runtimes,
+          requestUrl.searchParams.get("days") || "30"
+        );
+        const summaryPayload = buildDashboardStatsForGuild(guild.id, guild.tier, runtimes);
+        const exportPayload = {
+          exportType: "stats",
+          exportedAt: new Date().toISOString(),
+          serverId: guild.id,
+          tier: guild.tier,
+          basic: summaryPayload.basic,
+          advanced: summaryPayload.advanced,
+          detail: detailPayload,
+        };
+
+        let webhookDelivery = null;
+        const { getDb: getDatabase, isConnected: isDbConnected } = await import("../lib/db.js");
+        if (isDbConnected() && getDatabase()) {
+          const settings = await getDatabase().collection("guild_settings").findOne(
+            { guildId: guild.id },
+            { projection: { _id: 0 } }
+          ) || {};
+          const webhookConfig = buildDashboardExportsWebhookResponse(settings.exportsWebhook || {});
+          if (shouldDeliverDashboardWebhook(webhookConfig, "stats_exported")) {
+            webhookDelivery = await deliverDashboardWebhook(
+              webhookConfig,
+              "stats_exported",
+              buildDashboardWebhookPayload("stats_exported", {
+                server: {
+                  id: guild.id,
+                  name: guild.name || "",
+                  tier: guild.tier,
+                },
+                actor: session.user || null,
+                payload: {
+                  exportType: "stats",
+                  days: detailPayload.days,
+                  totalSessions: detailPayload.listeningStats.totalSessions,
+                  dailyPoints: detailPayload.dailyStats.length,
+                },
+              })
+            );
+          }
+        }
+
+        sendJson(res, 200, {
+          ...exportPayload,
+          webhookDelivery,
+        });
+      } catch (err) {
+        log("ERROR", `Dashboard stats export error: ${err?.message || err}`);
+        sendLocalizedError(res, 500, language, "Stats-Export konnte nicht erstellt werden.", "Stats export could not be created.");
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/exports/custom-stations") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
+      if (!serverHasCapability(guild.id, "exports_webhooks")) {
+        sendLocalizedError(res, 403, language, "Exporte sind nur fuer Ultimate verfuegbar.", "Exports are only available for Ultimate.");
+        return;
+      }
+
+      const stations = Object.entries(getCustomStations(guild.id) || {})
+        .map(([key, station]) => mapDashboardCustomStation(key, station))
+        .sort((a, b) => {
+          const folderCompare = String(a.folder || "").localeCompare(String(b.folder || ""));
+          if (folderCompare !== 0) return folderCompare;
+          return a.name.localeCompare(b.name);
+        });
+
+      let webhookDelivery = null;
+      try {
+        const { getDb: getDatabase, isConnected: isDbConnected } = await import("../lib/db.js");
+        if (isDbConnected() && getDatabase()) {
+          const settings = await getDatabase().collection("guild_settings").findOne(
+            { guildId: guild.id },
+            { projection: { _id: 0 } }
+          ) || {};
+          const webhookConfig = buildDashboardExportsWebhookResponse(settings.exportsWebhook || {});
+          if (shouldDeliverDashboardWebhook(webhookConfig, "custom_stations_exported")) {
+            const folderCount = new Set(stations.map((station) => station.folder).filter(Boolean)).size;
+            webhookDelivery = await deliverDashboardWebhook(
+              webhookConfig,
+              "custom_stations_exported",
+              buildDashboardWebhookPayload("custom_stations_exported", {
+                server: {
+                  id: guild.id,
+                  name: guild.name || "",
+                  tier: guild.tier,
+                },
+                actor: session.user || null,
+                payload: {
+                  exportType: "custom_stations",
+                  stationCount: stations.length,
+                  folderCount,
+                },
+              })
+            );
+          }
+        }
+      } catch (err) {
+        log("WARN", `Dashboard custom station export webhook error: ${err?.message || err}`);
+      }
+
+      sendJson(res, 200, {
+        exportType: "custom_stations",
+        exportedAt: new Date().toISOString(),
+        serverId: guild.id,
+        tier: guild.tier,
+        stations,
+        webhookDelivery,
+      });
+      return;
+    }
+
     // --- Dashboard: Guild Settings (Weekly Digest, Failover Chain) ---
     if (requestUrl.pathname === "/api/dashboard/settings") {
       const { language } = getDashboardRequestTranslator(req, requestUrl);
@@ -3853,6 +4109,7 @@ function startWebServer(runtimes) {
           failoverChainPreview: buildDashboardFailoverChainPreview(guildInfo.id, failoverChain, fallbackStation),
           fallbackStation,
           fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
+          exportsWebhook: buildDashboardExportsWebhookResponse(settings.exportsWebhook || {}),
         });
         return;
       }
@@ -3907,6 +4164,29 @@ function startWebServer(runtimes) {
             updates.fallbackStation = getPrimaryFailoverStation(normalizedFailoverChain, "");
           }
 
+          if (body?.exportsWebhook && typeof body.exportsWebhook === "object") {
+            if (!serverHasCapability(guildInfo.id, "exports_webhooks")) {
+              sendLocalizedError(res, 403, language, "Exporte und Webhooks sind nur fuer Ultimate verfuegbar.", "Exports and webhooks are only available for Ultimate.");
+              return;
+            }
+            const validatedWebhook = await validateDashboardExportsWebhookConfig(body.exportsWebhook);
+            if (!validatedWebhook.ok) {
+              sendJson(res, 400, { error: validatedWebhook.error });
+              return;
+            }
+            if (validatedWebhook.config.enabled && !validatedWebhook.config.url) {
+              sendLocalizedError(
+                res,
+                400,
+                language,
+                "Fuer aktive Export-Webhooks muss eine URL hinterlegt werden.",
+                "An active export webhook requires a configured URL."
+              );
+              return;
+            }
+            updates.exportsWebhook = validatedWebhook.config;
+          }
+
           if (!isDbConnected() || !getDatabase()) {
             sendLocalizedError(res, 503, language, "MongoDB nicht verbunden.", "MongoDB is not connected.");
             return;
@@ -3930,6 +4210,9 @@ function startWebServer(runtimes) {
           const fallbackStation = Object.prototype.hasOwnProperty.call(updates, "fallbackStation")
             ? String(updates.fallbackStation || "").trim().toLowerCase()
             : getPrimaryFailoverStation(failoverChain, currentSettings.fallbackStation || "");
+          const exportsWebhook = Object.prototype.hasOwnProperty.call(updates, "exportsWebhook")
+            ? buildDashboardExportsWebhookResponse(updates.exportsWebhook)
+            : buildDashboardExportsWebhookResponse(currentSettings.exportsWebhook || {});
           sendJson(res, 200, {
             success: true,
             guildId: guildInfo.id,
@@ -3943,6 +4226,7 @@ function startWebServer(runtimes) {
             failoverChainPreview: buildDashboardFailoverChainPreview(guildInfo.id, failoverChain, fallbackStation),
             fallbackStation,
             fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
+            exportsWebhook,
           });
         } catch (err) {
           sendJson(res, 400, { error: err?.message || languagePick(language, "Ungültige Anfrage.", "Invalid request.") });
