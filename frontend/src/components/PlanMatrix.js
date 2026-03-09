@@ -18,7 +18,7 @@ function FeatureDot({ enabled, testId }) {
         color: enabled ? '#6EE7B7' : '#52525B',
       }}
     >
-      {enabled ? <Check size={13} /> : '–'}
+      {enabled ? <Check size={13} /> : '-'}
     </span>
   );
 }

@@ -49,11 +49,11 @@ const LOCALE_MESSAGES = {
       titleLead: 'Dein Discord',
       titleAccent: 'Radio.',
       titleTail: '24/7 Live.',
-      subtitleLead: '24/7 Discord-Radio mit 120+ Stationen, stabiler Worker-Architektur, Dashboard-Kontrolle und sauberem Reconnect. Lade den Bot ein und',
-      subtitleTail: 'drücken.',
-      ctaInvite: 'Bot einladen',
+      subtitleLead: '24/7 Discord-Radio mit 120+ Stationen, stabiler Worker-Architektur, Dashboard-Kontrolle und sauberem Reconnect. Lade zuerst den Commander ein, füge dann einen Worker hinzu und führe',
+      subtitleTail: 'aus.',
+      ctaInvite: 'Commander einladen',
       ctaFlow: 'Wie es funktioniert',
-      ctaNote: 'Free startet direkt ueber den Invite. Pro und Ultimate erweitern spaeter dasselbe Bot-Setup mit Dashboard, Kontrolle und mehr Betriebssicherheit.',
+      ctaNote: 'Free startet über denselben sauberen Ablauf: Commander einladen, Worker hinzufügen, /play ausführen. Pro und Ultimate erweitern später genau dieses Setup mit Dashboard, Kontrolle und mehr Betriebssicherheit.',
       stats: {
         servers: 'Server',
         stations: 'Stationen',
@@ -69,13 +69,13 @@ const LOCALE_MESSAGES = {
           key: 'free',
           label: 'Free',
           value: 'Sofort live',
-          desc: '24/7 Radio ohne Pflicht-Setup ausser Invite und /play.',
+          desc: '24/7 Radio mit sauberem Einstieg: Commander einladen, Worker hinzufügen, /play ausführen.',
         },
         {
           key: 'pro',
           label: 'Pro',
           value: 'Mehr Kontrolle',
-          desc: 'Dashboard, Events und Rollenrechte fuer aktive Communities.',
+          desc: 'Dashboard, Events und Rollenrechte für aktive Communities.',
         },
         {
           key: 'ultimate',
@@ -86,29 +86,29 @@ const LOCALE_MESSAGES = {
       ],
       panel: {
         eyebrow: 'Schneller Start',
-        title: 'In 30 Sekunden zum ersten Stream',
+        title: 'In unter einer Minute zum ersten Stream',
         steps: [
           {
             key: 'invite',
-            title: 'Bot einladen',
-            desc: 'Der Commander ist dein Einstiegspunkt und fuehrt in den ersten Live-Stream.',
+            title: 'Commander einladen',
+            desc: 'Der Commander ist dein Einstiegspunkt und nimmt Commands sowie Worker-Invites an.',
+          },
+          {
+            key: 'worker',
+            title: 'Worker hinzufügen',
+            desc: 'Füge mindestens einen Worker hinzu. Er übernimmt den Stream, sobald du /play nutzt.',
           },
           {
             key: 'play',
-            title: '/play ausfuehren',
-            desc: 'Waehle eine Station und starte direkt im Voice-Channel ohne Prefix-Setup.',
-          },
-          {
-            key: 'scale',
-            title: 'Bei Bedarf skalieren',
-            desc: 'Mehr Worker, Dashboard und Premium-Tiers stehen bereit, wenn dein Server waechst.',
+            title: '/play ausführen',
+            desc: 'Wähle eine Station und starte direkt im Voice-Channel ohne Prefix-Setup.',
           },
         ],
         proofTitle: 'Warum das professioneller ist',
         proofItems: [
-          'Slash Commands statt umstaendlicher Bot-Bedienung',
+          'Slash Commands statt umständlicher Bot-Bedienung',
           'Worker entlasten parallele Streams sauber',
-          'Klare Upgrade-Stufen fuer wachsende Communitys',
+          'Klare Upgrade-Stufen für wachsende Communities',
         ],
       },
     },
@@ -118,10 +118,10 @@ const LOCALE_MESSAGES = {
       items: {
         stations: {
           label: 'Stationen',
-          detail: 'Live-Katalog fuer Free und Pro, direkt auf der Website vorhoerbar.',
+          detail: 'Live-Katalog für Free und Pro, direkt auf der Website vorhörbar.',
         },
         network: {
-          label: 'Live-Aktivitaet',
+          label: 'Live-Aktivität',
           detail: 'Aktive Streams und ein bereitstehendes Bot-Netzwerk zeigen, dass OmniFM im Betrieb arbeitet.',
         },
         dashboard: {
@@ -129,8 +129,8 @@ const LOCALE_MESSAGES = {
           detail: 'Events, Rollenrechte, Health und Server-Steuerung ab Pro.',
         },
         reliability: {
-          label: 'Reliability',
-          detail: 'Reconnect, klare Tiers und ein sauberer Upgrade-Pfad fuer wachsende Server.',
+          label: 'Zuverlässigkeit',
+          detail: 'Reconnect, klare Tiers und ein sauberer Upgrade-Pfad für wachsende Server.',
         },
       },
       values: {
@@ -145,7 +145,7 @@ const LOCALE_MESSAGES = {
       },
       proofChecks: [
         'Live-Zahlen kommen aus dem Produkt statt aus statischen Werbetexten.',
-        'Dashboard und Reliability sind bereits vor dem Pricing sichtbar eingeordnet.',
+        'Dashboard und Zuverlässigkeit sind bereits vor dem Pricing sichtbar eingeordnet.',
         'Free, Pro und Ultimate haben einen klaren gemeinsamen Kern statt getrennte Produktwelten.',
       ],
     },
@@ -155,27 +155,28 @@ const LOCALE_MESSAGES = {
       steps: [
         {
           step: '01',
-          title: 'Bot einladen',
-          desc: 'Lade den OmniFM DJ-Bot auf deinen Discord-Server ein. Er steuert das gesamte Setup.',
+          title: 'Commander einladen',
+          desc: 'Lade den OmniFM DJ auf deinen Discord-Server ein. Er nimmt Commands an und organisiert dein Setup.',
         },
         {
           step: '02',
-          title: 'Station wählen',
-          desc: 'Nutze /play und wähle aus Free-, Pro- oder Ultimate-Stationen. Ein freier Worker übernimmt den Stream.',
+          title: 'Worker hinzufügen',
+          desc: 'Füge mindestens einen Worker hinzu. Er übernimmt den Stream, sobald du /play startest.',
         },
         {
           step: '03',
-          title: 'Musik geniessen',
-          desc: '24/7 Streaming in deinem Voice-Channel. Für mehr parallele Streams kannst du weitere Worker zuschalten.',
+          title: '/play ausführen',
+          desc: 'Wähle eine Station und starte das Radio direkt im Voice-Channel. Weitere Worker schalten bei Bedarf parallele Streams frei.',
         },
       ],
       architecture: {
+        flowLabel: 'Systemablauf',
         commander: 'Commander',
-        commanderDesc: 'Nimmt Befehle entgegen',
+        commanderDesc: 'Nimmt Commands und Worker-Invites an',
         workers: 'Worker 1-16',
-        workersDesc: 'Streamen die Musik',
+        workersDesc: 'Führen die Streams aus',
         channel: 'Dein Channel',
-        channelDesc: '24/7 nonstop Musik',
+        channelDesc: 'Radio läuft im Voice-Channel',
       },
       gridEyebrow: 'Features',
       gridTitle: 'Gebaut für Qualität',
@@ -209,7 +210,7 @@ const LOCALE_MESSAGES = {
     whyOmniFM: {
       eyebrow: 'Warum OmniFM',
       title: 'Nicht nur ein Radio-Bot, sondern ein sauberes Discord-Setup',
-      subtitle: 'OmniFM ist am staerksten, wenn Musik, Stabilitaet und Server-Verwaltung zusammenkommen. Genau diese Kombination muss die Website klar verkaufen.',
+      subtitle: 'OmniFM ist am stärksten, wenn Musik, Stabilität und Server-Verwaltung zusammenkommen. Genau diese Kombination muss die Website klar verkaufen.',
       comparisonEyebrow: 'Der Unterschied',
       comparisonTitle: 'Was OmniFM von einem generischen Bot trennt',
       comparisonHeaders: {
@@ -220,7 +221,7 @@ const LOCALE_MESSAGES = {
         {
           label: 'Start',
           basic: 'Ein Bot wird eingeladen und spielt irgendwann Audio ab.',
-          omnifm: 'Ein klarer Einstieg fuehrt direkt von Invite und /play zu einem stabilen 24/7 Radio-Setup.',
+          omnifm: 'Ein klarer Einstieg führt vom Commander-Invite über den Worker direkt zu einem stabilen 24/7 Radio-Setup.',
         },
         {
           label: 'Betrieb',
@@ -229,21 +230,21 @@ const LOCALE_MESSAGES = {
         },
         {
           label: 'Wachstum',
-          basic: 'Premium fuehlt sich oft wie ein zweites Produkt ohne klaren Uebergang an.',
+          basic: 'Premium fühlt sich oft wie ein zweites Produkt ohne klaren Übergang an.',
           omnifm: 'Free, Pro und Ultimate erweitern denselben Kern mit Kontrolle, Analytics und Operator-Funktionen.',
         },
       ],
       cards: {
         radio: {
           title: 'Sofort startklar',
-          desc: 'Einladen, /play ausfuehren und direkt Radio hoeren. Kein schweres Setup, bevor der erste Nutzen sichtbar wird.',
+          desc: 'Commander einladen, Worker hinzufügen, /play ausführen und direkt Radio hören. Kein schweres Setup, bevor der erste Nutzen sichtbar wird.',
         },
         workers: {
           title: 'Mehr als ein einzelner Bot',
-          desc: 'Die Worker-Architektur verteilt Streams sauber und macht parallele Nutzung fuer groessere Communities planbar.',
+          desc: 'Die Worker-Architektur verteilt Streams sauber und macht parallele Nutzung für größere Communities planbar.',
         },
         control: {
-          title: 'Steuerung fuer Admins',
+          title: 'Steuerung für Admins',
           desc: 'Dashboard, Events, Rollenrechte und Statusansichten geben Pro-Servern echte Kontrolle statt nur mehr Sendern.',
         },
         growth: {
@@ -282,9 +283,9 @@ const LOCALE_MESSAGES = {
     dashboardShowcase: {
       eyebrow: 'Dashboard und Betrieb',
       title: 'Pro und Ultimate bringen echte Server-Steuerung',
-      subtitle: 'OmniFM ist nicht nur ein Bot zum Starten von Streams. Mit dem Dashboard wird daraus ein verwaltbares System fuer Events, Rechte, Health, Analytics und Automatisierung.',
+      subtitle: 'OmniFM ist nicht nur ein Bot zum Starten von Streams. Mit dem Dashboard wird daraus ein verwaltbares System für Events, Rechte, Health, Analytics und Automatisierung.',
       proofPanel: {
-        eyebrow: 'Operations statt Bauchgefuehl',
+        eyebrow: 'Operations statt Bauchgefühl',
         title: 'Vom Invite zur laufenden Server-Steuerung',
         items: [
           {
@@ -300,7 +301,7 @@ const LOCALE_MESSAGES = {
           {
             value: 'Health View',
             label: 'Mehr Sichtbarkeit im Betrieb',
-            desc: 'Status, Weekly Digest und Upgrade-Hinweise zeigen frueh, wo dein Setup stabil ist oder mehr Kontrolle braucht.',
+            desc: 'Status, Weekly Digest und Upgrade-Hinweise zeigen früh, wo dein Setup stabil ist oder mehr Kontrolle braucht.',
           },
         ],
         note: 'Dashboard-Zugang startet mit Pro und geht in Ultimate ohne zweiten Workflow weiter. Dein bestehendes Bot-Setup bleibt dabei intakt.',
@@ -308,7 +309,7 @@ const LOCALE_MESSAGES = {
       cards: {
         events: {
           title: 'Event-Scheduler',
-          desc: 'Plane automatische Starts fuer wiederkehrende Sessions, Community-Abende oder feste Musik-Slots.',
+          desc: 'Plane automatische Starts für wiederkehrende Sessions, Community-Abende oder feste Musik-Slots.',
         },
         permissions: {
           title: 'Rollenrechte pro Command',
@@ -320,19 +321,19 @@ const LOCALE_MESSAGES = {
         },
         automation: {
           title: 'Custom Stations und Webhooks',
-          desc: 'Ultimate erweitert OmniFM fuer Power-User mit eigenen Stationen, Exporten und Automatisierungs-Hooks.',
+          desc: 'Ultimate erweitert OmniFM für Power-User mit eigenen Stationen, Exporten und Automatisierungs-Hooks.',
         },
       },
       primaryCta: 'Dashboard ansehen',
-      secondaryCta: 'Plaene vergleichen',
+      secondaryCta: 'Pläne vergleichen',
       ctaNote: 'Dashboard-Zugang startet mit Pro. Upgrade bedeutet mehr Kontrolle, nicht einen neuen Produktpfad.',
       tags: ['Discord SSO', 'Event-Scheduler', 'Rollenrechte', 'Health'],
       workflow: {
         eyebrow: 'Ops-Flow',
         steps: [
           {
-            title: 'Server auswaehlen',
-            desc: 'Guild aus Discord SSO waehlen und direkt den aktuellen Status, Tier und die wichtigsten Steuerungen sehen.',
+            title: 'Server auswählen',
+            desc: 'Guild aus Discord SSO wählen und direkt den aktuellen Status, Tier und die wichtigsten Steuerungen sehen.',
           },
           {
             title: 'Kontrolle aktivieren',
@@ -340,7 +341,7 @@ const LOCALE_MESSAGES = {
           },
           {
             title: 'Sauber skalieren',
-            desc: 'Ultimate erweitert denselben Workflow fuer Custom Stations, Exporte und tiefere Analytics statt eines zweiten Tools.',
+            desc: 'Ultimate erweitert denselben Workflow für Custom Stations, Exporte und tiefere Analytics statt eines zweiten Tools.',
           },
         ],
       },
@@ -516,7 +517,7 @@ const LOCALE_MESSAGES = {
     planMatrix: {
       eyebrow: 'Free vs Pro vs Ultimate',
       title: 'Klarer Vergleich, keine offenen Fragen',
-      subtitle: 'Die Matrix zeigt transparent, was in welchem Plan enthalten ist. Ultimate hebt Reliability-Features, mehr Bot-Slots und erweiterte Analytics sichtbar hervor.',
+      subtitle: 'Die Matrix zeigt transparent, was in welchem Plan enthalten ist. Ultimate hebt Zuverlässigkeits-Features, mehr Bot-Slots und erweiterte Analytics sichtbar hervor.',
       featureHeader: 'Feature',
       tiers: {
         free: 'Free',
@@ -553,17 +554,27 @@ const LOCALE_MESSAGES = {
     faq: {
       eyebrow: 'FAQ',
       title: 'Die wichtigsten Fragen vor dem Start',
-      subtitle: 'Der Einstieg soll schnell sein, der Upgrade-Pfad klar und die Architektur verstaendlich bleiben.',
+      subtitle: 'Der Einstieg soll schnell sein, der Upgrade-Pfad klar und die Architektur verständlich bleiben.',
       items: [
         {
           key: 'start',
-          question: 'Wie schnell kann ich OmniFM starten?',
-          answer: 'Im Normalfall in unter einer Minute: Bot einladen, Voice-Channel oeffnen, /play nutzen und eine Station auswaehlen.',
+          question: 'Wie starte ich OmniFM sauber?',
+          answer: 'Im Normalfall in unter einer Minute: zuerst den Commander einladen, dann mindestens einen Worker hinzufügen, danach den Voice-Channel öffnen und /play nutzen.',
+        },
+        {
+          key: 'workerRequired',
+          question: 'Brauche ich vor /play schon einen Worker?',
+          answer: 'Ja. Der Commander nimmt die Befehle an, aber der eigentliche Stream läuft über einen Worker. Erst wenn ein Worker auf dem Server ist, kann /play sauber starten.',
         },
         {
           key: 'free',
           question: 'Was ist im Free-Plan enthalten?',
-          answer: 'Free deckt den starken Einstieg ab: bis zu 2 Bots, 20 freie Stationen, Basis-Commands und ein klarer Invite-Flow.',
+          answer: 'Free deckt den starken Einstieg ab: bis zu 2 Bots, 20 freie Stationen, Basis-Commands und den kompletten Commander- plus Worker-Startfluss.',
+        },
+        {
+          key: 'dashboard',
+          question: 'Brauche ich das Dashboard sofort?',
+          answer: 'Nein. Free funktioniert ohne Dashboard. Ab Pro wird es relevant, wenn du Events, Rollenrechte, Weekly Digest und Health zentral verwalten willst.',
         },
         {
           key: 'pro',
@@ -573,34 +584,34 @@ const LOCALE_MESSAGES = {
         {
           key: 'ultimate',
           question: 'Wann brauche ich Ultimate?',
-          answer: 'Ultimate ist fuer Power-User und Betreiber gedacht, die Custom Stations, tiefere Analytics, Failover und Automatisierung benoetigen.',
+          answer: 'Ultimate ist für Power-User und Betreiber gedacht, die Custom Stations, tiefere Analytics, Failover und Automatisierung benötigen.',
         },
         {
           key: 'workers',
           question: 'Wie funktionieren Commander und Worker?',
-          answer: 'Der Commander nimmt die Befehle an. Worker fuehren die Streams aus. Dadurch kann OmniFM mehrere parallele Streams sauber verteilen und stabil halten.',
+          answer: 'Der Commander nimmt Commands und Worker-Invites an. Worker führen die Streams aus. Dadurch kann OmniFM mehrere parallele Streams sauber verteilen und stabil halten.',
         },
       ],
     },
     useCases: {
-      eyebrow: 'Fuer wen ist OmniFM?',
+      eyebrow: 'Für wen ist OmniFM?',
       title: 'Jeder Plan hat eine klare Rolle',
-      subtitle: 'Die Website soll nicht nur Preise zeigen, sondern erklaeren, welcher Plan fuer welchen Server-Typ wirklich sinnvoll ist.',
+      subtitle: 'Die Website soll nicht nur Preise zeigen, sondern erklären, welcher Plan für welchen Server-Typ wirklich sinnvoll ist.',
       cards: {
         free: {
-          title: 'Free fuer schnelle Community-Radios',
+          title: 'Free für schnelle Community-Radios',
           desc: 'Wenn du einen kleinen oder privaten Server mit 24/7 Radio versorgen willst, bringt Free den saubersten Einstieg.',
-          fit: 'Ideal fuer kleine Communities, Freundesgruppen und den ersten Live-Einsatz ohne Administrationsaufwand.',
+          fit: 'Ideal für kleine Communities, Freundesgruppen und den ersten Live-Einsatz ohne Administrationsaufwand.',
         },
         pro: {
-          title: 'Pro fuer Community-Admins',
-          desc: 'Sobald Events, Rollenrechte und Dashboard-Steuerung zum Alltag gehoeren, wird Pro zum eigentlichen Verwaltungsplan.',
-          fit: 'Ideal fuer Event-Server, mittelgrosse Communities und Teams mit klaren Rollen und wiederkehrenden Sessions.',
+          title: 'Pro für Community-Admins',
+          desc: 'Sobald Events, Rollenrechte und Dashboard-Steuerung zum Alltag gehören, wird Pro zum eigentlichen Verwaltungsplan.',
+          fit: 'Ideal für Event-Server, mittelgroße Communities und Teams mit klaren Rollen und wiederkehrenden Sessions.',
         },
         ultimate: {
-          title: 'Ultimate fuer Operator-Setups',
-          desc: 'Wenn Reliability, Custom Stations, tiefere Analytics und Automatisierung wichtig werden, ist Ultimate die richtige Stufe.',
-          fit: 'Ideal fuer groessere Communities, Power-User und Betreiber, die OmniFM als echtes System nutzen wollen.',
+          title: 'Ultimate für Operator-Setups',
+          desc: 'Wenn Zuverlässigkeit, Custom Stations, tiefere Analytics und Automatisierung wichtig werden, ist Ultimate die richtige Stufe.',
+          fit: 'Ideal für größere Communities, Power-User und Betreiber, die OmniFM als echtes System nutzen wollen.',
         },
       },
     },
@@ -608,42 +619,42 @@ const LOCALE_MESSAGES = {
       eyebrow: 'Premium',
       title: 'Upgrade dein Setup',
       subtitle: 'Mehr Worker, mehr Stationen, besserer Sound. Wähle den Plan, der zu deinem Server passt.',
-        positioningTitle: 'Welcher Plan passt zu deinem Server?',
-        positioning: [
+      positioningTitle: 'Welcher Plan passt zu deinem Server?',
+      positioning: [
           {
             key: 'free',
-            title: 'Free fuer schnellen Einstieg',
-            desc: 'Gut fuer kleine Server, die sofort 24/7 Radio wollen und ohne Reibung starten moechten.',
+            title: 'Free für schnellen Einstieg',
+            desc: 'Gut für kleine Server, die sofort 24/7 Radio wollen und ohne Reibung starten möchten.',
           },
           {
             key: 'pro',
-            title: 'Pro fuer aktive Communities',
+            title: 'Pro für aktive Communities',
             desc: 'Der richtige Schritt, wenn Dashboard, Events, Rollenrechte und Health wirklich im Alltag gebraucht werden.',
           },
           {
             key: 'ultimate',
-            title: 'Ultimate fuer Operator und Power-User',
-            desc: 'Fuer Setups mit Custom Stations, staerkerer Reliability, tieferer Analyse und Automatisierungsbedarf.',
+            title: 'Ultimate für Operatoren und Power-User',
+            desc: 'Für Setups mit Custom Stations, stärkerer Zuverlässigkeit, tieferer Analyse und Automatisierungsbedarf.',
           },
         ],
-        pricingFallback: 'Pricing-API nicht erreichbar, Fallback-Daten aktiv.',
+      pricingFallback: 'Pricing-API nicht erreichbar, Fallback-Daten aktiv.',
       proofTitle: 'Warum der Upgrade-Schritt sauber ist',
       proofCards: {
         trial: {
-          title: 'Risikoarm pruefen',
+          title: 'Risikoarm prüfen',
           valueEnabled: ({ months }) => `${months} Monat${months === 1 ? '' : 'e'} Test`,
           valueDisabled: 'Direkter Start',
-          desc: 'Teste Pro zuerst mit Dashboard, Events und Rollenrechten, bevor du den Plan fuer deinen Server fest uebernimmst.',
+          desc: 'Teste Pro zuerst mit Dashboard, Events und Rollenrechten, bevor du den Plan für deinen Server fest übernimmst.',
         },
         seats: {
           title: 'Mehrere Server unter Kontrolle',
           value: ({ min, max }) => `${min}-${max} Server-Slots`,
-          desc: 'Seat-Bundles halten Upgrade und Lizenzierung fuer wachsende Communities sauber an einer Stelle.',
+          desc: 'Seat-Bundles halten Upgrade und Lizenzierung für wachsende Communities sauber an einer Stelle.',
         },
         activation: {
           title: 'Discord-first Aktivierung',
           value: '/license activate',
-          desc: 'Dein Lizenz-Key kommt per E-Mail und wird direkt im Bot mit dem Server verknuepft.',
+          desc: 'Dein Lizenz-Key kommt per E-Mail und wird direkt im Bot mit dem Server verknüpft.',
         },
         tiers: {
           title: 'Klare Planlogik',
@@ -651,24 +662,24 @@ const LOCALE_MESSAGES = {
           desc: 'Free bleibt der Einstieg, Pro ist das Management-Upgrade und Ultimate die Operator-Stufe.',
         },
       },
-      flowNote: 'Jeder Plan baut auf demselben Bot-Kern auf. Upgrades schalten Kontrolle, Reliability und Skalierung frei, ohne dein Setup neu aufzubauen.',
+      flowNote: 'Jeder Plan baut auf demselben Bot-Kern auf. Upgrades schalten Kontrolle, Zuverlässigkeit und Skalierung frei, ohne dein Setup neu aufzubauen.',
       planPopular: 'Beliebt',
-      planFitLabel: 'Ideal fuer',
+      planFitLabel: 'Ideal für',
       planUpgradeLabel: 'Upgrade wenn',
       planOutcomes: {
         free: {
-          note: 'Der starke Einstieg fuer 24/7 Radio ohne Admin-Overhead.',
+          note: 'Der starke Einstieg für 24/7 Radio ohne Admin-Overhead.',
           fit: 'Kleine Communities, Freundesgruppen und Server, die schnell live gehen wollen.',
           upgrade: 'du Dashboard, Event-Scheduler oder rollenbasierte Steuerung brauchst.',
         },
         pro: {
-          note: 'Der eigentliche Verwaltungsplan fuer aktive Server.',
+          note: 'Der eigentliche Verwaltungsplan für aktive Server.',
           fit: 'Community-Admins, Event-Server und Teams mit klaren Rollen und wiederkehrenden Sessions.',
-          upgrade: 'du Custom Stations, tiefere Analytics oder staerkere Recovery-Funktionen benoetigst.',
+          upgrade: 'du Custom Stations, tiefere Analytics oder stärkere Recovery-Funktionen benötigst.',
         },
         ultimate: {
-          note: 'Die Operator-Stufe fuer maximale Kontrolle und tieferen Betrieb.',
-          fit: 'Power-User, Multi-Server-Setups und groessere Communities mit hohem Anspruch an Reliability.',
+          note: 'Die Operator-Stufe für maximale Kontrolle und tieferen Betrieb.',
+          fit: 'Power-User, Multi-Server-Setups und größere Communities mit hohem Anspruch an Zuverlässigkeit.',
           upgrade: 'du OmniFM als verwaltetes System mit maximaler Kontrolle statt nur als Radio-Bot nutzen willst.',
         },
       },
@@ -693,7 +704,7 @@ const LOCALE_MESSAGES = {
       durationMonth: 'Monat',
       durationMonths: 'Monate',
       durationBonus: '+2 gratis',
-      bestValue: 'Best',
+      bestValue: 'Beste Wahl',
       summary: ({ durationLabel, seatsLabel }) => `${durationLabel}${seatsLabel ? ` · ${seatsLabel}` : ''}`,
       licenseHintLead: 'Nach dem Kauf erhältst du deinen',
       licenseHintKey: 'Lizenz-Key',
@@ -711,7 +722,7 @@ const LOCALE_MESSAGES = {
       trialWorking: 'Testmonat wird aktiviert...',
       trialActivatedDefault: 'Pro-Testmonat aktiviert.',
       statusTitle: 'Premium-Status prüfen',
-      statusHint: 'Schon im Betrieb? Pruefe Tier, Bitrate und Ablauf direkt ueber deine Discord-Server-ID.',
+      statusHint: 'Schon im Betrieb? Prüfe Tier, Bitrate und Ablauf direkt über deine Discord-Server-ID.',
       serverIdPlaceholder: 'Discord Server ID',
       serverIdInvalid: 'Server-ID muss 17-22 Ziffern haben.',
       checkLoading: 'Prüfe...',
@@ -737,13 +748,13 @@ const LOCALE_MESSAGES = {
         bots: 'Bots',
         stations: 'Stationen',
       },
-      liveNote: 'Die oeffentlichen Netzwerkzahlen werden live aus dem Produkt geladen und regelmaessig aktualisiert.',
+      liveNote: 'Die öffentlichen Netzwerkzahlen werden live aus dem Produkt geladen und regelmäßig aktualisiert.',
       proofTitle: 'Vertrauen am Ende der Seite',
       proofCards: {
         operations: {
           title: 'Live-Netzwerk',
           value: ({ readyBots, totalBots }) => `${readyBots}/${totalBots} Bots bereit`,
-          desc: 'Oeffentliche Zahlen, aktive Stationen und ein laufendes Bot-Netzwerk zeigen echten Produktbetrieb statt nur Marketing.',
+          desc: 'Öffentliche Zahlen, aktive Stationen und ein laufendes Bot-Netzwerk zeigen echten Produktbetrieb statt nur Marketing.',
         },
         support: {
           title: 'Direkter Support',
@@ -753,12 +764,12 @@ const LOCALE_MESSAGES = {
         languages: {
           title: 'Zweisprachig',
           value: 'DE / EN',
-          desc: 'Website und Produktfuehrung bleiben in Deutsch und Englisch verfuegbar.',
+          desc: 'Website und Produktführung bleiben in Deutsch und Englisch verfügbar.',
         },
         legal: {
           title: 'Rechtlich erreichbar',
           value: 'Impressum + Datenschutz',
-          desc: 'Impressum und Datenschutzerklaerung sind von jeder Seite aus direkt verlinkt.',
+          desc: 'Impressum und Datenschutzerklärung sind von jeder Seite aus direkt verlinkt.',
         },
       },
       links: {
@@ -912,11 +923,11 @@ const LOCALE_MESSAGES = {
       titleLead: 'Your Discord',
       titleAccent: 'Radio.',
       titleTail: '24/7 Live.',
-      subtitleLead: '24/7 Discord radio with 120+ stations, worker-based reliability, dashboard control, and clean reconnect behavior. Invite the bot and run',
+      subtitleLead: '24/7 Discord radio with 120+ stations, worker-based reliability, dashboard control, and clean reconnect behavior. Invite the commander, add a worker, and run',
       subtitleTail: '.',
-      ctaInvite: 'Invite bot',
+      ctaInvite: 'Invite commander',
       ctaFlow: 'How it works',
-      ctaNote: 'Free starts directly through the invite. Pro and Ultimate expand the same bot setup later with dashboard control, operations, and stronger reliability.',
+      ctaNote: 'Free starts with the same clean flow: invite the commander, add a worker, run /play. Pro and Ultimate expand that exact setup later with dashboard control, operations, and stronger reliability.',
       stats: {
         servers: 'Servers',
         stations: 'Stations',
@@ -932,7 +943,7 @@ const LOCALE_MESSAGES = {
           key: 'free',
           label: 'Free',
           value: 'Go live fast',
-          desc: '24/7 radio without mandatory setup beyond invite and /play.',
+          desc: '24/7 radio with a clean setup flow: invite the commander, add a worker, run /play.',
         },
         {
           key: 'pro',
@@ -949,22 +960,22 @@ const LOCALE_MESSAGES = {
       ],
       panel: {
         eyebrow: 'Quick start',
-        title: 'Your first stream in 30 seconds',
+        title: 'Your first stream in under a minute',
         steps: [
           {
             key: 'invite',
-            title: 'Invite the bot',
-            desc: 'The commander is your entry point and gets your first live stream running.',
+            title: 'Invite the commander',
+            desc: 'The commander is your entry point and handles commands plus worker invites.',
+          },
+          {
+            key: 'worker',
+            title: 'Add a worker',
+            desc: 'Add at least one worker. It takes over the stream as soon as you run /play.',
           },
           {
             key: 'play',
             title: 'Run /play',
             desc: 'Choose a station and start directly in voice without prefix setup.',
-          },
-          {
-            key: 'scale',
-            title: 'Scale when needed',
-            desc: 'More workers, dashboard control, and premium tiers are ready when your server grows.',
           },
         ],
         proofTitle: 'Why this is more professional',
@@ -1018,27 +1029,28 @@ const LOCALE_MESSAGES = {
       steps: [
         {
           step: '01',
-          title: 'Invite the bot',
-          desc: 'Invite the OmniFM DJ bot to your Discord server. It coordinates the full setup.',
+          title: 'Invite the commander',
+          desc: 'Invite the OmniFM DJ bot to your Discord server. It handles commands and organizes the setup.',
         },
         {
           step: '02',
-          title: 'Pick a station',
-          desc: 'Use /play and choose from free, pro, or ultimate stations. A free worker takes over the stream.',
+          title: 'Add a worker',
+          desc: 'Add at least one worker. It takes over the stream as soon as you run /play.',
         },
         {
           step: '03',
-          title: 'Enjoy the music',
-          desc: 'Keep a voice channel running 24/7. Add more workers whenever you need more parallel streams.',
+          title: 'Run /play',
+          desc: 'Choose a station and start the radio directly in voice. Add more workers whenever you need more parallel streams.',
         },
       ],
       architecture: {
+        flowLabel: 'System flow',
         commander: 'Commander',
-        commanderDesc: 'Receives commands',
+        commanderDesc: 'Handles commands and worker invites',
         workers: 'Workers 1-16',
-        workersDesc: 'Stream the audio',
+        workersDesc: 'Execute the streams',
         channel: 'Your channel',
-        channelDesc: '24/7 nonstop radio',
+        channelDesc: 'Radio runs in your voice channel',
       },
       gridEyebrow: 'Features',
       gridTitle: 'Built for quality',
@@ -1099,7 +1111,7 @@ const LOCALE_MESSAGES = {
       cards: {
         radio: {
           title: 'Fast to start',
-          desc: 'Invite the bot, run /play, and start listening immediately. No heavy setup before the first real value appears.',
+          desc: 'Invite the commander, add a worker, run /play, and start listening immediately. No heavy setup before the first real value appears.',
         },
         workers: {
           title: 'More than a single bot',
@@ -1420,13 +1432,23 @@ const LOCALE_MESSAGES = {
       items: [
         {
           key: 'start',
-          question: 'How fast can I start with OmniFM?',
-          answer: 'Usually in under a minute: invite the bot, open a voice channel, run /play, and choose a station.',
+          question: 'What is the cleanest way to start OmniFM?',
+          answer: 'Usually in under a minute: invite the commander, add at least one worker, open a voice channel, then run /play and choose a station.',
+        },
+        {
+          key: 'workerRequired',
+          question: 'Do I need a worker before /play?',
+          answer: 'Yes. The commander accepts commands, but the actual stream runs through a worker. /play only works cleanly once a worker is on the server.',
         },
         {
           key: 'free',
           question: 'What is included in the Free plan?',
-          answer: 'Free covers the strong entry point: up to 2 bots, 20 free stations, core commands, and a clear invite flow.',
+          answer: 'Free covers the strong entry point: up to 2 bots, 20 free stations, core commands, and the full commander-plus-worker entry flow.',
+        },
+        {
+          key: 'dashboard',
+          question: 'Do I need the dashboard right away?',
+          answer: 'No. Free works without the dashboard. It starts to matter from Pro onward when you need events, role permissions, weekly digests, and health in one place.',
         },
         {
           key: 'pro',
@@ -1441,7 +1463,7 @@ const LOCALE_MESSAGES = {
         {
           key: 'workers',
           question: 'How do commander and workers work?',
-          answer: 'The commander accepts commands. Workers execute the streams. That allows OmniFM to distribute multiple parallel streams cleanly and keep them stable.',
+          answer: 'The commander handles commands and worker invites. Workers execute the streams. That allows OmniFM to distribute multiple parallel streams cleanly and keep them stable.',
         },
       ],
     },

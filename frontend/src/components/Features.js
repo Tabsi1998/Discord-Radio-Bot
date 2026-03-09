@@ -167,7 +167,7 @@ function CapabilityColumn() {
         }}
       >
         <div style={{ fontSize: 10, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 800 }}>
-          System Flow
+          {copy.features.architecture.flowLabel}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, color: '#D4D4D8', fontSize: 14 }}>
           <span>{copy.features.architecture.commander}</span>
