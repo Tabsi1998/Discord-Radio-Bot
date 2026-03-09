@@ -6,6 +6,7 @@ import Features from './components/Features';
 import TrustBar from './components/TrustBar';
 import WhyOmniFM from './components/WhyOmniFM';
 import DashboardShowcase from './components/DashboardShowcase';
+import ReliabilitySection from './components/ReliabilitySection';
 import StationBrowser from './components/StationBrowser';
 import Commands from './components/Commands';
 import Premium from './components/Premium';
@@ -223,6 +224,7 @@ function AppContent() {
       <Features />
       <WhyOmniFM />
       <DashboardShowcase />
+      <ReliabilitySection />
       <WorkerDashboard />
       <BotDirectory bots={bots} loading={loading} />
       <StationBrowser stations={stations} loading={loading} />

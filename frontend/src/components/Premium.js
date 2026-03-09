@@ -721,6 +721,38 @@ function Premium() {
           </p>
           {pricingError && <p style={{ marginTop: 10, fontSize: 12, color: '#FFB800' }}>{pricingError}</p>}
         </div>
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#71717A', marginBottom: 14 }}>
+            {copy.premium.positioningTitle}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+            {copy.premium.positioning.map((item) => {
+              const meta = PLAN_META[item.key] || PLAN_META.free;
+              return (
+                <div
+                  key={item.key}
+                  data-testid={`premium-positioning-${item.key}`}
+                  style={{
+                    padding: '18px 20px',
+                    borderRadius: 16,
+                    background: 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${meta.color}20`,
+                  }}
+                >
+                  <div style={{ color: meta.color, fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 800, letterSpacing: '0.08em', marginBottom: 8 }}>
+                    {(item.key || '').toUpperCase()}
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
+                    {item.title}
+                  </div>
+                  <p style={{ fontSize: 13, lineHeight: 1.65, color: '#A1A1AA' }}>
+                    {item.desc}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20, marginBottom: 40 }}>
           {PLAN_ORDER.map((planId) => {
             const tier = pricing.tiers[planId];

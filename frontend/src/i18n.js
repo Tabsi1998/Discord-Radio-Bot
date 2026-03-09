@@ -34,12 +34,12 @@ const LOCALE_MESSAGES = {
     },
     navbar: {
       links: [
-        { key: 'features', label: 'Features', href: '#features' },
-        { key: 'workers', label: 'Workers', href: '#workers' },
-        { key: 'bots', label: 'Bots', href: '#bots' },
+        { key: 'why', label: 'Warum', href: '#why-omnifm' },
+        { key: 'dashboard', label: 'Dashboard', href: '#dashboard-showcase' },
+        { key: 'reliability', label: 'Stabilitaet', href: '#reliability' },
         { key: 'stations', label: 'Stationen', href: '#stations' },
-        { key: 'commands', label: 'Commands', href: '#commands' },
-        { key: 'premium', label: 'Premium', href: '#premium' },
+        { key: 'pricing', label: 'Preise', href: '#premium' },
+        { key: 'faq', label: 'FAQ', href: '#faq' },
       ],
       discord: 'Discord Community',
       language: 'Sprache',
@@ -215,6 +215,31 @@ const LOCALE_MESSAGES = {
       primaryCta: 'Dashboard ansehen',
       secondaryCta: 'Plaene vergleichen',
     },
+    reliability: {
+      eyebrow: 'Stabilitaet',
+      title: 'OmniFM ist fuer dauerhaften Betrieb gebaut',
+      subtitle: 'Die Architektur ist nicht Selbstzweck. Sie sorgt dafuer, dass Streams sauber verteilt, Ausfaelle kontrolliert behandelt und groessere Server besser betrieben werden koennen.',
+      cards: {
+        uptime: {
+          title: '24/7 statt Glueckstreffer',
+          desc: 'OmniFM ist darauf ausgelegt, Voice-Channels dauerhaft mit Radio zu versorgen statt nur kurzfristig Musik zu starten.',
+        },
+        workers: {
+          title: 'Parallel statt ueberladen',
+          desc: 'Worker teilen die eigentliche Stream-Last auf. Das ist vor allem bei mehreren Channels oder aktiven Communitys wichtig.',
+        },
+        reconnect: {
+          title: 'Reconnect mit Plan',
+          desc: 'Wenn ein Stream oder eine Verbindung wegfaellt, reagiert OmniFM kontrolliert statt chaotisch. Hoehere Tiers verbessern diese Recovery weiter.',
+        },
+        visibility: {
+          title: 'Status nicht im Blindflug',
+          desc: 'Dashboard, Health und Analytics machen sichtbar, wie dein Setup laeuft und wo ein Upgrade echten Mehrwert bringt.',
+        },
+      },
+      proofLabel: 'Live-Proof',
+      proofBody: 'Direkt darunter zeigt OmniFM sein aktives Commander-/Worker-Setup. Die Architektur ist also nicht nur Marketing, sondern im Produktbetrieb sichtbar.',
+    },
     bots: {
       eyebrow: 'Commander Bot',
       title: 'OmniFM einladen',
@@ -380,7 +405,25 @@ const LOCALE_MESSAGES = {
       eyebrow: 'Premium',
       title: 'Upgrade dein Setup',
       subtitle: 'Mehr Worker, mehr Stationen, besserer Sound. Wähle den Plan, der zu deinem Server passt.',
-      pricingFallback: 'Pricing-API nicht erreichbar, Fallback-Daten aktiv.',
+        positioningTitle: 'Welcher Plan passt zu deinem Server?',
+        positioning: [
+          {
+            key: 'free',
+            title: 'Free fuer schnellen Einstieg',
+            desc: 'Gut fuer kleine Server, die sofort 24/7 Radio wollen und ohne Reibung starten moechten.',
+          },
+          {
+            key: 'pro',
+            title: 'Pro fuer aktive Communities',
+            desc: 'Der richtige Schritt, wenn Dashboard, Events, Rollenrechte und Health wirklich im Alltag gebraucht werden.',
+          },
+          {
+            key: 'ultimate',
+            title: 'Ultimate fuer Operator und Power-User',
+            desc: 'Fuer Setups mit Custom Stations, staerkerer Reliability, tieferer Analyse und Automatisierungsbedarf.',
+          },
+        ],
+        pricingFallback: 'Pricing-API nicht erreichbar, Fallback-Daten aktiv.',
       planPopular: 'Beliebt',
       perMonth: '/Monat',
       buy: ({ name }) => `${name} kaufen`,
@@ -581,12 +624,12 @@ const LOCALE_MESSAGES = {
     },
     navbar: {
       links: [
-        { key: 'features', label: 'Features', href: '#features' },
-        { key: 'workers', label: 'Workers', href: '#workers' },
-        { key: 'bots', label: 'Bots', href: '#bots' },
+        { key: 'why', label: 'Why OmniFM', href: '#why-omnifm' },
+        { key: 'dashboard', label: 'Dashboard', href: '#dashboard-showcase' },
+        { key: 'reliability', label: 'Reliability', href: '#reliability' },
         { key: 'stations', label: 'Stations', href: '#stations' },
-        { key: 'commands', label: 'Commands', href: '#commands' },
-        { key: 'premium', label: 'Premium', href: '#premium' },
+        { key: 'pricing', label: 'Pricing', href: '#premium' },
+        { key: 'faq', label: 'FAQ', href: '#faq' },
       ],
       discord: 'Discord Community',
       language: 'Language',
@@ -762,6 +805,31 @@ const LOCALE_MESSAGES = {
       primaryCta: 'Open dashboard',
       secondaryCta: 'Compare plans',
     },
+    reliability: {
+      eyebrow: 'Reliability',
+      title: 'OmniFM is built for continuous operation',
+      subtitle: 'The architecture is not there for show. It helps distribute streams cleanly, handle outages in a controlled way, and operate larger servers with less friction.',
+      cards: {
+        uptime: {
+          title: '24/7 instead of lucky uptime',
+          desc: 'OmniFM is designed to keep voice channels running with radio over time instead of only starting music for a short moment.',
+        },
+        workers: {
+          title: 'Parallel instead of overloaded',
+          desc: 'Workers split the actual streaming load. That matters most when multiple channels or active communities use the bot at once.',
+        },
+        reconnect: {
+          title: 'Reconnect with a plan',
+          desc: 'If a stream or connection drops, OmniFM responds in a controlled way instead of failing chaotically. Higher tiers improve this recovery path even further.',
+        },
+        visibility: {
+          title: 'No blind operations',
+          desc: 'Dashboard views, health, and analytics show how your setup behaves and where an upgrade creates real operational value.',
+        },
+      },
+      proofLabel: 'Live proof',
+      proofBody: 'The live commander and worker overview below shows that the architecture is not just marketing copy. It is visible in the product runtime.',
+    },
     bots: {
       eyebrow: 'Commander Bot',
       title: 'Invite OmniFM',
@@ -927,6 +995,24 @@ const LOCALE_MESSAGES = {
       eyebrow: 'Premium',
       title: 'Upgrade your setup',
       subtitle: 'More workers, more stations, better audio. Pick the plan that fits your server.',
+      positioningTitle: 'Which plan fits your server?',
+      positioning: [
+        {
+          key: 'free',
+          title: 'Free for a fast start',
+          desc: 'Best for smaller servers that want instant 24/7 radio and a low-friction first setup.',
+        },
+        {
+          key: 'pro',
+          title: 'Pro for active communities',
+          desc: 'The right step when dashboard control, events, role permissions, and health matter in daily operation.',
+        },
+        {
+          key: 'ultimate',
+          title: 'Ultimate for operators and power users',
+          desc: 'For setups that need custom stations, stronger reliability tooling, deeper analytics, and automation.',
+        },
+      ],
       pricingFallback: 'Pricing API unreachable, fallback pricing is active.',
       planPopular: 'Popular',
       perMonth: '/month',
