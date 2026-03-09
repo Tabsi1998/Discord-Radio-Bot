@@ -349,6 +349,36 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 - `GET /api/legal`
 - `GET /api/privacy`
 
+### Dashboard
+
+- `GET /api/auth/session`
+- `POST /api/auth/logout`
+- `GET /api/dashboard/capabilities?serverId=...`
+- `GET /api/dashboard/stats?serverId=...`
+- `GET /api/dashboard/stats/detail?serverId=...`
+- `GET/PUT /api/dashboard/settings?serverId=...`
+- `POST /api/dashboard/settings/digest-preview?serverId=...`
+- `POST /api/dashboard/settings/digest-test?serverId=...`
+- `GET/PUT /api/dashboard/perms?serverId=...`
+- `GET /api/dashboard/roles?serverId=...`
+- `GET/POST/PUT/DELETE /api/dashboard/events?serverId=...`
+- `POST /api/dashboard/events/preview?serverId=...`
+- `GET/POST/PUT/DELETE /api/dashboard/custom-stations?serverId=...`
+- `GET /api/dashboard/license?serverId=...`
+- `PUT /api/dashboard/license?serverId=...`
+- `POST /api/dashboard/license/offer-preview?serverId=...`
+- `POST /api/dashboard/license/checkout?serverId=...`
+- `GET /api/dashboard/exports/stats?serverId=...`
+- `GET /api/dashboard/exports/custom-stations?serverId=...`
+- `POST /api/dashboard/exports/webhook-test?serverId=...`
+
+### Dashboard subscription flow
+
+- `GET /api/dashboard/license` returns the current tier, plan limits, upgrade hints, coupon/trial metadata, and replay-protected billing activity.
+- `PUT /api/dashboard/license` updates the stored subscription email for checkout, invoices, and license communication.
+- `POST /api/dashboard/license/offer-preview` validates coupon codes against the existing seat bundle and target renewal or upgrade.
+- `POST /api/dashboard/license/checkout` starts Stripe for renewals or Pro-to-Ultimate upgrades without changing the current seat bundle.
+
 ### Premium
 
 - `GET /api/premium/pricing`
