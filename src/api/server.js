@@ -7,6 +7,7 @@ import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { ChannelType, PermissionFlagsBits } from "discord.js";
+import { createDashboardLicenseRouteHandler } from "./routes/dashboard-license.js";
 
 import { log, webDir, webRootSource, frontendBuildStamp, rootDir } from "../lib/logging.js";
 import {
@@ -394,6 +395,34 @@ function buildDashboardExportsWebhookResponse(rawConfig) {
       : DEFAULT_DASHBOARD_EXPORTS_WEBHOOK_CONFIG
   );
 }
+
+const handleDashboardLicenseRoute = createDashboardLicenseRouteHandler({
+  BRAND,
+  TIERS,
+  buildDashboardLicensePayload,
+  calculatePrice,
+  getDashboardSession,
+  getLicense,
+  getLocalizedJsonBodyError,
+  getStripeSecretKey,
+  isValidEmailAddress,
+  languagePick,
+  log,
+  maskDashboardEmail,
+  methodNotAllowed,
+  normalizeDuration,
+  normalizeLanguage,
+  normalizeSeats,
+  resolveCheckoutOfferForRequest,
+  resolveCheckoutReturnBase,
+  resolveDashboardGuildForSession,
+  resolveDashboardRequestLanguage,
+  resolvePublicWebsiteUrl,
+  sanitizeOfferCode,
+  sendJson,
+  sendLocalizedError,
+  updateLicenseContactEmail,
+});
 
 function buildDashboardSelectableStations(guildId) {
   const tier = getTier(guildId);
@@ -3647,6 +3676,10 @@ function startWebServer(runtimes) {
       }
       roles.sort((a, b) => b.position - a.position);
       sendJson(res, 200, { roles });
+      return;
+    }
+
+    if (await handleDashboardLicenseRoute({ req, res, requestUrl, readJsonBody })) {
       return;
     }
 
