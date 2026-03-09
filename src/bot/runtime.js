@@ -286,6 +286,7 @@ const INVITE_COMPONENT_ID_REFRESH = `${INVITE_COMPONENT_PREFIX}refresh`;
 const INVITE_COMPONENT_ID_SELECT = `${INVITE_COMPONENT_PREFIX}select`;
 const INVITE_COMPONENT_ID_CLOSE = `${INVITE_COMPONENT_PREFIX}close`;
 const WORKERS_COMPONENT_PREFIX = "omnifm:workers:";
+const WORKERS_COMPONENT_ID_OPEN = `${WORKERS_COMPONENT_PREFIX}open`;
 const WORKERS_COMPONENT_ID_REFRESH = `${WORKERS_COMPONENT_PREFIX}refresh`;
 const WORKERS_COMPONENT_ID_PAGE_PREFIX = `${WORKERS_COMPONENT_PREFIX}page:`;
 
@@ -595,26 +596,31 @@ class BotRuntime {
     return textChannels[0] || null;
   }
 
-  buildOnboardingMessagePayload(guild) {
-    const language = this.resolveGuildLanguage(guild?.id);
-    const isDe = language === "de";
-    const dashboardUrl = withLanguageParam(DASHBOARD_URL, language);
-    const websiteUrl = withLanguageParam(WEBSITE_URL, language);
+  buildSetupMessagePayload({ guild = null, language = null, guildId = null } = {}) {
+    const resolvedGuildId = String(guildId || guild?.id || "").trim();
+    const resolvedLanguage = normalizeLanguage(
+      language || (resolvedGuildId ? this.resolveGuildLanguage(resolvedGuildId) : getDefaultLanguage()),
+      getDefaultLanguage()
+    );
+    const guildName = guild?.name || (resolvedGuildId ? `Server ${resolvedGuildId}` : null);
+    const isDe = resolvedLanguage === "de";
+    const dashboardUrl = withLanguageParam(DASHBOARD_URL, resolvedLanguage);
+    const websiteUrl = withLanguageParam(WEBSITE_URL, resolvedLanguage);
 
     const embed = new EmbedBuilder()
       .setColor(BRAND.color)
       .setTitle(isDe ? `${BRAND.name}: Erste Schritte` : `${BRAND.name}: First steps`)
       .setDescription(
         isDe
-          ? `Danke für den Invite auf **${guild?.name || "deinen Server"}**.\nDer Commander ist bereit. Als Nächstes: mindestens einen Worker einladen und dann \`/play\` ausführen.`
-          : `Thanks for inviting me to **${guild?.name || "your server"}**.\nThe commander is ready. Next: invite at least one worker and then run \`/play\`.`
+          ? `Danke für den Invite auf **${guildName || "deinen Server"}**.\nDer Commander ist bereit. Als Nächstes: mindestens einen Worker einladen und dann \`/play\` ausführen.`
+          : `Thanks for inviting me to **${guildName || "your server"}**.\nThe commander is ready. Next: invite at least one worker and then run \`/play\`.`
       )
       .addFields(
         {
           name: isDe ? "1) Worker checken" : "1) Check workers",
           value: isDe
-            ? "`/workers` zeigt verfügbare und bereits eingeladene Worker."
-            : "`/workers` shows available and already invited workers.",
+            ? "`/workers` zeigt verfügbare, eingeladene und gesperrte Worker-Slots."
+            : "`/workers` shows available, invited, and locked worker slots.",
         },
         {
           name: isDe ? "2) Worker einladen" : "2) Invite worker",
@@ -631,12 +637,23 @@ class BotRuntime {
         {
           name: isDe ? "4) Hilfe & Setup" : "4) Help & setup",
           value: isDe
-            ? "`/help` für komplette Befehlsliste und Tipps."
-            : "`/help` for the full command list and tips.",
+            ? "`/setup` zeigt diesen Guide erneut. `/help` liefert die komplette Befehlsliste."
+            : "`/setup` shows this guide again. `/help` gives you the full command list.",
         }
       );
 
-    const row = new ActionRowBuilder().addComponents(
+    const actionRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(WORKERS_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(isDe ? "Worker-Status" : "Worker status"),
+      new ButtonBuilder()
+        .setCustomId(INVITE_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(isDe ? "Worker einladen" : "Invite worker")
+    );
+
+    const linkRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
         .setLabel(isDe ? "📊 Dashboard" : "📊 Dashboard")
@@ -651,7 +668,20 @@ class BotRuntime {
         .setURL(SUPPORT_URL)
     );
 
-    return { embeds: [embed], components: [row] };
+    return { embeds: [embed], components: [actionRow, linkRow] };
+  }
+
+  buildOnboardingMessagePayload(guild) {
+    const language = this.resolveGuildLanguage(guild?.id);
+    return this.buildSetupMessagePayload({ guild, language, guildId: guild?.id });
+  }
+
+  buildSetupMessage(interaction) {
+    return this.buildSetupMessagePayload({
+      guild: interaction?.guild || null,
+      language: this.resolveInteractionLanguage(interaction),
+      guildId: interaction?.guildId,
+    });
   }
 
   async sendGuildOnboardingMessage(guild) {
@@ -3454,7 +3484,7 @@ class BotRuntime {
       return true;
     }
 
-    if (interaction.customId === WORKERS_COMPONENT_ID_REFRESH) {
+    if (interaction.customId === WORKERS_COMPONENT_ID_REFRESH || interaction.customId === WORKERS_COMPONENT_ID_OPEN) {
       const payload = await this.buildWorkersStatusPayload(interaction);
       await interaction.update(payload);
       return true;
@@ -3543,8 +3573,8 @@ class BotRuntime {
         {
           name: isDe ? "Schnellstart" : "Quick start",
           value: isDe
-            ? "1. Mit `/workers` prüfen, welche Worker verfügbar oder bereits eingeladen sind.\n2. Mit `/invite` mindestens einen Worker einladen.\n3. `/play station:<sender> voice:<kanal>` startet den Stream.\n4. `/now`, `/history` und `/stats` zeigen Live-Daten."
-            : "1. Use `/workers` to check which workers are available or already invited.\n2. Use `/invite` to add at least one worker.\n3. `/play station:<station> voice:<channel>` starts the stream.\n4. `/now`, `/history`, and `/stats` show live data.",
+            ? "1. `/setup` zeigt den geführten Start für diesen Server.\n2. Mit `/workers` prüfen, welche Worker verfügbar oder bereits eingeladen sind.\n3. Mit `/invite` mindestens einen Worker einladen.\n4. `/play station:<sender> voice:<kanal>` startet den Stream."
+            : "1. `/setup` shows the guided start for this server.\n2. Use `/workers` to check which workers are available or already invited.\n3. Use `/invite` to add at least one worker.\n4. `/play station:<station> voice:<channel>` starts the stream.",
           inline: false,
         },
         {
@@ -3622,10 +3652,10 @@ class BotRuntime {
       .setTitle(isDe ? "🛠 Admin & Premium" : "🛠 Admin & Premium")
       .addFields(
         {
-          name: "/invite /workers /perm",
+          name: "/setup /invite /workers /perm",
           value: isDe
-            ? "Worker-Setup prüfen, Worker einladen und Rollenrechte für Commands regeln."
-            : "Check worker setup, invite workers, and manage role permissions for commands.",
+            ? "Geführten Start öffnen, Worker-Setup prüfen, Worker einladen und Rollenrechte für Commands regeln."
+            : "Open the guided start, inspect worker setup, invite workers, and manage role permissions for commands.",
           inline: false,
         },
         {
@@ -6084,7 +6114,7 @@ class BotRuntime {
     }
 
     const { t, language } = this.createInteractionTranslator(interaction);
-    const unrestrictedCommands = new Set(["help", "premium", "license", "language"]);
+    const unrestrictedCommands = new Set(["help", "setup", "premium", "license", "language"]);
     if (!unrestrictedCommands.has(interaction.commandName)) {
       const access = this.getGuildAccess(interaction.guildId);
       if (!access.allowed) {
@@ -6096,6 +6126,13 @@ class BotRuntime {
     if (interaction.commandName === "help") {
       recordCommandUsage(interaction.guildId, interaction.commandName);
       const payload = this.buildHelpMessage(interaction);
+      await this.respondInteraction(interaction, { ...payload, flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    if (interaction.commandName === "setup") {
+      recordCommandUsage(interaction.guildId, interaction.commandName);
+      const payload = this.buildSetupMessage(interaction);
       await this.respondInteraction(interaction, { ...payload, flags: MessageFlags.Ephemeral });
       return;
     }

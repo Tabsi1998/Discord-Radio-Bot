@@ -262,6 +262,31 @@ test("help payload exposes dashboard, website, support and premium links", () =>
   assert.equal(linkButtons[3].label, "💎 Premium");
 });
 
+test("setup payload exposes worker actions and useful links", () => {
+  const fakeRuntime = Object.create(BotRuntime.prototype);
+  fakeRuntime.resolveInteractionLanguage = () => "en";
+
+  const payload = fakeRuntime.buildSetupMessage({
+    guildId: "guild-1",
+    guild: { name: "Guild One" },
+  });
+
+  const actionButtons = payload.components?.[0]?.components?.map((button) => button?.data || {}) || [];
+  assert.equal(actionButtons.length, 2);
+  assert.equal(actionButtons[0].label, "Worker status");
+  assert.equal(actionButtons[0].custom_id, "omnifm:workers:open");
+  assert.equal(actionButtons[1].label, "Invite worker");
+  assert.equal(actionButtons[1].custom_id, "omnifm:invite:open");
+
+  const linkButtons = payload.components?.[1]?.components?.map((button) => button?.data || {}) || [];
+  assert.equal(linkButtons.length, 3);
+  assert.equal(linkButtons[0].label, "📊 Dashboard");
+  assert.match(String(linkButtons[0].url || ""), /\?page=dashboard&lang=en$/);
+  assert.equal(linkButtons[1].label, "🌐 Website");
+  assert.match(String(linkButtons[1].url || ""), /\?lang=en$/);
+  assert.equal(linkButtons[2].label, "🛟 Support");
+});
+
 test("workers status payload paginates and exposes page controls", async () => {
   const statuses = Array.from({ length: 18 }, (_, index) => ({
     index: index + 1,
@@ -831,10 +856,15 @@ test("slash commands expose English defaults with German localizations", () => {
   const commands = buildCommandsJson();
   const play = commands.find((command) => command.name === "play");
   const language = commands.find((command) => command.name === "language");
+  const setup = commands.find((command) => command.name === "setup");
 
   assert.ok(play);
   assert.equal(play.description, "Start a radio stream in your voice channel");
   assert.equal(play.description_localizations.de, "Startet einen Radio-Stream in deinem Voice-Channel");
+
+  assert.ok(setup);
+  assert.equal(setup.description, "Show the guided first-run setup for this server");
+  assert.equal(setup.description_localizations.de, "Zeigt den geführten Erststart für diesen Server");
 
   assert.ok(language);
   assert.equal(language.description, "Manage the language for this server");

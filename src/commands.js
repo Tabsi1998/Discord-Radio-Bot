@@ -92,6 +92,12 @@ export function buildCommandBuilders() {
     "Zeigt alle Befehle und kurze Erklärungen"
   );
 
+  const setup = describe(
+    new SlashCommandBuilder().setName("setup"),
+    "Show the guided first-run setup for this server",
+    "Zeigt den geführten Erststart für diesen Server"
+  );
+
   const play = describe(
     new SlashCommandBuilder().setName("play"),
     "Start a radio stream in your voice channel",
@@ -394,6 +400,7 @@ export function buildCommandBuilders() {
 
   return [
     help,
+    setup,
     play,
     pause,
     resume,
