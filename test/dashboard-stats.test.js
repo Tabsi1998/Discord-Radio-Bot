@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   buildDashboardAnalyticsUpgradeHint,
+  buildConnectionTimelineRows,
   buildDashboardHealthAlerts,
   buildDashboardHealthStatus,
   buildReliabilitySummary,
+  buildSessionQualitySummary,
+  buildSessionTimelineRows,
   buildVoiceChannelUsageRows,
   formatDashboardDuration,
 } from "../frontend/src/lib/dashboardStats.js";
@@ -101,4 +104,58 @@ test("buildDashboardAnalyticsUpgradeHint only targets non-ultimate overview user
   assert.equal(proHint.badge, "ULTIMATE");
   assert.equal(proHint.bullets.length, 3);
   assert.match(proHint.description, /exclusive to the Ultimate plan/i);
+});
+
+test("buildConnectionTimelineRows formats daily connection trend rows", () => {
+  const rows = buildConnectionTimelineRows({
+    timeline: [
+      { date: "2026-03-07", connects: 4, reconnects: 1, errors: 1 },
+      { date: "2026-03-08", connects: 2, reconnects: 0, errors: 0 },
+    ],
+  });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].issues, 2);
+  assert.equal(rows[0].reliability, 75);
+  assert.equal(rows[1].reliability, 100);
+});
+
+test("buildSessionTimelineRows keeps recent sessions ordered oldest-to-newest for charts", () => {
+  const rows = buildSessionTimelineRows([
+    {
+      stationName: "Night Shift",
+      startedAt: "2026-03-08T20:00:00.000Z",
+      durationMs: 2 * 3_600_000,
+      humanListeningMs: 90 * 60_000,
+      peakListeners: 6,
+      avgListeners: 4,
+    },
+    {
+      stationName: "Morning Drive",
+      startedAt: "2026-03-09T06:00:00.000Z",
+      durationMs: 60 * 60_000,
+      humanListeningMs: 45 * 60_000,
+      peakListeners: 3,
+      avgListeners: 2,
+    },
+  ]);
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].stationName, "Night Shift");
+  assert.equal(rows[1].stationName, "Morning Drive");
+  assert.equal(rows[0].runtimeHours, 2);
+  assert.equal(rows[1].listeningHours, 0.8);
+});
+
+test("buildSessionQualitySummary aggregates recent session quality metrics", () => {
+  const summary = buildSessionQualitySummary([
+    { humanListeningMs: 90 * 60_000, peakListeners: 6, avgListeners: 4 },
+    { humanListeningMs: 30 * 60_000, peakListeners: 2, avgListeners: 1 },
+  ], (_de, en) => en);
+
+  assert.equal(summary.trackedSessions, 2);
+  assert.equal(summary.avgListeningLabel, "1h 0m");
+  assert.equal(summary.longestListeningLabel, "1h 30m");
+  assert.equal(summary.topPeakLabel, "6");
+  assert.equal(summary.avgPeakLabel, "3");
 });

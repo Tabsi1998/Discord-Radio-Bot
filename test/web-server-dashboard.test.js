@@ -464,6 +464,14 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
 
   activePlan = "ultimate";
   activeSeats = 2;
+  const detailStatsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/stats/detail?serverId=${GUILD_ID}&days=30`,
+    { headers: authHeaders }
+  );
+  assert.equal(detailStatsResponse.status, 200);
+  assert.equal(detailStatsResponse.payload.connectionHealth.timeline.length, 30);
+
   const stationsResponse = await requestJson(
     baseUrl,
     `/api/dashboard/stations?serverId=${GUILD_ID}`,

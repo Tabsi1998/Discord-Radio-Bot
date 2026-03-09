@@ -398,7 +398,7 @@ function appendFallbackListenerSnapshot(guildId, snapshot) {
 
 function getFallbackConnectionHealth(guildId, days = 7) {
   const gid = normalizeGuildId(guildId);
-  if (!gid) return { connects: 0, reconnects: 0, errors: 0, events: [] };
+  if (!gid) return { connects: 0, reconnects: 0, errors: 0, events: [], timeline: [] };
   const events = (ensureState().connectionEvents?.[gid] || []).filter((entry) => {
     const at = Date.parse(entry.timestamp);
     return at >= (Date.now() - (days * 86400_000));
@@ -412,7 +412,52 @@ function getFallbackConnectionHealth(guildId, days = 7) {
   return {
     ...counts,
     events: events.slice(0, 100),
+    timeline: buildConnectionTimelineBucketsFromEvents(events, days),
   };
+}
+
+function buildConnectionTimelineBuckets(rows = [], days = 7, nowMs = Date.now()) {
+  const safeDays = Math.max(1, Math.min(90, Number.parseInt(String(days || 7), 10) || 7));
+  const buckets = [];
+  const bucketMap = new Map();
+
+  for (let offset = safeDays - 1; offset >= 0; offset -= 1) {
+    const date = todayDateString(nowMs - (offset * 86400_000));
+    const bucket = {
+      date,
+      connects: 0,
+      reconnects: 0,
+      errors: 0,
+    };
+    buckets.push(bucket);
+    bucketMap.set(date, bucket);
+  }
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const timestampMs = Date.parse(row?.timestamp);
+    const derivedDate = Number.isFinite(timestampMs) ? todayDateString(timestampMs) : "";
+    const date = normalizeDateOnly(row?.date) || normalizeDateOnly(derivedDate);
+    const bucket = date ? bucketMap.get(date) : null;
+    if (!bucket) continue;
+    const count = normalizeCount(row?.count ?? 1);
+    if (row?.eventType === "connect") bucket.connects += count;
+    else if (row?.eventType === "reconnect") bucket.reconnects += count;
+    else if (row?.eventType === "error") bucket.errors += count;
+  }
+
+  return buckets;
+}
+
+function buildConnectionTimelineBucketsFromEvents(events = [], days = 7, nowMs = Date.now()) {
+  return buildConnectionTimelineBuckets(
+    (Array.isArray(events) ? events : []).map((event) => ({
+      date: todayDateString(Date.parse(event?.timestamp)),
+      eventType: String(event?.eventType || ""),
+      count: 1,
+    })),
+    days,
+    nowMs
+  );
 }
 
 function getActiveListeningMsTotal() {
@@ -968,6 +1013,7 @@ export function recordConnectionEvent(guildId, {
 } = {}) {
   const gid = normalizeGuildId(guildId);
   if (!gid) return;
+  const atMs = Date.now();
 
   const stats = ensureGuildStatsLocal(guildId);
   if (stats) {
@@ -980,7 +1026,7 @@ export function recordConnectionEvent(guildId, {
       eventType: String(eventType || "unknown").trim(),
       channelId: String(channelId || "").trim(),
       details: normalizeText(details, 500) || "",
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(atMs).toISOString(),
     });
     saveStateToFile();
   }
@@ -992,7 +1038,7 @@ export function recordConnectionEvent(guildId, {
       eventType: String(eventType || "unknown").trim(),
       channelId: String(channelId || "").trim(),
       details: normalizeText(details, 500) || "",
-      timestamp: new Date(),
+      timestamp: new Date(atMs),
     });
   });
 }
@@ -1155,11 +1201,11 @@ export async function getGuildSessionHistory(guildId, limit = 20) {
 
 export async function getGuildConnectionHealth(guildId, days = 7) {
   const gid = normalizeGuildId(guildId);
-  if (!gid) return { connects: 0, reconnects: 0, errors: 0, events: [] };
+  if (!gid) return { connects: 0, reconnects: 0, errors: 0, events: [], timeline: [] };
 
   const result = await mongoSafe(async (db) => {
     const since = new Date(Date.now() - days * 86400_000);
-    const [events, counts] = await Promise.all([
+    const [events, counts, timelineCounts] = await Promise.all([
       db.collection("connection_events")
         .find({ guildId: gid, timestamp: { $gte: since } })
         .sort({ timestamp: -1 })
@@ -1175,6 +1221,30 @@ export async function getGuildConnectionHealth(guildId, days = 7) {
           },
         },
       ]).toArray(),
+      db.collection("connection_events").aggregate([
+        { $match: { guildId: gid, timestamp: { $gte: since } } },
+        {
+          $project: {
+            eventType: 1,
+            date: {
+              $dateToString: {
+                format: "%Y-%m-%d",
+                date: "$timestamp",
+              },
+            },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              date: "$date",
+              eventType: "$eventType",
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { "_id.date": 1 } },
+      ]).toArray(),
     ]);
 
     const summary = { connects: 0, reconnects: 0, errors: 0 };
@@ -1184,7 +1254,18 @@ export async function getGuildConnectionHealth(guildId, days = 7) {
       else if (row._id === "error") summary.errors = normalizeCount(row.count);
     }
 
-    return { ...summary, events };
+    return {
+      ...summary,
+      events,
+      timeline: buildConnectionTimelineBuckets(
+        timelineCounts.map((row) => ({
+          date: row?._id?.date,
+          eventType: row?._id?.eventType,
+          count: row?.count,
+        })),
+        days
+      ),
+    };
   });
 
   return result || getFallbackConnectionHealth(guildId, days);

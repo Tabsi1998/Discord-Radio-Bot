@@ -237,6 +237,9 @@ test("connection health fallback counts the full range instead of truncating to 
     assert.equal(health.connects, 120);
     assert.equal(health.errors, 3);
     assert.equal(health.events.length, 100);
+    assert.equal(health.timeline.length, 7);
+    assert.equal(health.timeline.reduce((sum, day) => sum + day.connects, 0), 120);
+    assert.equal(health.timeline.reduce((sum, day) => sum + day.errors, 0), 3);
   });
 });
 
@@ -271,12 +274,20 @@ test("fallback detail data survives session writes and reset removes all guild d
     assert.equal(dailyStats[0].totalListeningMs, 10 * 60 * 1000);
     assert.equal(timeline.length, 1);
     assert.equal(health.reconnects, 1);
+    assert.equal(health.timeline.length, 7);
+    assert.equal(health.timeline.reduce((sum, day) => sum + day.reconnects, 0), 1);
 
     resetGuildStats(TEST_GUILD_ID);
 
     assert.deepEqual(await getGuildSessionHistory(TEST_GUILD_ID, 5), []);
     assert.deepEqual(await getGuildDailyStats(TEST_GUILD_ID, 5), []);
     assert.deepEqual(await getGuildListenerTimeline(TEST_GUILD_ID, 24), []);
-    assert.deepEqual(await getGuildConnectionHealth(TEST_GUILD_ID, 7), { connects: 0, reconnects: 0, errors: 0, events: [] });
+    const emptyHealth = await getGuildConnectionHealth(TEST_GUILD_ID, 7);
+    assert.equal(emptyHealth.connects, 0);
+    assert.equal(emptyHealth.reconnects, 0);
+    assert.equal(emptyHealth.errors, 0);
+    assert.deepEqual(emptyHealth.events, []);
+    assert.equal(emptyHealth.timeline.length, 7);
+    assert.equal(emptyHealth.timeline.reduce((sum, day) => sum + day.connects + day.reconnects + day.errors, 0), 0);
   });
 });

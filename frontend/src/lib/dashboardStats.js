@@ -201,11 +201,97 @@ function buildDashboardAnalyticsUpgradeHint({ isUltimate = false, t = (de, en) =
   };
 }
 
+function buildConnectionTimelineRows(connectionHealth = {}, formatDate = null) {
+  const timeline = Array.isArray(connectionHealth?.timeline) ? connectionHealth.timeline : [];
+  return timeline.map((row) => {
+    const parsed = row?.date ? new Date(`${row.date}T12:00:00`) : null;
+    const label = Number.isFinite(parsed?.getTime?.())
+      ? (typeof formatDate === "function"
+        ? formatDate(parsed.toISOString(), { month: "short", day: "numeric" })
+        : row.date.slice(5))
+      : String(row?.date || "");
+    const connects = Math.max(0, Number(row?.connects || 0) || 0);
+    const reconnects = Math.max(0, Number(row?.reconnects || 0) || 0);
+    const errors = Math.max(0, Number(row?.errors || 0) || 0);
+
+    return {
+      date: row?.date || "",
+      label,
+      connects,
+      reconnects,
+      errors,
+      issues: reconnects + errors,
+      reliability: connects > 0
+        ? Math.max(0, Math.min(100, Math.round(((connects - errors) / connects) * 100)))
+        : null,
+    };
+  });
+}
+
+function buildSessionTimelineRows(sessionHistory = [], formatDate = null) {
+  return (Array.isArray(sessionHistory) ? sessionHistory : [])
+    .slice(0, 12)
+    .sort((a, b) => String(a?.startedAt || "").localeCompare(String(b?.startedAt || "")))
+    .map((session, index) => {
+      const stationName = String(session?.stationName || session?.stationKey || "Session");
+      const startedAt = session?.startedAt || null;
+      const label = startedAt
+        ? (typeof formatDate === "function"
+          ? formatDate(startedAt, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+          : new Date(startedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }))
+        : `#${index + 1}`;
+
+      return {
+        id: `${startedAt || "session"}-${index}`,
+        label,
+        stationName,
+        runtimeHours: Math.round(((Number(session?.durationMs || 0) || 0) / 3_600_000) * 10) / 10,
+        listeningHours: Math.round(((Number(session?.humanListeningMs || 0) || 0) / 3_600_000) * 10) / 10,
+        peakListeners: Math.max(0, Number(session?.peakListeners || 0) || 0),
+        avgListeners: Math.max(0, Number(session?.avgListeners || 0) || 0),
+      };
+    });
+}
+
+function buildSessionQualitySummary(sessionHistory = [], t = (de, en) => de) {
+  const sessions = Array.isArray(sessionHistory) ? sessionHistory : [];
+  if (!sessions.length) {
+    return {
+      trackedSessions: 0,
+      avgListeningLabel: "0m",
+      longestListeningLabel: "0m",
+      topPeakLabel: "0",
+      avgPeakLabel: "0",
+      subLabel: t("Noch keine Sessions im Verlauf", "No sessions in history yet"),
+    };
+  }
+
+  const totalListeningMs = sessions.reduce((sum, session) => sum + (Number(session?.humanListeningMs || 0) || 0), 0);
+  const longestListeningMs = sessions.reduce((max, session) => Math.max(max, Number(session?.humanListeningMs || 0) || 0), 0);
+  const topPeak = sessions.reduce((max, session) => Math.max(max, Number(session?.peakListeners || 0) || 0), 0);
+  const avgPeak = Math.round(sessions.reduce((sum, session) => sum + (Number(session?.avgListeners || 0) || 0), 0) / sessions.length);
+
+  return {
+    trackedSessions: sessions.length,
+    avgListeningLabel: formatDashboardDuration(Math.round(totalListeningMs / sessions.length)),
+    longestListeningLabel: formatDashboardDuration(longestListeningMs),
+    topPeakLabel: String(topPeak),
+    avgPeakLabel: String(avgPeak),
+    subLabel: t(
+      `${sessions.length} Session(s) im aktuellen Verlauf`,
+      `${sessions.length} session(s) in the current history`
+    ),
+  };
+}
+
 export {
   buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
   buildDashboardHealthStatus,
+  buildConnectionTimelineRows,
+  buildSessionQualitySummary,
   formatDashboardDuration,
   buildReliabilitySummary,
+  buildSessionTimelineRows,
   buildVoiceChannelUsageRows,
 };

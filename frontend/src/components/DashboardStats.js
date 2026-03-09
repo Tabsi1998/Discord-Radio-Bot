@@ -3,7 +3,13 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area,
 } from 'recharts';
-import { buildVoiceChannelUsageRows, formatDashboardDuration } from '../lib/dashboardStats';
+import {
+  buildConnectionTimelineRows,
+  buildSessionQualitySummary,
+  buildSessionTimelineRows,
+  buildVoiceChannelUsageRows,
+  formatDashboardDuration,
+} from '../lib/dashboardStats';
 
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const DAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -89,9 +95,12 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
 
   // Session history
   const sessionHistory = (detail.sessionHistory || []).slice(0, 15);
+  const sessionTimelineData = buildSessionTimelineRows(sessionHistory, formatDate);
+  const sessionQuality = buildSessionQualitySummary(sessionHistory, t);
 
   // Connection health
   const connHealth = detail.connectionHealth || {};
+  const connectionTimelineData = buildConnectionTimelineRows(connHealth, formatDate);
 
   // Voice channel usage
   const channelData = buildVoiceChannelUsageRows(ls.voiceChannels, ls.voiceChannelNames);
@@ -102,6 +111,59 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
 
   return (
     <section data-testid="dashboard-stats-detail-panel" style={{ display: 'grid', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+        <div data-testid="stats-session-quality-card" style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px 14px' }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>{t('Session-Qualitaet', 'Session quality')}</div>
+          <div style={{ marginTop: 8, fontSize: 20, fontWeight: 700, color: '#F4F4F5' }}>{sessionQuality.avgListeningLabel}</div>
+          <div style={{ marginTop: 4, fontSize: 12, color: '#A1A1AA' }}>{t('Avg Hoerzeit pro Session', 'Avg listening per session')}</div>
+          <div style={{ marginTop: 8, fontSize: 12, color: '#71717A' }}>{sessionQuality.subLabel}</div>
+        </div>
+        <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px 14px' }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>{t('Laengste Session', 'Longest session')}</div>
+          <div style={{ marginTop: 8, fontSize: 20, fontWeight: 700, color: '#10B981' }}>{sessionQuality.longestListeningLabel}</div>
+          <div style={{ marginTop: 4, fontSize: 12, color: '#A1A1AA' }}>{t('Menschliche Hoerzeit', 'Human listening time')}</div>
+        </div>
+        <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px 14px' }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>{t('Hoechster Peak', 'Top peak')}</div>
+          <div style={{ marginTop: 8, fontSize: 20, fontWeight: 700, color: '#8B5CF6' }}>{sessionQuality.topPeakLabel}</div>
+          <div style={{ marginTop: 4, fontSize: 12, color: '#A1A1AA' }}>{t('Maximale gleichzeitige Zuhoerer', 'Maximum concurrent listeners')}</div>
+        </div>
+        <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px 14px' }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>{t('Avg Listener', 'Avg listeners')}</div>
+          <div style={{ marginTop: 8, fontSize: 20, fontWeight: 700, color: '#06B6D4' }}>{sessionQuality.avgPeakLabel}</div>
+          <div style={{ marginTop: 4, fontSize: 12, color: '#A1A1AA' }}>{t('Durchschnitt aus Session-Werten', 'Average across session values')}</div>
+        </div>
+      </div>
+
+      {connectionTimelineData.length > 0 && (
+        <Section title={t(`Reliability-Trend (${detailDays} Tage)`, `Reliability trend (${detailDays} days)`)} testId="stats-reliability-trend">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={connectionTimelineData}>
+              <XAxis dataKey="label" tick={{ fill: '#52525B', fontSize: 10 }} />
+              <YAxis tick={{ fill: '#52525B', fontSize: 10 }} width={34} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="connects" fill="#10B981" radius={[2, 2, 0, 0]} name={t('Connects', 'Connects')} />
+              <Bar dataKey="reconnects" fill="#F59E0B" radius={[2, 2, 0, 0]} name="Reconnects" />
+              <Bar dataKey="errors" fill="#EF4444" radius={[2, 2, 0, 0]} name={t('Errors', 'Errors')} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Section>
+      )}
+
+      {sessionTimelineData.length > 0 && (
+        <Section title={t('Session-Timeline', 'Session timeline')} testId="stats-session-timeline">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={sessionTimelineData}>
+              <XAxis dataKey="label" tick={{ fill: '#52525B', fontSize: 10 }} />
+              <YAxis tick={{ fill: '#52525B', fontSize: 10 }} width={34} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="runtimeHours" fill="#52525B" radius={[2, 2, 0, 0]} name={t('Runtime (h)', 'Runtime (h)')} />
+              <Bar dataKey="listeningHours" fill="#00F0FF" radius={[2, 2, 0, 0]} name={t('Listening (h)', 'Listening (h)')} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Section>
+      )}
+
       {/* Daily listening hours trend */}
       {dailyData.length > 0 && (
         <Section title={t(`Hörzeit-Verlauf (${detailDays} Tage)`, `Listening hours trend (${detailDays} days)`)} testId="stats-daily-hours">
