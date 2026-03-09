@@ -87,6 +87,7 @@ export default function DashboardOverview({
   const totalSessions = basic.totalSessions || 0;
   const avgSession = basic.avgSessionMs || 0;
   const longestSession = basic.longestSessionMs || 0;
+  const setupStatus = basic.setupStatus || null;
   const topStationByStarts = basic.topStationByStarts || null;
   const topStationByListening = basic.topStationByListening || null;
   const connectionHealth = detailStats?.connectionHealth || null;
@@ -101,6 +102,9 @@ export default function DashboardOverview({
   const reliabilityLabel = connectionHealth
     ? t(`Zuverlaessigkeit (${connectionWindowDays || 7} Tage)`, `Reliability (${connectionWindowDays || 7} days)`)
     : t('Zuverlaessigkeit', 'Reliability');
+  const setupProgressLabel = setupStatus
+    ? t(`${setupStatus.completedSteps || 0}/3 Schritte fertig`, `${setupStatus.completedSteps || 0}/3 steps completed`)
+    : '';
   const basicHealth = basic.health || null;
   const healthStatus = buildDashboardHealthStatus(basicHealth, t);
   const healthAlerts = buildDashboardHealthAlerts(basicHealth, t);
@@ -269,6 +273,82 @@ export default function DashboardOverview({
         <StatCard testId="metric-sessions" label={t('Abgeschlossene Sessions', 'Completed sessions')} value={totalSessions} accent="#06B6D4" />
         <StatCard testId="metric-reliability" label={reliabilityLabel} value={reliabilitySummary.value} accent={reliabilitySummary.accent} sub={reliabilitySummary.sub} />
       </div>
+
+      {setupStatus && (
+        <div data-testid="dashboard-setup-status-panel" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16, display: 'grid', gap: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 16, color: '#D4D4D8' }}>
+                {t('Setup-Status', 'Setup status')}
+              </h4>
+              <p style={{ color: '#71717A', fontSize: 12, lineHeight: 1.6 }}>
+                {t(
+                  'Zeigt, ob der Commander verbunden ist, mindestens ein Worker eingeladen wurde und bereits ein erster Stream laeuft.',
+                  'Shows whether the commander is connected, at least one worker is invited, and a first stream is already live.'
+                )}
+              </p>
+            </div>
+            <div style={{
+              border: '1px solid rgba(0,240,255,0.2)',
+              background: 'rgba(0,240,255,0.08)',
+              color: '#00F0FF',
+              padding: '10px 12px',
+              minWidth: 180,
+            }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.9 }}>
+                {t('Fortschritt', 'Progress')}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700 }}>{setupProgressLabel}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+            {[
+              {
+                key: 'commander',
+                done: setupStatus.commanderReady === true,
+                label: t('Commander verbunden', 'Commander connected'),
+                sub: setupStatus.commanderReady === true
+                  ? t('Der Hauptbot ist auf diesem Server bereit.', 'The main bot is ready on this server.')
+                  : t('Der Hauptbot muss noch auf diesem Server verfuegbar sein.', 'The main bot still needs to be available on this server.'),
+              },
+              {
+                key: 'worker',
+                done: setupStatus.workerInvited === true,
+                label: t('Worker eingeladen', 'Worker invited'),
+                sub: t(
+                  `${setupStatus.invitedWorkerCount || 0} von ${setupStatus.maxWorkerSlots || 0} Worker-Slots verbunden`,
+                  `${setupStatus.invitedWorkerCount || 0} of ${setupStatus.maxWorkerSlots || 0} worker slots connected`
+                ),
+              },
+              {
+                key: 'stream',
+                done: setupStatus.firstStreamLive === true,
+                label: t('Erster Stream live', 'First stream live'),
+                sub: t(
+                  `${setupStatus.activeStreamCount || 0} aktive Streams auf diesem Server`,
+                  `${setupStatus.activeStreamCount || 0} active streams on this server`
+                ),
+              },
+            ].map((step) => (
+              <div key={step.key} data-testid={`dashboard-setup-step-${step.key}`} style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px', display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                  <strong style={{ color: '#D4D4D8' }}>{step.label}</strong>
+                  <span style={{
+                    fontSize: 11,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    color: step.done ? '#6EE7B7' : '#FCD34D',
+                  }}>
+                    {step.done ? t('Erledigt', 'Done') : t('Offen', 'Pending')}
+                  </span>
+                </div>
+                <div style={{ color: '#A1A1AA', fontSize: 12, lineHeight: 1.6 }}>{step.sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showBasicHealth && (
         <div data-testid="dashboard-health-panel" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16, display: 'grid', gap: 14 }}>

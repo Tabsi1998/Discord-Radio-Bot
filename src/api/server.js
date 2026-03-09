@@ -1496,6 +1496,49 @@ function buildDashboardHealthSummary(serverId, runtimes, {
   };
 }
 
+function buildDashboardSetupStatus(serverId, tier, runtimes, {
+  liveRows = null,
+} = {}) {
+  const safeServerId = String(serverId || "").trim();
+  const safeTier = String(tier || "free").trim().toLowerCase() || "free";
+  const maxWorkerSlots = Math.max(0, Number(getPlanLimits(safeTier)?.maxBots || 0) || 0);
+  const activeLiveRows = Array.isArray(liveRows) ? liveRows : collectGuildLiveDetails(runtimes, safeServerId);
+  const activeStreamCount = activeLiveRows.length;
+  const commanderRuntime = sortDashboardRuntimes(runtimes).find((runtime) => String(runtime?.role || "").trim() === "commander") || null;
+  const commanderReady = Boolean(
+    commanderRuntime?.client?.isReady?.() === true
+    && commanderRuntime?.client?.guilds?.cache?.has?.(safeServerId)
+  );
+
+  let invitedWorkerCount = 0;
+  if (commanderRuntime?.workerManager) {
+    invitedWorkerCount = commanderRuntime.workerManager.getInvitedWorkers(safeServerId, safeTier).length;
+  } else {
+    invitedWorkerCount = sortDashboardRuntimes(runtimes)
+      .filter((runtime) => String(runtime?.role || "").trim() !== "commander")
+      .filter((runtime) => {
+        const workerSlot = Number(runtime?.workerSlot || runtime?.config?.index || 0) || 0;
+        if (!workerSlot || workerSlot > maxWorkerSlots) return false;
+        if (runtime?.client?.isReady?.() !== true) return false;
+        return runtime?.client?.guilds?.cache?.has?.(safeServerId) === true;
+      })
+      .length;
+  }
+
+  const workerInvited = invitedWorkerCount > 0;
+  const firstStreamLive = activeStreamCount > 0;
+
+  return {
+    commanderReady,
+    workerInvited,
+    invitedWorkerCount,
+    maxWorkerSlots,
+    activeStreamCount,
+    firstStreamLive,
+    completedSteps: [commanderReady, workerInvited, firstStreamLive].filter(Boolean).length,
+  };
+}
+
 async function buildGuildChannelNameMap(guild, channelIds = []) {
   const uniqueIds = [...new Set((Array.isArray(channelIds) ? channelIds : []).map((value) => String(value || "").trim()).filter(Boolean))];
   if (!guild || !uniqueIds.length) return {};
@@ -1769,6 +1812,7 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     totalReconnects: Number(listeningStats.totalReconnects || 0),
     totalConnectionErrors: Number(listeningStats.totalConnectionErrors || 0),
     updatedAt: telemetry.updatedAt || new Date().toISOString(),
+    setupStatus: buildDashboardSetupStatus(serverId, tier, runtimes, { liveRows }),
     health: buildDashboardHealthSummary(serverId, runtimes, {
       liveRows,
       listenersNow,

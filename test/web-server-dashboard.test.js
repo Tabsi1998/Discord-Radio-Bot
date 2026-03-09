@@ -1524,6 +1524,12 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     { headers: authHeaders }
   );
   assert.equal(statsResponse.status, 200);
+  assert.equal(statsResponse.payload.basic.setupStatus.commanderReady, true);
+  assert.equal(statsResponse.payload.basic.setupStatus.invitedWorkerCount, 0);
+  assert.equal(statsResponse.payload.basic.setupStatus.maxWorkerSlots, 8);
+  assert.equal(statsResponse.payload.basic.setupStatus.activeStreamCount, 1);
+  assert.equal(statsResponse.payload.basic.setupStatus.firstStreamLive, true);
+  assert.equal(statsResponse.payload.basic.setupStatus.completedSteps, 2);
   assert.equal(statsResponse.payload.basic.health.status, "warning");
   assert.equal(statsResponse.payload.basic.health.managedBots, 1);
   assert.equal(statsResponse.payload.basic.health.liveStreams, 1);
