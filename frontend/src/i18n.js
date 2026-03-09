@@ -58,6 +58,38 @@ const LOCALE_MESSAGES = {
         stations: 'Stationen',
         bots: 'Bots',
       },
+      highlights: [
+        { key: 'speed', label: 'Start in unter 1 Minute' },
+        { key: 'catalog', label: '120+ Stationen sofort spielbar' },
+        { key: 'dashboard', label: 'Dashboard ab Pro' },
+      ],
+      panel: {
+        eyebrow: 'Schneller Start',
+        title: 'In 30 Sekunden zum ersten Stream',
+        steps: [
+          {
+            key: 'invite',
+            title: 'Bot einladen',
+            desc: 'Der Commander ist dein Einstiegspunkt und fuehrt in den ersten Live-Stream.',
+          },
+          {
+            key: 'play',
+            title: '/play ausfuehren',
+            desc: 'Waehle eine Station und starte direkt im Voice-Channel ohne Prefix-Setup.',
+          },
+          {
+            key: 'scale',
+            title: 'Bei Bedarf skalieren',
+            desc: 'Mehr Worker, Dashboard und Premium-Tiers stehen bereit, wenn dein Server waechst.',
+          },
+        ],
+        proofTitle: 'Warum das professioneller ist',
+        proofItems: [
+          'Slash Commands statt umstaendlicher Bot-Bedienung',
+          'Worker entlasten parallele Streams sauber',
+          'Klare Upgrade-Stufen fuer wachsende Communitys',
+        ],
+      },
     },
     trustBar: {
       items: {
@@ -66,8 +98,8 @@ const LOCALE_MESSAGES = {
           detail: 'Live-Katalog fuer Free und Pro, direkt auf der Website vorhoerbar.',
         },
         network: {
-          label: 'Bot-Netzwerk',
-          detail: 'Commander plus Worker-Skalierung fuer mehrere parallele Streams.',
+          label: 'Live-Aktivitaet',
+          detail: 'Aktive Streams und ein bereitstehendes Bot-Netzwerk zeigen, dass OmniFM im Betrieb arbeitet.',
         },
         dashboard: {
           label: 'Dashboard',
@@ -81,6 +113,12 @@ const LOCALE_MESSAGES = {
       values: {
         dashboard: 'Pro+',
         reliability: '24/7',
+      },
+      support: {
+        stations: ({ free, pro }) => `${free} Free · ${pro} Pro`,
+        network: ({ bots, servers }) => `${bots} Bots · ${servers} Server`,
+        dashboard: 'Events · Rollenrechte · Health',
+        reliability: 'Reconnect · Worker · klare Tiers',
       },
     },
     features: {
@@ -214,6 +252,24 @@ const LOCALE_MESSAGES = {
       },
       primaryCta: 'Dashboard ansehen',
       secondaryCta: 'Plaene vergleichen',
+      tags: ['Discord SSO', 'Event-Scheduler', 'Rollenrechte', 'Health'],
+      preview: {
+        eyebrow: 'Operations Preview',
+        title: 'Ein Server, sauber verwaltet',
+        serverLabel: 'Server',
+        serverValue: 'OmniFM Community Hub',
+        status: 'aktiv',
+        metrics: [
+          { label: 'Events', value: '4' },
+          { label: 'Rollenregeln', value: '12' },
+          { label: 'Health', value: 'OK' },
+        ],
+        rows: [
+          { label: 'Weekly Digest', value: 'Aktiv' },
+          { label: 'Fallback / Recovery', value: 'Bereit' },
+          { label: 'Analytics-Zugang', value: 'Pro / Ultimate' },
+        ],
+      },
     },
     reliability: {
       eyebrow: 'Stabilitaet',
@@ -670,6 +726,38 @@ const LOCALE_MESSAGES = {
         stations: 'Stations',
         bots: 'Bots',
       },
+      highlights: [
+        { key: 'speed', label: 'Start in under 1 minute' },
+        { key: 'catalog', label: '120+ stations ready to play' },
+        { key: 'dashboard', label: 'Dashboard from Pro' },
+      ],
+      panel: {
+        eyebrow: 'Quick start',
+        title: 'Your first stream in 30 seconds',
+        steps: [
+          {
+            key: 'invite',
+            title: 'Invite the bot',
+            desc: 'The commander is your entry point and gets your first live stream running.',
+          },
+          {
+            key: 'play',
+            title: 'Run /play',
+            desc: 'Choose a station and start directly in voice without prefix setup.',
+          },
+          {
+            key: 'scale',
+            title: 'Scale when needed',
+            desc: 'More workers, dashboard control, and premium tiers are ready when your server grows.',
+          },
+        ],
+        proofTitle: 'Why this is more professional',
+        proofItems: [
+          'Slash commands instead of awkward bot handling',
+          'Workers carry parallel streams cleanly',
+          'Clear upgrade stages for growing communities',
+        ],
+      },
     },
     trustBar: {
       items: {
@@ -678,8 +766,8 @@ const LOCALE_MESSAGES = {
           detail: 'Live catalog for Free and Pro, with direct preview on the website.',
         },
         network: {
-          label: 'Bot network',
-          detail: 'Commander plus worker scaling for multiple parallel streams.',
+          label: 'Live activity',
+          detail: 'Active streams and a ready bot network show that OmniFM is operating in production, not only on a landing page.',
         },
         dashboard: {
           label: 'Dashboard',
@@ -693,6 +781,12 @@ const LOCALE_MESSAGES = {
       values: {
         dashboard: 'Pro+',
         reliability: '24/7',
+      },
+      support: {
+        stations: ({ free, pro }) => `${free} free · ${pro} pro`,
+        network: ({ bots, servers }) => `${bots} bots · ${servers} servers`,
+        dashboard: 'Events · permissions · health',
+        reliability: 'Reconnect · workers · clear tiers',
       },
     },
     features: {
@@ -826,6 +920,24 @@ const LOCALE_MESSAGES = {
       },
       primaryCta: 'Open dashboard',
       secondaryCta: 'Compare plans',
+      tags: ['Discord SSO', 'Event scheduler', 'Role permissions', 'Health'],
+      preview: {
+        eyebrow: 'Operations preview',
+        title: 'One server, clearly managed',
+        serverLabel: 'Server',
+        serverValue: 'OmniFM Community Hub',
+        status: 'active',
+        metrics: [
+          { label: 'Events', value: '4' },
+          { label: 'Role rules', value: '12' },
+          { label: 'Health', value: 'OK' },
+        ],
+        rows: [
+          { label: 'Weekly digest', value: 'Enabled' },
+          { label: 'Fallback / recovery', value: 'Ready' },
+          { label: 'Analytics access', value: 'Pro / Ultimate' },
+        ],
+      },
     },
     reliability: {
       eyebrow: 'Reliability',

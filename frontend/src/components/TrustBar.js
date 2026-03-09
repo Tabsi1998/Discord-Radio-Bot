@@ -11,10 +11,28 @@ const ITEMS = [
 
 function resolveValue(itemKey, stats, copy, formatNumber) {
   if (itemKey === 'stations') return formatNumber(stats?.stations || 0);
-  if (itemKey === 'network') return formatNumber(stats?.bots || 0);
+  if (itemKey === 'network') return formatNumber(stats?.connections || 0);
   if (itemKey === 'dashboard') return copy.trustBar.values.dashboard;
   if (itemKey === 'reliability') return copy.trustBar.values.reliability;
   return '-';
+}
+
+function resolveSupport(itemKey, stats, copy, formatNumber) {
+  if (itemKey === 'stations') {
+    return copy.trustBar.support.stations({
+      free: formatNumber(stats?.freeStations || 0),
+      pro: formatNumber(stats?.proStations || 0),
+    });
+  }
+  if (itemKey === 'network') {
+    return copy.trustBar.support.network({
+      bots: formatNumber(stats?.bots || 0),
+      servers: formatNumber(stats?.servers || 0),
+    });
+  }
+  if (itemKey === 'dashboard') return copy.trustBar.support.dashboard;
+  if (itemKey === 'reliability') return copy.trustBar.support.reliability;
+  return '';
 }
 
 export default function TrustBar({ stats }) {
@@ -88,6 +106,9 @@ export default function TrustBar({ stats }) {
                   }}
                 >
                   {resolveValue(item.key, stats, copy, formatNumber)}
+                </div>
+                <div style={{ fontSize: 11, color: item.color, fontWeight: 700, letterSpacing: '0.06em', marginBottom: 6 }}>
+                  {resolveSupport(item.key, stats, copy, formatNumber)}
                 </div>
                 <p style={{ fontSize: 13, color: '#71717A', lineHeight: 1.6 }}>
                   {copy.trustBar.items[item.key].detail}

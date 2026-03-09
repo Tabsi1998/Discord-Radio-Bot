@@ -64,6 +64,27 @@ export default function DashboardShowcase() {
             <p style={{ color: '#D4D4D8', fontSize: 16, maxWidth: 760, lineHeight: 1.7 }}>
               {copy.dashboardShowcase.subtitle}
             </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
+              {copy.dashboardShowcase.tags.map((tag) => (
+                <span
+                  key={tag}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '7px 12px',
+                    borderRadius: 999,
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    color: '#E4E4E7',
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
           </div>
 
           <div style={{ padding: '0 28px 28px' }}>
@@ -127,6 +148,110 @@ export default function DashboardShowcase() {
               })}
             </div>
 
+            <div
+              data-testid="dashboard-showcase-preview"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(220px, 0.85fr) minmax(0, 1.15fr)',
+                gap: 16,
+                marginBottom: 22,
+              }}
+              className="dashboard-showcase-preview-grid"
+            >
+              <div
+                style={{
+                  borderRadius: 18,
+                  padding: 20,
+                  background: 'rgba(5,5,5,0.34)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+                  {copy.dashboardShowcase.preview.eyebrow}
+                </div>
+                <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 18, fontWeight: 800, marginBottom: 16 }}>
+                  {copy.dashboardShowcase.preview.title}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {copy.dashboardShowcase.preview.metrics.map((item) => (
+                    <div
+                      key={item.label}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                      }}
+                    >
+                      <span style={{ color: '#A1A1AA', fontSize: 12 }}>{item.label}</span>
+                      <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontWeight: 800 }}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  borderRadius: 18,
+                  padding: 20,
+                  background: 'rgba(5,5,5,0.34)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+                      {copy.dashboardShowcase.preview.serverLabel}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 800 }}>
+                      {copy.dashboardShowcase.preview.serverValue}
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '6px 10px',
+                      borderRadius: 999,
+                      background: 'rgba(57,255,20,0.12)',
+                      border: '1px solid rgba(57,255,20,0.24)',
+                      color: '#39FF14',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {copy.dashboardShowcase.preview.status}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {copy.dashboardShowcase.preview.rows.map((row) => (
+                    <div
+                      key={row.label}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0, 1fr) auto',
+                        gap: 12,
+                        alignItems: 'center',
+                        padding: '11px 12px',
+                        borderRadius: 12,
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: '#D4D4D8' }}>{row.label}</span>
+                      <span style={{ fontSize: 12, color: '#A1A1AA', fontWeight: 700 }}>{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
               <a
                 href={buildDashboardHref(locale)}
@@ -164,6 +289,14 @@ export default function DashboardShowcase() {
           </div>
         </div>
       </div>
+
+      <style>{`
+        @media (max-width: 860px) {
+          .dashboard-showcase-preview-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }

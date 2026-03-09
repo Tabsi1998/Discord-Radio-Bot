@@ -1,5 +1,5 @@
 import React from 'react';
-import { Headphones, Radio, Volume2 } from 'lucide-react';
+import { CheckCircle2, Headphones, LayoutDashboard, Radio, Volume2 } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 const eqStyle = `
@@ -106,7 +106,8 @@ function Hero({ stats, bots }) {
       }} />
 
       <div className="section-container" style={{ position: 'relative', zIndex: 2 }}>
-        <div style={{ maxWidth: 720 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(320px, 0.9fr)', gap: 28, alignItems: 'center' }} className="hero-grid">
+          <div style={{ maxWidth: 720 }}>
           <div style={{ marginBottom: 32, animation: 'hero-fade-in 0.6s ease-out' }}>
             <Equalizer />
           </div>
@@ -170,6 +171,38 @@ function Hero({ stats, bots }) {
             <span style={{ color: '#fff', fontWeight: 600 }}>/play</span>{' '}
             {subtitleTail}
           </p>
+
+          <div
+            data-testid="hero-highlights"
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 10,
+              marginBottom: 28,
+              animation: 'hero-fade-in 0.6s ease-out 0.35s both',
+            }}
+          >
+            {copy.hero.highlights.map((item) => (
+              <div
+                key={item.key}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  borderRadius: 999,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#D4D4D8',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                <CheckCircle2 size={14} color="#39FF14" />
+                {item.label}
+              </div>
+            ))}
+          </div>
 
           <div style={{
             display: 'flex',
@@ -276,7 +309,100 @@ function Hero({ stats, bots }) {
             ))}
           </div>
         </div>
+
+          <div
+            data-testid="hero-ops-panel"
+            style={{
+              borderRadius: 24,
+              border: '1px solid rgba(0,240,255,0.16)',
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%)',
+              boxShadow: '0 0 40px rgba(0,240,255,0.08)',
+              padding: 24,
+              animation: 'hero-fade-in 0.7s ease-out 0.25s both',
+            }}
+          >
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <LayoutDashboard size={15} color="#00F0FF" />
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#00F0FF' }}>
+                  {copy.hero.panel.eyebrow}
+                </span>
+              </div>
+              <h3 style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 22, fontWeight: 800, marginBottom: 10 }}>
+                {copy.hero.panel.title}
+              </h3>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
+              {copy.hero.panel.steps.map((step, index) => (
+                <div
+                  key={step.key}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '36px minmax(0, 1fr)',
+                    gap: 12,
+                    padding: '12px 14px',
+                    borderRadius: 14,
+                    background: 'rgba(5,5,5,0.34)',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'rgba(0,240,255,0.1)',
+                      border: '1px solid rgba(0,240,255,0.24)',
+                      color: '#00F0FF',
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {index + 1}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{step.title}</div>
+                    <div style={{ fontSize: 12, color: '#A1A1AA', lineHeight: 1.6 }}>{step.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                borderRadius: 16,
+                padding: '16px 18px',
+                background: 'rgba(0,240,255,0.06)',
+                border: '1px solid rgba(0,240,255,0.14)',
+              }}
+            >
+              <div style={{ fontSize: 11, color: '#00F0FF', letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>
+                {copy.hero.panel.proofTitle}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {copy.hero.panel.proofItems.map((item) => (
+                  <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#D4D4D8', fontSize: 13 }}>
+                    <CheckCircle2 size={14} color="#39FF14" />
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <style>{`
+        @media (max-width: 980px) {
+          .hero-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }
