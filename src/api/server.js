@@ -8,12 +8,16 @@ import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { ChannelType, PermissionFlagsBits } from "discord.js";
 import { createDashboardChannelsRouteHandler } from "./routes/dashboard-channels.js";
+import { createDashboardCustomStationsRouteHandler } from "./routes/dashboard-custom-stations.js";
+import { createDashboardEmojisRouteHandler } from "./routes/dashboard-emojis.js";
 import { createDashboardEventsRouteHandler } from "./routes/dashboard-events.js";
 import { createDashboardLicenseRouteHandler } from "./routes/dashboard-license.js";
 import { createDashboardPermsRouteHandler } from "./routes/dashboard-perms.js";
 import { createDashboardRolesRouteHandler } from "./routes/dashboard-roles.js";
 import { createDashboardSettingsRouteHandler } from "./routes/dashboard-settings.js";
+import { createDashboardStationsRouteHandler } from "./routes/dashboard-stations.js";
 import { createDashboardStatsRouteHandler } from "./routes/dashboard-stats.js";
+import { createDashboardTelemetryRouteHandler } from "./routes/dashboard-telemetry.js";
 
 import { log, webDir, webRootSource, frontendBuildStamp, rootDir } from "../lib/logging.js";
 import {
@@ -537,6 +541,60 @@ const handleDashboardChannelsRoute = createDashboardChannelsRouteHandler({
   sendJson,
   sendLocalizedError,
   serverHasCapability,
+});
+
+const handleDashboardTelemetryRoute = createDashboardTelemetryRouteHandler({
+  getDashboardRequestTranslator,
+  getLocalizedJsonBodyError,
+  isAdminApiRequest,
+  methodNotAllowed,
+  normalizeDashboardTelemetryPayload,
+  sendJson,
+  sendLocalizedError,
+  setDashboardTelemetry,
+});
+
+const handleDashboardEmojisRoute = createDashboardEmojisRouteHandler({
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  methodNotAllowed,
+  resolveDashboardGuildForSession,
+  resolveRuntimeForGuild,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
+});
+
+const handleDashboardStationsRoute = createDashboardStationsRouteHandler({
+  filterStationsByTier,
+  getCustomStations,
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  loadStations,
+  mapDashboardCustomStation,
+  methodNotAllowed,
+  resolveDashboardGuildForSession,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
+});
+
+const handleDashboardCustomStationsRoute = createDashboardCustomStationsRouteHandler({
+  addCustomStation,
+  clipText,
+  getCustomStations,
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  languagePick,
+  mapDashboardCustomStation,
+  methodNotAllowed,
+  removeCustomStation,
+  resolveDashboardGuildForSession,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
+  translateCustomStationErrorMessage,
+  updateCustomStation,
 });
 
 const handleDashboardRolesRoute = createDashboardRolesRouteHandler({
@@ -2877,34 +2935,7 @@ function startWebServer(runtimes) {
       }
       return;
     }
-
-    if (requestUrl.pathname === "/api/dashboard/telemetry") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      if (!isAdminApiRequest(req)) {
-        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
-        return;
-      }
-      const serverId = String(requestUrl.searchParams.get("serverId") || "").trim();
-      if (!/^\d{17,22}$/.test(serverId)) {
-        sendLocalizedError(res, 400, language, "Ungültige serverId.", "Invalid serverId.");
-        return;
-      }
-      try {
-        const body = await readJsonBody();
-        const telemetry = setDashboardTelemetry(serverId, normalizeDashboardTelemetryPayload(body));
-        sendJson(res, 200, { success: true, serverId, telemetry });
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 400 || status === 413) {
-          sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
-          return;
-        }
-        sendLocalizedError(res, 500, language, "Telemetry konnte nicht gespeichert werden.", "Telemetry could not be saved.");
-      }
+    if (await handleDashboardTelemetryRoute({ req, res, requestUrl, readJsonBody })) {
       return;
     }
     if (await handleDashboardEventsRoute({ req, res, requestUrl, readJsonBody, runtimes })) {
@@ -2917,209 +2948,15 @@ function startWebServer(runtimes) {
     if (await handleDashboardChannelsRoute({ req, res, requestUrl, runtimes })) {
       return;
     }
-
-    // --- Dashboard: Guild Emojis ---
-    if (requestUrl.pathname === "/api/dashboard/emojis") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
-      const { session } = getDashboardSession(req);
-      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
-      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
-      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
-
-      const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
-      if (!guild) { sendJson(res, 200, { emojis: [] }); return; }
-
-      try { await guild.emojis.fetch(); } catch {}
-      const emojis = [];
-      for (const [, emoji] of guild.emojis.cache) {
-        emojis.push({
-          id: emoji.id,
-          name: emoji.name || "",
-          animated: !!emoji.animated,
-          url: emoji.animated
-            ? `https://cdn.discordapp.com/emojis/${emoji.id}.gif?size=48`
-            : `https://cdn.discordapp.com/emojis/${emoji.id}.webp?size=48`,
-          requiresColons: emoji.requiresColons !== false,
-          managed: !!emoji.managed,
-          available: emoji.available !== false,
-        });
-      }
-      emojis.sort((a, b) => a.name.localeCompare(b.name));
-      sendJson(res, 200, { emojis });
+    if (await handleDashboardEmojisRoute({ req, res, requestUrl, runtimes })) {
       return;
     }
 
-    // --- Dashboard: All Stations (Free + Pro + Custom) ---
-    if (requestUrl.pathname === "/api/dashboard/stations") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
-      const { session } = getDashboardSession(req);
-      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
-      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
-      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
-
-      const allStations = loadStations();
-      const tierStations = filterStationsByTier(allStations.stations || {}, guildInfo.tier);
-      const freeStations = {};
-      const proStations = {};
-      const ultimateStations = {};
-      for (const [key, st] of Object.entries(tierStations)) {
-        const tier = String(st?.tier || "free").toLowerCase();
-        if (tier === "ultimate") {
-          ultimateStations[key] = st;
-        } else if (tier === "pro") {
-          proStations[key] = st;
-        } else {
-          freeStations[key] = st;
-        }
-      }
-
-      const formatList = (obj) => Object.entries(obj).map(([key, st]) => ({
-        key, name: st.name || key, url: st.url || "", genre: st.genre || "", country: st.country || "",
-      })).sort((a, b) => a.name.localeCompare(b.name));
-
-      const customStations = serverHasCapability(guildInfo.id, "custom_station_urls") ? getCustomStations(guildInfo.id) : {};
-      const customList = Object.entries(customStations)
-        .map(([key, st]) => mapDashboardCustomStation(key, st))
-        .sort((a, b) => {
-          const folderCompare = String(a.folder || "").localeCompare(String(b.folder || ""));
-          if (folderCompare !== 0) return folderCompare;
-          return a.name.localeCompare(b.name);
-        });
-
-      sendJson(res, 200, {
-        free: formatList(freeStations),
-        pro: formatList(proStations),
-        ultimate: formatList(ultimateStations),
-        custom: customList,
-        tier: guildInfo.tier,
-      });
+    if (await handleDashboardStationsRoute({ req, res, requestUrl })) {
       return;
     }
 
-    // --- Dashboard: Custom Stations CRUD ---
-    if (requestUrl.pathname === "/api/dashboard/custom-stations") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      const { session } = getDashboardSession(req);
-      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
-      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
-      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
-      if (!serverHasCapability(guildInfo.id, "custom_station_urls")) {
-        sendLocalizedError(
-          res,
-          403,
-          language,
-          "Custom-Stationen sind nur für Ultimate verfügbar.",
-          "Custom stations are only available for Ultimate."
-        );
-        return;
-      }
-
-      if (req.method === "GET") {
-        const stations = getCustomStations(guildInfo.id);
-        const list = Object.entries(stations)
-          .map(([key, st]) => mapDashboardCustomStation(key, st))
-          .sort((a, b) => {
-            const folderCompare = String(a.folder || "").localeCompare(String(b.folder || ""));
-            if (folderCompare !== 0) return folderCompare;
-            return a.name.localeCompare(b.name);
-          });
-        sendJson(res, 200, { stations: list, tier: guildInfo.tier });
-        return;
-      }
-
-      if (req.method === "POST") {
-        try {
-          const body = await readJsonBody();
-          const key = clipText(body?.key || "", 80).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-          const name = clipText(body?.name || "", 120).trim();
-          const url = clipText(body?.url || "", 500).trim();
-          if (!key || !name || !url) {
-            sendLocalizedError(res, 400, language, "Key, Name und URL sind erforderlich.", "Key, name and URL are required.");
-            return;
-          }
-          const result = await addCustomStation(guildInfo.id, key, {
-            name,
-            url,
-            genre: clipText(body?.genre || "", 80),
-            folder: clipText(body?.folder || "", 80),
-            tags: Array.isArray(body?.tags)
-              ? body.tags.map((tag) => clipText(tag || "", 40))
-              : clipText(body?.tags || "", 240),
-          });
-          if (!result?.success) {
-            sendJson(res, 400, {
-              error: translateCustomStationErrorMessage(
-                result?.error || languagePick(language, "Station konnte nicht hinzugefügt werden.", "Station could not be added."),
-                language
-              ),
-            });
-            return;
-          }
-          sendJson(res, 201, { success: true, station: mapDashboardCustomStation(result.key, result.station) });
-        } catch (err) {
-          sendJson(res, 400, {
-            error: translateCustomStationErrorMessage(
-              err?.message || languagePick(language, "Ungültige Anfrage.", "Invalid request."),
-              language
-            ),
-          });
-        }
-        return;
-      }
-
-      if (req.method === "DELETE") {
-        const key = requestUrl.searchParams.get("key");
-        if (!key) { sendLocalizedError(res, 400, language, "Station-Key fehlt.", "Station key is missing."); return; }
-        const result = removeCustomStation(guildInfo.id, key);
-        sendJson(res, 200, { success: !!result, key });
-        return;
-      }
-
-      if (req.method === "PUT") {
-        try {
-          const body = await readJsonBody();
-          const key = clipText(body?.key || "", 80).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-          if (!key) { sendLocalizedError(res, 400, language, "Station-Key fehlt.", "Station key is missing."); return; }
-          const existing = getCustomStations(guildInfo.id);
-          if (!existing[key]) { sendLocalizedError(res, 404, language, "Station nicht gefunden.", "Station was not found."); return; }
-          const current = existing[key];
-          const updated = {
-            name: clipText(body?.name || current.name || key, 120).trim(),
-            url: clipText(body?.url || current.url || "", 500).trim(),
-            genre: clipText(body?.genre !== undefined ? body.genre : (current.genre || ""), 80),
-            folder: clipText(body?.folder !== undefined ? body.folder : (current.folder || ""), 80),
-            tags: Array.isArray(body?.tags)
-              ? body.tags.map((tag) => clipText(tag || "", 40))
-              : (body?.tags !== undefined ? clipText(body.tags || "", 240) : (current.tags || [])),
-          };
-          const result = await updateCustomStation(guildInfo.id, key, updated);
-          if (!result?.success) {
-            sendJson(res, 400, {
-              error: translateCustomStationErrorMessage(
-                result?.error || languagePick(language, "Station konnte nicht aktualisiert werden.", "Station could not be updated."),
-                language
-              ),
-            });
-            return;
-          }
-          sendJson(res, 200, { success: true, station: mapDashboardCustomStation(result.key, result.station) });
-        } catch (err) {
-          sendJson(res, 400, {
-            error: translateCustomStationErrorMessage(
-              err?.message || languagePick(language, "Ungültige Anfrage.", "Invalid request."),
-              language
-            ),
-          });
-        }
-        return;
-      }
-
-      methodNotAllowed(res, ["GET", "POST", "PUT", "DELETE"]);
+    if (await handleDashboardCustomStationsRoute({ req, res, requestUrl, readJsonBody })) {
       return;
     }
     if (await handleDashboardRolesRoute({ req, res, requestUrl, runtimes })) {

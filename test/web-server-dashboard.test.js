@@ -272,6 +272,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "dashboard.json.bak"),
     path.join(repoRoot, "command-permissions.json"),
     path.join(repoRoot, "command-permissions.json.bak"),
+    path.join(repoRoot, "listening-stats.json"),
+    path.join(repoRoot, "listening-stats.json.bak"),
     path.join(repoRoot, "premium.json"),
     path.join(repoRoot, "premium.json.bak"),
     path.join(repoRoot, "coupons.json"),
@@ -473,6 +475,46 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(capabilityResponse.payload.limits.seats, 2);
   assert.equal(capabilityResponse.payload.upgradeHints.nextTier, "ultimate");
   assert.ok(capabilityResponse.payload.upgradeHints.blockedFeatures.includes("advancedAnalytics"));
+
+  const telemetryResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/telemetry?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": "test-admin-token",
+      },
+      body: JSON.stringify({
+        listenersNow: 11,
+        activeStreams: 2,
+        peakListeners: 17,
+        topStation: {
+          name: "Nightwave FM",
+          listeners: 9,
+        },
+        listenersByChannel: [{
+          name: "radio-lounge",
+          listeners: 4,
+        }],
+        stationBreakdown: [{
+          name: "Nightwave FM",
+          starts: 3,
+          peakListeners: 9,
+        }],
+      }),
+    }
+  );
+  assert.equal(telemetryResponse.status, 200);
+  assert.equal(telemetryResponse.payload.success, true);
+  assert.equal(telemetryResponse.payload.serverId, GUILD_ID);
+  assert.equal(telemetryResponse.payload.telemetry.listenersNow, 11);
+  assert.equal(telemetryResponse.payload.telemetry.activeStreams, 2);
+  assert.equal(telemetryResponse.payload.telemetry.topStation.name, "Nightwave FM");
+  assert.deepEqual(telemetryResponse.payload.telemetry.listenersByChannel, [{
+    name: "radio-lounge",
+    listeners: 4,
+  }]);
 
   const initialLicenseResponse = await requestJson(
     baseUrl,
@@ -966,6 +1008,14 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     position: 0,
     parentName: "",
   }]);
+
+  const emojisResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/emojis?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(emojisResponse.status, 200);
+  assert.deepEqual(emojisResponse.payload.emojis, []);
 
   const rolesResponse = await requestJson(
     baseUrl,
