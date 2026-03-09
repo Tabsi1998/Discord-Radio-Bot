@@ -516,6 +516,36 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     listeners: 4,
   }]);
 
+  const telemetryUnauthorizedEnResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/telemetry?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OmniFM-Language": "en",
+      },
+      body: JSON.stringify({}),
+    }
+  );
+  assert.equal(telemetryUnauthorizedEnResponse.status, 401);
+  assert.match(telemetryUnauthorizedEnResponse.payload.error, /API admin token required/i);
+
+  const telemetryUnauthorizedDeResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/telemetry?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OmniFM-Language": "de",
+      },
+      body: JSON.stringify({}),
+    }
+  );
+  assert.equal(telemetryUnauthorizedDeResponse.status, 401);
+  assert.match(telemetryUnauthorizedDeResponse.payload.error, /API-Admin-Token erforderlich/i);
+
   const initialLicenseResponse = await requestJson(
     baseUrl,
     `/api/dashboard/license?serverId=${GUILD_ID}`,
@@ -646,6 +676,19 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(settingsResponse.payload.exportsWebhook.url, "");
   assert.deepEqual(settingsResponse.payload.exportsWebhook.events, []);
 
+  const settingsAcceptLanguageResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    {
+      headers: {
+        ...authHeaders,
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    }
+  );
+  assert.equal(settingsAcceptLanguageResponse.status, 200);
+  assert.equal(settingsAcceptLanguageResponse.payload.weeklyDigest.language, "en");
+
   const invalidDigestSettings = await requestJson(
     baseUrl,
     `/api/dashboard/settings?serverId=${GUILD_ID}`,
@@ -722,6 +765,32 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(digestTestResponse.payload.channelName, "announcements");
   assert.equal(runtimeStub.__sentMessages.length, 1);
   assert.equal(runtimeStub.__sentMessages[0].embeds[0].title, "Weekly radio report");
+
+  const blockedCustomStationsEnResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/custom-stations?serverId=${GUILD_ID}`,
+    {
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+      },
+    }
+  );
+  assert.equal(blockedCustomStationsEnResponse.status, 403);
+  assert.match(blockedCustomStationsEnResponse.payload.error, /only available for Ultimate/i);
+
+  const blockedCustomStationsDeResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/custom-stations?serverId=${GUILD_ID}`,
+    {
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "de",
+      },
+    }
+  );
+  assert.equal(blockedCustomStationsDeResponse.status, 403);
+  assert.match(blockedCustomStationsDeResponse.payload.error, /Custom-Stationen/i);
 
   activePlan = "ultimate";
   activeSeats = 2;

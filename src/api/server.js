@@ -11,9 +11,11 @@ import { createDashboardChannelsRouteHandler } from "./routes/dashboard-channels
 import { createDashboardCustomStationsRouteHandler } from "./routes/dashboard-custom-stations.js";
 import { createDashboardEmojisRouteHandler } from "./routes/dashboard-emojis.js";
 import { createDashboardEventsRouteHandler } from "./routes/dashboard-events.js";
+import { createDashboardExportsRouteHandler } from "./routes/dashboard-exports.js";
 import { createDashboardLicenseRouteHandler } from "./routes/dashboard-license.js";
 import { createDashboardPermsRouteHandler } from "./routes/dashboard-perms.js";
 import { createDashboardRolesRouteHandler } from "./routes/dashboard-roles.js";
+import { createDashboardSettingsDigestRouteHandler } from "./routes/dashboard-settings-digest.js";
 import { createDashboardSettingsRouteHandler } from "./routes/dashboard-settings.js";
 import { createDashboardStationsRouteHandler } from "./routes/dashboard-stations.js";
 import { createDashboardStatsRouteHandler } from "./routes/dashboard-stats.js";
@@ -455,36 +457,24 @@ const handleDashboardPermsRoute = createDashboardPermsRouteHandler({
 });
 
 const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
-  buildDashboardDetailStatsPayload,
   buildDashboardExportsWebhookResponse,
   buildDashboardFailoverChainPreview,
   buildDashboardFallbackStationPreview,
-  buildDashboardStatsForGuild,
-  buildDashboardWeeklyDigestPreviewPayload,
-  buildDashboardWebhookPayload,
   buildServerCapabilityPayload,
   buildWeeklyDigestMeta,
   clipText,
-  deliverDashboardWebhook,
-  getCustomStations,
   getDashboardRequestTranslator,
   getDashboardSession,
-  getLocalizedJsonBodyError,
   getPrimaryFailoverStation,
   languagePick,
-  log,
-  mapDashboardCustomStation,
   methodNotAllowed,
   normalizeFailoverChain,
   normalizeWeeklyDigestConfig,
   resolveDashboardFailoverChain,
   resolveDashboardGuildForSession,
-  resolveGuildTextChannel,
-  resolveRuntimeForGuild,
   sendJson,
   sendLocalizedError,
   serverHasCapability,
-  shouldDeliverDashboardWebhook,
   validateDashboardExportsWebhookConfig,
 });
 
@@ -547,6 +537,7 @@ const handleDashboardTelemetryRoute = createDashboardTelemetryRouteHandler({
   getDashboardRequestTranslator,
   getLocalizedJsonBodyError,
   isAdminApiRequest,
+  languagePick,
   methodNotAllowed,
   normalizeDashboardTelemetryPayload,
   sendJson,
@@ -595,6 +586,43 @@ const handleDashboardCustomStationsRoute = createDashboardCustomStationsRouteHan
   serverHasCapability,
   translateCustomStationErrorMessage,
   updateCustomStation,
+});
+
+const handleDashboardSettingsDigestRoute = createDashboardSettingsDigestRouteHandler({
+  buildDashboardWeeklyDigestPreviewPayload,
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  getLocalizedJsonBodyError,
+  methodNotAllowed,
+  normalizeWeeklyDigestConfig,
+  resolveDashboardGuildForSession,
+  resolveGuildTextChannel,
+  resolveRuntimeForGuild,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
+});
+
+const handleDashboardExportsRoute = createDashboardExportsRouteHandler({
+  buildDashboardDetailStatsPayload,
+  buildDashboardExportsWebhookResponse,
+  buildDashboardStatsForGuild,
+  buildDashboardWebhookPayload,
+  deliverDashboardWebhook,
+  getCustomStations,
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  getLocalizedJsonBodyError,
+  languagePick,
+  log,
+  mapDashboardCustomStation,
+  methodNotAllowed,
+  resolveDashboardGuildForSession,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
+  shouldDeliverDashboardWebhook,
+  validateDashboardExportsWebhookConfig,
 });
 
 const handleDashboardRolesRoute = createDashboardRolesRouteHandler({
@@ -2967,7 +2995,15 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (await handleDashboardSettingsRoute({ req, res, requestUrl, readJsonBody, runtimes })) {
+    if (await handleDashboardSettingsDigestRoute({ req, res, requestUrl, readJsonBody, runtimes })) {
+      return;
+    }
+
+    if (await handleDashboardExportsRoute({ req, res, requestUrl, readJsonBody, runtimes })) {
+      return;
+    }
+
+    if (await handleDashboardSettingsRoute({ req, res, requestUrl, readJsonBody })) {
       return;
     }
 

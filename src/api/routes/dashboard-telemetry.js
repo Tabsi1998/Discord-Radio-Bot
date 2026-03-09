@@ -3,6 +3,7 @@ export function createDashboardTelemetryRouteHandler(deps) {
     getDashboardRequestTranslator,
     getLocalizedJsonBodyError,
     isAdminApiRequest,
+    languagePick,
     methodNotAllowed,
     normalizeDashboardTelemetryPayload,
     sendJson,
@@ -23,7 +24,9 @@ export function createDashboardTelemetryRouteHandler(deps) {
       return true;
     }
     if (!isAdminApiRequest(req)) {
-      sendJson(res, 401, { error: "Unauthorized. API admin token required." });
+      sendJson(res, 401, {
+        error: languagePick(language, "Nicht autorisiert. API-Admin-Token erforderlich.", "Unauthorized. API admin token required."),
+      });
       return true;
     }
 
