@@ -8,6 +8,7 @@ import WhyOmniFM from './components/WhyOmniFM';
 import DashboardShowcase from './components/DashboardShowcase';
 import ReliabilitySection from './components/ReliabilitySection';
 import StationBrowser from './components/StationBrowser';
+import UseCasesSection from './components/UseCasesSection';
 import Commands from './components/Commands';
 import Premium from './components/Premium';
 import ImpressumSection from './components/ImpressumSection';
@@ -228,6 +229,7 @@ function AppContent() {
       <WorkerDashboard />
       <BotDirectory bots={bots} loading={loading} />
       <StationBrowser stations={stations} loading={loading} />
+      <UseCasesSection />
       <Premium />
       <PlanMatrix />
       <Commands commands={commands} loading={loading} />

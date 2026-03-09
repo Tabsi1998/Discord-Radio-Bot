@@ -401,6 +401,28 @@ const LOCALE_MESSAGES = {
         },
       ],
     },
+    useCases: {
+      eyebrow: 'Fuer wen ist OmniFM?',
+      title: 'Jeder Plan hat eine klare Rolle',
+      subtitle: 'Die Website soll nicht nur Preise zeigen, sondern erklaeren, welcher Plan fuer welchen Server-Typ wirklich sinnvoll ist.',
+      cards: {
+        free: {
+          title: 'Free fuer schnelle Community-Radios',
+          desc: 'Wenn du einen kleinen oder privaten Server mit 24/7 Radio versorgen willst, bringt Free den saubersten Einstieg.',
+          fit: 'Ideal fuer kleine Communities, Freundesgruppen und den ersten Live-Einsatz ohne Administrationsaufwand.',
+        },
+        pro: {
+          title: 'Pro fuer Community-Admins',
+          desc: 'Sobald Events, Rollenrechte und Dashboard-Steuerung zum Alltag gehoeren, wird Pro zum eigentlichen Verwaltungsplan.',
+          fit: 'Ideal fuer Event-Server, mittelgrosse Communities und Teams mit klaren Rollen und wiederkehrenden Sessions.',
+        },
+        ultimate: {
+          title: 'Ultimate fuer Operator-Setups',
+          desc: 'Wenn Reliability, Custom Stations, tiefere Analytics und Automatisierung wichtig werden, ist Ultimate die richtige Stufe.',
+          fit: 'Ideal fuer groe ssere Communities, Power-User und Betreiber, die OmniFM als echtes System nutzen wollen.',
+        },
+      },
+    },
     premium: {
       eyebrow: 'Premium',
       title: 'Upgrade dein Setup',
@@ -990,6 +1012,28 @@ const LOCALE_MESSAGES = {
           answer: 'The commander accepts commands. Workers execute the streams. That allows OmniFM to distribute multiple parallel streams cleanly and keep them stable.',
         },
       ],
+    },
+    useCases: {
+      eyebrow: 'Who is OmniFM for?',
+      title: 'Each plan has a clear job',
+      subtitle: 'The website should not only show prices. It should explain which plan actually fits which kind of server.',
+      cards: {
+        free: {
+          title: 'Free for fast community radio',
+          desc: 'If you want 24/7 radio on a small or private server, Free gives you the cleanest possible starting point.',
+          fit: 'Ideal for smaller communities, friend groups, and the first live setup without admin overhead.',
+        },
+        pro: {
+          title: 'Pro for community admins',
+          desc: 'As soon as events, permissions, and dashboard control become part of normal operation, Pro turns into the real management plan.',
+          fit: 'Ideal for event servers, mid-sized communities, and teams with recurring sessions and clear roles.',
+        },
+        ultimate: {
+          title: 'Ultimate for operator setups',
+          desc: 'When reliability tooling, custom stations, deeper analytics, and automation matter, Ultimate is the right tier.',
+          fit: 'Ideal for larger communities, power users, and operators who want OmniFM to behave like a managed system.',
+        },
+      },
     },
     premium: {
       eyebrow: 'Premium',

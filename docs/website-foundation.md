@@ -151,6 +151,18 @@ Translate these terms:
 - failover
 - health
 
+### Use Cases
+
+Job:
+Explain which audience and server type matches Free, Pro, and Ultimate.
+
+Must answer:
+
+- who should stay on Free
+- who should upgrade to Pro
+- who needs Ultimate
+- why the tiers are different in practice
+
 ### Pricing
 
 Job:
