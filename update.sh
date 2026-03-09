@@ -522,11 +522,16 @@ run_status_menu() {
     echo -e "    ${CYAN}6${NC}) Speicher-Uebersicht"
     echo -e "    ${YELLOW}7${NC}) Doctor Check"
     echo -e "    ${RED}8${NC}) Cleanup jetzt ausfuehren"
-    echo -e "    ${MAGENTA}9${NC}) Einstellungen oeffnen"
-    echo -e "    ${CYAN}10${NC}) Bots verwalten"
+    echo -e "    ${GREEN}9${NC}) Container starten / rebuild"
+    echo -e "    ${CYAN}10${NC}) Slash-Commands jetzt deployen"
+    echo -e "    ${YELLOW}11${NC}) Premium verwalten"
+    echo -e "    ${MAGENTA}12${NC}) Codes / Offers verwalten"
+    echo -e "    ${GREEN}13${NC}) E-Mail (SMTP) konfigurieren"
+    echo -e "    ${MAGENTA}14${NC}) Einstellungen oeffnen"
+    echo -e "    ${CYAN}15${NC}) Bots verwalten"
     echo -e "    ${DIM}0${NC}) Zurueck / Beenden"
     echo ""
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [0-10]${NC}: ")" status_choice
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [0-15]${NC}: ")" status_choice
     case "${status_choice:-}" in
       1) show_container_status_table ;;
       2) show_admin_health_detail ;;
@@ -543,18 +548,27 @@ run_status_menu() {
         fi
         show_storage_overview
         ;;
-      9)
+      9) rebuild_container_now ;;
+      10) run_command_deploy_now ;;
+      11) run_premium_wizard_now ;;
+      12) run_offers_wizard_now ;;
+      13)
+        MODE="--email"
+        MODE_ARG=""
+        return 0
+        ;;
+      14)
         MODE="--settings"
         MODE_ARG=""
         return 0
         ;;
-      10)
+      15)
         MODE="--bots"
         MODE_ARG=""
         return 0
         ;;
       0|q|Q|exit|quit) exit 0 ;;
-      *) warn "Ungueltige Auswahl. Bitte 0-10 waehlen." ;;
+      *) warn "Ungueltige Auswahl. Bitte 0-15 waehlen." ;;
     esac
     echo ""
   done
@@ -1158,6 +1172,85 @@ restart_container() {
   else
     warn "Nicht vergessen: ${BOLD}docker compose up -d --build${NC} ausfuehren!"
   fi
+}
+
+omnifm_container_running() {
+  docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"
+}
+
+ensure_omnifm_running() {
+  if omnifm_container_running; then
+    return 0
+  fi
+  warn "Container nicht aktiv."
+  echo ""
+  if prompt_yes_no "Container jetzt starten?" "j"; then
+    ensure_all_json_files
+    if compose_up_with_build; then
+      sleep 3
+      return 0
+    fi
+    return 1
+  fi
+  warn "Aktion abgebrochen."
+  return 1
+}
+
+run_omnifm_exec() {
+  if ! ensure_omnifm_running; then
+    return 1
+  fi
+  docker compose exec omnifm "$@"
+}
+
+rebuild_container_now() {
+  echo ""
+  info "Starte Container mit Build neu..."
+  ensure_all_json_files
+  if compose_up_with_build; then
+    ok "Container aktiv."
+    return 0
+  fi
+  fail "Container-Start fehlgeschlagen."
+  return 1
+}
+
+run_command_deploy_now() {
+  local command_mode
+  command_mode="$(resolve_command_registration_mode_shell)"
+  echo ""
+  info "Slash-Command Deploy gestartet (${command_mode})."
+  if [[ "$command_mode" == "guild" ]]; then
+    warn "Im Guild-Modus werden globale Commands nicht registriert. Die Guild-Synchronisierung laeuft beim Bot-Start."
+  fi
+  if run_omnifm_exec node src/deploy-commands.js; then
+    ok "Slash-Command Deploy abgeschlossen."
+    return 0
+  fi
+  fail "Slash-Command Deploy fehlgeschlagen."
+  return 1
+}
+
+run_premium_wizard_now() {
+  echo ""
+  info "Premium-Verwaltung wird gestartet..."
+  if run_omnifm_exec node src/premium-cli.js wizard; then
+    ok "Premium-Verwaltung beendet."
+    return 0
+  fi
+  fail "Premium-Verwaltung fehlgeschlagen."
+  return 1
+}
+
+run_offers_wizard_now() {
+  echo ""
+  info "Codes / Offers Verwaltung wird gestartet..."
+  if run_omnifm_exec node src/premium-cli.js offers; then
+    ok "Codes / Offers Verwaltung beendet."
+    return 0
+  fi
+  fail "Codes / Offers Verwaltung fehlgeschlagen."
+  return 1
 }
 
 sanitize_env_structure
