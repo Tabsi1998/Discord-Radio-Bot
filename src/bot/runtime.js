@@ -110,6 +110,7 @@ import {
   setNowPlayingQueue,
   normalizeTrackSearchText,
 } from "../services/now-playing.js";
+import { buildFailoverCandidateChain, normalizeFailoverChain } from "../lib/failover-chain.js";
 import { createResource } from "../services/stream.js";
 import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier, buildScopedStationsData } from "../stations-store.js";
 import { saveBotState, getBotState, clearBotGuild } from "../bot-state.js";
@@ -2309,40 +2310,46 @@ class BotRuntime {
       log("ERROR", `[${this.config.name}] Auto-restart error for ${key}: ${err.message}`);
 
       const isCustomStation = this.normalizeStationReference(key).isCustom;
-      const fallbackKey = !isCustomStation ? getFallbackKey(resolvedStation.stations, resolvedStation.key) : null;
-
-      // Check for user-configured fallback station (Ultimate feature)
-      let userFallbackKey = null;
+      const automaticFallbackKey = !isCustomStation ? getFallbackKey(resolvedStation.stations, resolvedStation.key) : null;
+      let configuredFailoverChain = [];
+      let legacyFallbackStation = "";
       try {
-        const { getDb: getDatabase, isConnected: isDbConn } = await import("./lib/db.js");
+        const { getDb: getDatabase, isConnected: isDbConn } = await import("../lib/db.js");
         if (isDbConn() && getDatabase()) {
-          const settings = await getDatabase().collection("guild_settings").findOne({ guildId }, { projection: { fallbackStation: 1 } });
-          if (settings?.fallbackStation && settings.fallbackStation !== resolvedStation.key) {
-            userFallbackKey = settings.fallbackStation;
-          }
+          const settings = await getDatabase().collection("guild_settings").findOne(
+            { guildId },
+            { projection: { failoverChain: 1, fallbackStation: 1 } }
+          );
+          configuredFailoverChain = normalizeFailoverChain(settings?.failoverChain || []);
+          legacyFallbackStation = String(settings?.fallbackStation || "").trim().toLowerCase();
         }
       } catch {}
 
-      const effectiveFallback = userFallbackKey || fallbackKey;
-      if (effectiveFallback) {
-        const fbRef = this.normalizeStationReference(effectiveFallback);
-        const fbStation = fbRef.isCustom
-          ? (getGuildStations(guildId)?.[fbRef.key] || null)
-          : (resolvedStation.stations?.stations?.[effectiveFallback] || null);
-        if (fbStation) {
-          try {
-            if (fbRef.isCustom) {
-              state.currentStationKey = `custom:${fbRef.key}`;
-              state.currentStationName = fbStation.name || fbRef.key;
-              await this.playStation(state, { stations: { [`custom:${fbRef.key}`]: fbStation } }, `custom:${fbRef.key}`, guildId);
-            } else {
-              await this.playStation(state, resolvedStation.stations, effectiveFallback, guildId);
-            }
-            log("INFO", `[${this.config.name}] Fallback to ${effectiveFallback} after restart failure`);
-          } catch (fallbackErr) {
-            log("ERROR", `[${this.config.name}] Fallback restart also failed: ${fallbackErr.message}`);
-          }
+      const fallbackCandidates = buildFailoverCandidateChain({
+        currentStationKey: resolvedStation.key,
+        configuredChain: configuredFailoverChain,
+        fallbackStation: legacyFallbackStation,
+        automaticFallbackKey,
+      });
+
+      for (const fallbackCandidate of fallbackCandidates) {
+        const fallbackStation = this.resolveStationForGuild(guildId, fallbackCandidate);
+        if (!fallbackStation?.ok || !fallbackStation?.stations || !fallbackStation?.station) {
+          log("WARN", `[${this.config.name}] Skip unavailable failover candidate ${fallbackCandidate}`);
+          continue;
         }
+
+        try {
+          await this.playStation(state, fallbackStation.stations, fallbackStation.key, guildId);
+          log("INFO", `[${this.config.name}] Failover to ${fallbackStation.key} after restart failure`);
+          return;
+        } catch (fallbackErr) {
+          log("ERROR", `[${this.config.name}] Failover candidate ${fallbackCandidate} failed: ${fallbackErr.message}`);
+        }
+      }
+
+      if (fallbackCandidates.length > 0) {
+        log("ERROR", `[${this.config.name}] Exhausted failover chain after restart failure`);
       }
     }
   }

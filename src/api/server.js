@@ -70,6 +70,10 @@ import {
   buildWeeklyDigestMeta,
   normalizeWeeklyDigestConfig,
 } from "../lib/weekly-digest.js";
+import {
+  getPrimaryFailoverStation,
+  normalizeFailoverChain,
+} from "../lib/failover-chain.js";
 import { loadStations, filterStationsByTier } from "../stations-store.js";
 import { buildPublicStationCatalog } from "../lib/public-stations.js";
 import {
@@ -263,6 +267,24 @@ function buildDashboardFallbackStationPreview(guildId, rawFallbackStation) {
     tier: match.tier,
     isCustom: match.isCustom,
   };
+}
+
+function resolveDashboardFailoverChain(settings = {}) {
+  const configuredChain = normalizeFailoverChain(settings?.failoverChain || []);
+  if (configuredChain.length > 0) return configuredChain;
+  return normalizeFailoverChain(settings?.fallbackStation || "");
+}
+
+function buildDashboardFailoverChainPreview(guildId, rawFailoverChain = [], rawFallbackStation = "") {
+  const chain = normalizeFailoverChain(
+    Array.isArray(rawFailoverChain) && rawFailoverChain.length > 0
+      ? rawFailoverChain
+      : rawFallbackStation
+  );
+  return chain.map((stationKey, index) => ({
+    order: index + 1,
+    ...buildDashboardFallbackStationPreview(guildId, stationKey),
+  }));
 }
 
 function getHealthBinaryProbe() {
@@ -3587,7 +3609,7 @@ function startWebServer(runtimes) {
       return;
     }
 
-    // --- Dashboard: Guild Settings (Weekly Digest, Fallback Station) ---
+    // --- Dashboard: Guild Settings (Weekly Digest, Failover Chain) ---
     if (requestUrl.pathname === "/api/dashboard/settings") {
       const { language } = getDashboardRequestTranslator(req, requestUrl);
       const { session } = getDashboardSession(req);
@@ -3606,7 +3628,8 @@ function startWebServer(runtimes) {
           } catch {}
         }
         const weeklyDigest = normalizeWeeklyDigestConfig(settings.weeklyDigest || {}, language);
-        const fallbackStation = String(settings.fallbackStation || "").trim().toLowerCase();
+        const failoverChain = resolveDashboardFailoverChain(settings);
+        const fallbackStation = getPrimaryFailoverStation(failoverChain, settings.fallbackStation || "");
         sendJson(res, 200, {
           guildId: guildInfo.id,
           tier: guildInfo.tier,
@@ -3615,6 +3638,8 @@ function startWebServer(runtimes) {
           weeklyDigestMeta: buildWeeklyDigestMeta(weeklyDigest, {
             lastSentAt: settings.weeklyDigestLastSent || null,
           }),
+          failoverChain,
+          failoverChainPreview: buildDashboardFailoverChainPreview(guildInfo.id, failoverChain, fallbackStation),
           fallbackStation,
           fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
         });
@@ -3644,14 +3669,20 @@ function startWebServer(runtimes) {
             }
           }
 
-          if (body?.fallbackStation !== undefined) {
+          if (body?.failoverChain !== undefined || body?.fallbackStation !== undefined) {
             if (!serverHasCapability(guildInfo.id, "failover_rules")) {
               sendLocalizedError(res, 403, language, "Fallback-Station ist nur für Ultimate verfügbar.", "Fallback station is only available for Ultimate.");
               return;
             }
-            updates.fallbackStation = clipText(body.fallbackStation || "", 120).trim().toLowerCase();
-            const fallbackPreview = buildDashboardFallbackStationPreview(guildInfo.id, updates.fallbackStation);
-            if (updates.fallbackStation && fallbackPreview.valid !== true) {
+            const rawFailoverInput = body?.failoverChain !== undefined
+              ? (Array.isArray(body.failoverChain)
+                ? body.failoverChain.map((value) => clipText(value || "", 120))
+                : clipText(body.failoverChain || "", 120))
+              : clipText(body?.fallbackStation || "", 120);
+            const normalizedFailoverChain = normalizeFailoverChain(rawFailoverInput);
+            const failoverPreviews = buildDashboardFailoverChainPreview(guildInfo.id, normalizedFailoverChain);
+            const invalidPreview = failoverPreviews.find((preview) => preview.valid !== true) || null;
+            if (invalidPreview) {
               sendLocalizedError(
                 res,
                 400,
@@ -3661,6 +3692,8 @@ function startWebServer(runtimes) {
               );
               return;
             }
+            updates.failoverChain = normalizedFailoverChain;
+            updates.fallbackStation = getPrimaryFailoverStation(normalizedFailoverChain, "");
           }
 
           if (!isDbConnected() || !getDatabase()) {
@@ -3680,9 +3713,12 @@ function startWebServer(runtimes) {
           );
           const weeklyDigest = updates.weeklyDigest
             || normalizeWeeklyDigestConfig(currentSettings.weeklyDigest || {}, language);
+          const failoverChain = Object.prototype.hasOwnProperty.call(updates, "failoverChain")
+            ? normalizeFailoverChain(updates.failoverChain || [])
+            : resolveDashboardFailoverChain(currentSettings);
           const fallbackStation = Object.prototype.hasOwnProperty.call(updates, "fallbackStation")
-            ? updates.fallbackStation
-            : String(currentSettings.fallbackStation || "").trim().toLowerCase();
+            ? String(updates.fallbackStation || "").trim().toLowerCase()
+            : getPrimaryFailoverStation(failoverChain, currentSettings.fallbackStation || "");
           sendJson(res, 200, {
             success: true,
             guildId: guildInfo.id,
@@ -3692,6 +3728,8 @@ function startWebServer(runtimes) {
             weeklyDigestMeta: buildWeeklyDigestMeta(weeklyDigest, {
               lastSentAt: currentSettings.weeklyDigestLastSent || null,
             }),
+            failoverChain,
+            failoverChainPreview: buildDashboardFailoverChainPreview(guildInfo.id, failoverChain, fallbackStation),
             fallbackStation,
             fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
           });

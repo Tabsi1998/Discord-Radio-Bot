@@ -4,6 +4,8 @@ function clampInt(value, min, max, fallback) {
   return Math.max(min, Math.min(max, parsed));
 }
 
+const FAILOVER_CHAIN_LIMIT = 5;
+
 function computeWeeklyDigestNextRun(weeklyDigest, now = new Date()) {
   const source = weeklyDigest && typeof weeklyDigest === "object" ? weeklyDigest : {};
   const base = now instanceof Date ? new Date(now.getTime()) : new Date(now);
@@ -94,11 +96,44 @@ function buildWeeklyDigestSummary(settings, t = (de, en) => de, formatDate = nul
   };
 }
 
+function normalizeFailoverChain(input, maxLength = FAILOVER_CHAIN_LIMIT) {
+  const values = Array.isArray(input)
+    ? input
+    : input === undefined || input === null || input === ""
+      ? []
+      : [input];
+  const out = [];
+  const seen = new Set();
+
+  for (const rawValue of values) {
+    const key = String(rawValue || "").trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+    if (out.length >= maxLength) break;
+  }
+
+  return out;
+}
+
+function getConfiguredFailoverChain(settings) {
+  const configuredChain = normalizeFailoverChain(settings?.failoverChain || []);
+  if (configuredChain.length > 0) return configuredChain;
+  return normalizeFailoverChain(settings?.fallbackStation || "");
+}
+
 function buildFallbackStationSummary(settings, t = (de, en) => de) {
-  const selectedValue = String(settings?.fallbackStation || "").trim().toLowerCase();
-  const preview = settings?.fallbackStationPreview && typeof settings.fallbackStationPreview === "object"
-    ? settings.fallbackStationPreview
-    : null;
+  const configuredChain = getConfiguredFailoverChain(settings);
+  const selectedValue = configuredChain[0] || "";
+  const failoverPreviewList = Array.isArray(settings?.failoverChainPreview)
+    ? settings.failoverChainPreview
+    : [];
+  const preview = failoverPreviewList[0] || (
+    settings?.fallbackStationPreview && typeof settings.fallbackStationPreview === "object"
+      ? settings.fallbackStationPreview
+      : null
+  );
+  const remainingStations = Math.max(0, configuredChain.length - 1);
 
   if (!selectedValue) {
     return {
@@ -110,6 +145,8 @@ function buildFallbackStationSummary(settings, t = (de, en) => de) {
       ),
       stationLabel: t("Keine Fallback-Station", "No fallback station"),
       badgeLabel: "",
+      chainLength: 0,
+      chainLabel: t("Keine Kette aktiv", "No chain active"),
     };
   }
 
@@ -123,6 +160,10 @@ function buildFallbackStationSummary(settings, t = (de, en) => de) {
       ),
       stationLabel: preview.label || selectedValue,
       badgeLabel: "",
+      chainLength: configuredChain.length,
+      chainLabel: remainingStations > 0
+        ? t(`+${remainingStations} weitere Schritte`, `+${remainingStations} more steps`)
+        : t("Nur Primär-Failover gesetzt", "Only the primary failover is configured"),
     };
   }
 
@@ -133,17 +174,29 @@ function buildFallbackStationSummary(settings, t = (de, en) => de) {
   return {
     statusLabel: t("Bereit", "Ready"),
     statusAccent: "#8B5CF6",
-    description: t(
-      "Wenn ein Stream hart fehlschlaegt, wechselt OmniFM auf diese Station.",
-      "If a stream fails hard, OmniFM switches to this station."
-    ),
+    description: remainingStations > 0
+      ? t(
+        "Wenn ein Stream hart fehlschlaegt, probiert OmniFM diese Station zuerst und hat weitere Failover-Schritte bereit.",
+        "If a stream fails hard, OmniFM tries this station first and keeps additional failover steps ready."
+      )
+      : t(
+        "Wenn ein Stream hart fehlschlaegt, wechselt OmniFM auf diese Station.",
+        "If a stream fails hard, OmniFM switches to this station."
+      ),
     stationLabel: preview?.label || preview?.name || selectedValue,
     badgeLabel,
+    chainLength: configuredChain.length,
+    chainLabel: remainingStations > 0
+      ? t(`+${remainingStations} weitere Schritte`, `+${remainingStations} more steps`)
+      : t("1 Failover-Schritt", "1 failover step"),
   };
 }
 
 export {
+  FAILOVER_CHAIN_LIMIT,
   buildFallbackStationSummary,
   buildWeeklyDigestSummary,
   computeWeeklyDigestNextRun,
+  getConfiguredFailoverChain,
+  normalizeFailoverChain,
 };

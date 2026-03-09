@@ -2,9 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  FAILOVER_CHAIN_LIMIT,
   buildFallbackStationSummary,
   buildWeeklyDigestSummary,
   computeWeeklyDigestNextRun,
+  getConfiguredFailoverChain,
+  normalizeFailoverChain,
 } from "../frontend/src/lib/dashboardSettings.js";
 
 test("computeWeeklyDigestNextRun follows the next matching weekly slot", () => {
@@ -61,4 +64,60 @@ test("buildFallbackStationSummary highlights configured fallback stations", () =
   assert.equal(summary.statusLabel, "Ready");
   assert.equal(summary.stationLabel, "Night Shift (Custom)");
   assert.equal(summary.badgeLabel, "Custom");
+  assert.equal(summary.chainLength, 1);
+});
+
+test("normalizeFailoverChain mirrors the dashboard failover limits", () => {
+  const chain = normalizeFailoverChain([
+    " rock ",
+    "rock",
+    "custom:nightshift",
+    "jazz",
+    "pop",
+    "news",
+    "talk",
+  ]);
+
+  assert.deepEqual(chain, ["rock", "custom:nightshift", "jazz", "pop", "news"]);
+  assert.equal(chain.length, FAILOVER_CHAIN_LIMIT);
+});
+
+test("getConfiguredFailoverChain prefers the explicit chain over the legacy fallbackStation", () => {
+  assert.deepEqual(
+    getConfiguredFailoverChain({
+      failoverChain: ["custom:nightshift", "rock"],
+      fallbackStation: "jazz",
+    }),
+    ["custom:nightshift", "rock"]
+  );
+
+  assert.deepEqual(
+    getConfiguredFailoverChain({
+      fallbackStation: "jazz",
+    }),
+    ["jazz"]
+  );
+});
+
+test("buildFallbackStationSummary reflects additional failover steps", () => {
+  const summary = buildFallbackStationSummary(
+    {
+      failoverChain: ["custom:nightshift", "rock", "jazz"],
+      failoverChainPreview: [
+        {
+          valid: true,
+          label: "Night Shift (Custom)",
+          name: "Night Shift",
+          tier: "ultimate",
+          isCustom: true,
+        },
+      ],
+    },
+    (_de, en) => en
+  );
+
+  assert.equal(summary.statusLabel, "Ready");
+  assert.equal(summary.chainLength, 3);
+  assert.equal(summary.chainLabel, "+2 more steps");
+  assert.match(summary.description, /additional failover steps/i);
 });

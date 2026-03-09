@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, Shield, Save } from 'lucide-react';
+import { Calendar, Shield, Save, Plus, ArrowUp, ArrowDown, X } from 'lucide-react';
 import { DASHBOARD_CAPABILITY_DEFAULTS } from '../lib/dashboardCapabilities';
 import {
+  FAILOVER_CHAIN_LIMIT,
   buildFallbackStationSummary,
   buildWeeklyDigestSummary,
+  getConfiguredFailoverChain,
+  normalizeFailoverChain,
 } from '../lib/dashboardSettings';
 
 const DAYS = [
@@ -26,6 +29,7 @@ export default function DashboardSettings({
   const [settings, setSettings] = useState(null);
   const [textChannels, setTextChannels] = useState([]);
   const [stations, setStations] = useState({ free: [], pro: [], ultimate: [], custom: [] });
+  const [pendingFailoverStation, setPendingFailoverStation] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -40,6 +44,7 @@ export default function DashboardSettings({
       setError('');
       setMessage('');
       setLoading(false);
+      setPendingFailoverStation('');
       return;
     }
     setLoading(true);
@@ -48,6 +53,7 @@ export default function DashboardSettings({
     setSettings(null);
     setTextChannels([]);
     setStations({ free: [], pro: [], ultimate: [], custom: [] });
+    setPendingFailoverStation('');
     try {
       const [settingsResult, channelsResult, stationsResult] = await Promise.all([
         apiRequest(`/api/dashboard/settings?serverId=${encodeURIComponent(selectedGuildId)}`),
@@ -63,6 +69,7 @@ export default function DashboardSettings({
         ultimate: stationsResult.ultimate || [],
         custom: stationsResult.custom || [],
       });
+      setPendingFailoverStation('');
     } catch (err) {
       if (loadToken !== loadTokenRef.current) return;
       setError(err.message);
@@ -80,7 +87,7 @@ export default function DashboardSettings({
     try {
       const body = {};
       if (capabilities.weeklyDigest === true && settings?.weeklyDigest) body.weeklyDigest = settings.weeklyDigest;
-      if (capabilities.failoverRules === true && settings?.fallbackStation !== undefined) body.fallbackStation = settings.fallbackStation;
+      if (capabilities.failoverRules === true) body.failoverChain = getConfiguredFailoverChain(settings);
       const result = await apiRequest(`/api/dashboard/settings?serverId=${encodeURIComponent(selectedGuildId)}`, {
         method: 'PUT',
         body: JSON.stringify(body),
@@ -97,15 +104,82 @@ export default function DashboardSettings({
   const wd = settings?.weeklyDigest || { enabled: false, channelId: '', dayOfWeek: 1, hour: 9, language: 'de' };
   const canManageWeeklyDigest = capabilities.weeklyDigest === true;
   const canManageFallbackStation = capabilities.failoverRules === true;
+  const configuredFailoverChain = getConfiguredFailoverChain(settings);
   const digestSummary = buildWeeklyDigestSummary(settings, t, formatDate);
   const fallbackSummary = buildFallbackStationSummary(settings, t);
 
   const allStations = [
-    ...stations.custom.map((station) => ({ value: `custom:${station.key}`, label: `${station.name} (Custom)` })),
-    ...stations.free.map((station) => ({ value: station.key, label: station.name })),
-    ...stations.pro.map((station) => ({ value: station.key, label: `${station.name} (Pro)` })),
-    ...stations.ultimate.map((station) => ({ value: station.key, label: `${station.name} (Ultimate)` })),
+    ...stations.custom.map((station) => ({ value: `custom:${station.key}`, label: `${station.name} (Custom)`, name: station.name, tier: 'ultimate', isCustom: true })),
+    ...stations.free.map((station) => ({ value: station.key, label: station.name, name: station.name, tier: 'free', isCustom: false })),
+    ...stations.pro.map((station) => ({ value: station.key, label: `${station.name} (Pro)`, name: station.name, tier: 'pro', isCustom: false })),
+    ...stations.ultimate.map((station) => ({ value: station.key, label: `${station.name} (Ultimate)`, name: station.name, tier: 'ultimate', isCustom: false })),
   ];
+  const stationPreviewMap = new Map(allStations.map((station) => [station.value, {
+    configured: true,
+    valid: true,
+    key: station.value,
+    name: station.name,
+    label: station.label,
+    tier: station.tier,
+    isCustom: station.isCustom,
+  }]));
+  const availableFailoverStations = allStations.filter((station) => !configuredFailoverChain.includes(station.value));
+
+  const buildLocalFailoverPreview = (rawValue) => {
+    const selectedValue = String(rawValue || '').trim().toLowerCase();
+    if (!selectedValue) {
+      return {
+        configured: false,
+        valid: true,
+        key: '',
+        name: '',
+        label: '',
+        tier: null,
+        isCustom: false,
+      };
+    }
+    return stationPreviewMap.get(selectedValue) || {
+      configured: true,
+      valid: false,
+      key: selectedValue,
+      name: '',
+      label: selectedValue,
+      tier: null,
+      isCustom: selectedValue.startsWith('custom:'),
+    };
+  };
+
+  const applyFailoverChain = (nextChainInput) => {
+    const nextChain = normalizeFailoverChain(nextChainInput, FAILOVER_CHAIN_LIMIT);
+    const nextPreview = nextChain.map((stationKey) => buildLocalFailoverPreview(stationKey));
+    setSettings((current) => ({
+      ...(current || {}),
+      failoverChain: nextChain,
+      failoverChainPreview: nextPreview,
+      fallbackStation: nextChain[0] || '',
+      fallbackStationPreview: nextPreview[0] || buildLocalFailoverPreview(''),
+    }));
+    setPendingFailoverStation((currentValue) => (nextChain.includes(currentValue) ? '' : currentValue));
+  };
+
+  const addFailoverStation = () => {
+    if (!pendingFailoverStation || configuredFailoverChain.length >= FAILOVER_CHAIN_LIMIT) return;
+    applyFailoverChain([...configuredFailoverChain, pendingFailoverStation]);
+    setPendingFailoverStation('');
+  };
+
+  const moveFailoverStation = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= configuredFailoverChain.length) return;
+    const nextChain = [...configuredFailoverChain];
+    const [selected] = nextChain.splice(index, 1);
+    nextChain.splice(targetIndex, 0, selected);
+    applyFailoverChain(nextChain);
+  };
+
+  const removeFailoverStation = (index) => {
+    applyFailoverChain(configuredFailoverChain.filter((_stationKey, position) => position !== index));
+  };
 
   return (
     <section data-testid="dashboard-settings-panel" style={{ display: 'grid', gap: 14 }}>
@@ -236,7 +310,7 @@ export default function DashboardSettings({
       <div data-testid="settings-fallback-station" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16, opacity: canManageFallbackStation ? 1 : 0.5 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <Shield size={18} color="#8B5CF6" />
-          <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Fallback-Station', 'Fallback station')}</h3>
+          <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Failover-Kette', 'Failover chain')}</h3>
           {!canManageFallbackStation && <span style={{ fontSize: 11, color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.3)', padding: '2px 8px' }}>ULTIMATE</span>}
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
@@ -267,27 +341,122 @@ export default function DashboardSettings({
               </div>
             )}
           </div>
+
+          <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>
+              {t('Kettenstatus', 'Chain status')}
+            </div>
+            <div data-testid="failover-chain-status" style={{ marginTop: 6, fontSize: 16, fontWeight: 600, color: '#D4D4D8' }}>
+              {fallbackSummary.chainLabel}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, color: '#71717A' }}>
+              {t('Maximal 5 Stationen', 'Up to 5 stations')}
+            </div>
+          </div>
         </div>
-        <select
-          data-testid="fallback-station-select"
-          disabled={!canManageFallbackStation}
-          value={settings?.fallbackStation || ''}
-          onChange={(e) => setSettings((current) => ({ ...(current || {}), fallbackStation: e.target.value }))}
-          style={{
-            width: '100%',
-            maxWidth: 400,
-            height: 40,
-            padding: '0 10px',
-            border: '1px solid #1A1A2E',
-            background: '#050505',
-            color: canManageFallbackStation ? '#fff' : '#3F3F46',
-            boxSizing: 'border-box',
-            fontSize: 13,
-          }}
-        >
-          <option value="">{t('Keine Fallback-Station', 'No fallback station')}</option>
-          {allStations.map((station) => <option key={station.value} value={station.value}>{station.label}</option>)}
-        </select>
+        <div data-testid="failover-chain-list" style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+          {configuredFailoverChain.length === 0 && (
+            <div style={{ border: '1px dashed #27272A', background: '#050505', padding: '12px 14px', color: '#71717A', fontSize: 13 }}>
+              {t(
+                'Noch keine Failover-Kette hinterlegt. Ohne Eintraege bleibt nur die normale Auto-Reconnect-Logik aktiv.',
+                'No failover chain has been configured yet. Without entries only the regular auto-reconnect logic remains active.'
+              )}
+            </div>
+          )}
+
+          {configuredFailoverChain.map((stationKey, index) => {
+            const preview = settings?.failoverChainPreview?.[index] || buildLocalFailoverPreview(stationKey);
+            const badgeLabel = preview?.isCustom
+              ? t('Custom', 'Custom')
+              : String(preview?.tier || 'ultimate').toUpperCase();
+            return (
+              <div
+                key={`${stationKey}-${index}`}
+                data-testid={`failover-chain-item-${index}`}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px', flexWrap: 'wrap' }}
+              >
+                <div style={{ minWidth: 0, flex: '1 1 220px' }}>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>
+                    {t('Schritt', 'Step')} {index + 1}
+                  </div>
+                  <div style={{ marginTop: 4, fontSize: 15, fontWeight: 600, color: '#F4F4F5' }}>
+                    {preview?.label || stationKey}
+                  </div>
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ display: 'inline-flex', border: '1px solid rgba(139,92,246,0.3)', color: '#C4B5FD', padding: '2px 8px', fontSize: 11, letterSpacing: '0.08em' }}>
+                      {badgeLabel}
+                    </span>
+                    {preview?.valid === false && (
+                      <span style={{ color: '#FCA5A5', fontSize: 12 }}>
+                        {t('Aktuell nicht verfuegbar', 'Currently unavailable')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    disabled={!canManageFallbackStation || index === 0}
+                    onClick={() => moveFailoverStation(index, -1)}
+                    style={{ width: 34, height: 34, border: '1px solid #1A1A2E', background: '#09090B', color: canManageFallbackStation && index > 0 ? '#F4F4F5' : '#3F3F46', cursor: canManageFallbackStation && index > 0 ? 'pointer' : 'not-allowed' }}
+                  >
+                    <ArrowUp size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canManageFallbackStation || index === configuredFailoverChain.length - 1}
+                    onClick={() => moveFailoverStation(index, 1)}
+                    style={{ width: 34, height: 34, border: '1px solid #1A1A2E', background: '#09090B', color: canManageFallbackStation && index < configuredFailoverChain.length - 1 ? '#F4F4F5' : '#3F3F46', cursor: canManageFallbackStation && index < configuredFailoverChain.length - 1 ? 'pointer' : 'not-allowed' }}
+                  >
+                    <ArrowDown size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canManageFallbackStation}
+                    onClick={() => removeFailoverStation(index)}
+                    style={{ width: 34, height: 34, border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(127,29,29,0.12)', color: canManageFallbackStation ? '#FCA5A5' : '#3F3F46', cursor: canManageFallbackStation ? 'pointer' : 'not-allowed' }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'stretch', flexWrap: 'wrap' }}>
+          <select
+            data-testid="failover-chain-add-select"
+            disabled={!canManageFallbackStation || configuredFailoverChain.length >= FAILOVER_CHAIN_LIMIT}
+            value={pendingFailoverStation}
+            onChange={(e) => setPendingFailoverStation(e.target.value)}
+            style={{
+              flex: '1 1 280px',
+              minWidth: 220,
+              height: 40,
+              padding: '0 10px',
+              border: '1px solid #1A1A2E',
+              background: '#050505',
+              color: canManageFallbackStation ? '#fff' : '#3F3F46',
+              boxSizing: 'border-box',
+              fontSize: 13,
+            }}
+          >
+            <option value="">{t('Station zur Kette hinzufuegen...', 'Add station to chain...')}</option>
+            {availableFailoverStations.map((station) => <option key={station.value} value={station.value}>{station.label}</option>)}
+          </select>
+
+          <button
+            type="button"
+            data-testid="failover-chain-add-btn"
+            disabled={!canManageFallbackStation || !pendingFailoverStation || configuredFailoverChain.length >= FAILOVER_CHAIN_LIMIT}
+            onClick={addFailoverStation}
+            style={{ height: 40, padding: '0 14px', border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(91,33,182,0.18)', color: canManageFallbackStation && pendingFailoverStation ? '#DDD6FE' : '#3F3F46', cursor: canManageFallbackStation && pendingFailoverStation ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}
+          >
+            <Plus size={14} /> {t('Hinzufuegen', 'Add')}
+          </button>
+        </div>
       </div>
 
       <button

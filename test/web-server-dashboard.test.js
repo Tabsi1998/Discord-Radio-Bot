@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { startWebServer } from "../src/api/server.js";
 import { setLicenseProvider } from "../src/core/entitlements.js";
+import { connect as connectDb, close as closeDb, getDb } from "../src/lib/db.js";
 import {
   setDashboardAuthSession,
   deleteDashboardAuthSession,
@@ -272,6 +273,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
 
   let activePlan = "pro";
   let activeSeats = 2;
+  let mongoAvailable = false;
   setLicenseProvider((serverId) => {
     if (String(serverId) !== GUILD_ID) return null;
     return {
@@ -280,6 +282,14 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
       seats: activeSeats,
     };
   });
+
+  try {
+    await connectDb();
+    if (getDb()) {
+      mongoAvailable = true;
+      await getDb().collection("guild_settings").deleteMany({ guildId: GUILD_ID });
+    }
+  } catch {}
 
   const sessionToken = `test-session-${Date.now()}`;
   const nowTs = Math.floor(Date.now() / 1000);
@@ -325,6 +335,10 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     deleteDashboardAuthSession(sessionToken);
     setLicenseProvider(() => null);
     restoreEnv();
+    if (mongoAvailable && getDb()) {
+      await getDb().collection("guild_settings").deleteMany({ guildId: GUILD_ID }).catch(() => null);
+      await closeDb().catch(() => null);
+    }
     for (const [filePath, snapshot] of snapshots.entries()) {
       await restoreFile(filePath, snapshot);
     }
@@ -359,6 +373,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(settingsResponse.payload.weeklyDigest.language, "de");
   assert.equal(settingsResponse.payload.weeklyDigestMeta.ready, false);
   assert.equal(typeof settingsResponse.payload.weeklyDigestMeta.nextRunAt, "string");
+  assert.deepEqual(settingsResponse.payload.failoverChain, []);
+  assert.deepEqual(settingsResponse.payload.failoverChainPreview, []);
   assert.equal(settingsResponse.payload.fallbackStation, "");
   assert.equal(settingsResponse.payload.fallbackStationPreview.valid, true);
 
@@ -388,6 +404,64 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
 
   activePlan = "ultimate";
   activeSeats = 2;
+  const stationsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/stations?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(stationsResponse.status, 200);
+  const availableFailoverStations = [
+    ...(stationsResponse.payload.custom || []).map((station) => `custom:${station.key}`),
+    ...(stationsResponse.payload.free || []).map((station) => station.key),
+    ...(stationsResponse.payload.pro || []).map((station) => station.key),
+    ...(stationsResponse.payload.ultimate || []).map((station) => station.key),
+  ].filter(Boolean);
+  assert.ok(availableFailoverStations.length >= 2);
+  const selectedFailoverChain = availableFailoverStations.slice(0, 2);
+
+  const validFailoverSettings = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        failoverChain: selectedFailoverChain,
+      }),
+    }
+  );
+  assert.equal(validFailoverSettings.status, mongoAvailable ? 200 : 503);
+  if (mongoAvailable) {
+    assert.deepEqual(validFailoverSettings.payload.failoverChain, selectedFailoverChain);
+    assert.equal(validFailoverSettings.payload.fallbackStation, selectedFailoverChain[0]);
+    assert.equal(validFailoverSettings.payload.failoverChainPreview.length, selectedFailoverChain.length);
+  }
+
+  const legacyFallbackSettings = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fallbackStation: selectedFailoverChain[0],
+      }),
+    }
+  );
+  assert.equal(legacyFallbackSettings.status, mongoAvailable ? 200 : 503);
+  if (mongoAvailable) {
+    assert.deepEqual(legacyFallbackSettings.payload.failoverChain, [selectedFailoverChain[0]]);
+    assert.equal(legacyFallbackSettings.payload.fallbackStation, selectedFailoverChain[0]);
+  }
+
   const invalidFallbackSettings = await requestJson(
     baseUrl,
     `/api/dashboard/settings?serverId=${GUILD_ID}`,
@@ -399,7 +473,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        fallbackStation: "custom:missing-station",
+        failoverChain: ["custom:missing-station"],
       }),
     }
   );
