@@ -26,6 +26,8 @@ import {
   renderDiscordMarkdown,
   renderEventTemplate,
 } from '../lib/dashboardEvents';
+import { buildDashboardEventsHint as buildEventsOnboardingHint } from '../lib/dashboardOnboarding';
+import DashboardOnboardingHint from './DashboardOnboardingHint';
 
 function InputRow({ label, children, testId }) {
   return (
@@ -251,6 +253,8 @@ export default function DashboardEvents({
   formatDate,
   apiRequest,
   selectedGuildId,
+  setupStatus = null,
+  inviteLinks = null,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [voiceChannels, setVoiceChannels] = useState([]);
@@ -260,6 +264,7 @@ export default function DashboardEvents({
   const [previewData, setPreviewData] = useState(null);
   const [previewError, setPreviewError] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [loadingDependencies, setLoadingDependencies] = useState(false);
   const loadTokenRef = useRef(0);
   const previewTokenRef = useRef(0);
 
@@ -276,6 +281,7 @@ export default function DashboardEvents({
     setTextChannels([]);
     setStations({ free: [], pro: [], ultimate: [], custom: [] });
     setServerEmojis([]);
+    setLoadingDependencies(true);
     try {
       const [channelResult, stationResult, emojiResult] = await Promise.all([
         apiRequest(`/api/dashboard/channels?serverId=${encodeURIComponent(selectedGuildId)}`),
@@ -298,6 +304,9 @@ export default function DashboardEvents({
       setTextChannels([]);
       setStations({ free: [], pro: [], ultimate: [], custom: [] });
       setServerEmojis([]);
+    } finally {
+      if (loadToken !== loadTokenRef.current) return;
+      setLoadingDependencies(false);
     }
   }, [selectedGuildId, apiRequest]);
 
@@ -433,6 +442,16 @@ export default function DashboardEvents({
   );
   const eventTemplatePresets = useMemo(() => buildDashboardEventTemplatePresets(t), [t]);
   const schedulePresets = useMemo(() => buildDashboardSchedulePresets(t), [t]);
+  const onboardingHint = useMemo(
+    () => buildEventsOnboardingHint({
+      setupStatus,
+      inviteLinks,
+      hasEvents: events.length > 0,
+      voiceChannelCount: loadingDependencies ? 1 : voiceChannels.length,
+      t,
+    }),
+    [events.length, inviteLinks, loadingDependencies, setupStatus, t, voiceChannels.length]
+  );
 
   return (
     <section data-testid="dashboard-events-panel" style={{ display: 'grid', gap: 14 }}>
@@ -454,6 +473,26 @@ export default function DashboardEvents({
             <Plus size={14} /> {showForm ? t('Formular offen', 'Form open') : t('Neues Event', 'New event')}
           </button>
         </div>
+
+        {!showForm && onboardingHint && (
+          <div style={{ marginTop: 14 }}>
+            <DashboardOnboardingHint
+              hint={onboardingHint}
+              t={t}
+              dataTestId="dashboard-events-onboarding-hint"
+              actions={
+                setupStatus?.workerInvited === true && voiceChannels.length > 0
+                  ? [{
+                    label: t('Erstes Event erstellen', 'Create first event'),
+                    onClick: () => setShowForm(true),
+                    testId: 'dashboard-events-create-first',
+                    variant: 'primary',
+                  }]
+                  : []
+              }
+            />
+          </div>
+        )}
 
         {showForm && (
           <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
@@ -814,6 +853,7 @@ export default function DashboardEvents({
           <div data-testid="events-empty" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: '40px 20px', textAlign: 'center' }}>
             <CalendarDays size={32} color="#27272A" style={{ margin: '0 auto' }} />
             <p style={{ color: '#52525B', marginTop: 10 }}>{t('Noch keine Events erstellt.', 'No events created yet.')}</p>
+            <p style={{ color: '#3F3F46', marginTop: 4, fontSize: 13 }}>{t('Lege oben dein erstes Radio-Event an.', 'Create your first radio event above.')}</p>
           </div>
         )}
         {events.map((event) => (

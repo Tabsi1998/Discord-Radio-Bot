@@ -3,6 +3,7 @@ import { BarChart3, CalendarDays, Crown, Globe, Lock, LogOut, ShieldCheck, Trend
 import { useI18n } from '../i18n';
 import { buildApiUrl } from '../lib/api';
 import DashboardOverview from './DashboardOverview';
+import DashboardOnboardingHint from './DashboardOnboardingHint';
 import DashboardStatsPanel from './DashboardStats';
 import DashboardEvents from './DashboardEvents';
 import DashboardCustomStations from './DashboardCustomStations';
@@ -13,6 +14,7 @@ import {
   getDashboardCapabilityRequiredTier,
   normalizeDashboardCapabilityPayload,
 } from '../lib/dashboardCapabilities';
+import { buildDashboardPermissionsHint as buildPermissionsOnboardingHint } from '../lib/dashboardOnboarding';
 
 const PERMISSION_COMMANDS = [
   'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',
@@ -211,6 +213,20 @@ export default function DashboardPortal() {
   );
   const nextUpgradeTier = String(effectiveCapabilityPayload.upgradeHints.nextTier || '').trim().toLowerCase();
   const nextUpgradeLabel = nextUpgradeTier ? nextUpgradeTier.toUpperCase() : '';
+  const setupStatus = stats?.basic?.setupStatus || null;
+  const hasRestrictedCommands = useMemo(
+    () => PERMISSION_COMMANDS.some((command) => Array.isArray(permsDraft[command]) && permsDraft[command].length > 0),
+    [permsDraft]
+  );
+  const permissionsHint = useMemo(
+    () => buildPermissionsOnboardingHint({
+      setupStatus,
+      availableRoleCount: availableRoles.length,
+      hasRestrictedCommands,
+      t,
+    }),
+    [availableRoles.length, hasRestrictedCommands, setupStatus, t]
+  );
   const tabs = useMemo(() => ([
     { key: 'overview', label: t('Übersicht', 'Overview'), icon: BarChart3, requiredCapability: 'dashboardAccess' },
     { key: 'events', label: t('Events', 'Events'), icon: CalendarDays, requiredCapability: 'eventScheduler' },
@@ -791,11 +807,19 @@ export default function DashboardPortal() {
               onStartEditEvent={startEditingEvent}
               onCancelEditEvent={resetEventEditor}
               t={t} formatDate={formatDate} apiRequest={apiRequest} selectedGuildId={selectedGuildId}
+              setupStatus={setupStatus}
+              inviteLinks={inviteLinks}
             />
           )}
 
           {activeTab === 'stations' && canManageCustomStations && (
-            <DashboardCustomStations apiRequest={apiRequest} selectedGuildId={selectedGuildId} t={t} />
+            <DashboardCustomStations
+              apiRequest={apiRequest}
+              selectedGuildId={selectedGuildId}
+              t={t}
+              setupStatus={setupStatus}
+              inviteLinks={inviteLinks}
+            />
           )}
 
           {activeTab === 'stations' && !canManageCustomStations && (
@@ -816,6 +840,15 @@ export default function DashboardPortal() {
               <p style={{ color: '#52525B', marginTop: 6, fontSize: 13, lineHeight: 1.6 }}>
                 {t('Mehrfachauswahl mit echten Discord-Rollen.', 'Multi-select with real Discord roles.')}
               </p>
+              {permissionsHint && (
+                <div style={{ marginTop: 14 }}>
+                  <DashboardOnboardingHint
+                    hint={permissionsHint}
+                    t={t}
+                    dataTestId="dashboard-perms-onboarding-hint"
+                  />
+                </div>
+              )}
               {!availableRoles.length && (
                 <div style={{ marginTop: 12, color: '#A1A1AA', fontSize: 13 }}>
                   {t('Keine Rollen gefunden oder Bot ist gerade nicht auf diesem Server verbunden.', 'No roles found or the bot is currently not connected to this server.')}

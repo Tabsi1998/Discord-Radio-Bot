@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
-import { Copy, ExternalLink, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import {
   buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
@@ -11,6 +11,8 @@ import {
   buildReliabilitySummary,
   formatDashboardDuration,
 } from '../lib/dashboardStats';
+import { buildDashboardNextSetupAction } from '../lib/dashboardOnboarding';
+import DashboardOnboardingHint from './DashboardOnboardingHint';
 
 const COLORS = ['#5865F2', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#F97316'];
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -80,7 +82,6 @@ export default function DashboardOverview({
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [copiedSetupCommand, setCopiedSetupCommand] = useState('');
   const basic = stats?.basic || {};
   const isDE = t('de', 'en') === 'de';
   const dayNames = isDE ? DAYS_DE : DAYS_EN;
@@ -107,54 +108,7 @@ export default function DashboardOverview({
   const setupProgressLabel = setupStatus
     ? t(`${setupStatus.completedSteps || 0}/3 Schritte fertig`, `${setupStatus.completedSteps || 0}/3 steps completed`)
     : '';
-  const inviteBots = Array.isArray(inviteLinks?.bots) ? inviteLinks.bots : [];
-  const commanderInviteUrl = inviteBots.find((bot) => String(bot?.role || '').trim().toLowerCase() === 'commander' && bot?.inviteUrl)?.inviteUrl || '';
-  const workerInviteUrl = inviteBots.find((bot) => String(bot?.role || '').trim().toLowerCase() !== 'commander' && bot?.inviteUrl)?.inviteUrl || '';
-  const nextSetupAction = !setupStatus
-    ? null
-    : !setupStatus.commanderReady
-      ? {
-        title: t('Commander zuerst verbinden', 'Connect the commander first'),
-        body: t(
-          'Ohne den Hauptbot kann OmniFM diesen Server noch nicht sauber steuern.',
-          'Without the main bot, OmniFM cannot manage this server cleanly yet.'
-        ),
-        inviteLabel: t('Commander einladen', 'Invite commander'),
-        inviteUrl: commanderInviteUrl,
-        command: '/setup',
-      }
-      : !setupStatus.workerInvited
-        ? {
-          title: t('Naechster Schritt: ersten Worker einladen', 'Next step: invite the first worker'),
-          body: t(
-            'Sobald mindestens ein Worker auf dem Server ist, kann /play den eigentlichen Stream starten.',
-            'As soon as at least one worker is on the server, /play can start the actual stream.'
-          ),
-          inviteLabel: t('Worker einladen', 'Invite worker'),
-          inviteUrl: workerInviteUrl,
-          command: '/workers',
-        }
-        : !setupStatus.firstStreamLive
-          ? {
-            title: t('Naechster Schritt: ersten Stream starten', 'Next step: start the first stream'),
-            body: t(
-              'Die Bot-Architektur ist bereit. Starte jetzt in Discord den ersten Sender mit /play.',
-              'The bot setup is ready. Start the first station in Discord with /play now.'
-            ),
-            inviteLabel: '',
-            inviteUrl: '',
-            command: '/play',
-          }
-          : {
-            title: t('Setup abgeschlossen', 'Setup completed'),
-            body: t(
-              'Dieser Server ist startklar. Danach lohnen sich je nach Bedarf Events, Rechte und weitere Worker.',
-              'This server is ready. From here, events, permissions, and more workers are the next useful upgrades.'
-            ),
-            inviteLabel: '',
-            inviteUrl: '',
-            command: '/setup',
-          };
+  const nextSetupAction = buildDashboardNextSetupAction({ setupStatus, inviteLinks, t });
   const basicHealth = basic.health || null;
   const healthStatus = buildDashboardHealthStatus(basicHealth, t);
   const healthAlerts = buildDashboardHealthAlerts(basicHealth, t);
@@ -212,18 +166,6 @@ export default function DashboardOverview({
       setResetting(false);
       setShowResetConfirm(false);
     }
-  };
-
-  const handleCopySetupCommand = async (command) => {
-    const normalizedCommand = String(command || '').trim();
-    if (!normalizedCommand || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
-    try {
-      await navigator.clipboard.writeText(normalizedCommand);
-      setCopiedSetupCommand(normalizedCommand);
-      window.setTimeout(() => {
-        setCopiedSetupCommand((current) => (current === normalizedCommand ? '' : current));
-      }, 1800);
-    } catch {}
   };
 
   return (
@@ -411,102 +353,29 @@ export default function DashboardOverview({
           </div>
 
           {nextSetupAction && (
-            <div data-testid="dashboard-setup-next-action" style={{
-              border: '1px solid rgba(0,240,255,0.16)',
-              background: 'linear-gradient(180deg, rgba(0,240,255,0.08), rgba(5,5,5,0.94))',
-              padding: '14px 16px',
-              display: 'grid',
-              gap: 12,
-            }}>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <div style={{ fontSize: 11, color: '#00F0FF', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                  {t('Naechste Aktion', 'Next action')}
-                </div>
-                <strong style={{ color: '#F4FDFF', fontSize: 16 }}>{nextSetupAction.title}</strong>
-                <p style={{ color: '#B6C8CC', fontSize: 13, lineHeight: 1.65, margin: 0 }}>
-                  {nextSetupAction.body}
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {nextSetupAction.inviteUrl ? (
-                  <a
-                    data-testid="dashboard-setup-primary-invite"
-                    href={nextSetupAction.inviteUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      border: '1px solid rgba(0,240,255,0.35)',
-                      background: 'rgba(0,240,255,0.14)',
-                      color: '#F4FDFF',
-                      padding: '10px 12px',
-                      textDecoration: 'none',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  >
-                    <ExternalLink size={14} />
-                    {nextSetupAction.inviteLabel}
-                  </a>
-                ) : null}
-
-                {nextSetupAction.command ? (
-                  <button
-                    type="button"
-                    data-testid="dashboard-setup-copy-command"
-                    onClick={() => handleCopySetupCommand(nextSetupAction.command)}
-                    style={{
-                      border: '1px solid #1F2937',
-                      background: '#050505',
-                      color: '#D4D4D8',
-                      padding: '10px 12px',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  >
-                    <Copy size={14} />
-                    {copiedSetupCommand === nextSetupAction.command
-                      ? t('Befehl kopiert', 'Command copied')
-                      : t(`Befehl kopieren: ${nextSetupAction.command}`, `Copy command: ${nextSetupAction.command}`)}
-                  </button>
-                ) : null}
-
-                {setupStatus.firstStreamLive === true && typeof onOpenSubscription === 'function' && (
-                  <button
-                    type="button"
-                    data-testid="dashboard-setup-open-subscription"
-                    onClick={onOpenSubscription}
-                    style={{
-                      border: '1px solid rgba(139,92,246,0.35)',
-                      background: 'rgba(91,33,182,0.16)',
-                      color: '#F5F3FF',
-                      padding: '10px 12px',
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {t('Mehr Worker / Features ansehen', 'View more workers / features')}
-                  </button>
-                )}
-              </div>
-
-              {!nextSetupAction.inviteUrl && (nextSetupAction.command === '/setup' || nextSetupAction.command === '/workers') && (
-                <div style={{ color: '#71717A', fontSize: 12 }}>
-                  {t(
+            <DashboardOnboardingHint
+              hint={{
+                ...nextSetupAction,
+                note: !nextSetupAction.inviteUrl && (nextSetupAction.command === '/setup' || nextSetupAction.command === '/workers')
+                  ? t(
                     'Falls kein direkter Invite-Link erscheint, pruefe die Bot-Konfiguration oder nutze /invite direkt in Discord.',
                     'If no direct invite link appears, check the bot configuration or use /invite directly in Discord.'
-                  )}
-                </div>
-              )}
-            </div>
+                  )
+                  : nextSetupAction.note,
+              }}
+              t={t}
+              dataTestId="dashboard-setup-next-action"
+              actions={
+                setupStatus.firstStreamLive === true && typeof onOpenSubscription === 'function'
+                  ? [{
+                    label: t('Mehr Worker / Features ansehen', 'View more workers / features'),
+                    onClick: onOpenSubscription,
+                    testId: 'dashboard-setup-open-subscription',
+                    variant: 'premium',
+                  }]
+                  : []
+              }
+            />
           )}
         </div>
       )}

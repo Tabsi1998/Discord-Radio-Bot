@@ -6,6 +6,8 @@ import {
   filterDashboardCustomStations,
   groupDashboardCustomStations,
 } from '../lib/dashboardCustomStations';
+import { buildDashboardCustomStationsHint } from '../lib/dashboardOnboarding';
+import DashboardOnboardingHint from './DashboardOnboardingHint';
 
 function StationRow({ station, onDelete, onEdit, t, testId }) {
   const [editing, setEditing] = useState(false);
@@ -225,7 +227,13 @@ function StationRow({ station, onDelete, onEdit, t, testId }) {
   );
 }
 
-export default function DashboardCustomStations({ apiRequest, selectedGuildId, t }) {
+export default function DashboardCustomStations({
+  apiRequest,
+  selectedGuildId,
+  t,
+  setupStatus = null,
+  inviteLinks = null,
+}) {
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -268,6 +276,12 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
   const filteredStations = filterDashboardCustomStations(stations, { search, folder: folderFilter });
   const stationGroups = groupDashboardCustomStations(filteredStations);
   const totalTagCount = stations.reduce((count, station) => count + (Array.isArray(station.tags) ? station.tags.length : 0), 0);
+  const onboardingHint = buildDashboardCustomStationsHint({
+    setupStatus,
+    inviteLinks,
+    hasStations: stations.length > 0,
+    t,
+  });
 
   const addStation = async () => {
     setError('');
@@ -553,11 +567,30 @@ export default function DashboardCustomStations({ apiRequest, selectedGuildId, t
 
       <div style={{ display: 'grid', gap: 10 }}>
         {!loading && stations.length === 0 && (
-          <div data-testid="custom-stations-empty" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: '40px 20px', textAlign: 'center' }}>
-            <Radio size={32} color="#27272A" style={{ margin: '0 auto' }} />
-            <p style={{ color: '#52525B', marginTop: 10 }}>{t('Keine Custom-Stationen vorhanden.', 'No custom stations yet.')}</p>
-            <p style={{ color: '#3F3F46', marginTop: 4, fontSize: 13 }}>{t('Nutze /addstation auf Discord oder fuege hier eine hinzu.', 'Use /addstation on Discord or add one here.')}</p>
-          </div>
+          <>
+            {onboardingHint ? (
+              <DashboardOnboardingHint
+                hint={onboardingHint}
+                t={t}
+                dataTestId="custom-stations-onboarding-hint"
+                actions={
+                  setupStatus?.firstStreamLive === true && !showAdd
+                    ? [{
+                      label: t('Erste Station anlegen', 'Create first station'),
+                      onClick: () => setShowAdd(true),
+                      testId: 'custom-stations-create-first',
+                      variant: 'primary',
+                    }]
+                    : []
+                }
+              />
+            ) : null}
+            <div data-testid="custom-stations-empty" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: '40px 20px', textAlign: 'center' }}>
+              <Radio size={32} color="#27272A" style={{ margin: '0 auto' }} />
+              <p style={{ color: '#52525B', marginTop: 10 }}>{t('Keine Custom-Stationen vorhanden.', 'No custom stations yet.')}</p>
+              <p style={{ color: '#3F3F46', marginTop: 4, fontSize: 13 }}>{t('Nutze /addstation auf Discord oder fuege hier eine hinzu.', 'Use /addstation on Discord or add one here.')}</p>
+            </div>
+          </>
         )}
 
         {!loading && stations.length > 0 && filteredStations.length === 0 && (
