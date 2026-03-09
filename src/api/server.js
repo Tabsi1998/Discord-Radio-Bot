@@ -7,9 +7,13 @@ import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { ChannelType, PermissionFlagsBits } from "discord.js";
+import { createDashboardChannelsRouteHandler } from "./routes/dashboard-channels.js";
+import { createDashboardEventsRouteHandler } from "./routes/dashboard-events.js";
 import { createDashboardLicenseRouteHandler } from "./routes/dashboard-license.js";
 import { createDashboardPermsRouteHandler } from "./routes/dashboard-perms.js";
+import { createDashboardRolesRouteHandler } from "./routes/dashboard-roles.js";
 import { createDashboardSettingsRouteHandler } from "./routes/dashboard-settings.js";
+import { createDashboardStatsRouteHandler } from "./routes/dashboard-stats.js";
 
 import { log, webDir, webRootSource, frontendBuildStamp, rootDir } from "../lib/logging.js";
 import {
@@ -143,6 +147,7 @@ import {
   deleteDashboardAuthSession,
   cleanupDashboardAuthState,
 } from "../dashboard-store.js";
+import { getDb } from "../lib/db.js";
 import {
   getSupportedPermissionCommands,
   getGuildCommandPermissionRules,
@@ -164,6 +169,7 @@ import {
   getGuildListenerTimeline,
   getGlobalStats,
   getActiveSessionsForGuild,
+  resetGuildStats,
 } from "../listening-stats-store.js";
 import {
   getDiscordBotListStatus,
@@ -476,6 +482,72 @@ const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
   serverHasCapability,
   shouldDeliverDashboardWebhook,
   validateDashboardExportsWebhookConfig,
+});
+
+const handleDashboardStatsRoute = createDashboardStatsRouteHandler({
+  buildDashboardDetailStatsPayload,
+  buildDashboardStatsForGuild,
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  getDb,
+  languagePick,
+  log,
+  methodNotAllowed,
+  resetGuildStats,
+  resolveDashboardGuildForSession,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
+});
+
+const handleDashboardEventsRoute = createDashboardEventsRouteHandler({
+  buildDashboardDiscordSyncPatch,
+  buildDashboardEventConflicts,
+  buildDashboardEventResponse,
+  buildDashboardSchedulePreviewRows,
+  createScheduledEvent,
+  deleteScheduledEvent,
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  getLocalizedJsonBodyError,
+  getRepeatLabel,
+  getScheduledEvent,
+  getTier,
+  languagePick,
+  listScheduledEvents,
+  log,
+  methodNotAllowed,
+  normalizeDashboardEventInput,
+  patchScheduledEvent,
+  resolveDashboardGuildForSession,
+  resolveRuntimeForGuild,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
+  translateScheduledEventStoreMessage,
+  validateDashboardEventChannels,
+});
+
+const handleDashboardChannelsRoute = createDashboardChannelsRouteHandler({
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  methodNotAllowed,
+  resolveDashboardGuildForSession,
+  resolveRuntimeForGuild,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
+});
+
+const handleDashboardRolesRoute = createDashboardRolesRouteHandler({
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  methodNotAllowed,
+  resolveDashboardGuildForSession,
+  resolveRuntimeForGuild,
+  sendJson,
+  sendLocalizedError,
+  serverHasCapability,
 });
 
 function buildDashboardSelectableStations(guildId) {
@@ -2603,8 +2675,6 @@ function startWebServer(runtimes) {
       return;
     }
 
-    const dashboardEventMatch = requestUrl.pathname.match(/^\/api\/dashboard\/events\/([^/]+)$/);
-
     if (requestUrl.pathname === "/api/auth/discord/login") {
       const requestLanguage = resolveDashboardRequestLanguage(req, requestUrl);
       if (req.method !== "GET") {
@@ -2788,129 +2858,7 @@ function startWebServer(runtimes) {
       sendJson(res, 200, buildServerCapabilityPayload(guild.id));
       return;
     }
-
-    if (requestUrl.pathname === "/api/dashboard/stats") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const { session } = getDashboardSession(req);
-      if (!session) {
-        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
-        return;
-      }
-
-      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guild) {
-        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
-        return;
-      }
-      if (!serverHasCapability(guild.id, "dashboard_access")) {
-        sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro.");
-        return;
-      }
-
-      const statsPayload = buildDashboardStatsForGuild(guild.id, guild.tier, runtimes);
-      sendJson(res, 200, {
-        serverId: guild.id,
-        tier: guild.tier,
-        basic: statsPayload.basic,
-        advanced: serverHasCapability(guild.id, "advanced_analytics") ? statsPayload.advanced : null,
-      });
-      return;
-    }
-
-    // --- Dashboard: Stats Reset ---
-    if (requestUrl.pathname === "/api/dashboard/stats/reset") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "DELETE") { methodNotAllowed(res, ["DELETE"]); return; }
-      const { session } = getDashboardSession(req);
-      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
-      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guild) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
-      if (!serverHasCapability(guild.id, "dashboard_access")) {
-        sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfÃ¼gbar.", "Dashboard is only available from Pro.");
-        return;
-      }
-
-      const gid = guild.id;
-      const deletedCounts = {};
-      try {
-        const { getDb } = await import("../lib/db.js");
-        const db = getDb();
-        if (db) {
-          for (const coll of ["daily_stats", "listening_sessions", "listener_snapshots"]) {
-            const r = await db.collection(coll).deleteMany({ guildId: gid });
-            deletedCounts[coll] = r.deletedCount || 0;
-          }
-          const r2 = await db.collection("guild_stats").deleteMany({ guildId: gid });
-          deletedCounts["guild_stats"] = r2.deletedCount || 0;
-        }
-        // Reset in-memory stats
-        const { resetGuildStats } = await import("../listening-stats-store.js");
-        if (typeof resetGuildStats === "function") resetGuildStats(gid);
-      } catch (err) {
-        console.error(`[stats-reset] Error for guild ${gid}: ${err.message}`);
-        sendJson(res, 500, {
-          error: languagePick(
-            language,
-            `Fehler beim Zurücksetzen: ${err.message}`,
-            `Reset failed: ${err.message}`
-          ),
-        });
-        return;
-      }
-      sendJson(res, 200, { success: true, serverId: gid, deleted: deletedCounts });
-      return;
-    }
-
-    // Enhanced stats endpoint with daily, session, connection, timeline data
-    if (requestUrl.pathname === "/api/dashboard/stats/detail") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const { session } = getDashboardSession(req);
-      if (!session) {
-        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
-        return;
-      }
-
-      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guild) {
-        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
-        return;
-      }
-      if (!serverHasCapability(guild.id, "advanced_analytics")) {
-        sendLocalizedError(
-          res,
-          403,
-          language,
-          "Detaillierte Statistiken sind nur für Ultimate verfügbar.",
-          "Detailed statistics are only available for Ultimate."
-        );
-        return;
-      }
-
-      try {
-        const detailPayload = await buildDashboardDetailStatsPayload(
-          guild,
-          runtimes,
-          requestUrl.searchParams.get("days") || "30"
-        );
-        sendJson(res, 200, detailPayload);
-      } catch (err) {
-        log("ERROR", `Dashboard detail stats error: ${err?.message || err}`);
-        sendLocalizedError(
-          res,
-          500,
-          language,
-          "Detaillierte Statistiken konnten nicht geladen werden.",
-          "Detailed statistics could not be loaded."
-        );
-      }
+    if (await handleDashboardStatsRoute({ req, res, requestUrl, runtimes })) {
       return;
     }
 
@@ -2959,468 +2907,14 @@ function startWebServer(runtimes) {
       }
       return;
     }
-
-    if (requestUrl.pathname === "/api/dashboard/events/preview") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      const { session } = getDashboardSession(req);
-      if (!session) {
-        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
-        return;
-      }
-
-      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guild) {
-        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
-        return;
-      }
-      if (!serverHasCapability(guild.id, "event_scheduler")) {
-        sendLocalizedError(res, 403, language, "Events sind erst ab Pro verfügbar.", "Events are only available from Pro.");
-        return;
-      }
-
-      try {
-        const body = await readJsonBody();
-        const eventId = String(body?.eventId || body?.id || "").trim();
-        const existingEvent = eventId ? getScheduledEvent(eventId) : null;
-        if (existingEvent && String(existingEvent.guildId || "") !== guild.id) {
-          sendJson(res, 404, { error: translateScheduledEventStoreMessage("Event nicht gefunden.", language) });
-          return;
-        }
-
-        const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
-        if (!runtime || !managedGuild) {
-          sendLocalizedError(res, 400, language, "Der Bot ist auf diesem Server aktuell nicht verfügbar.", "The bot is currently unavailable on this server.");
-          return;
-        }
-
-        const normalized = await normalizeDashboardEventInput(body, {
-          guildId: guild.id,
-          botId: existingEvent?.botId || runtime?.config?.id || "",
-          runtime,
-          existingEvent,
-          language,
-        });
-        if (!normalized.ok) {
-          sendJson(res, 400, { error: normalized.message });
-          return;
-        }
-
-        const channelValidation = await validateDashboardEventChannels(runtime, managedGuild, normalized.event, language);
-        if (!channelValidation.ok) {
-          sendJson(res, 400, { error: channelValidation.message });
-          return;
-        }
-
-        const previewEvent = {
-          ...normalized.event,
-          id: existingEvent?.id || "",
-          createdAt: existingEvent?.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        const conflicts = buildDashboardEventConflicts(
-          previewEvent,
-          listScheduledEvents({ guildId: guild.id }),
-          { language, ignoreEventId: existingEvent?.id || "" }
-        );
-
-        sendJson(res, 200, {
-          success: true,
-          serverId: guild.id,
-          event: {
-            ...buildDashboardEventResponse(previewEvent),
-            stationName: normalized.station?.station?.name || normalized.station?.key || previewEvent.stationKey,
-          },
-          schedule: {
-            nextRuns: buildDashboardSchedulePreviewRows(previewEvent, 5),
-            repeatLabelDe: getRepeatLabel(previewEvent.repeat || "none", "de", { runAtMs: previewEvent.runAtMs, timeZone: previewEvent.timeZone }),
-            repeatLabelEn: getRepeatLabel(previewEvent.repeat || "none", "en", { runAtMs: previewEvent.runAtMs, timeZone: previewEvent.timeZone }),
-            hasConflicts: conflicts.length > 0,
-          },
-          conflicts,
-        });
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 400 || status === 413) {
-          sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
-          return;
-        }
-        sendLocalizedError(res, 500, language, "Event-Vorschau konnte nicht erstellt werden.", "Event preview could not be generated.");
-      }
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/dashboard/events") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      const { session } = getDashboardSession(req);
-      if (!session) {
-        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
-        return;
-      }
-
-      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guild) {
-        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
-        return;
-      }
-      if (!serverHasCapability(guild.id, "event_scheduler")) {
-        sendLocalizedError(res, 403, language, "Events sind erst ab Pro verfügbar.", "Events are only available from Pro.");
-        return;
-      }
-
-      if (req.method === "GET") {
-        const events = listScheduledEvents({ guildId: guild.id }).map((eventRow) => buildDashboardEventResponse(eventRow));
-        sendJson(res, 200, { serverId: guild.id, events });
-        return;
-      }
-
-      if (req.method === "POST") {
-        try {
-          const body = await readJsonBody();
-          const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
-          if (!runtime || !managedGuild) {
-            sendLocalizedError(res, 400, language, "Der Bot ist auf diesem Server aktuell nicht verfügbar.", "The bot is currently unavailable on this server.");
-            return;
-          }
-          const normalized = await normalizeDashboardEventInput(body, {
-            guildId: guild.id,
-            botId: runtime?.config?.id || "",
-            runtime,
-            language,
-          });
-          if (!normalized.ok) {
-            sendJson(res, 400, { error: normalized.message });
-            return;
-          }
-
-          const channelValidation = await validateDashboardEventChannels(runtime, managedGuild, normalized.event, language);
-          if (!channelValidation.ok) {
-            sendJson(res, 400, { error: channelValidation.message });
-            return;
-          }
-
-          if (runtime.role === "commander" && runtime.workerManager && normalized.event.enabled !== false) {
-            const invitedWorkers = runtime.workerManager.getInvitedWorkers(guild.id, getTier(guild.id));
-            if (!invitedWorkers.length) {
-              sendJson(res, 400, {
-                error: languagePick(
-                  language,
-                  "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit /invite worker:1 einladen.",
-                  "No suitable worker bot is invited to this server yet. Please invite a worker first with /invite worker:1."
-                ),
-              });
-              return;
-            }
-          }
-
-          const result = createScheduledEvent({
-            ...normalized.event,
-            discordScheduledEventId: null,
-            discordSyncError: null,
-            activeUntilMs: 0,
-            deleteAfterStop: false,
-            createdByUserId: session?.user?.id || null,
-          });
-          if (!result?.ok || !result?.event) {
-            sendJson(res, 400, {
-              error: translateScheduledEventStoreMessage(
-                result?.message || languagePick(language, "Event konnte nicht erstellt werden.", "Event could not be created."),
-                language
-              ),
-            });
-            return;
-          }
-
-          let replyEvent = result.event;
-          const shouldSyncDiscordEvent = replyEvent.createDiscordEvent === true && replyEvent.enabled !== false;
-          if (shouldSyncDiscordEvent) {
-            try {
-              const scheduledEvent = await runtime.syncDiscordScheduledEvent(replyEvent, normalized.station.station, {
-                runAtMs: replyEvent.runAtMs,
-              });
-              const synced = patchScheduledEvent(
-                replyEvent.id,
-                buildDashboardDiscordSyncPatch(replyEvent, {
-                  discordScheduledEventId: scheduledEvent?.id || replyEvent.discordScheduledEventId || null,
-                  discordSyncError: null,
-                })
-              );
-              replyEvent = synced?.event || {
-                ...replyEvent,
-                ...buildDashboardDiscordSyncPatch(replyEvent, {
-                  discordScheduledEventId: scheduledEvent?.id || replyEvent.discordScheduledEventId || null,
-                  discordSyncError: null,
-                }),
-              };
-            } catch (err) {
-              const syncPatch = buildDashboardDiscordSyncPatch(replyEvent, {
-                discordScheduledEventId: replyEvent.discordScheduledEventId || null,
-                discordSyncError: err?.message || err,
-              });
-              const patched = patchScheduledEvent(replyEvent.id, syncPatch);
-              replyEvent = patched?.event || { ...replyEvent, ...syncPatch };
-              log("WARN", `[dashboard] Event ${replyEvent.id}: Discord-Server-Event konnte nicht erstellt werden: ${err?.message || err}`);
-            }
-          }
-
-          if (replyEvent.enabled && replyEvent.runAtMs <= Date.now() + 5_000) {
-            runtime.queueImmediateScheduledEventTick(250);
-          }
-
-          sendJson(res, 200, {
-            success: true,
-            event: buildDashboardEventResponse(replyEvent),
-          });
-        } catch (err) {
-          const status = Number(err?.status || 0);
-          if (status === 400 || status === 413) {
-            sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
-            return;
-          }
-          sendLocalizedError(res, 500, language, "Event konnte nicht erstellt werden.", "Event could not be created.");
-        }
-        return;
-      }
-
-      methodNotAllowed(res, ["GET", "POST"]);
-      return;
-    }
-
-    if (dashboardEventMatch) {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      const { session } = getDashboardSession(req);
-      if (!session) {
-        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
-        return;
-      }
-
-      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guild) {
-        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
-        return;
-      }
-      if (!serverHasCapability(guild.id, "event_scheduler")) {
-        sendLocalizedError(res, 403, language, "Events sind erst ab Pro verfügbar.", "Events are only available from Pro.");
-        return;
-      }
-
-      const eventId = decodeURIComponent(dashboardEventMatch[1] || "").trim();
-      if (!eventId) {
-        sendLocalizedError(res, 400, language, "Event-ID fehlt.", "Event ID is missing.");
-        return;
-      }
-
-      if (req.method === "PATCH") {
-        try {
-          const existingEvent = getScheduledEvent(eventId);
-          if (!existingEvent || String(existingEvent.guildId || "") !== guild.id) {
-            sendJson(res, 404, { error: translateScheduledEventStoreMessage("Event nicht gefunden.", language) });
-            return;
-          }
-
-          const body = await readJsonBody();
-          const { runtime, guild: managedGuild } = resolveRuntimeForGuild(runtimes, guild.id);
-          if (!runtime || !managedGuild) {
-            sendLocalizedError(res, 400, language, "Der Bot ist auf diesem Server aktuell nicht verfügbar.", "The bot is currently unavailable on this server.");
-            return;
-          }
-
-          const normalized = await normalizeDashboardEventInput(body, {
-            guildId: guild.id,
-            botId: existingEvent.botId || runtime?.config?.id || "",
-            runtime,
-            existingEvent,
-            language,
-          });
-          if (!normalized.ok) {
-            sendJson(res, 400, { error: normalized.message });
-            return;
-          }
-
-          const channelValidation = await validateDashboardEventChannels(runtime, managedGuild, normalized.event, language);
-          if (!channelValidation.ok) {
-            sendJson(res, 400, { error: channelValidation.message });
-            return;
-          }
-
-          if (runtime.role === "commander" && runtime.workerManager && normalized.event.enabled !== false) {
-            const invitedWorkers = runtime.workerManager.getInvitedWorkers(guild.id, getTier(guild.id));
-            if (!invitedWorkers.length) {
-              sendJson(res, 400, {
-                error: languagePick(
-                  language,
-                  "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit /invite worker:1 einladen.",
-                  "No suitable worker bot is invited to this server yet. Please invite a worker first with /invite worker:1."
-                ),
-              });
-              return;
-            }
-          }
-
-          const eventIsActive = Number.parseInt(String(existingEvent.activeUntilMs || 0), 10) > Date.now()
-            && Number.parseInt(String(existingEvent.lastStopAtMs || 0), 10) < Number.parseInt(String(existingEvent.activeUntilMs || 0), 10);
-          const result = patchScheduledEvent(eventId, {
-            ...normalized.event,
-            activeUntilMs: eventIsActive ? normalized.parsedWindow.endAtMs : 0,
-          });
-          if (!result?.ok || !result?.event) {
-            sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
-              error: translateScheduledEventStoreMessage(
-                result?.message || languagePick(language, "Event konnte nicht aktualisiert werden.", "Event could not be updated."),
-                language
-              ),
-            });
-            return;
-          }
-
-          let replyEvent = result.event;
-          const shouldSyncDiscordEvent = replyEvent.createDiscordEvent === true && replyEvent.enabled !== false;
-          if (!shouldSyncDiscordEvent && existingEvent.discordScheduledEventId) {
-            await runtime.deleteDiscordScheduledEventById(guild.id, existingEvent.discordScheduledEventId).catch(() => false);
-            const cleared = patchScheduledEvent(
-              eventId,
-              buildDashboardDiscordSyncPatch(replyEvent, {
-                discordScheduledEventId: null,
-                discordSyncError: null,
-              })
-            );
-            replyEvent = cleared?.event || {
-              ...replyEvent,
-              ...buildDashboardDiscordSyncPatch(replyEvent, {
-                discordScheduledEventId: null,
-                discordSyncError: null,
-              }),
-            };
-          } else if (shouldSyncDiscordEvent) {
-            try {
-              const scheduledEvent = await runtime.syncDiscordScheduledEvent(replyEvent, normalized.station.station || { name: replyEvent.stationKey }, {
-                runAtMs: replyEvent.runAtMs,
-              });
-              const synced = patchScheduledEvent(
-                eventId,
-                buildDashboardDiscordSyncPatch(replyEvent, {
-                  discordScheduledEventId: scheduledEvent?.id || replyEvent.discordScheduledEventId || null,
-                  discordSyncError: null,
-                })
-              );
-              replyEvent = synced?.event || {
-                ...replyEvent,
-                ...buildDashboardDiscordSyncPatch(replyEvent, {
-                  discordScheduledEventId: scheduledEvent?.id || replyEvent.discordScheduledEventId || null,
-                  discordSyncError: null,
-                }),
-              };
-            } catch (err) {
-              const syncPatch = buildDashboardDiscordSyncPatch(replyEvent, {
-                discordScheduledEventId: replyEvent.discordScheduledEventId || null,
-                discordSyncError: err?.message || err,
-              });
-              const patched = patchScheduledEvent(eventId, syncPatch);
-              replyEvent = patched?.event || { ...replyEvent, ...syncPatch };
-              log("WARN", `[dashboard] Event ${eventId}: Discord-Server-Event Sync fehlgeschlagen: ${err?.message || err}`);
-            }
-          } else if (!replyEvent.createDiscordEvent && (replyEvent.discordScheduledEventId || replyEvent.discordSyncError)) {
-            const cleared = patchScheduledEvent(
-              eventId,
-              buildDashboardDiscordSyncPatch(replyEvent, {
-                discordScheduledEventId: null,
-                discordSyncError: null,
-              })
-            );
-            replyEvent = cleared?.event || {
-              ...replyEvent,
-              ...buildDashboardDiscordSyncPatch(replyEvent, {
-                discordScheduledEventId: null,
-                discordSyncError: null,
-              }),
-            };
-          }
-
-          if (replyEvent.enabled && replyEvent.runAtMs <= Date.now() + 5_000) {
-            runtime.queueImmediateScheduledEventTick(250);
-          }
-
-          sendJson(res, 200, { success: true, event: buildDashboardEventResponse(replyEvent) });
-        } catch (err) {
-          const status = Number(err?.status || 0);
-          if (status === 400 || status === 413) {
-            sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
-            return;
-          }
-          sendLocalizedError(res, 500, language, "Event konnte nicht aktualisiert werden.", "Event could not be updated.");
-        }
-        return;
-      }
-
-      if (req.method === "DELETE") {
-        const existingEvent = getScheduledEvent(eventId);
-        if (!existingEvent || String(existingEvent.guildId || "") !== guild.id) {
-          sendJson(res, 404, { error: translateScheduledEventStoreMessage("Event nicht gefunden.", language) });
-          return;
-        }
-
-        const { runtime } = resolveRuntimeForGuild(runtimes, guild.id);
-        if (runtime
-          && Number.parseInt(String(existingEvent.activeUntilMs || 0), 10) > Date.now()
-          && Number.parseInt(String(existingEvent.lastStopAtMs || 0), 10) < Number.parseInt(String(existingEvent.activeUntilMs || 0), 10)
-        ) {
-          await runtime.executeScheduledEventStop({ ...existingEvent, deleteAfterStop: false });
-        }
-
-        let removedDiscordEvent = false;
-        if (runtime && existingEvent.discordScheduledEventId) {
-          removedDiscordEvent = await runtime.deleteDiscordScheduledEventById(guild.id, existingEvent.discordScheduledEventId).catch(() => false);
-        }
-
-        const result = deleteScheduledEvent(eventId, { guildId: guild.id });
-        if (!result?.ok) {
-          sendJson(res, result?.message === "Event nicht gefunden." ? 404 : 400, {
-            error: translateScheduledEventStoreMessage(
-              result?.message || languagePick(language, "Event konnte nicht gelöscht werden.", "Event could not be deleted."),
-              language
-            ),
-          });
-          return;
-        }
-        sendJson(res, 200, { success: true, eventId, removedDiscordEvent });
-        return;
-      }
-
-      methodNotAllowed(res, ["PATCH", "DELETE"]);
+    if (await handleDashboardEventsRoute({ req, res, requestUrl, readJsonBody, runtimes })) {
       return;
     }
 
     if (await handleDashboardPermsRoute({ req, res, requestUrl, readJsonBody, runtimes })) {
       return;
     }
-
-    // --- Dashboard: Discord Channels Sync ---
-    if (requestUrl.pathname === "/api/dashboard/channels") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
-      const { session } = getDashboardSession(req);
-      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
-      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
-      if (!serverHasCapability(guildInfo.id, "dashboard_access")) { sendLocalizedError(res, 403, language, "Dashboard ist erst ab Pro verfügbar.", "Dashboard is only available from Pro."); return; }
-
-      const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
-      if (!guild) { sendJson(res, 200, { voiceChannels: [], textChannels: [] }); return; }
-
-      try { await guild.channels.fetch(); } catch {}
-      const voiceChannels = [];
-      const textChannels = [];
-      for (const [, ch] of guild.channels.cache) {
-        const entry = { id: ch.id, name: ch.name, position: ch.position || 0, parentName: ch.parent?.name || "" };
-        if (ch.type === 2 || ch.type === 13) voiceChannels.push({ ...entry, type: ch.type === 13 ? "stage" : "voice" });
-        else if (ch.type === 0) textChannels.push(entry);
-      }
-      voiceChannels.sort((a, b) => a.position - b.position);
-      textChannels.sort((a, b) => a.position - b.position);
-      sendJson(res, 200, { voiceChannels, textChannels });
+    if (await handleDashboardChannelsRoute({ req, res, requestUrl, runtimes })) {
       return;
     }
 
@@ -3628,28 +3122,7 @@ function startWebServer(runtimes) {
       methodNotAllowed(res, ["GET", "POST", "PUT", "DELETE"]);
       return;
     }
-
-    // --- Dashboard: Roles Sync ---
-    if (requestUrl.pathname === "/api/dashboard/roles") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
-      const { session } = getDashboardSession(req);
-      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
-      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
-      if (!serverHasCapability(guildInfo.id, "role_permissions")) { sendLocalizedError(res, 403, language, "Berechtigungen sind erst ab Pro verfügbar.", "Permissions are only available from Pro."); return; }
-
-      const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
-      if (!guild) { sendJson(res, 200, { roles: [] }); return; }
-
-      try { await guild.roles.fetch(); } catch {}
-      const roles = [];
-      for (const [, role] of guild.roles.cache) {
-        if (role.managed || role.name === "@everyone") continue;
-        roles.push({ id: role.id, name: role.name, color: role.hexColor || "#99AAB5", position: role.position || 0 });
-      }
-      roles.sort((a, b) => b.position - a.position);
-      sendJson(res, 200, { roles });
+    if (await handleDashboardRolesRoute({ req, res, requestUrl, runtimes })) {
       return;
     }
 

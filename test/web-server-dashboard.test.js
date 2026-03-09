@@ -947,6 +947,119 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(previewResponse.payload.conflicts[0].severity, "error");
   assert.match(previewResponse.payload.conflicts[0].message, /Existing Show/);
 
+  const channelsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/channels?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(channelsResponse.status, 200);
+  assert.deepEqual(channelsResponse.payload.voiceChannels, [{
+    id: VOICE_CHANNEL_ID,
+    name: "radio-lounge",
+    position: 0,
+    parentName: "",
+    type: "voice",
+  }]);
+  assert.deepEqual(channelsResponse.payload.textChannels, [{
+    id: TEXT_CHANNEL_ID,
+    name: "announcements",
+    position: 0,
+    parentName: "",
+  }]);
+
+  const rolesResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/roles?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(rolesResponse.status, 200);
+  assert.deepEqual(rolesResponse.payload.roles, [
+    { id: ROLE_DJ_ID, name: "DJ", color: "#5865F2", position: 2 },
+    { id: ROLE_ADMIN_ID, name: "Admin", color: "#10B981", position: 1 },
+  ]);
+
+  const createEventResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/events?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Night Shift",
+        stationKey: "rock",
+        channelId: VOICE_CHANNEL_ID,
+        textChannelId: TEXT_CHANNEL_ID,
+        startsAtLocal: "2026-03-16T21:15",
+        timezone: "Europe/Vienna",
+        durationMs: 45 * 60 * 1000,
+        repeat: "none",
+        createDiscordEvent: false,
+      }),
+    }
+  );
+  assert.equal(createEventResponse.status, 200);
+  assert.equal(createEventResponse.payload.success, true);
+  assert.equal(createEventResponse.payload.event.title, "Night Shift");
+  assert.equal(createEventResponse.payload.event.channelId, VOICE_CHANNEL_ID);
+  const createdEventId = createEventResponse.payload.event.id;
+  assert.equal(Boolean(createdEventId), true);
+
+  const listEventsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/events?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(listEventsResponse.status, 200);
+  assert.equal(listEventsResponse.payload.events.length, 2);
+  assert.equal(listEventsResponse.payload.events.some((eventRow) => eventRow.title === "Existing Show"), true);
+  assert.equal(listEventsResponse.payload.events.some((eventRow) => eventRow.id === createdEventId), true);
+
+  const updateEventResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/events/${encodeURIComponent(createdEventId)}?serverId=${GUILD_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Night Shift Deluxe",
+        startsAtLocal: "2026-03-17T21:30",
+        durationMs: 60 * 60 * 1000,
+        repeat: "weekly",
+      }),
+    }
+  );
+  assert.equal(updateEventResponse.status, 200);
+  assert.equal(updateEventResponse.payload.success, true);
+  assert.equal(updateEventResponse.payload.event.title, "Night Shift Deluxe");
+  assert.equal(updateEventResponse.payload.event.repeat, "weekly");
+
+  const deleteEventResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/events/${encodeURIComponent(createdEventId)}?serverId=${GUILD_ID}`,
+    {
+      method: "DELETE",
+      headers: authHeaders,
+    }
+  );
+  assert.equal(deleteEventResponse.status, 200);
+  assert.equal(deleteEventResponse.payload.success, true);
+  assert.equal(deleteEventResponse.payload.eventId, createdEventId);
+
+  const eventsAfterDeleteResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/events?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(eventsAfterDeleteResponse.status, 200);
+  assert.equal(eventsAfterDeleteResponse.payload.events.length, 1);
+  assert.equal(eventsAfterDeleteResponse.payload.events.some((eventRow) => eventRow.id === createdEventId), false);
+
   const statsResponse = await requestJson(
     baseUrl,
     `/api/dashboard/stats?serverId=${GUILD_ID}`,
@@ -1016,4 +1129,17 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(authorizedHealth.payload.discord.readyBots, 1);
   assert.equal(authorizedHealth.payload.stores.commandPermissions.filePresent, true);
   assert.equal(typeof authorizedHealth.payload.binaries.ffmpeg.available, "boolean");
+
+  const resetStatsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/stats/reset?serverId=${GUILD_ID}`,
+    {
+      method: "DELETE",
+      headers: authHeaders,
+    }
+  );
+  assert.equal(resetStatsResponse.status, 200);
+  assert.equal(resetStatsResponse.payload.success, true);
+  assert.equal(resetStatsResponse.payload.serverId, GUILD_ID);
+  assert.equal(typeof resetStatsResponse.payload.deleted, "object");
 });
