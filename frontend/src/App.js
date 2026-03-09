@@ -5,11 +5,13 @@ import TrustBar from './components/TrustBar';
 import WhyOmniFM from './components/WhyOmniFM';
 import DashboardShowcase from './components/DashboardShowcase';
 import StationBrowser from './components/StationBrowser';
+import UseCasesSection from './components/UseCasesSection';
 import Premium from './components/Premium';
 import ImpressumSection from './components/ImpressumSection';
 import PrivacySection from './components/PrivacySection';
 import StatsFooter from './components/StatsFooter';
 import Navbar from './components/Navbar';
+import PlanMatrix from './components/PlanMatrix';
 import DashboardPortal from './components/DashboardPortal';
 import FaqSection from './components/FaqSection';
 import { I18nProvider } from './i18n';
@@ -208,9 +210,11 @@ function AppContent() {
       <TrustBar stats={stats} />
       <Features />
       <WhyOmniFM />
-      <DashboardShowcase />
       <StationBrowser stations={stations} loading={loading} />
+      <DashboardShowcase />
+      <UseCasesSection />
       <Premium bots={bots} />
+      <PlanMatrix />
       <FaqSection />
       <StatsFooter stats={stats} bots={bots} />
     </div>
