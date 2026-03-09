@@ -12,8 +12,11 @@ import { connect as connectDb, close as closeDb, getDb } from "../src/lib/db.js"
 import {
   createLicense,
   linkServerToLicense,
+  markSessionProcessed,
+  reserveTrialClaim,
+  finalizeTrialClaim,
 } from "../src/premium-store.js";
-import { upsertOffer } from "../src/coupon-store.js";
+import { upsertOffer, markOfferRedemption } from "../src/coupon-store.js";
 import {
   setDashboardAuthSession,
   deleteDashboardAuthSession,
@@ -313,6 +316,49 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   });
   const seededLink = linkServerToLicense(GUILD_ID, seededLicense.id);
   assert.equal(seededLink.ok, true);
+  markSessionProcessed("cs_dashboard_paid_1", {
+    email: "owner@example.com",
+    tier: "ultimate",
+    licenseId: seededLicense.id,
+    source: "verify",
+    seats: 2,
+    months: 3,
+    expiresAt: seededLicense.expiresAt,
+    renewed: false,
+    upgraded: true,
+    replayProtected: true,
+    amountPaidCents: 1438,
+    baseAmountCents: 1917,
+    discountCents: 479,
+    finalAmountCents: 1438,
+    appliedOfferCode: "RENEW25",
+    appliedOfferKind: "coupon",
+  });
+  markOfferRedemption("cs_dashboard_paid_1", {
+    source: "verify",
+    email: "owner@example.com",
+    code: "RENEW25",
+    kind: "coupon",
+    tier: "ultimate",
+    seats: 2,
+    months: 3,
+    baseAmountCents: 1917,
+    discountCents: 479,
+    finalAmountCents: 1438,
+  });
+  const trialReservation = reserveTrialClaim("owner@example.com", {
+    source: "api:trial",
+    preferredLanguage: "en",
+  });
+  assert.equal(trialReservation.ok, true);
+  finalizeTrialClaim("owner@example.com", {
+    source: "api:trial",
+    licenseId: "trial_lic_1",
+    tier: "pro",
+    seats: 1,
+    months: 1,
+    expiresAt: "2026-04-09T00:00:00.000Z",
+  });
   upsertOffer({
     code: "RENEW25",
     kind: "coupon",
@@ -446,6 +492,15 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(initialLicenseResponse.payload.promotions.couponCodesSupported, true);
   assert.equal(initialLicenseResponse.payload.promotions.proTrialEnabled, true);
   assert.equal(initialLicenseResponse.payload.promotions.proTrialMonths, 1);
+  assert.equal(initialLicenseResponse.payload.activity.replayProtection.enabled, true);
+  assert.equal(initialLicenseResponse.payload.activity.replayProtection.recentSessionCount, 1);
+  assert.equal(initialLicenseResponse.payload.activity.replayProtection.lastSessionId, "cs_dashboard_paid_1");
+  assert.equal(initialLicenseResponse.payload.activity.recentSessions.length, 1);
+  assert.equal(initialLicenseResponse.payload.activity.recentSessions[0].upgraded, true);
+  assert.equal(initialLicenseResponse.payload.activity.recentSessions[0].finalAmountCents, 1438);
+  assert.equal(initialLicenseResponse.payload.activity.recentSessions[0].appliedOfferCode, "RENEW25");
+  assert.equal(initialLicenseResponse.payload.activity.trial.status, "claimed");
+  assert.equal(initialLicenseResponse.payload.activity.trial.months, 1);
 
   const invalidLicenseEmailUpdate = await requestJson(
     baseUrl,

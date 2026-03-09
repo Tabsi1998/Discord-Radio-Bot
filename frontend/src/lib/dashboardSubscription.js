@@ -115,3 +115,59 @@ export function buildSubscriptionPromotionNotes(data, t) {
 
   return notes;
 }
+
+export function buildSubscriptionReplayStatus(activity, t) {
+  const replay = activity?.replayProtection || {};
+  const count = Math.max(0, Number(replay.recentSessionCount || 0) || 0);
+  const lastSessionId = String(replay.lastSessionId || '').trim();
+
+  if (count <= 0) {
+    return {
+      label: t('Noch keine verarbeitete Zahlung', 'No processed payment yet'),
+      detail: t(
+        'Abgeschlossene Stripe-Sessions werden vor der Lizenzaktivierung gegen Replay geschuetzt.',
+        'Completed Stripe sessions are protected against replay before license activation.'
+      ),
+      accent: '#71717A',
+    };
+  }
+
+  return {
+    label: t('Replay-Schutz aktiv', 'Replay protection active'),
+    detail: t(
+      `${count} verarbeitete Zahlung${count === 1 ? '' : 'en'}${lastSessionId ? `, zuletzt ${lastSessionId}` : ''}.`,
+      `${count} processed payment${count === 1 ? '' : 's'}${lastSessionId ? `, latest ${lastSessionId}` : ''}.`
+    ),
+    accent: '#10B981',
+  };
+}
+
+export function buildSubscriptionActivityRows(activity, t) {
+  const sessions = Array.isArray(activity?.recentSessions) ? activity.recentSessions : [];
+  return sessions.map((entry) => {
+    const tierLabel = String(entry?.tierName || entry?.tier || '').trim().toUpperCase() || 'PREMIUM';
+    const changeType = entry?.upgraded
+      ? t('Upgrade', 'Upgrade')
+      : entry?.renewed
+        ? t('Verlaengerung', 'Renewal')
+        : entry?.created
+          ? t('Neukauf', 'New purchase')
+          : t('Zahlung', 'Payment');
+    const parts = [
+      `${tierLabel}`,
+      entry?.months ? t(`${entry.months} Monat${entry.months > 1 ? 'e' : ''}`, `${entry.months} month${entry.months > 1 ? 's' : ''}`) : '',
+      entry?.seats ? t(`${entry.seats} Seat${entry.seats > 1 ? 's' : ''}`, `${entry.seats} seat${entry.seats > 1 ? 's' : ''}`) : '',
+      entry?.appliedOfferCode ? t(`Code ${entry.appliedOfferCode}`, `Code ${entry.appliedOfferCode}`) : '',
+    ].filter(Boolean);
+
+    return {
+      key: entry?.sessionId || `${tierLabel}-${changeType}`,
+      title: changeType,
+      detail: parts.join(' • '),
+      processedAt: entry?.processedAt || null,
+      amountCents: Math.max(0, Number(entry?.finalAmountCents || entry?.amountPaidCents || 0) || 0),
+      discountCents: Math.max(0, Number(entry?.discountCents || 0) || 0),
+      replayProtected: entry?.replayProtected !== false,
+    };
+  });
+}

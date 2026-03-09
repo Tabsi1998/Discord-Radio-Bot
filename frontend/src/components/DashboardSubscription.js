@@ -18,6 +18,8 @@ import {
   buildSubscriptionLimitCards,
   buildSubscriptionUpgradeSummary,
   buildSubscriptionPromotionNotes,
+  buildSubscriptionReplayStatus,
+  buildSubscriptionActivityRows,
 } from '../lib/dashboardSubscription';
 
 const TIER_COLORS = { free: '#71717A', pro: '#10B981', ultimate: '#8B5CF6' };
@@ -491,6 +493,9 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
     [data, blockedFeatureLabels, t]
   );
   const promotionNotes = useMemo(() => buildSubscriptionPromotionNotes(data, t), [data, t]);
+  const replayStatus = useMemo(() => buildSubscriptionReplayStatus(data?.activity, t), [data?.activity, t]);
+  const activityRows = useMemo(() => buildSubscriptionActivityRows(data?.activity, t), [data?.activity, t]);
+  const trialActivity = data?.activity?.trial || null;
 
   const planFeatures = useMemo(() => {
     if (effectiveTier === 'ultimate') {
@@ -1041,6 +1046,97 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
               </div>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {(replayStatus || activityRows.length > 0 || trialActivity) ? (
+        <div
+          data-testid="subscription-activity-card"
+          style={{
+            background: '#0A0A0A',
+            border: '1px solid #1A1A2E',
+            padding: 16,
+            display: 'grid',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 18, color: '#D4D4D8' }}>
+                {t('Billing & Replay-Schutz', 'Billing & replay protection')}
+              </h4>
+              <div style={{ marginTop: 6, color: '#A1A1AA', fontSize: 13, lineHeight: 1.6 }}>
+                {replayStatus?.detail}
+              </div>
+            </div>
+            <div
+              style={{
+                border: `1px solid ${replayStatus?.accent || '#1A1A2E'}`,
+                color: replayStatus?.accent || '#A1A1AA',
+                padding: '8px 12px',
+                fontSize: 12,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+              }}
+            >
+              {replayStatus?.label}
+            </div>
+          </div>
+
+          {activityRows.length > 0 ? (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {activityRows.map((row) => (
+                <div key={row.key} style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px', display: 'grid', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <strong style={{ color: '#F4F4F5', fontSize: 13 }}>{row.title}</strong>
+                    <strong style={{ color: '#D4D4D8', fontSize: 13 }}>
+                      {formatSubscriptionPriceCents(row.amountCents, localeMeta.intl)}
+                    </strong>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#A1A1AA', lineHeight: 1.6 }}>
+                    {row.detail}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 12, color: '#71717A' }}>
+                    <span>
+                      {row.processedAt
+                        ? formatDate(row.processedAt, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                        : '—'}
+                    </span>
+                    <span>
+                      {row.discountCents > 0
+                        ? t(`Rabatt ${formatSubscriptionPriceCents(row.discountCents, localeMeta.intl)}`, `Discount ${formatSubscriptionPriceCents(row.discountCents, localeMeta.intl)}`)
+                        : t('Ohne Rabatt', 'No discount')}
+                    </span>
+                    <span style={{ color: row.replayProtected ? '#10B981' : '#F59E0B' }}>
+                      {row.replayProtected ? t('Replay-geschuetzt', 'Replay protected') : t('Replay offen', 'Replay open')}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {trialActivity ? (
+            <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px', display: 'grid', gap: 6 }}>
+              <strong style={{ color: '#F4F4F5', fontSize: 13 }}>
+                {t('Trial-Verlauf', 'Trial history')}
+              </strong>
+              <div style={{ fontSize: 12, color: '#A1A1AA', lineHeight: 1.6 }}>
+                {t(
+                  `Status ${String(trialActivity.status || '').toUpperCase()}${trialActivity.months ? ` • ${trialActivity.months} Monat${trialActivity.months > 1 ? 'e' : ''}` : ''}${trialActivity.seats ? ` • ${trialActivity.seats} Seat${trialActivity.seats > 1 ? 's' : ''}` : ''}`,
+                  `Status ${String(trialActivity.status || '').toUpperCase()}${trialActivity.months ? ` • ${trialActivity.months} month${trialActivity.months > 1 ? 's' : ''}` : ''}${trialActivity.seats ? ` • ${trialActivity.seats} seat${trialActivity.seats > 1 ? 's' : ''}` : ''}`
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: '#71717A', lineHeight: 1.6 }}>
+                {trialActivity.claimedAt
+                  ? formatDate(trialActivity.claimedAt, { day: '2-digit', month: '2-digit', year: 'numeric' })
+                  : trialActivity.createdAt
+                    ? formatDate(trialActivity.createdAt, { day: '2-digit', month: '2-digit', year: 'numeric' })
+                    : '—'}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

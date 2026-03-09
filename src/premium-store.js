@@ -473,6 +473,30 @@ export function markSessionProcessed(sessionId, meta = {}) {
   save(data);
 }
 
+export function listProcessedSessionsByEmail(email, limit = 10) {
+  const normalizedEmail = normalizeContactEmail(email);
+  if (!normalizedEmail) return [];
+
+  const max = Math.max(1, Math.min(100, Number.parseInt(String(limit), 10) || 10));
+  const data = load();
+  return Object.entries(data.processedSessions || {})
+    .map(([sessionId, entry]) => ({
+      sessionId,
+      ...(entry && typeof entry === "object" ? entry : {}),
+    }))
+    .filter((entry) => normalizeContactEmail(entry.email) === normalizedEmail)
+    .sort((a, b) => {
+      const aProcessed = Date.parse(a.processedAt || "");
+      const bProcessed = Date.parse(b.processedAt || "");
+      const aCreated = Date.parse(a.checkoutCreatedAt || a.createdAt || "");
+      const bCreated = Date.parse(b.checkoutCreatedAt || b.createdAt || "");
+      return (Number.isFinite(bProcessed) ? bProcessed : 0) - (Number.isFinite(aProcessed) ? aProcessed : 0)
+        || (Number.isFinite(bCreated) ? bCreated : 0) - (Number.isFinite(aCreated) ? aCreated : 0);
+    })
+    .slice(0, max)
+    .map((entry) => ({ ...entry }));
+}
+
 export function isEventProcessed(eventId) {
   const data = load();
   return !!data.processedEvents[String(eventId)];

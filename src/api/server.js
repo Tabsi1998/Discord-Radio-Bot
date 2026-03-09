@@ -108,10 +108,12 @@ import {
   linkServerToLicense,
   unlinkServerFromLicense,
   listLicensesByContactEmail,
+  listProcessedSessionsByEmail,
   updateLicenseContactEmail,
   isSessionProcessed,
   isEventProcessed,
   markEventProcessed,
+  getTrialClaimByEmail,
 } from "../premium-store.js";
 import {
   resolveCheckoutOfferForRequest,
@@ -125,6 +127,7 @@ import {
   setOfferActive,
   listRecentRedemptions,
   getOffer,
+  getRedemptionBySession,
 } from "../coupon-store.js";
 import { PLANS, BRAND, CAPABILITY_KEYS } from "../config/plans.js";
 import {
@@ -256,6 +259,7 @@ function buildDashboardLicensePayload(guildInfo) {
       proTrialMonths: PRO_TRIAL_MONTHS,
       trialOnlyForNewCustomers: true,
     },
+    activity: buildDashboardLicenseActivity(license),
     license: license ? {
       plan: license.plan || license.tier || "free",
       seats,
@@ -272,6 +276,72 @@ function buildDashboardLicensePayload(guildInfo) {
       canUpdateEmail: true,
       updatedAt: license.updatedAt || null,
       contactEmailDomain: hasBillingEmail ? licenseEmail.split("@")[1] : "",
+    } : null,
+  };
+}
+
+function buildDashboardLicenseActivity(license) {
+  const licenseEmail = String(license?.contactEmail || license?.email || "").trim().toLowerCase();
+  const hasBillingEmail = isValidEmailAddress(licenseEmail);
+  if (!hasBillingEmail) {
+    return {
+      replayProtection: {
+        enabled: true,
+        recentSessionCount: 0,
+        lastProcessedAt: null,
+        lastSessionId: null,
+      },
+      recentSessions: [],
+      trial: null,
+    };
+  }
+
+  const recentSessions = listProcessedSessionsByEmail(licenseEmail, 5);
+  const trialClaim = getTrialClaimByEmail(licenseEmail);
+  const mappedSessions = recentSessions.map((entry) => {
+    const redemption = getRedemptionBySession(entry.sessionId);
+    const tier = String(entry.tier || license?.plan || "free").trim().toLowerCase();
+    return {
+      sessionId: entry.sessionId,
+      processedAt: entry.processedAt || null,
+      source: entry.source || null,
+      tier,
+      tierName: tier === "ultimate" ? "Ultimate" : tier === "pro" ? "Pro" : "Free",
+      seats: Number(entry.seats || license?.seats || 1) || 1,
+      months: Number(entry.months || 1) || 1,
+      expiresAt: entry.expiresAt || null,
+      created: Boolean(entry.created),
+      renewed: Boolean(entry.renewed),
+      upgraded: Boolean(entry.upgraded),
+      replayProtected: entry.replayProtected !== false,
+      amountPaidCents: Math.max(0, Number(entry.amountPaidCents || entry.finalAmountCents || 0) || 0),
+      baseAmountCents: Math.max(0, Number(entry.baseAmountCents || 0) || 0),
+      discountCents: Math.max(0, Number(entry.discountCents || 0) || 0),
+      finalAmountCents: Math.max(0, Number(entry.finalAmountCents || entry.amountPaidCents || 0) || 0),
+      appliedOfferCode: String(entry.appliedOfferCode || redemption?.code || "").trim().toUpperCase(),
+      appliedOfferKind: String(entry.appliedOfferKind || redemption?.kind || "").trim().toLowerCase(),
+      referralCode: String(entry.referralCode || redemption?.referralCode || "").trim().toUpperCase(),
+    };
+  });
+  const latestSession = mappedSessions[0] || null;
+
+  return {
+    replayProtection: {
+      enabled: true,
+      recentSessionCount: mappedSessions.length,
+      lastProcessedAt: latestSession?.processedAt || null,
+      lastSessionId: latestSession?.sessionId || null,
+    },
+    recentSessions: mappedSessions,
+    trial: trialClaim ? {
+      status: trialClaim.status || null,
+      source: trialClaim.source || null,
+      claimedAt: trialClaim.claimedAt || null,
+      createdAt: trialClaim.createdAt || null,
+      expiresAt: trialClaim.expiresAt || null,
+      licenseId: trialClaim.licenseId || null,
+      months: Number(trialClaim.months || 0) || 0,
+      seats: Number(trialClaim.seats || 0) || 0,
     } : null,
   };
 }
