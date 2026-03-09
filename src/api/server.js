@@ -22,6 +22,8 @@ import { createDashboardStationsRouteHandler } from "./routes/dashboard-stations
 import { createDashboardStatsRouteHandler } from "./routes/dashboard-stats.js";
 import { createDashboardTelemetryRouteHandler } from "./routes/dashboard-telemetry.js";
 import { createDiscordBotListRoutesHandler } from "./routes/discordbotlist-routes.js";
+import { createPremiumBillingRoutesHandler } from "./routes/premium-billing-routes.js";
+import { createPremiumOffersRoutesHandler } from "./routes/premium-offers-routes.js";
 import { createPremiumReadRoutesHandler } from "./routes/premium-read-routes.js";
 import { createPublicRoutesHandler } from "./routes/public-routes.js";
 
@@ -564,6 +566,51 @@ const handlePremiumReadRoutes = createPremiumReadRoutesHandler({
   sanitizeLicenseForApi,
   seatPricingInEuro,
   sendJson,
+});
+
+const handlePremiumBillingRoutes = createPremiumBillingRoutesHandler({
+  BRAND,
+  SEAT_OPTIONS,
+  TIERS,
+  activatePaidStripeSession,
+  activateProTrial,
+  calculatePrice,
+  getDashboardRequestTranslator,
+  getDefaultLanguage,
+  getLocalizedJsonBodyError,
+  getStripeSecretKey,
+  isEventProcessed,
+  isProTrialEnabled,
+  isSessionProcessed,
+  isValidEmailAddress,
+  log,
+  markEventProcessed,
+  methodNotAllowed,
+  normalizeDuration,
+  normalizeLanguage,
+  normalizeSeats,
+  resolveCheckoutOfferForRequest,
+  resolveCheckoutReturnBase,
+  resolveLanguageFromAcceptLanguage,
+  sanitizeOfferCode,
+  sendJson,
+  webhookEventsInFlight,
+});
+
+const handlePremiumOffersRoutes = createPremiumOffersRoutesHandler({
+  clipText,
+  deleteOffer,
+  getDashboardRequestTranslator,
+  getLocalizedJsonBodyError,
+  getOffer,
+  isAdminApiRequest,
+  listOffers,
+  listRecentRedemptions,
+  methodNotAllowed,
+  sanitizeOfferCode,
+  sendJson,
+  setOfferActive,
+  upsertOffer,
 });
 
 const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
@@ -2561,652 +2608,11 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (requestUrl.pathname === "/api/premium/trial") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      try {
-        const body = await readJsonBody();
-        const { email, language: rawLanguage } = body;
-        const acceptLanguage = req.headers["accept-language"];
-        const trialLanguage = normalizeLanguage(
-          rawLanguage,
-          resolveLanguageFromAcceptLanguage(acceptLanguage, getDefaultLanguage())
-        );
-        const t = (de, en) => (trialLanguage === "de" ? de : en);
-
-        if (!isProTrialEnabled()) {
-          sendJson(res, 403, {
-            success: false,
-            message: t(
-              "Der Pro-Testmonat ist aktuell deaktiviert.",
-              "The Pro trial month is currently disabled."
-            ),
-          });
-          return;
-        }
-
-        if (!isValidEmailAddress(email)) {
-          sendJson(res, 400, {
-            success: false,
-            message: t(
-              "Bitte eine gültige E-Mail-Adresse eingeben.",
-              "Please enter a valid email address."
-            ),
-          });
-          return;
-        }
-
-        const result = await activateProTrial({
-          email,
-          language: trialLanguage,
-          runtimes,
-          source: "api:trial",
-        });
-        if (!result.success) {
-          sendJson(res, result.status || 400, {
-            success: false,
-            message: result.message,
-          });
-          return;
-        }
-
-        sendJson(res, 200, {
-          success: true,
-          email: result.email,
-          tier: result.tier,
-          licenseKey: result.licenseKey,
-          expiresAt: result.expiresAt,
-          seats: result.seats,
-          months: result.months,
-          message: result.message,
-          emailStatus: result.emailStatus,
-        });
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 400 || status === 413) {
-          const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
-          sendJson(res, status, {
-            success: false,
-            message: fallbackLanguage === "de"
-              ? status === 413
-                ? "Request-Body ist zu groß."
-                : "Ungültiges JSON im Request-Body."
-              : status === 413
-                ? "Request body is too large."
-                : "Invalid JSON in request body.",
-          });
-          return;
-        }
-        log("ERROR", `Pro trial activation error: ${err.message}`);
-        const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
-        sendJson(res, 500, {
-          success: false,
-          message: fallbackLanguage === "de"
-            ? "Der Pro-Testmonat konnte nicht aktiviert werden."
-            : "Could not activate the Pro trial month.",
-        });
-      }
+    if (await handlePremiumBillingRoutes({ req, res, requestUrl, readJsonBody, readRawBody, runtimes, publicUrl })) {
       return;
     }
 
-    if (requestUrl.pathname === "/api/premium/checkout") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      try {
-        const body = await readJsonBody();
-        const {
-          tier,
-          email,
-          months,
-          seats: rawSeats,
-          returnUrl,
-          language: rawLanguage,
-        } = body;
-        const rawCouponCode = body?.couponCode ?? body?.coupon ?? "";
-        const rawReferralCode = body?.referralCode ?? body?.referral ?? "";
-        const acceptLanguage = req.headers["accept-language"];
-        const checkoutLanguage = normalizeLanguage(
-          rawLanguage,
-          resolveLanguageFromAcceptLanguage(acceptLanguage, getDefaultLanguage())
-        );
-        const isDe = checkoutLanguage === "de";
-        const t = (de, en) => (isDe ? de : en);
-        if (!tier || !email) {
-          sendJson(res, 400, { error: t("tier und email erforderlich.", "tier and email are required.") });
-          return;
-        }
-        if (!isValidEmailAddress(email)) {
-          sendJson(res, 400, { error: t("Bitte eine gültige E-Mail-Adresse eingeben.", "Please enter a valid email address.") });
-          return;
-        }
-        if (tier !== "pro" && tier !== "ultimate") {
-          sendJson(res, 400, { error: t("tier muss 'pro' oder 'ultimate' sein.", "tier must be 'pro' or 'ultimate'.") });
-          return;
-        }
-
-        const durationMonths = normalizeDuration(months);
-        const seats = normalizeSeats(rawSeats);
-        const requestedSeats = rawSeats === undefined || rawSeats === null || rawSeats === ""
-          ? null
-          : Number.parseInt(String(rawSeats), 10);
-        if (requestedSeats !== null && !SEAT_OPTIONS.includes(requestedSeats)) {
-          sendJson(res, 400, {
-            error: t(
-              `seats muss einer der Werte ${SEAT_OPTIONS.join(", ")} sein.`,
-              `seats must be one of ${SEAT_OPTIONS.join(", ")}.`
-            ),
-          });
-          return;
-        }
-
-        const stripeKey = getStripeSecretKey();
-        if (!stripeKey) {
-          sendJson(res, 503, { error: t("Stripe nicht konfiguriert. Nutze: ./update.sh --stripe", "Stripe is not configured. Use: ./update.sh --stripe") });
-          return;
-        }
-
-        const basePriceInCents = calculatePrice(tier, durationMonths, seats);
-        if (basePriceInCents <= 0) {
-          sendJson(res, 400, { error: t("Ungültige Preisberechnung für die gewählte Kombination.", "Invalid price calculation for the selected combination.") });
-          return;
-        }
-        const offerResolution = resolveCheckoutOfferForRequest({
-          tier,
-          seats,
-          months: durationMonths,
-          email: email.trim().toLowerCase(),
-          couponCode: rawCouponCode,
-          referralCode: rawReferralCode,
-          baseAmountCents: basePriceInCents,
-          language: checkoutLanguage,
-        });
-        if (!offerResolution.ok) {
-          sendJson(res, offerResolution.status || 400, {
-            error: offerResolution.error || t("Rabattcode konnte nicht angewendet werden.", "Could not apply discount code."),
-            discount: offerResolution.preview || null,
-          });
-          return;
-        }
-        const offerPreview = offerResolution.preview;
-        const priceInCents = Math.max(0, Number(offerPreview?.finalAmountCents || basePriceInCents));
-        const discountCents = Math.max(0, Number(offerPreview?.discountCents || 0));
-        const appliedOfferCode = sanitizeOfferCode(offerPreview?.applied?.code);
-        const appliedOfferKind = String(offerPreview?.applied?.kind || "").trim().toLowerCase();
-        const referralCode = sanitizeOfferCode(offerPreview?.attributionReferralCode || "");
-        if (priceInCents <= 0) {
-          sendJson(res, 400, { error: t("Preis ist nach Rabatt ungültig.", "Price is invalid after discount.") });
-          return;
-        }
-        const tierName = TIERS[tier].name;
-        const seatsLabel = seats > 1
-          ? (isDe ? ` (${seats} Server)` : ` (${seats} servers)`)
-          : "";
-        let description;
-        if (durationMonths >= 12) {
-          description = isDe
-            ? `${tierName}${seatsLabel} - ${durationMonths} Monate`
-            : `${tierName}${seatsLabel} - ${durationMonths} months`;
-        } else {
-          description = isDe
-            ? `${tierName}${seatsLabel} - ${durationMonths} Monat${durationMonths > 1 ? "e" : ""}`
-            : `${tierName}${seatsLabel} - ${durationMonths} month${durationMonths > 1 ? "s" : ""}`;
-        }
-
-        const stripe = await import("stripe");
-        const stripeClient = new stripe.default(stripeKey);
-
-        const session = await stripeClient.checkout.sessions.create({
-          payment_method_types: ["card"],
-          mode: "payment",
-          customer_email: email.trim().toLowerCase(),
-          line_items: [{
-            price_data: {
-              currency: "eur",
-              product_data: {
-                name: `${BRAND.name} ${TIERS[tier].name}`,
-                description,
-              },
-              unit_amount: priceInCents,
-            },
-            quantity: 1,
-          }],
-          metadata: {
-            email: email.trim().toLowerCase(),
-            tier,
-            seats: String(seats),
-            months: String(durationMonths),
-            language: checkoutLanguage,
-            isUpgrade: "false",
-            checkoutCreatedAt: new Date().toISOString(),
-            couponCode: offerResolution.couponCode || "",
-            referralCode: referralCode || "",
-            appliedOfferCode: appliedOfferCode || "",
-            appliedOfferKind: appliedOfferKind || "",
-            offerOwnerLabel: String(offerPreview?.applied?.ownerLabel || ""),
-            baseAmountCents: String(basePriceInCents),
-            discountCents: String(discountCents),
-            finalAmountCents: String(priceInCents),
-          },
-          success_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
-          cancel_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=cancelled",
-        });
-
-        sendJson(res, 200, {
-          sessionId: session.id,
-          url: session.url,
-          pricing: {
-            baseAmountCents: basePriceInCents,
-            discountCents,
-            finalAmountCents: priceInCents,
-          },
-          discount: offerPreview,
-        });
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 400 || status === 413) {
-          const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
-          sendJson(res, status, {
-            error: fallbackLanguage === "de"
-              ? status === 413
-                ? "Request-Body ist zu groß."
-                : "Ungültiges JSON im Request-Body."
-              : status === 413
-                ? "Request body is too large."
-                : "Invalid JSON in request body.",
-          });
-          return;
-        }
-        log("ERROR", `Stripe checkout error: ${err.message}`);
-        const fallbackLanguage = resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage());
-        sendJson(res, 500, {
-          error: fallbackLanguage === "de"
-            ? "Checkout fehlgeschlagen: " + err.message
-            : "Checkout failed: " + err.message,
-        });
-      }
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/premium/offer/preview") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      try {
-        const body = await readJsonBody();
-        const {
-          tier,
-          email,
-          months,
-          seats: rawSeats,
-          language: rawLanguage,
-        } = body || {};
-        const couponCode = body?.couponCode ?? body?.coupon ?? "";
-        const referralCode = body?.referralCode ?? body?.referral ?? "";
-        const acceptLanguage = req.headers["accept-language"];
-        const previewLanguage = normalizeLanguage(
-          rawLanguage,
-          resolveLanguageFromAcceptLanguage(acceptLanguage, getDefaultLanguage())
-        );
-        const isDe = previewLanguage === "de";
-        const t = (de, en) => (isDe ? de : en);
-
-        const cleanTier = String(tier || "").trim().toLowerCase();
-        if (!["pro", "ultimate"].includes(cleanTier)) {
-          sendJson(res, 400, { success: false, error: t("tier muss 'pro' oder 'ultimate' sein.", "tier must be 'pro' or 'ultimate'.") });
-          return;
-        }
-
-        const durationMonths = normalizeDuration(months);
-        const seats = normalizeSeats(rawSeats);
-        const requestedSeats = rawSeats === undefined || rawSeats === null || rawSeats === ""
-          ? null
-          : Number.parseInt(String(rawSeats), 10);
-        if (requestedSeats !== null && !SEAT_OPTIONS.includes(requestedSeats)) {
-          sendJson(res, 400, {
-            success: false,
-            error: t(
-              `seats muss einer der Werte ${SEAT_OPTIONS.join(", ")} sein.`,
-              `seats must be one of ${SEAT_OPTIONS.join(", ")}.`
-            ),
-          });
-          return;
-        }
-        const baseAmountCents = calculatePrice(cleanTier, durationMonths, seats);
-        if (baseAmountCents <= 0) {
-          sendJson(res, 400, {
-            success: false,
-            error: t("Ungültige Preisberechnung für die gewählte Kombination.", "Invalid price calculation for the selected combination."),
-          });
-          return;
-        }
-
-        const resolved = resolveCheckoutOfferForRequest({
-          tier: cleanTier,
-          seats,
-          months: durationMonths,
-          email: String(email || "").trim().toLowerCase(),
-          couponCode,
-          referralCode,
-          baseAmountCents,
-          language: previewLanguage,
-        });
-
-        if (!resolved.ok) {
-          sendJson(res, resolved.status || 400, {
-            success: false,
-            error: resolved.error,
-            discount: resolved.preview || null,
-          });
-          return;
-        }
-
-        sendJson(res, 200, {
-          success: true,
-          discount: resolved.preview,
-          pricing: {
-            baseAmountCents,
-            discountCents: resolved.preview?.discountCents || 0,
-            finalAmountCents: resolved.preview?.finalAmountCents || baseAmountCents,
-          },
-        });
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 400 || status === 413) {
-          sendJson(res, status, {
-            success: false,
-            error: status === 413 ? "Request-Body ist zu groß." : "Ungültiges JSON im Request-Body.",
-          });
-          return;
-        }
-        log("ERROR", `Offer preview error: ${err.message}`);
-        sendJson(res, 500, { success: false, error: "Offer-Vorschau fehlgeschlagen: " + err.message });
-      }
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/premium/offers") {
-      if (!isAdminApiRequest(req)) {
-        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
-        return;
-      }
-
-      if (req.method === "GET") {
-        const includeInactive = requestUrl.searchParams.get("includeInactive") !== "0";
-        const includeStats = requestUrl.searchParams.get("includeStats") !== "0";
-        const offers = listOffers({ includeInactive, includeStats });
-        sendJson(res, 200, { offers });
-        return;
-      }
-
-      if (req.method === "POST" || req.method === "PATCH") {
-        try {
-          const body = await readJsonBody();
-          const actor = clipText(req.headers["x-admin-user"] || body?.updatedBy || "api-admin", 120);
-          const offer = upsertOffer({
-            ...(body || {}),
-            updatedBy: actor,
-            createdBy: body?.createdBy || actor,
-          }, {
-            partial: req.method === "PATCH",
-          });
-          sendJson(res, 200, { success: true, offer });
-        } catch (err) {
-          sendJson(res, 400, { success: false, error: err?.message || String(err) });
-        }
-        return;
-      }
-
-      if (req.method === "DELETE") {
-        const code = sanitizeOfferCode(requestUrl.searchParams.get("code") || "");
-        if (!code) {
-          sendJson(res, 400, { success: false, error: "code ist erforderlich." });
-          return;
-        }
-        const deleted = deleteOffer(code);
-        sendJson(res, deleted ? 200 : 404, { success: deleted, code });
-        return;
-      }
-
-      methodNotAllowed(res, ["GET", "POST", "PATCH", "DELETE"]);
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/premium/offers/active") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      if (!isAdminApiRequest(req)) {
-        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
-        return;
-      }
-      try {
-        const body = await readJsonBody();
-        const code = sanitizeOfferCode(body?.code || "");
-        const active = body?.active !== undefined ? Boolean(body.active) : true;
-        if (!code) {
-          sendJson(res, 400, { success: false, error: "code ist erforderlich." });
-          return;
-        }
-        const offer = setOfferActive(code, active);
-        if (!offer) {
-          sendJson(res, 404, { success: false, error: "Code nicht gefunden." });
-          return;
-        }
-        sendJson(res, 200, { success: true, offer });
-      } catch (err) {
-        sendJson(res, 400, { success: false, error: err?.message || String(err) });
-      }
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/premium/redemptions") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      if (!isAdminApiRequest(req)) {
-        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
-        return;
-      }
-      const limit = Number.parseInt(String(requestUrl.searchParams.get("limit") || "100"), 10);
-      const redemptions = listRecentRedemptions(limit);
-      sendJson(res, 200, { redemptions });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/premium/offer") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const code = sanitizeOfferCode(requestUrl.searchParams.get("code") || "");
-      if (!code) {
-        sendJson(res, 400, { error: "code ist erforderlich." });
-        return;
-      }
-      const offer = getOffer(code);
-      if (!offer) {
-        sendJson(res, 404, { error: "Code nicht gefunden." });
-        return;
-      }
-      sendJson(res, 200, { offer });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/premium/webhook") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      try {
-        const stripeKey = getStripeSecretKey();
-        const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
-        if (!stripeKey || !webhookSecret) {
-          sendJson(res, 503, { error: "Stripe Webhook nicht konfiguriert." });
-          return;
-        }
-
-        const signatureHeader = req.headers["stripe-signature"];
-        const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
-        if (!signature) {
-          sendJson(res, 400, { error: "Stripe-Signatur fehlt." });
-          return;
-        }
-
-        const rawBody = await readRawBody(2 * 1024 * 1024);
-        const stripe = await import("stripe");
-        const stripeClient = new stripe.default(stripeKey);
-
-        let event;
-        try {
-          event = stripeClient.webhooks.constructEvent(rawBody, signature, webhookSecret);
-        } catch (err) {
-          sendJson(res, 400, { error: `Webhook-Signatur ungültig: ${err.message}` });
-          return;
-        }
-
-        if (!event?.id) {
-          sendJson(res, 400, { error: "Webhook-Event ungültig." });
-          return;
-        }
-
-        if (isEventProcessed(event.id)) {
-          sendJson(res, 200, { received: true, duplicate: true });
-          return;
-        }
-
-        if (webhookEventsInFlight.has(event.id)) {
-          sendJson(res, 200, { received: true, duplicate: true, inFlight: true });
-          return;
-        }
-        webhookEventsInFlight.add(event.id);
-
-        try {
-          if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
-            const result = await activatePaidStripeSession(event.data.object, runtimes, `webhook:${event.type}`);
-            if (!result.success) {
-              log("ERROR", `Webhook-Aktivierung fehlgeschlagen (event=${event.id}, type=${event.type}): ${result.message}`);
-              sendJson(res, 500, {
-                received: true,
-                processed: false,
-                replay: !!result.replay,
-                message: result.message,
-              });
-              return;
-            }
-
-            markEventProcessed(event.id, {
-              type: event.type,
-              sessionId: event.data?.object?.id || null,
-              success: true,
-            });
-            sendJson(res, 200, {
-              received: true,
-              processed: true,
-              replay: !!result.replay,
-              message: result.message,
-            });
-            return;
-          }
-
-          markEventProcessed(event.id, { type: event.type, ignored: true });
-          sendJson(res, 200, { received: true, ignored: true });
-        } finally {
-          webhookEventsInFlight.delete(event.id);
-        }
-      } catch (err) {
-        if (Number(err?.status || 0) === 413) {
-          sendJson(res, 413, { error: "Webhook-Body ist zu groß." });
-          return;
-        }
-        log("ERROR", `Stripe webhook error: ${err.message}`);
-        sendJson(res, 500, { error: "Webhook-Verarbeitung fehlgeschlagen: " + err.message });
-      }
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/premium/verify") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      try {
-        const body = await readJsonBody();
-        const { sessionId } = body;
-        if (!sessionId) {
-          sendJson(res, 400, { error: "sessionId erforderlich." });
-          return;
-        }
-
-        const stripeKey = getStripeSecretKey();
-        if (!stripeKey) {
-          sendJson(res, 503, { error: "Stripe nicht konfiguriert." });
-          return;
-        }
-
-        const normalizedSessionId = String(sessionId).trim();
-        if (isSessionProcessed(normalizedSessionId)) {
-          const stripe = await import("stripe");
-          const stripeClient = new stripe.default(stripeKey);
-          const replaySession = await stripeClient.checkout.sessions.retrieve(normalizedSessionId);
-          const replayResult = await activatePaidStripeSession(replaySession, runtimes, "verify:replay");
-          sendJson(res, 200, {
-            success: true,
-            replay: true,
-            email: replayResult.email || null,
-            licenseKey: replayResult.licenseKey || null,
-            tier: replayResult.tier || null,
-            discountCents: replayResult.discountCents || 0,
-            appliedOfferCode: replayResult.appliedOfferCode || null,
-            appliedOfferKind: replayResult.appliedOfferKind || null,
-            referralCode: replayResult.referralCode || null,
-            message: replayResult.message,
-          });
-          return;
-        }
-
-        const stripe = await import("stripe");
-        const stripeClient = new stripe.default(stripeKey);
-        const session = await stripeClient.checkout.sessions.retrieve(normalizedSessionId);
-        const result = await activatePaidStripeSession(session, runtimes, "verify");
-        if (!result.success) {
-          sendJson(res, result.status || 400, { success: false, message: result.message });
-          return;
-        }
-
-        sendJson(res, 200, {
-          success: true,
-          replay: !!result.replay,
-          email: result.email,
-          licenseKey: result.licenseKey,
-          tier: result.tier,
-          expiresAt: result.expiresAt,
-          seats: result.seats,
-           discountCents: result.discountCents || 0,
-           appliedOfferCode: result.appliedOfferCode || null,
-           appliedOfferKind: result.appliedOfferKind || null,
-           referralCode: result.referralCode || null,
-          message: result.message,
-        });
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 400 || status === 413) {
-          sendJson(res, status, {
-            error: status === 413
-              ? "Request-Body ist zu groß."
-              : "Ungültiges JSON im Request-Body.",
-          });
-          return;
-        }
-        log("ERROR", `Stripe verify error: ${err.message}`);
-        sendJson(res, 500, { error: "Verifizierung fehlgeschlagen: " + err.message });
-      }
+    if (await handlePremiumOffersRoutes({ req, res, requestUrl, readJsonBody })) {
       return;
     }
 

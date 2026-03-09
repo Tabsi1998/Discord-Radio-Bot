@@ -616,6 +616,178 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(premiumPricingResponse.payload.upgrade.to, "ultimate");
   assert.equal(premiumPricingResponse.payload.trial.enabled, true);
 
+  const premiumTrialInvalidEmailResponse = await requestJson(
+    baseUrl,
+    "/api/premium/trial",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OmniFM-Language": "de",
+      },
+      body: JSON.stringify({
+        email: "bad-email",
+      }),
+    }
+  );
+  assert.equal(premiumTrialInvalidEmailResponse.status, 400);
+  assert.match(premiumTrialInvalidEmailResponse.payload.message, /E-Mail-Adresse/i);
+
+  const premiumOfferPreviewResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offer/preview",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OmniFM-Language": "en",
+      },
+      body: JSON.stringify({
+        tier: "ultimate",
+        email: "owner@example.com",
+        months: 3,
+        seats: 2,
+        couponCode: "RENEW25",
+      }),
+    }
+  );
+  assert.equal(premiumOfferPreviewResponse.status, 200);
+  assert.equal(premiumOfferPreviewResponse.payload.success, true);
+  assert.equal(premiumOfferPreviewResponse.payload.discount.applied.code, "RENEW25");
+  assert.equal(premiumOfferPreviewResponse.payload.pricing.baseAmountCents, 1917);
+  assert.equal(premiumOfferPreviewResponse.payload.pricing.finalAmountCents, 1438);
+
+  const premiumCheckoutUnavailableResponse = await requestJson(
+    baseUrl,
+    "/api/premium/checkout",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OmniFM-Language": "en",
+      },
+      body: JSON.stringify({
+        tier: "pro",
+        email: "owner@example.com",
+        months: 1,
+        seats: 1,
+      }),
+    }
+  );
+  assert.equal(premiumCheckoutUnavailableResponse.status, 503);
+  assert.match(premiumCheckoutUnavailableResponse.payload.error, /Stripe is not configured/i);
+
+  const premiumOffersUnauthorizedResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offers?lang=de"
+  );
+  assert.equal(premiumOffersUnauthorizedResponse.status, 401);
+  assert.match(premiumOffersUnauthorizedResponse.payload.error, /API-Admin-Token erforderlich/i);
+
+  const premiumOffersResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offers?includeStats=1",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(premiumOffersResponse.status, 200);
+  assert.equal(premiumOffersResponse.payload.offers.some((offer) => offer.code === "RENEW25"), true);
+  assert.equal(
+    premiumOffersResponse.payload.offers.some((offer) => offer.code === "RENEW25" && offer.redemptions?.total === 1),
+    true
+  );
+
+  const premiumCreateOfferResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offers",
+    {
+      method: "POST",
+      headers: {
+        "x-admin-token": "test-admin-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        code: "FLASH10",
+        kind: "coupon",
+        percentOff: 10,
+        allowedTiers: ["pro"],
+        createdBy: "test-suite",
+      }),
+    }
+  );
+  assert.equal(premiumCreateOfferResponse.status, 200);
+  assert.equal(premiumCreateOfferResponse.payload.success, true);
+  assert.equal(premiumCreateOfferResponse.payload.offer.code, "FLASH10");
+  assert.equal(premiumCreateOfferResponse.payload.offer.percentOff, 10);
+
+  const premiumOfferLookupResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offer?code=flash10"
+  );
+  assert.equal(premiumOfferLookupResponse.status, 200);
+  assert.equal(premiumOfferLookupResponse.payload.offer.code, "FLASH10");
+  assert.equal(premiumOfferLookupResponse.payload.offer.percentOff, 10);
+
+  const premiumDeactivateOfferResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offers/active",
+    {
+      method: "POST",
+      headers: {
+        "x-admin-token": "test-admin-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        code: "FLASH10",
+        active: false,
+      }),
+    }
+  );
+  assert.equal(premiumDeactivateOfferResponse.status, 200);
+  assert.equal(premiumDeactivateOfferResponse.payload.success, true);
+  assert.equal(premiumDeactivateOfferResponse.payload.offer.active, false);
+
+  const premiumRedemptionsResponse = await requestJson(
+    baseUrl,
+    "/api/premium/redemptions?limit=5",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(premiumRedemptionsResponse.status, 200);
+  assert.equal(premiumRedemptionsResponse.payload.redemptions.some((entry) => entry.code === "RENEW25"), true);
+
+  const premiumVerifyUnavailableResponse = await requestJson(
+    baseUrl,
+    "/api/premium/verify",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OmniFM-Language": "en",
+      },
+      body: JSON.stringify({
+        sessionId: "cs_test_missing_stripe",
+      }),
+    }
+  );
+  assert.equal(premiumVerifyUnavailableResponse.status, 503);
+  assert.match(premiumVerifyUnavailableResponse.payload.error, /Stripe is not configured/i);
+
+  const premiumWebhookUnavailableResponse = await requestJson(
+    baseUrl,
+    "/api/premium/webhook",
+    {
+      method: "POST",
+      headers: {
+        "X-OmniFM-Language": "en",
+      },
+    }
+  );
+  assert.equal(premiumWebhookUnavailableResponse.status, 503);
+  assert.match(premiumWebhookUnavailableResponse.payload.error, /Stripe webhook is not configured/i);
+
   const oauthUnavailableResponse = await requestJson(baseUrl, "/api/auth/discord/login?lang=en");
   assert.equal(oauthUnavailableResponse.status, 503);
   assert.match(oauthUnavailableResponse.payload.error, /Discord OAuth is not configured yet/i);
