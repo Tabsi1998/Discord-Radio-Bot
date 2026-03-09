@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ActivityType } from "discord.js";
 
 import {
   calculatePrice,
@@ -322,14 +323,14 @@ test("workers status payload paginates and exposes page controls", async () => {
   assert.match(String(firstButtons[2]?.custom_id || ""), /^omnifm:workers:page:/);
 });
 
-test("presence summarizes role and active server counts instead of station names", () => {
+test("presence shows dynamic commander and worker activity with listener totals", () => {
   const commanderRuntime = {
     role: "commander",
-    config: { index: 1 },
+    config: { index: 1, name: "OmniFM DJ" },
     client: { guilds: { cache: { size: 42 } } },
     guildState: new Map([
-      ["g1", { currentStationKey: "chill", currentStationName: "Chillout FM", connection: {} }],
-      ["g2", { currentStationKey: "hiphop", currentStationName: "Hip Hop Radio", connection: {} }],
+      ["g1", { currentStationKey: "chill", currentStationName: "Chillout FM", connection: {}, listenerCount: 3 }],
+      ["g2", { currentStationKey: "hiphop", currentStationName: "Hip Hop Radio", connection: {}, listenerCount: 4 }],
     ]),
   };
   const workerRuntime = {
@@ -337,17 +338,42 @@ test("presence summarizes role and active server counts instead of station names
     config: { index: 7 },
     client: { guilds: { cache: { size: 8 } } },
     guildState: new Map([
-      ["g1", { currentStationKey: "house", currentStationName: "House Beats", connection: {} }],
+      ["g1", { currentStationKey: "house", currentStationName: "House Beats", connection: {}, listenerCount: 2 }],
     ]),
   };
 
   const commanderPresence = BotRuntime.prototype.buildPresenceActivity.call(commanderRuntime);
   const workerPresence = BotRuntime.prototype.buildPresenceActivity.call(workerRuntime);
 
-  assert.match(String(commanderPresence?.name || ""), /Commander \| 2 active servers/);
+  assert.equal(commanderPresence?.type, ActivityType.Playing);
+  assert.match(String(commanderPresence?.name || ""), /DJ on 2 servers \| 7 listeners/);
   assert.doesNotMatch(String(commanderPresence?.name || ""), /Chillout FM|Hip Hop Radio/);
-  assert.match(String(workerPresence?.name || ""), /Worker 7 \| 1 active servers/);
+  assert.equal(workerPresence?.type, ActivityType.Playing);
+  assert.match(String(workerPresence?.name || ""), /Play on 1 server \| 2 listeners/);
   assert.doesNotMatch(String(workerPresence?.name || ""), /House Beats/);
+});
+
+test("presence keeps commander and worker idle copy clean with /play and website", () => {
+  const commanderRuntime = {
+    role: "commander",
+    config: { index: 1, name: "OmniFM DJ" },
+    client: { guilds: { cache: { size: 42 } } },
+    guildState: new Map(),
+  };
+  const workerRuntime = {
+    role: "worker",
+    config: { index: 3, name: "OmniFM 3" },
+    client: { guilds: { cache: { size: 8 } } },
+    guildState: new Map(),
+  };
+
+  const commanderPresence = BotRuntime.prototype.buildPresenceActivity.call(commanderRuntime);
+  const workerPresence = BotRuntime.prototype.buildPresenceActivity.call(workerRuntime);
+
+  assert.equal(commanderPresence?.type, ActivityType.Listening);
+  assert.match(String(commanderPresence?.name || ""), /^OmniFM DJ \| \/play \| https:\/\/omnifm\.xyz$/);
+  assert.equal(workerPresence?.type, ActivityType.Listening);
+  assert.match(String(workerPresence?.name || ""), /^Worker 3 ready \| \/play \| https:\/\/omnifm\.xyz$/);
 });
 
 test("programmatic stop routes through resetVoiceSession so listening sessions are finalized", () => {

@@ -2466,27 +2466,45 @@ class BotRuntime {
   }
 
   buildPresenceActivity() {
-    const activeStreams = [...this.guildState.values()].filter((state) => state.currentStationKey && state.connection).length;
+    const activeStates = [...this.guildState.entries()]
+      .filter(([, state]) => state.currentStationKey && state.connection);
+    const activeStreams = activeStates.length;
     const connectedGuilds = Number(this.client?.guilds?.cache?.size || 0) || 0;
     const publicUrlRaw = String(process.env.PUBLIC_WEB_URL || WEBSITE_URL || "").trim();
     const publicLabel = publicUrlRaw
-      ? clipText(publicUrlRaw.replace(/^https?:\/\//i, "").replace(/\/+$/, ""), 48)
+      ? clipText(publicUrlRaw.replace(/\/+$/, ""), 64)
       : "";
-    const workerSlot = Number(this.config?.index || 0) || null;
+    const workerSlot = Number(this.workerSlot || this.config?.index || 0) || null;
+    const countLabel = (count, singular, plural = `${singular}s`) =>
+      `${count} ${count === 1 ? singular : plural}`;
+
+    let totalListeners = 0;
+    if (typeof this.collectStats === "function") {
+      totalListeners = Math.max(0, Number(this.collectStats()?.listeners || 0) || 0);
+    } else {
+      for (const [guildId, state] of activeStates) {
+        const listeners = typeof this.getCurrentListenerCount === "function"
+          ? this.getCurrentListenerCount(guildId, state)
+          : Number(state?.listenerCount || 0) || 0;
+        totalListeners += Math.max(0, Number(listeners || 0) || 0);
+      }
+    }
+    const listenerSuffix = totalListeners > 0 ? ` | ${countLabel(totalListeners, "listener")}` : "";
+    const commanderName = clipText(this.config?.name || "OmniFM DJ", 48) || "OmniFM DJ";
 
     if (this.role === "commander") {
       if (activeStreams > 0) {
         return {
-          type: ActivityType.Watching,
-          name: clipText(`🛰 Commander | ${activeStreams} active servers | /workers`, 120),
+          type: ActivityType.Playing,
+          name: clipText(`DJ on ${countLabel(activeStreams, "server")}${listenerSuffix}`, 120),
         };
       }
       return {
-        type: ActivityType.Watching,
+        type: ActivityType.Listening,
         name: clipText(
           publicLabel
-            ? `🛰 Commander | ${connectedGuilds} servers | ${publicLabel}`
-            : `🛰 Commander | ${connectedGuilds} servers | /play`,
+            ? `${commanderName} | /play | ${publicLabel}`
+            : `${commanderName} | /play | ${countLabel(connectedGuilds, "server")}`,
           120
         ),
       };
@@ -2494,14 +2512,19 @@ class BotRuntime {
 
     if (activeStreams > 0) {
       return {
-        type: ActivityType.Listening,
-        name: clipText(`🤖 Worker ${workerSlot || "?"} | ${activeStreams} active servers`, 120),
+        type: ActivityType.Playing,
+        name: clipText(`Play on ${countLabel(activeStreams, "server")}${listenerSuffix}`, 120),
       };
     }
 
     return {
       type: ActivityType.Listening,
-      name: clipText(`🤖 Worker ${workerSlot || "?"} | ready`, 120),
+      name: clipText(
+        publicLabel
+          ? `Worker ${workerSlot || "?"} ready | /play | ${publicLabel}`
+          : `Worker ${workerSlot || "?"} ready | /play`,
+        120
+      ),
     };
   }
 
