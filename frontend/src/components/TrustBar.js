@@ -48,6 +48,14 @@ export default function TrustBar({ stats }) {
       }}
     >
       <div className="section-container">
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 800, fontFamily: "'Orbitron', sans-serif", marginBottom: 8 }}>
+            {copy.trustBar.introEyebrow}
+          </div>
+          <p style={{ margin: 0, color: '#A1A1AA', fontSize: 14, lineHeight: 1.7, maxWidth: 760 }}>
+            {copy.trustBar.introBody}
+          </p>
+        </div>
         <div
           style={{
             display: 'grid',
@@ -116,6 +124,32 @@ export default function TrustBar({ stats }) {
               </div>
             );
           })}
+        </div>
+        <div
+          data-testid="trust-bar-proof-checks"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 10,
+            marginTop: 14,
+          }}
+        >
+          {copy.trustBar.proofChecks.map((item) => (
+            <div
+              key={item}
+              style={{
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                color: '#71717A',
+                fontSize: 12,
+                lineHeight: 1.6,
+              }}
+            >
+              {item}
+            </div>
+          ))}
         </div>
       </div>
     </section>

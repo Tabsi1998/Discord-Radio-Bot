@@ -53,6 +53,7 @@ const LOCALE_MESSAGES = {
       subtitleTail: 'drücken.',
       ctaInvite: 'Bot einladen',
       ctaFlow: 'Wie es funktioniert',
+      ctaNote: 'Free startet direkt ueber den Invite. Pro und Ultimate erweitern spaeter dasselbe Bot-Setup mit Dashboard, Kontrolle und mehr Betriebssicherheit.',
       stats: {
         servers: 'Server',
         stations: 'Stationen',
@@ -62,6 +63,26 @@ const LOCALE_MESSAGES = {
         { key: 'speed', label: 'Start in unter 1 Minute' },
         { key: 'catalog', label: '120+ Stationen sofort spielbar' },
         { key: 'dashboard', label: 'Dashboard ab Pro' },
+      ],
+      proofRail: [
+        {
+          key: 'free',
+          label: 'Free',
+          value: 'Sofort live',
+          desc: '24/7 Radio ohne Pflicht-Setup ausser Invite und /play.',
+        },
+        {
+          key: 'pro',
+          label: 'Pro',
+          value: 'Mehr Kontrolle',
+          desc: 'Dashboard, Events und Rollenrechte fuer aktive Communities.',
+        },
+        {
+          key: 'ultimate',
+          label: 'Ultimate',
+          value: 'Operator-Niveau',
+          desc: 'Custom Stations, tiefere Analytics und Automatisierung im selben Produktpfad.',
+        },
       ],
       panel: {
         eyebrow: 'Schneller Start',
@@ -92,6 +113,8 @@ const LOCALE_MESSAGES = {
       },
     },
     trustBar: {
+      introEyebrow: 'Live-Proof',
+      introBody: 'Diese Signale zeigen direkt auf der Startseite, dass OmniFM nicht nur gut klingt, sondern bereits als laufendes Discord-Radio-Produkt arbeitet.',
       items: {
         stations: {
           label: 'Stationen',
@@ -120,6 +143,11 @@ const LOCALE_MESSAGES = {
         dashboard: 'Events · Rollenrechte · Health',
         reliability: 'Reconnect · Worker · klare Tiers',
       },
+      proofChecks: [
+        'Live-Zahlen kommen aus dem Produkt statt aus statischen Werbetexten.',
+        'Dashboard und Reliability sind bereits vor dem Pricing sichtbar eingeordnet.',
+        'Free, Pro und Ultimate haben einen klaren gemeinsamen Kern statt getrennte Produktwelten.',
+      ],
     },
     features: {
       eyebrow: 'So funktioniert es',
@@ -182,6 +210,29 @@ const LOCALE_MESSAGES = {
       eyebrow: 'Warum OmniFM',
       title: 'Nicht nur ein Radio-Bot, sondern ein sauberes Discord-Setup',
       subtitle: 'OmniFM ist am staerksten, wenn Musik, Stabilitaet und Server-Verwaltung zusammenkommen. Genau diese Kombination muss die Website klar verkaufen.',
+      comparisonEyebrow: 'Der Unterschied',
+      comparisonTitle: 'Was OmniFM von einem generischen Bot trennt',
+      comparisonHeaders: {
+        basic: 'Typischer Bot',
+        omnifm: 'OmniFM',
+      },
+      comparisonRows: [
+        {
+          label: 'Start',
+          basic: 'Ein Bot wird eingeladen und spielt irgendwann Audio ab.',
+          omnifm: 'Ein klarer Einstieg fuehrt direkt von Invite und /play zu einem stabilen 24/7 Radio-Setup.',
+        },
+        {
+          label: 'Betrieb',
+          basic: 'Mehr Nutzung bedeutet oft nur mehr Last auf einem einzelnen Bot.',
+          omnifm: 'Commander und Worker teilen Verantwortung sauber auf und machen parallele Streams planbarer.',
+        },
+        {
+          label: 'Wachstum',
+          basic: 'Premium fuehlt sich oft wie ein zweites Produkt ohne klaren Uebergang an.',
+          omnifm: 'Free, Pro und Ultimate erweitern denselben Kern mit Kontrolle, Analytics und Operator-Funktionen.',
+        },
+      ],
       cards: {
         radio: {
           title: 'Sofort startklar',
@@ -865,6 +916,7 @@ const LOCALE_MESSAGES = {
       subtitleTail: '.',
       ctaInvite: 'Invite bot',
       ctaFlow: 'How it works',
+      ctaNote: 'Free starts directly through the invite. Pro and Ultimate expand the same bot setup later with dashboard control, operations, and stronger reliability.',
       stats: {
         servers: 'Servers',
         stations: 'Stations',
@@ -874,6 +926,26 @@ const LOCALE_MESSAGES = {
         { key: 'speed', label: 'Start in under 1 minute' },
         { key: 'catalog', label: '120+ stations ready to play' },
         { key: 'dashboard', label: 'Dashboard from Pro' },
+      ],
+      proofRail: [
+        {
+          key: 'free',
+          label: 'Free',
+          value: 'Go live fast',
+          desc: '24/7 radio without mandatory setup beyond invite and /play.',
+        },
+        {
+          key: 'pro',
+          label: 'Pro',
+          value: 'Add control',
+          desc: 'Dashboard, events, and role permissions for active communities.',
+        },
+        {
+          key: 'ultimate',
+          label: 'Ultimate',
+          value: 'Operator grade',
+          desc: 'Custom stations, deeper analytics, and automation inside the same product path.',
+        },
       ],
       panel: {
         eyebrow: 'Quick start',
@@ -904,6 +976,8 @@ const LOCALE_MESSAGES = {
       },
     },
     trustBar: {
+      introEyebrow: 'Live proof',
+      introBody: 'These signals show right on the homepage that OmniFM is not just positioned well, but already operates as a live Discord radio product.',
       items: {
         stations: {
           label: 'Stations',
@@ -932,6 +1006,11 @@ const LOCALE_MESSAGES = {
         dashboard: 'Events · permissions · health',
         reliability: 'Reconnect · workers · clear tiers',
       },
+      proofChecks: [
+        'Live numbers come from the product instead of static marketing copy.',
+        'Dashboard and reliability are positioned before pricing, not hidden behind it.',
+        'Free, Pro, and Ultimate share one product core instead of feeling like separate tools.',
+      ],
     },
     features: {
       eyebrow: 'How it works',
@@ -994,6 +1073,29 @@ const LOCALE_MESSAGES = {
       eyebrow: 'Why OmniFM',
       title: 'Not just a radio bot, but a clean Discord operating setup',
       subtitle: 'OmniFM is strongest when music, reliability, and server management work together. The website should make that combination obvious.',
+      comparisonEyebrow: 'The difference',
+      comparisonTitle: 'What separates OmniFM from a generic bot',
+      comparisonHeaders: {
+        basic: 'Typical bot',
+        omnifm: 'OmniFM',
+      },
+      comparisonRows: [
+        {
+          label: 'Start',
+          basic: 'A bot gets invited and eventually starts some audio.',
+          omnifm: 'A clear entry path takes you from invite and /play to a stable 24/7 radio setup.',
+        },
+        {
+          label: 'Operation',
+          basic: 'More usage often means more load on one single bot.',
+          omnifm: 'Commander and workers split responsibility cleanly and make parallel streams more predictable.',
+        },
+        {
+          label: 'Growth',
+          basic: 'Premium often feels like a second product without a clear transition.',
+          omnifm: 'Free, Pro, and Ultimate extend the same core with control, analytics, and operator features.',
+        },
+      ],
       cards: {
         radio: {
           title: 'Fast to start',

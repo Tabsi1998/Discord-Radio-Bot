@@ -97,6 +97,70 @@ export default function WhyOmniFM() {
             );
           })}
         </div>
+
+        <div
+          data-testid="why-omnifm-comparison"
+          style={{
+            marginTop: 20,
+            borderRadius: 18,
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize: 11, color: '#BD00FF', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 800, fontFamily: "'Orbitron', sans-serif", marginBottom: 8 }}>
+              {copy.whyOmniFM.comparisonEyebrow}
+            </div>
+            <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 18, fontWeight: 800 }}>
+              {copy.whyOmniFM.comparisonTitle}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: 12, padding: 16 }}>
+            {copy.whyOmniFM.comparisonRows.map((row) => (
+              <div
+                key={row.label}
+                style={{
+                  borderRadius: 16,
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  padding: 16,
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#BD00FF', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 800, marginBottom: 10 }}>
+                  {row.label}
+                </div>
+                <div className="why-omnifm-comparison-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+                  <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: 10, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 800, marginBottom: 8 }}>
+                      {copy.whyOmniFM.comparisonHeaders.basic}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#71717A', lineHeight: 1.6 }}>
+                      {row.basic}
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(57,255,20,0.05)', border: '1px solid rgba(57,255,20,0.16)' }}>
+                    <div style={{ fontSize: 10, color: '#39FF14', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 800, marginBottom: 8 }}>
+                      {copy.whyOmniFM.comparisonHeaders.omnifm}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#D4D4D8', lineHeight: 1.6 }}>
+                      {row.omnifm}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <style>{`
+          @media (max-width: 860px) {
+            .why-omnifm-comparison-row {
+              grid-template-columns: 1fr !important;
+            }
+          }
+        `}</style>
       </div>
     </section>
   );

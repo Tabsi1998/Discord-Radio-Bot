@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the Phase 0 and Phase 1 contract for the public OmniFM website.
+This document is the Phase 0, Phase 1, and Phase 2 contract for the public OmniFM website.
 It defines:
 
 - who the website is for
@@ -67,6 +67,17 @@ Run OmniFM like infrastructure with custom station control, stronger reliability
 - Do not bury Pro and Ultimate value under generic feature lists.
 - Explain technical terms in plain language.
 - Keep German and English content functionally identical.
+
+## Phase 2 Proof Goals
+
+Phase 2 finishes when the homepage does not only describe OmniFM well, but also proves its value more clearly.
+
+This includes:
+
+- the hero showing direct invite value and a clean upgrade path
+- live-proof elements that feel operational instead of decorative
+- a visible comparison that explains why OmniFM is stronger than a generic bot
+- trust and pricing sections that reinforce the same business story instead of drifting apart
 
 ## Homepage Job Per Section
 

@@ -265,6 +265,21 @@ function Hero({ stats, bots }) {
             </a>
           </div>
 
+          <p
+            data-testid="hero-cta-note"
+            style={{
+              marginTop: -40,
+              marginBottom: 36,
+              color: '#71717A',
+              fontSize: 13,
+              lineHeight: 1.65,
+              maxWidth: 620,
+              animation: 'hero-fade-in 0.6s ease-out 0.45s both',
+            }}
+          >
+            {copy.hero.ctaNote}
+          </p>
+
           <div
             data-testid="hero-quick-stats"
             style={{
@@ -294,6 +309,39 @@ function Hero({ stats, bots }) {
                   marginTop: 4,
                 }}>
                   {item.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            data-testid="hero-proof-rail"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 12,
+              marginTop: 28,
+              animation: 'hero-fade-in 0.6s ease-out 0.55s both',
+            }}
+          >
+            {copy.hero.proofRail.map((item) => (
+              <div
+                key={item.key}
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: 16,
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                <div style={{ fontSize: 10, color: '#00F0FF', letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 800, marginBottom: 8 }}>
+                  {item.label}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+                  {item.value}
+                </div>
+                <div style={{ fontSize: 12, color: '#A1A1AA', lineHeight: 1.6 }}>
+                  {item.desc}
                 </div>
               </div>
             ))}
