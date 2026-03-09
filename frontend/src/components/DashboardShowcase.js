@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, CalendarClock, LayoutDashboard, Shield, Webhook } from 'lucide-react';
+import { Activity, ArrowRight, CalendarClock, CheckCircle2, LayoutDashboard, Shield, Webhook } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 const CARD_META = [
@@ -8,6 +8,10 @@ const CARD_META = [
   { key: 'health', icon: Activity, color: '#39FF14', tier: 'pro' },
   { key: 'automation', icon: Webhook, color: '#BD00FF', tier: 'ultimate' },
 ];
+const TIER_COLORS = {
+  pro: '#FFB800',
+  ultimate: '#BD00FF',
+};
 
 function buildDashboardHref(locale) {
   const params = new URLSearchParams();
@@ -35,55 +39,118 @@ export default function DashboardShowcase() {
           }}
         >
           <div style={{ padding: '28px 28px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <LayoutDashboard size={18} color="#00F0FF" />
-              <span
-                style={{
-                  fontFamily: "'Orbitron', sans-serif",
-                  fontSize: 11,
-                  letterSpacing: '0.15em',
-                  textTransform: 'uppercase',
-                  fontWeight: 700,
-                  color: '#00F0FF',
-                }}
-              >
-                {copy.dashboardShowcase.eyebrow}
-              </span>
-            </div>
-            <h2
-              data-testid="dashboard-showcase-title"
+            <div
               style={{
-                fontFamily: "'Orbitron', sans-serif",
-                fontWeight: 800,
-                fontSize: 'clamp(24px, 4vw, 40px)',
-                marginBottom: 12,
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1.05fr) minmax(280px, 0.95fr)',
+                gap: 18,
+                alignItems: 'start',
               }}
+              className="dashboard-showcase-top-grid"
             >
-              {copy.dashboardShowcase.title}
-            </h2>
-            <p style={{ color: '#D4D4D8', fontSize: 16, maxWidth: 760, lineHeight: 1.7 }}>
-              {copy.dashboardShowcase.subtitle}
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
-              {copy.dashboardShowcase.tags.map((tag) => (
-                <span
-                  key={tag}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <LayoutDashboard size={18} color="#00F0FF" />
+                  <span
+                    style={{
+                      fontFamily: "'Orbitron', sans-serif",
+                      fontSize: 11,
+                      letterSpacing: '0.15em',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      color: '#00F0FF',
+                    }}
+                  >
+                    {copy.dashboardShowcase.eyebrow}
+                  </span>
+                </div>
+                <h2
+                  data-testid="dashboard-showcase-title"
                   style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '7px 12px',
-                    borderRadius: 999,
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: '#E4E4E7',
-                    fontSize: 12,
-                    fontWeight: 700,
+                    fontFamily: "'Orbitron', sans-serif",
+                    fontWeight: 800,
+                    fontSize: 'clamp(24px, 4vw, 40px)',
+                    marginBottom: 12,
                   }}
                 >
-                  {tag}
-                </span>
-              ))}
+                  {copy.dashboardShowcase.title}
+                </h2>
+                <p style={{ color: '#D4D4D8', fontSize: 16, maxWidth: 760, lineHeight: 1.7 }}>
+                  {copy.dashboardShowcase.subtitle}
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
+                  {copy.dashboardShowcase.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '7px 12px',
+                        borderRadius: 999,
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#E4E4E7',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                data-testid="dashboard-showcase-proof-panel"
+                style={{
+                  borderRadius: 18,
+                  padding: 20,
+                  background: 'rgba(5,5,5,0.34)',
+                  border: '1px solid rgba(0,240,255,0.14)',
+                  boxShadow: '0 0 35px rgba(0,240,255,0.08)',
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#00F0FF', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8, fontWeight: 800 }}>
+                  {copy.dashboardShowcase.proofPanel.eyebrow}
+                </div>
+                <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 20, fontWeight: 800, marginBottom: 14 }}>
+                  {copy.dashboardShowcase.proofPanel.title}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+                  {copy.dashboardShowcase.proofPanel.items.map((item) => (
+                    <div
+                      key={item.label}
+                      data-testid={`dashboard-showcase-proof-item-${item.label}`}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'auto minmax(0, 1fr)',
+                        gap: 12,
+                        alignItems: 'start',
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.07)',
+                      }}
+                    >
+                      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 800, color: '#00F0FF', whiteSpace: 'nowrap' }}>
+                        {item.value}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 3 }}>
+                          {item.label}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#A1A1AA', lineHeight: 1.55 }}>
+                          {item.desc}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ margin: 0, color: '#71717A', fontSize: 12, lineHeight: 1.6 }}>
+                  {copy.dashboardShowcase.proofPanel.note}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -148,6 +215,49 @@ export default function DashboardShowcase() {
               })}
             </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 20 }}>
+              {copy.dashboardShowcase.workflow.steps.map((step, index) => (
+                <div
+                  key={step.title}
+                  data-testid={`dashboard-showcase-workflow-step-${index + 1}`}
+                  style={{
+                    padding: '16px 18px',
+                    borderRadius: 16,
+                    background: 'rgba(5,5,5,0.28)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <div style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 9,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'rgba(0,240,255,0.12)',
+                      border: '1px solid rgba(0,240,255,0.24)',
+                      color: '#00F0FF',
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontWeight: 800,
+                      fontSize: 12,
+                    }}>
+                      {index + 1}
+                    </div>
+                    <span style={{ fontSize: 10, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
+                      {copy.dashboardShowcase.workflow.eyebrow}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+                    {step.title}
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, color: '#A1A1AA', lineHeight: 1.65 }}>
+                    {step.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+
             <div
               data-testid="dashboard-showcase-preview"
               style={{
@@ -190,6 +300,19 @@ export default function DashboardShowcase() {
                       <span style={{ color: '#00F0FF', fontFamily: "'JetBrains Mono', monospace", fontWeight: 800 }}>{item.value}</span>
                     </div>
                   ))}
+                </div>
+                <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 10, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+                    {copy.dashboardShowcase.preview.proofLabel}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {copy.dashboardShowcase.preview.proofItems.map((item) => (
+                      <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, color: '#D4D4D8', fontSize: 12, lineHeight: 1.55 }}>
+                        <CheckCircle2 size={13} color="#39FF14" style={{ flexShrink: 0, marginTop: 2 }} />
+                        <span>{item}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -252,7 +375,32 @@ export default function DashboardShowcase() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 20 }}>
+              {copy.dashboardShowcase.tiers.map((tier) => (
+                <div
+                  key={tier.key}
+                  data-testid={`dashboard-showcase-tier-${tier.key}`}
+                  style={{
+                    padding: '16px 18px',
+                    borderRadius: 16,
+                    background: 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${(TIER_COLORS[tier.key] || '#FFB800')}25`,
+                  }}
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '5px 10px', borderRadius: 999, background: `${(TIER_COLORS[tier.key] || '#FFB800')}14`, border: `1px solid ${(TIER_COLORS[tier.key] || '#FFB800')}28`, color: TIER_COLORS[tier.key] || '#FFB800', fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+                    {tier.badge}
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
+                    {tier.title}
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, color: '#A1A1AA', lineHeight: 1.65 }}>
+                    {tier.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
               <a
                 href={buildDashboardHref(locale)}
                 data-testid="dashboard-showcase-primary-cta"
@@ -260,14 +408,17 @@ export default function DashboardShowcase() {
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  gap: 8,
                   padding: '13px 22px',
                   borderRadius: 999,
                   background: '#00F0FF',
                   color: '#050505',
                   fontWeight: 800,
+                  textDecoration: 'none',
                 }}
               >
                 {copy.dashboardShowcase.primaryCta}
+                <ArrowRight size={16} />
               </a>
               <a
                 href="#premium"
@@ -281,10 +432,14 @@ export default function DashboardShowcase() {
                   border: '1px solid rgba(255,255,255,0.14)',
                   color: '#fff',
                   fontWeight: 700,
+                  textDecoration: 'none',
                 }}
               >
                 {copy.dashboardShowcase.secondaryCta}
               </a>
+              <span data-testid="dashboard-showcase-cta-note" style={{ color: '#71717A', fontSize: 13, lineHeight: 1.6 }}>
+                {copy.dashboardShowcase.ctaNote}
+              </span>
             </div>
           </div>
         </div>
@@ -292,6 +447,7 @@ export default function DashboardShowcase() {
 
       <style>{`
         @media (max-width: 860px) {
+          .dashboard-showcase-top-grid,
           .dashboard-showcase-preview-grid {
             grid-template-columns: 1fr !important;
           }

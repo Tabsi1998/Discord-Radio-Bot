@@ -232,6 +232,28 @@ const LOCALE_MESSAGES = {
       eyebrow: 'Dashboard und Betrieb',
       title: 'Pro und Ultimate bringen echte Server-Steuerung',
       subtitle: 'OmniFM ist nicht nur ein Bot zum Starten von Streams. Mit dem Dashboard wird daraus ein verwaltbares System fuer Events, Rechte, Health, Analytics und Automatisierung.',
+      proofPanel: {
+        eyebrow: 'Operations statt Bauchgefuehl',
+        title: 'Vom Invite zur laufenden Server-Steuerung',
+        items: [
+          {
+            value: 'Discord SSO',
+            label: 'Guild-Zugang ohne Zusatztool',
+            desc: 'Admins melden sich direkt mit Discord an und landen ohne separates Setup bei ihren Servern.',
+          },
+          {
+            value: 'Role Rules',
+            label: 'Command-Kontrolle pro Server',
+            desc: 'Events, Permissions und sensible Aktionen bleiben sauber an Rollen und Verantwortliche gebunden.',
+          },
+          {
+            value: 'Health View',
+            label: 'Mehr Sichtbarkeit im Betrieb',
+            desc: 'Status, Weekly Digest und Upgrade-Hinweise zeigen frueh, wo dein Setup stabil ist oder mehr Kontrolle braucht.',
+          },
+        ],
+        note: 'Dashboard-Zugang startet mit Pro und geht in Ultimate ohne zweiten Workflow weiter. Dein bestehendes Bot-Setup bleibt dabei intakt.',
+      },
       cards: {
         events: {
           title: 'Event-Scheduler',
@@ -252,13 +274,37 @@ const LOCALE_MESSAGES = {
       },
       primaryCta: 'Dashboard ansehen',
       secondaryCta: 'Plaene vergleichen',
+      ctaNote: 'Dashboard-Zugang startet mit Pro. Upgrade bedeutet mehr Kontrolle, nicht einen neuen Produktpfad.',
       tags: ['Discord SSO', 'Event-Scheduler', 'Rollenrechte', 'Health'],
+      workflow: {
+        eyebrow: 'Ops-Flow',
+        steps: [
+          {
+            title: 'Server auswaehlen',
+            desc: 'Guild aus Discord SSO waehlen und direkt den aktuellen Status, Tier und die wichtigsten Steuerungen sehen.',
+          },
+          {
+            title: 'Kontrolle aktivieren',
+            desc: 'Events planen, Rollenrechte setzen und Weekly Digest oder Health ohne Bot-Chaos verwalten.',
+          },
+          {
+            title: 'Sauber skalieren',
+            desc: 'Ultimate erweitert denselben Workflow fuer Custom Stations, Exporte und tiefere Analytics statt eines zweiten Tools.',
+          },
+        ],
+      },
       preview: {
         eyebrow: 'Operations Preview',
         title: 'Ein Server, sauber verwaltet',
         serverLabel: 'Server',
         serverValue: 'OmniFM Community Hub',
         status: 'aktiv',
+        proofLabel: 'Warum das nach Produkt aussieht',
+        proofItems: [
+          'Ein Server wird nicht nur beobachtet, sondern aktiv gesteuert.',
+          'Health, Digest und Recovery bleiben an derselben Stelle sichtbar.',
+          'Pro und Ultimate erweitern denselben Arbeitsfluss statt ihn zu ersetzen.',
+        ],
         metrics: [
           { label: 'Events', value: '4' },
           { label: 'Rollenregeln', value: '12' },
@@ -270,6 +316,20 @@ const LOCALE_MESSAGES = {
           { label: 'Analytics-Zugang', value: 'Pro / Ultimate' },
         ],
       },
+      tiers: [
+        {
+          key: 'pro',
+          badge: 'Pro',
+          title: 'Management-Layer',
+          desc: 'Dashboard, Events, Rollenrechte und Health machen aus OmniFM ein administrierbares Server-Setup.',
+        },
+        {
+          key: 'ultimate',
+          badge: 'Ultimate',
+          title: 'Operator-Layer',
+          desc: 'Custom Stations, Exporte, Webhooks und tiefere Analytics erweitern das System ohne Bruch im Bedienfluss.',
+        },
+      ],
     },
     reliability: {
       eyebrow: 'Stabilitaet',
@@ -984,6 +1044,28 @@ const LOCALE_MESSAGES = {
       eyebrow: 'Dashboard and operations',
       title: 'Pro and Ultimate add real server control',
       subtitle: 'OmniFM is not only a bot that starts streams. The dashboard turns it into a manageable system for events, permissions, health, analytics, and automation.',
+      proofPanel: {
+        eyebrow: 'Operations over guesswork',
+        title: 'From invite to live server control',
+        items: [
+          {
+            value: 'Discord SSO',
+            label: 'Guild access without extra tooling',
+            desc: 'Admins sign in with Discord and land directly on their servers without a second setup flow.',
+          },
+          {
+            value: 'Role Rules',
+            label: 'Command control per server',
+            desc: 'Events, permissions, and sensitive actions stay tied to the right roles and operators.',
+          },
+          {
+            value: 'Health View',
+            label: 'More visibility in operation',
+            desc: 'Status, weekly digest, and upgrade context show early where your setup is stable or needs more control.',
+          },
+        ],
+        note: 'Dashboard access starts with Pro and continues into Ultimate without a second workflow. Your existing bot setup stays intact.',
+      },
       cards: {
         events: {
           title: 'Event scheduler',
@@ -1004,13 +1086,37 @@ const LOCALE_MESSAGES = {
       },
       primaryCta: 'Open dashboard',
       secondaryCta: 'Compare plans',
+      ctaNote: 'Dashboard access starts with Pro. Upgrading adds control, not a second product path.',
       tags: ['Discord SSO', 'Event scheduler', 'Role permissions', 'Health'],
+      workflow: {
+        eyebrow: 'Ops flow',
+        steps: [
+          {
+            title: 'Select server',
+            desc: 'Choose a guild via Discord SSO and immediately see current status, tier, and the main control surface.',
+          },
+          {
+            title: 'Enable control',
+            desc: 'Plan events, assign role rules, and manage weekly digest or health without bot-side chaos.',
+          },
+          {
+            title: 'Scale cleanly',
+            desc: 'Ultimate extends the same workflow with custom stations, exports, and deeper analytics instead of adding a second tool.',
+          },
+        ],
+      },
       preview: {
         eyebrow: 'Operations preview',
         title: 'One server, clearly managed',
         serverLabel: 'Server',
         serverValue: 'OmniFM Community Hub',
         status: 'active',
+        proofLabel: 'Why this feels like a product',
+        proofItems: [
+          'A server is not only monitored, but actively managed.',
+          'Health, digest, and recovery stay visible in the same place.',
+          'Pro and Ultimate extend the same workflow instead of replacing it.',
+        ],
         metrics: [
           { label: 'Events', value: '4' },
           { label: 'Role rules', value: '12' },
@@ -1022,6 +1128,20 @@ const LOCALE_MESSAGES = {
           { label: 'Analytics access', value: 'Pro / Ultimate' },
         ],
       },
+      tiers: [
+        {
+          key: 'pro',
+          badge: 'Pro',
+          title: 'Management layer',
+          desc: 'Dashboard, events, role permissions, and health turn OmniFM into a controllable server setup.',
+        },
+        {
+          key: 'ultimate',
+          badge: 'Ultimate',
+          title: 'Operator layer',
+          desc: 'Custom stations, exports, webhooks, and deeper analytics extend the system without breaking the workflow.',
+        },
+      ],
     },
     reliability: {
       eyebrow: 'Reliability',

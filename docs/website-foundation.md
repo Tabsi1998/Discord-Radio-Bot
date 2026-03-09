@@ -138,6 +138,8 @@ Must highlight:
 - role permissions
 - health and analytics
 - custom stations or exports for Ultimate
+- visible operational proof so the dashboard feels like a real product surface
+- a low-friction CTA that makes clear Pro starts the dashboard path without replacing the existing bot setup
 
 ### Reliability Section
 
