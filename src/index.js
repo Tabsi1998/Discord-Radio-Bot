@@ -391,9 +391,9 @@ async function setDigestLastSent(guildId, timestamp) {
 
 function formatMsDuration(ms) {
   if (!ms || ms <= 0) return "0m";
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
 async function sendWeeklyDigest(runtime, guildId, channelId, language = "de") {
@@ -409,7 +409,7 @@ async function sendWeeklyDigest(runtime, guildId, channelId, language = "de") {
   const weekStarts = dailyStats.reduce((s, d) => s + (d.totalStarts || 0), 0);
   const weekListeningMs = dailyStats.reduce((s, d) => s + (d.totalListeningMs || 0), 0);
   const weekSessions = dailyStats.reduce((s, d) => s + (d.totalSessions || 0), 0);
-  const weekPeak = Math.max(0, ...dailyStats.map(d => d.peakListeners || 0));
+  const weekPeak = Math.max(0, ...dailyStats.map((d) => d.peakListeners || 0));
 
   const topStations = Object.entries(stats?.stationStarts || {})
     .sort((a, b) => b[1] - a[1])

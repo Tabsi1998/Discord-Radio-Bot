@@ -30,10 +30,44 @@ export default function DashboardSettings({
   const [textChannels, setTextChannels] = useState([]);
   const [stations, setStations] = useState({ free: [], pro: [], ultimate: [], custom: [] });
   const [pendingFailoverStation, setPendingFailoverStation] = useState('');
+  const [digestPreview, setDigestPreview] = useState(null);
+  const [digestPreviewLoading, setDigestPreviewLoading] = useState(false);
+  const [digestTestSending, setDigestTestSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const loadTokenRef = useRef(0);
+  const digestPreviewTokenRef = useRef(0);
+
+  const loadDigestPreview = useCallback(async (nextWeeklyDigest = null, { silent = false } = {}) => {
+    const previewToken = ++digestPreviewTokenRef.current;
+    if (!selectedGuildId || capabilities.weeklyDigest !== true) {
+      setDigestPreview(null);
+      setDigestPreviewLoading(false);
+      return null;
+    }
+
+    if (!silent) {
+      setDigestPreviewLoading(true);
+    }
+
+    try {
+      const result = await apiRequest(`/api/dashboard/settings/digest-preview?serverId=${encodeURIComponent(selectedGuildId)}`, {
+        method: 'POST',
+        body: JSON.stringify(nextWeeklyDigest ? { weeklyDigest: nextWeeklyDigest } : {}),
+      });
+      if (previewToken !== digestPreviewTokenRef.current) return null;
+      setDigestPreview(result?.preview || null);
+      return result;
+    } catch (err) {
+      if (previewToken !== digestPreviewTokenRef.current) return null;
+      if (!silent) setError(err.message);
+      return null;
+    } finally {
+      if (previewToken !== digestPreviewTokenRef.current) return;
+      setDigestPreviewLoading(false);
+    }
+  }, [selectedGuildId, apiRequest, capabilities.weeklyDigest]);
 
   const load = useCallback(async () => {
     const loadToken = ++loadTokenRef.current;
@@ -45,6 +79,9 @@ export default function DashboardSettings({
       setMessage('');
       setLoading(false);
       setPendingFailoverStation('');
+      setDigestPreview(null);
+      setDigestPreviewLoading(false);
+      setDigestTestSending(false);
       return;
     }
     setLoading(true);
@@ -54,6 +91,7 @@ export default function DashboardSettings({
     setTextChannels([]);
     setStations({ free: [], pro: [], ultimate: [], custom: [] });
     setPendingFailoverStation('');
+    setDigestPreview(null);
     try {
       const [settingsResult, channelsResult, stationsResult] = await Promise.all([
         apiRequest(`/api/dashboard/settings?serverId=${encodeURIComponent(selectedGuildId)}`),
@@ -70,6 +108,9 @@ export default function DashboardSettings({
         custom: stationsResult.custom || [],
       });
       setPendingFailoverStation('');
+      if (capabilities.weeklyDigest === true) {
+        await loadDigestPreview(settingsResult?.weeklyDigest || {}, { silent: true });
+      }
     } catch (err) {
       if (loadToken !== loadTokenRef.current) return;
       setError(err.message);
@@ -77,7 +118,7 @@ export default function DashboardSettings({
       if (loadToken !== loadTokenRef.current) return;
       setLoading(false);
     }
-  }, [selectedGuildId, apiRequest]);
+  }, [selectedGuildId, apiRequest, capabilities.weeklyDigest, loadDigestPreview]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -93,6 +134,9 @@ export default function DashboardSettings({
         body: JSON.stringify(body),
       });
       setSettings((current) => ({ ...(current || {}), ...(result || {}) }));
+      if (capabilities.weeklyDigest === true) {
+        await loadDigestPreview(result?.weeklyDigest || settings?.weeklyDigest || {}, { silent: true });
+      }
       setMessage(t('Einstellungen gespeichert.', 'Settings saved.'));
     } catch (err) {
       setError(err.message);
@@ -107,6 +151,43 @@ export default function DashboardSettings({
   const configuredFailoverChain = getConfiguredFailoverChain(settings);
   const digestSummary = buildWeeklyDigestSummary(settings, t, formatDate);
   const fallbackSummary = buildFallbackStationSummary(settings, t);
+  const digestPreviewGeneratedLabel = digestPreview?.generatedAt
+    ? (typeof formatDate === 'function'
+      ? formatDate(digestPreview.generatedAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : new Date(digestPreview.generatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }))
+    : t('Noch nicht erstellt', 'Not generated yet');
+
+  const refreshDigestPreview = async () => {
+    setError('');
+    const result = await loadDigestPreview(wd);
+    if (result?.preview) {
+      setMessage(t('Digest-Vorschau aktualisiert.', 'Digest preview refreshed.'));
+    }
+  };
+
+  const sendDigestTest = async () => {
+    setError('');
+    setMessage('');
+    setDigestTestSending(true);
+    try {
+      const result = await apiRequest(`/api/dashboard/settings/digest-test?serverId=${encodeURIComponent(selectedGuildId)}`, {
+        method: 'POST',
+        body: JSON.stringify({ weeklyDigest: wd }),
+      });
+      setDigestPreview(result?.preview || null);
+      const channelLabel = result?.channelName ? `#${result.channelName}` : t('dem gewaehlten Channel', 'the selected channel');
+      setMessage(
+        t(
+          `Test-Digest erfolgreich an ${channelLabel} gesendet.`,
+          `Test digest sent successfully to ${channelLabel}.`
+        )
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDigestTestSending(false);
+    }
+  };
 
   const allStations = [
     ...stations.custom.map((station) => ({ value: `custom:${station.key}`, label: `${station.name} (Custom)`, name: station.name, tier: 'ultimate', isCustom: true })),
@@ -294,6 +375,78 @@ export default function DashboardSettings({
               <option value="de">Deutsch</option>
               <option value="en">English</option>
             </select>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            data-testid="digest-preview-btn"
+            disabled={!canManageWeeklyDigest || digestPreviewLoading}
+            onClick={refreshDigestPreview}
+            style={{
+              height: 40,
+              padding: '0 14px',
+              border: '1px solid rgba(88,101,242,0.3)',
+              background: 'rgba(37,99,235,0.16)',
+              color: canManageWeeklyDigest ? '#DBEAFE' : '#3F3F46',
+              cursor: canManageWeeklyDigest && !digestPreviewLoading ? 'pointer' : 'not-allowed',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            {digestPreviewLoading ? t('Lade Vorschau...', 'Loading preview...') : t('Vorschau aktualisieren', 'Refresh preview')}
+          </button>
+          <button
+            type="button"
+            data-testid="digest-test-send-btn"
+            disabled={!canManageWeeklyDigest || !wd.channelId || digestTestSending}
+            onClick={sendDigestTest}
+            style={{
+              height: 40,
+              padding: '0 14px',
+              border: '1px solid rgba(16,185,129,0.3)',
+              background: 'rgba(6,95,70,0.16)',
+              color: canManageWeeklyDigest && wd.channelId ? '#BBF7D0' : '#3F3F46',
+              cursor: canManageWeeklyDigest && wd.channelId && !digestTestSending ? 'pointer' : 'not-allowed',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            {digestTestSending ? t('Sende Test...', 'Sending test...') : t('Test-Digest senden', 'Send test digest')}
+          </button>
+        </div>
+
+        <div data-testid="digest-preview-card" style={{ marginTop: 14, border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>
+                {t('Preview', 'Preview')}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700, color: '#F4F4F5' }}>
+                {digestPreview?.title || t('Noch keine Vorschau geladen', 'No preview loaded yet')}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: '#71717A' }}>
+              {t('Erstellt', 'Generated')}: {digestPreviewGeneratedLabel}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10, fontSize: 13, color: '#A1A1AA', lineHeight: 1.6 }}>
+            {digestPreview?.description || t('Nutze die Vorschau, um den Weekly Digest vor dem Versand zu pruefen.', 'Use the preview to inspect the weekly digest before sending it.')}
+          </div>
+
+          <div style={{ marginTop: 12, fontSize: 12, color: '#71717A' }}>
+            {t('Ziel-Channel', 'Target channel')}: {digestPreview?.channelName ? `#${digestPreview.channelName}` : t('Noch keiner ausgewaehlt', 'None selected yet')}
+          </div>
+
+          <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+            {(digestPreview?.fields || []).map((field) => (
+              <div key={`${field.name}-${field.value}`} style={{ border: '1px solid #1A1A2E', background: '#09090B', padding: '12px 14px' }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>{field.name}</div>
+                <div style={{ marginTop: 6, fontSize: 14, color: '#F4F4F5', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{field.value}</div>
+              </div>
+            ))}
           </div>
         </div>
 

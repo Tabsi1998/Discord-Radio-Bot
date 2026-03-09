@@ -60,6 +60,7 @@ function setEnv(overrides) {
 }
 
 function createGuildStub() {
+  const sentMessages = [];
   const roles = new Map([
     [ROLE_DJ_ID, { id: ROLE_DJ_ID, name: "DJ", managed: false, hexColor: "#5865F2", position: 2 }],
     [ROLE_ADMIN_ID, { id: ROLE_ADMIN_ID, name: "Admin", managed: false, hexColor: "#10B981", position: 1 }],
@@ -78,7 +79,10 @@ function createGuildStub() {
     guildId: GUILD_ID,
     name: "announcements",
     type: 0,
-    send: async () => null,
+    send: async (payload) => {
+      sentMessages.push(payload);
+      return payload;
+    },
     permissionsFor: () => ({ has: () => true }),
     toString: () => `<#${TEXT_CHANNEL_ID}>`,
   };
@@ -90,6 +94,7 @@ function createGuildStub() {
   return {
     id: GUILD_ID,
     name: "OmniFM Test Guild",
+    __sentMessages: sentMessages,
     roles: {
       cache: roles,
       fetch: async () => roles,
@@ -110,6 +115,7 @@ function createRuntimeStub() {
   const guilds = new Map([[GUILD_ID, guild]]);
 
   return {
+    __sentMessages: guild.__sentMessages,
     role: "commander",
     config: {
       id: "bot-test-1",
@@ -325,7 +331,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   });
   assert.equal(seededEvent.ok, true);
 
-  const server = startWebServer([createRuntimeStub()]);
+  const runtimeStub = createRuntimeStub();
+  const server = startWebServer([runtimeStub]);
   await once(server, "listening");
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -401,6 +408,59 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   );
   assert.equal(invalidDigestSettings.status, 400);
   assert.match(invalidDigestSettings.payload.error, /text channel/i);
+
+  const digestPreviewResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings/digest-preview?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        weeklyDigest: {
+          enabled: true,
+          channelId: TEXT_CHANNEL_ID,
+          dayOfWeek: 1,
+          hour: 9,
+          language: "en",
+        },
+      }),
+    }
+  );
+  assert.equal(digestPreviewResponse.status, 200);
+  assert.equal(digestPreviewResponse.payload.preview.channelName, "announcements");
+  assert.equal(digestPreviewResponse.payload.preview.embed.title, "Weekly radio report");
+  assert.ok(Array.isArray(digestPreviewResponse.payload.preview.fields));
+  assert.ok(digestPreviewResponse.payload.preview.fields.length >= 6);
+
+  const digestTestResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings/digest-test?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        weeklyDigest: {
+          enabled: true,
+          channelId: TEXT_CHANNEL_ID,
+          dayOfWeek: 1,
+          hour: 9,
+          language: "en",
+        },
+      }),
+    }
+  );
+  assert.equal(digestTestResponse.status, 200);
+  assert.equal(digestTestResponse.payload.channelName, "announcements");
+  assert.equal(runtimeStub.__sentMessages.length, 1);
+  assert.equal(runtimeStub.__sentMessages[0].embeds[0].title, "Weekly radio report");
 
   activePlan = "ultimate";
   activeSeats = 2;

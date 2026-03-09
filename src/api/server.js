@@ -67,7 +67,9 @@ import {
   getClientIp,
 } from "../lib/api-helpers.js";
 import {
+  buildWeeklyDigestEmbedData,
   buildWeeklyDigestMeta,
+  buildWeeklyDigestPreview,
   normalizeWeeklyDigestConfig,
 } from "../lib/weekly-digest.js";
 import {
@@ -919,6 +921,60 @@ async function buildGuildChannelNameMap(guild, channelIds = []) {
     }
     return map;
   }, {});
+}
+
+async function resolveGuildTextChannel(guild, channelId) {
+  const normalizedChannelId = String(channelId || "").trim();
+  if (!guild || !normalizedChannelId) return null;
+
+  let channel = guild.channels?.cache?.get?.(normalizedChannelId) || null;
+  if (channel) return channel;
+
+  try {
+    if (typeof guild.channels?.fetch === "function") {
+      channel = await guild.channels.fetch(normalizedChannelId);
+    }
+  } catch {
+    channel = null;
+  }
+
+  return channel || null;
+}
+
+async function buildDashboardWeeklyDigestPreviewPayload(guildInfo, runtimes, weeklyDigest, language) {
+  const digest = normalizeWeeklyDigestConfig(weeklyDigest || {}, language);
+  const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
+  const stats = getGuildListeningStats(guildInfo.id) || {};
+  const dailyStats = await getGuildDailyStats(guildInfo.id, 7);
+  const channelNames = await buildGuildChannelNameMap(guild, digest.channelId ? [digest.channelId] : []);
+  const guildName = String(guild?.name || guildInfo?.name || guildInfo?.id || "OmniFM");
+
+  const preview = buildWeeklyDigestPreview({
+    guildName,
+    channelId: digest.channelId,
+    channelName: channelNames[digest.channelId] || "",
+    stats,
+    dailyStats,
+    language: digest.language || language,
+    now: new Date(),
+  });
+
+  return {
+    weeklyDigest: digest,
+    weeklyDigestMeta: buildWeeklyDigestMeta(digest),
+    preview: {
+      ...preview,
+      embed: buildWeeklyDigestEmbedData({
+        guildName,
+        channelId: digest.channelId,
+        channelName: channelNames[digest.channelId] || "",
+        stats,
+        dailyStats,
+        language: digest.language || language,
+        now: preview.generatedAt,
+      }),
+    },
+  };
 }
 
 function normalizeDashboardTelemetryPayload(rawTelemetry) {
@@ -3605,6 +3661,127 @@ function startWebServer(runtimes) {
         }
         log("ERROR", `Dashboard checkout error: ${err.message}`);
         sendLocalizedError(res, 500, requestLanguage, "Dashboard-Checkout fehlgeschlagen.", "Dashboard checkout failed.");
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/settings/digest-preview") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
+      if (!serverHasCapability(guildInfo.id, "weekly_digest")) {
+        sendLocalizedError(res, 403, language, "Woechentlicher Digest ist erst ab Pro verfuegbar.", "Weekly digest is only available from Pro.");
+        return;
+      }
+
+      try {
+        const body = await readJsonBody();
+        const { getDb: getDatabase, isConnected: isDbConnected } = await import("../lib/db.js");
+        let currentSettings = {};
+        if (isDbConnected() && getDatabase()) {
+          currentSettings = await getDatabase().collection("guild_settings").findOne(
+            { guildId: guildInfo.id },
+            { projection: { _id: 0 } }
+          ) || {};
+        }
+        const weeklyDigest = body?.weeklyDigest && typeof body.weeklyDigest === "object"
+          ? body.weeklyDigest
+          : currentSettings.weeklyDigest || {};
+        const previewPayload = await buildDashboardWeeklyDigestPreviewPayload(guildInfo, runtimes, weeklyDigest, language);
+        sendJson(res, 200, {
+          success: true,
+          serverId: guildInfo.id,
+          tier: guildInfo.tier,
+          ...previewPayload,
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
+          return;
+        }
+        sendLocalizedError(res, 500, language, "Digest-Vorschau konnte nicht geladen werden.", "Digest preview could not be loaded.");
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/settings/digest-test") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
+      if (req.method !== "POST") {
+        methodNotAllowed(res, ["POST"]);
+        return;
+      }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff.", "No access."); return; }
+      if (!serverHasCapability(guildInfo.id, "weekly_digest")) {
+        sendLocalizedError(res, 403, language, "Woechentlicher Digest ist erst ab Pro verfuegbar.", "Weekly digest is only available from Pro.");
+        return;
+      }
+
+      try {
+        const body = await readJsonBody();
+        const digest = normalizeWeeklyDigestConfig(body?.weeklyDigest || {}, language);
+        if (!digest.channelId) {
+          sendLocalizedError(
+            res,
+            400,
+            language,
+            "Fuer einen Test-Digest muss ein Text-Channel ausgewaehlt werden.",
+            "A text channel is required for a test digest."
+          );
+          return;
+        }
+
+        const { guild } = resolveRuntimeForGuild(runtimes, guildInfo.id);
+        if (!guild) {
+          sendLocalizedError(
+            res,
+            503,
+            language,
+            "Der Bot ist aktuell nicht mit diesem Server verbunden.",
+            "The bot is not connected to this server right now."
+          );
+          return;
+        }
+
+        const channel = await resolveGuildTextChannel(guild, digest.channelId);
+        if (!channel || typeof channel.send !== "function") {
+          sendLocalizedError(
+            res,
+            400,
+            language,
+            "Der ausgewaehlte Text-Channel ist nicht verfuegbar.",
+            "The selected text channel is not available."
+          );
+          return;
+        }
+
+        const previewPayload = await buildDashboardWeeklyDigestPreviewPayload(guildInfo, runtimes, digest, language);
+        await channel.send({ embeds: [previewPayload.preview.embed] });
+        sendJson(res, 200, {
+          success: true,
+          serverId: guildInfo.id,
+          tier: guildInfo.tier,
+          channelId: digest.channelId,
+          channelName: previewPayload.preview.channelName || channel.name || "",
+          sentAt: new Date().toISOString(),
+          ...previewPayload,
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
+          return;
+        }
+        sendLocalizedError(res, 500, language, "Test-Digest konnte nicht gesendet werden.", "Test digest could not be sent.");
       }
       return;
     }
