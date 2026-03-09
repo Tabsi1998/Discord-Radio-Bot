@@ -7,6 +7,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "frontend:start": "npm --prefix frontend start",
+    "frontend:build": "npm --prefix frontend run build",
     "deploy": "node src/deploy-commands.js",
     "stations": "node src/stations-cli.js",
     "stations:wizard": "node src/stations-cli.js wizard",

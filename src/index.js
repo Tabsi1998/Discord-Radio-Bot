@@ -1,8 +1,13 @@
 // ============================================================
 // OmniFM v3.0 - Entry Point
 // ============================================================
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
-dotenv.config();
+
+const entryDir = path.dirname(fileURLToPath(import.meta.url));
+const envPath = path.resolve(entryDir, "..", ".env");
+dotenv.config({ path: envPath });
 
 import { log, getLogWriteQueue } from "./lib/logging.js";
 import { connect as connectDb } from "./lib/db.js";

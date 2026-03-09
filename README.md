@@ -494,6 +494,53 @@ npm --prefix frontend install
 npm --prefix frontend run build
 ```
 
+## Local development
+
+For local testing in VS Code, use two terminals inside the repository root.
+
+1. Create a local `.env` from `.env.example` and fill at least:
+   - `BOT_1_TOKEN`
+   - `BOT_1_CLIENT_ID`
+2. Optional for the full dashboard login flow:
+   - `DISCORD_CLIENT_ID`
+   - `DISCORD_CLIENT_SECRET`
+   - `DISCORD_REDIRECT_URI=http://localhost:8081/api/auth/discord/callback`
+3. Install dependencies:
+
+```bash
+npm install
+npm --prefix frontend install
+```
+
+4. Start the bot, API, and production-style local website:
+
+```bash
+npm start
+```
+
+Open:
+
+- `http://localhost:8081` for the integrated website served by the Node backend
+- `http://localhost:8081/api/health` for a quick API check
+
+5. Optional frontend live-reload development server:
+
+```bash
+npm run frontend:start
+```
+
+Then open:
+
+- `http://localhost:3000`
+
+The React dev server automatically talks to the local backend on `http://localhost:8081` unless `REACT_APP_BACKEND_URL` is set.
+
+Notes:
+
+- If `.env` is empty or missing, OmniFM stops with `No bot configuration found. Set BOT_1_TOKEN/BOT_1_CLIENT_ID.`
+- `PUBLIC_WEB_URL=http://localhost:8081` is recommended for local premium and OAuth testing.
+- MongoDB is optional for local work. Without `MONGO_URL` or `MONGO_ENABLED=1`, OmniFM falls back to file-based stores.
+
 ## Troubleshooting
 
 ### Bots appear stuck in voice but are not actually there
