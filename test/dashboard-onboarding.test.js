@@ -4,8 +4,11 @@ import assert from "node:assert/strict";
 import {
   buildDashboardCustomStationsHint,
   buildDashboardEventsHint,
+  buildDashboardExportsHint,
+  buildDashboardFailoverHint,
   buildDashboardNextSetupAction,
   buildDashboardPermissionsHint,
+  buildDashboardWeeklyDigestHint,
   resolveDashboardInviteUrls,
 } from "../frontend/src/lib/dashboardOnboarding.js";
 
@@ -82,4 +85,44 @@ test("buildDashboardCustomStationsHint prefers /play before the first live strea
 
   assert.match(hint.title, /normal live stream/i);
   assert.equal(hint.command, "/play");
+});
+
+test("buildDashboardWeeklyDigestHint requires a text channel before scheduling", () => {
+  const hint = buildDashboardWeeklyDigestHint({
+    setupStatus: { firstStreamLive: true },
+    weeklyDigest: { enabled: false, channelId: "" },
+    textChannelCount: 0,
+    t,
+  });
+
+  assert.match(hint.title, /text channel/i);
+  assert.equal(hint.command, "/setup");
+});
+
+test("buildDashboardFailoverHint asks for /play before configuring a chain", () => {
+  const hint = buildDashboardFailoverHint({
+    setupStatus: {
+      workerInvited: true,
+      firstStreamLive: false,
+    },
+    failoverChainLength: 0,
+    t,
+  });
+
+  assert.match(hint.title, /regular stream/i);
+  assert.equal(hint.command, "/play");
+});
+
+test("buildDashboardExportsHint asks for a webhook URL when live data exists", () => {
+  const hint = buildDashboardExportsHint({
+    setupStatus: { firstStreamLive: true },
+    exportsWebhook: {
+      enabled: false,
+      url: "",
+      events: [],
+    },
+    t,
+  });
+
+  assert.match(hint.title, /webhook url/i);
 });

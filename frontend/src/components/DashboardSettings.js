@@ -15,6 +15,12 @@ import {
   getDashboardExportWebhookEventLabel,
   buildDashboardExportDownloadName,
 } from '../lib/dashboardExports';
+import {
+  buildDashboardExportsHint,
+  buildDashboardFailoverHint,
+  buildDashboardWeeklyDigestHint,
+} from '../lib/dashboardOnboarding';
+import DashboardOnboardingHint from './DashboardOnboardingHint';
 
 const DAYS = [
   { value: 0, de: 'Sonntag', en: 'Sunday' },
@@ -31,6 +37,7 @@ export default function DashboardSettings({
   selectedGuildId,
   t,
   capabilities = DASHBOARD_CAPABILITY_DEFAULTS,
+  setupStatus = null,
   formatDate = null,
 }) {
   const [settings, setSettings] = useState(null);
@@ -176,6 +183,22 @@ export default function DashboardSettings({
   const digestSummary = buildWeeklyDigestSummary(settings, t, formatDate);
   const fallbackSummary = buildFallbackStationSummary(settings, t);
   const exportsSummary = buildDashboardExportsWebhookSummary(exportsWebhook, t);
+  const digestHint = buildDashboardWeeklyDigestHint({
+    setupStatus,
+    weeklyDigest: wd,
+    textChannelCount: textChannels.length,
+    t,
+  });
+  const failoverHint = buildDashboardFailoverHint({
+    setupStatus,
+    failoverChainLength: configuredFailoverChain.length,
+    t,
+  });
+  const exportsHint = buildDashboardExportsHint({
+    setupStatus,
+    exportsWebhook,
+    t,
+  });
   const digestPreviewGeneratedLabel = digestPreview?.generatedAt
     ? (typeof formatDate === 'function'
       ? formatDate(digestPreview.generatedAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -381,6 +404,15 @@ export default function DashboardSettings({
             'Automatically post an embed with the weekly summary to a text channel.'
           )}
         </p>
+        {digestHint && (
+          <div style={{ marginBottom: 14 }}>
+            <DashboardOnboardingHint
+              hint={digestHint}
+              t={t}
+              dataTestId="settings-digest-onboarding-hint"
+            />
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 14 }}>
           <div data-testid="digest-status-card" style={{ border: `1px solid ${digestSummary.statusAccent}33`, background: `${digestSummary.statusAccent}14`, padding: '12px 14px' }}>
@@ -574,6 +606,15 @@ export default function DashboardSettings({
             'Automatically used when a station is unreachable. Instead of silence, the bot switches to this station.'
           )}
         </p>
+        {failoverHint && (
+          <div style={{ marginBottom: 14 }}>
+            <DashboardOnboardingHint
+              hint={failoverHint}
+              t={t}
+              dataTestId="settings-failover-onboarding-hint"
+            />
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 14 }}>
           <div data-testid="fallback-status-card" style={{ border: `1px solid ${fallbackSummary.statusAccent}33`, background: `${fallbackSummary.statusAccent}14`, padding: '12px 14px' }}>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: fallbackSummary.statusAccent }}>
@@ -726,6 +767,15 @@ export default function DashboardSettings({
             'Ultimate servers can export stats and custom stations as JSON and optionally forward these exports to automations.'
           )}
         </p>
+        {exportsHint && (
+          <div style={{ marginBottom: 14 }}>
+            <DashboardOnboardingHint
+              hint={exportsHint}
+              t={t}
+              dataTestId="settings-exports-onboarding-hint"
+            />
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 14 }}>
           <div data-testid="exports-status-card" style={{ border: `1px solid ${exportsSummary.statusAccent}33`, background: `${exportsSummary.statusAccent}14`, padding: '12px 14px' }}>

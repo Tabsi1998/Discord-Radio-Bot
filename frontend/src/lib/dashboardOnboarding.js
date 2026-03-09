@@ -203,3 +203,153 @@ export function buildDashboardPermissionsHint({ setupStatus, availableRoleCount,
 
   return null;
 }
+
+export function buildDashboardWeeklyDigestHint({ setupStatus, weeklyDigest, textChannelCount, t }) {
+  const digest = weeklyDigest && typeof weeklyDigest === 'object'
+    ? weeklyDigest
+    : { enabled: false, channelId: '' };
+
+  if (Number(textChannelCount || 0) <= 0) {
+    return {
+      eyebrow: t('Digest vorbereiten', 'Prepare digest'),
+      title: t('Es fehlt noch ein Text-Channel fuer den Digest', 'A text channel for the digest is still missing'),
+      body: t(
+        'Lege in Discord zuerst einen Text-Channel fuer Reports oder Bot-Updates an. Danach kann der Weekly Digest sauber geplant werden.',
+        'Create a text channel for reports or bot updates in Discord first. After that, the weekly digest can be scheduled cleanly.'
+      ),
+      command: '/setup',
+    };
+  }
+
+  if (!setupStatus?.firstStreamLive) {
+    return {
+      eyebrow: t('Digest vorbereiten', 'Prepare digest'),
+      title: t('Sammle zuerst die ersten echten Laufdaten', 'Collect the first real runtime data first'),
+      body: t(
+        'Der Weekly Digest wird deutlich wertvoller, sobald auf diesem Server bereits Sessions, Zuhoerer und Senderstarts vorhanden sind.',
+        'The weekly digest becomes much more valuable once this server already has sessions, listeners, and station starts.'
+      ),
+      command: '/play',
+      note: t(
+        'Du kannst ihn schon vorbereiten, aber der Nutzen steigt nach dem ersten echten Stream deutlich.',
+        'You can prepare it already, but it becomes much more useful after the first real stream.'
+      ),
+    };
+  }
+
+  if (digest.enabled !== true) {
+    return {
+      eyebrow: t('Digest vorbereiten', 'Prepare digest'),
+      title: t('Aktiviere den Weekly Digest fuer diesen Server', 'Enable the weekly digest for this server'),
+      body: t(
+        'Waehle einen Channel, einen Wochentag und eine Sprache. So bekommt dein Team automatisch einen kompakten Wochenbericht.',
+        'Choose a channel, weekday, and language. That gives your team an automatic compact weekly report.'
+      ),
+    };
+  }
+
+  if (!String(digest.channelId || '').trim()) {
+    return {
+      eyebrow: t('Digest vorbereiten', 'Prepare digest'),
+      title: t('Dem Digest fehlt noch sein Ziel-Channel', 'The digest still needs its target channel'),
+      body: t(
+        'Der Digest ist bereits aktiv, aber ohne Ziel-Channel kann OmniFM nichts ausliefern.',
+        'The digest is already enabled, but without a target channel OmniFM cannot deliver anything.'
+      ),
+    };
+  }
+
+  return null;
+}
+
+export function buildDashboardFailoverHint({ setupStatus, failoverChainLength, t }) {
+  if (!setupStatus?.workerInvited) {
+    return {
+      eyebrow: t('Failover vorbereiten', 'Prepare failover'),
+      title: t('Erst Worker und normales Playback sauber aufsetzen', 'Set up workers and normal playback cleanly first'),
+      body: t(
+        'Failover baut auf dem normalen Streaming-Flow auf. Invite zuerst mindestens einen Worker und teste dann /play.',
+        'Failover builds on the normal streaming flow. Invite at least one worker first and then test /play.'
+      ),
+      command: '/setup',
+    };
+  }
+
+  if (!setupStatus?.firstStreamLive) {
+    return {
+      eyebrow: t('Failover vorbereiten', 'Prepare failover'),
+      title: t('Teste zuerst den regulaeren Stream', 'Test the regular stream first'),
+      body: t(
+        'Sobald der erste Sender stabil laeuft, kannst du hier gezielt die erste Ausweichstation hinterlegen.',
+        'As soon as the first station runs reliably, you can define the first fallback station here.'
+      ),
+      command: '/play',
+    };
+  }
+
+  if (Number(failoverChainLength || 0) <= 0) {
+    return {
+      eyebrow: t('Failover vorbereiten', 'Prepare failover'),
+      title: t('Lege die erste Ausweichstation fest', 'Define the first fallback station'),
+      body: t(
+        'Wenn ein Stream hart ausfaellt, kann OmniFM damit direkt auf eine andere Station springen statt nur stumpf neu zu verbinden.',
+        'If a stream fails hard, OmniFM can jump directly to another station instead of only reconnecting blindly.'
+      ),
+    };
+  }
+
+  return null;
+}
+
+export function buildDashboardExportsHint({ setupStatus, exportsWebhook, t }) {
+  const webhook = exportsWebhook && typeof exportsWebhook === 'object'
+    ? exportsWebhook
+    : { enabled: false, url: '', events: [] };
+
+  if (!setupStatus?.firstStreamLive) {
+    return {
+      eyebrow: t('Exports vorbereiten', 'Prepare exports'),
+      title: t('Warte auf die ersten echten Server-Daten', 'Wait for the first real server data'),
+      body: t(
+        'Exporte und Webhooks sind besonders hilfreich, sobald bereits Statistiken, Custom Stations oder andere Verwaltungsdaten anfallen.',
+        'Exports and webhooks are especially helpful once statistics, custom stations, or other management data already exist.'
+      ),
+      command: '/play',
+    };
+  }
+
+  if (!String(webhook.url || '').trim()) {
+    return {
+      eyebrow: t('Exports vorbereiten', 'Prepare exports'),
+      title: t('Hinterlege zuerst eine Webhook-URL', 'Add a webhook URL first'),
+      body: t(
+        'Mit einer Ziel-URL kann OmniFM Exporte, Testnachrichten und spaeter Automationen sauber an dein eigenes System uebergeben.',
+        'With a target URL, OmniFM can hand off exports, test messages, and later automations cleanly to your own system.'
+      ),
+    };
+  }
+
+  if (webhook.enabled !== true) {
+    return {
+      eyebrow: t('Exports vorbereiten', 'Prepare exports'),
+      title: t('Aktiviere den Webhook, sobald URL und Secret passen', 'Enable the webhook once URL and secret are ready'),
+      body: t(
+        'Der Endpoint ist hinterlegt. Jetzt kannst du Events auswaehlen und den Webhook bewusst aktiv schalten.',
+        'The endpoint is saved. Now you can choose events and deliberately enable the webhook.'
+      ),
+    };
+  }
+
+  if (!Array.isArray(webhook.events) || webhook.events.length <= 0) {
+    return {
+      eyebrow: t('Exports vorbereiten', 'Prepare exports'),
+      title: t('Waehle mindestens ein Webhook-Event aus', 'Select at least one webhook event'),
+      body: t(
+        'Ohne ausgewaehlte Events bleibt der Webhook aktiv, aber er wird nie etwas senden.',
+        'Without selected events, the webhook stays enabled but it will never send anything.'
+      ),
+    };
+  }
+
+  return null;
+}

@@ -918,6 +918,7 @@ export default function DashboardPortal() {
               selectedGuildId={selectedGuildId}
               t={t}
               capabilities={capabilities}
+              setupStatus={setupStatus}
               formatDate={formatDate}
             />
           )}
