@@ -606,8 +606,8 @@ class BotRuntime {
       .setTitle(isDe ? `${BRAND.name}: Erste Schritte` : `${BRAND.name}: First steps`)
       .setDescription(
         isDe
-          ? `Danke für den Invite auf **${guild?.name || "deinen Server"}**.\nDer Commander nimmt Befehle entgegen, Worker streamen die Musik.`
-          : `Thanks for inviting me to **${guild?.name || "your server"}**.\nThe commander handles commands, workers stream the audio.`
+          ? `Danke für den Invite auf **${guild?.name || "deinen Server"}**.\nDer Commander ist bereit. Als Nächstes: mindestens einen Worker einladen und dann \`/play\` ausführen.`
+          : `Thanks for inviting me to **${guild?.name || "your server"}**.\nThe commander is ready. Next: invite at least one worker and then run \`/play\`.`
       )
       .addFields(
         {
@@ -619,14 +619,14 @@ class BotRuntime {
         {
           name: isDe ? "2) Worker einladen" : "2) Invite worker",
           value: isDe
-            ? "`/invite` öffnet ein Menü für freie Worker-Slots."
-            : "`/invite` opens a menu for free worker slots.",
+            ? "`/invite` öffnet ein Menü für freie Worker-Slots. Lade mindestens einen Worker ein."
+            : "`/invite` opens a menu for free worker slots. Invite at least one worker.",
         },
         {
           name: isDe ? "3) Stream starten" : "3) Start stream",
           value: isDe
-            ? "`/play [station] [voice]` startet Radio im Voice/Stage-Channel."
-            : "`/play [station] [voice]` starts radio in your voice/stage channel.",
+            ? "`/play [station] [voice]` startet Radio im Voice-/Stage-Channel, sobald ein Worker auf dem Server ist."
+            : "`/play [station] [voice]` starts radio in your voice/stage channel once a worker is on the server.",
         },
         {
           name: isDe ? "4) Hilfe & Setup" : "4) Help & setup",
@@ -3543,8 +3543,8 @@ class BotRuntime {
         {
           name: isDe ? "Schnellstart" : "Quick start",
           value: isDe
-            ? "1. `/workers` oder `/invite` prüfen, welche Worker bereit sind.\n2. `/play station:<sender> voice:<kanal>` startet den Stream.\n3. `/now`, `/history` und `/stats` zeigen Live-Daten."
-            : "1. Use `/workers` or `/invite` to check which workers are available.\n2. `/play station:<station> voice:<channel>` starts the stream.\n3. `/now`, `/history`, and `/stats` show live data.",
+            ? "1. Mit `/workers` prüfen, welche Worker verfügbar oder bereits eingeladen sind.\n2. Mit `/invite` mindestens einen Worker einladen.\n3. `/play station:<sender> voice:<kanal>` startet den Stream.\n4. `/now`, `/history` und `/stats` zeigen Live-Daten."
+            : "1. Use `/workers` to check which workers are available or already invited.\n2. Use `/invite` to add at least one worker.\n3. `/play station:<station> voice:<channel>` starts the stream.\n4. `/now`, `/history`, and `/stats` show live data.",
           inline: false,
         },
         {
@@ -3624,8 +3624,8 @@ class BotRuntime {
         {
           name: "/invite /workers /perm",
           value: isDe
-            ? "Worker einladen, aktive Worker ansehen und Rollenrechte für Commands regeln."
-            : "Invite workers, inspect active workers, and manage role permissions for commands.",
+            ? "Worker-Setup prüfen, Worker einladen und Rollenrechte für Commands regeln."
+            : "Check worker setup, invite workers, and manage role permissions for commands.",
           inline: false,
         },
         {

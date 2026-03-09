@@ -372,15 +372,15 @@ export function buildCommandBuilders() {
 
   const invite = describe(
     new SlashCommandBuilder().setName("invite"),
-    "Invite a worker bot to your server",
-    "Lade einen Worker-Bot auf deinen Server ein"
+    "Invite or select a worker bot for this server",
+    "Worker-Bot für diesen Server auswählen oder einladen"
   );
   withIntegerOption(invite, "worker", "Worker bot slot (1-16)", "Worker-Bot-Slot (1-16)");
 
   const workers = describe(
     new SlashCommandBuilder().setName("workers"),
-    "Show the status of all worker bots on this server",
-    "Zeigt den Status aller Worker-Bots auf diesem Server"
+    "Show worker status and available slots on this server",
+    "Zeigt Worker-Status und verfügbare Slots auf diesem Server"
   );
   workers.addStringOption((option) => option
     .setName("view")

@@ -120,9 +120,10 @@ Reduce setup anxiety and make the first-run flow feel easy.
 
 Flow:
 
-1. Invite bot
-2. Run `/play`
-3. Listen or scale with workers and plans
+1. Invite the commander
+2. Add at least one worker
+3. Run `/play`
+4. Listen or scale with more workers and plans
 
 ### Why OmniFM
 
@@ -205,7 +206,9 @@ Resolve hesitation before the visitor leaves.
 Must cover:
 
 - how to start
+- whether a worker is needed before `/play`
 - what is free
+- whether the dashboard is needed immediately
 - when Pro is needed
 - when Ultimate is needed
 - how workers work

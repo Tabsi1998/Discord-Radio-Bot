@@ -57,6 +57,16 @@ npm run frontend:start
 
 When the React dev server runs on `localhost:3000`, it automatically targets the backend at `localhost:8081`.
 
+## First local Discord test
+
+Once `npm start` is running and your bot token is valid, test the real product flow in Discord:
+
+1. Invite the commander bot to your test server
+2. Use `/workers` or `/invite` to add at least one worker bot
+3. Join a voice or stage channel and run `/play`
+
+Without an invited worker, the commander can answer commands, but no radio stream can start.
+
 ## What works without extra services
 
 - public website

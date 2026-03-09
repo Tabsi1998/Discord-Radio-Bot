@@ -60,6 +60,16 @@ docker compose logs -f omnifm
 
 The production path uses the Node app started from `src/index.js`. `backend/` is not part of the primary install, run, or test flow anymore.
 
+## First run in Discord
+
+For the first successful stream on a real server, the clean flow is:
+
+1. Invite the commander bot
+2. Use `/workers` or `/invite` to check and add at least one worker
+3. Run `/play` in your voice or stage channel
+
+The commander handles commands. Workers carry the actual audio streams.
+
 ## Daily management
 
 ```bash
