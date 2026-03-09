@@ -1,6 +1,7 @@
 import React from 'react';
 import { CheckCircle2, Headphones, LayoutDashboard, Radio, Volume2 } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { resolvePrimaryInviteUrl } from '../lib/invite';
 
 const eqStyle = `
 @keyframes eq-bounce {
@@ -41,17 +42,6 @@ function Equalizer() {
       ))}
     </div>
   );
-}
-
-function resolvePrimaryInviteUrl(bots) {
-  if (!Array.isArray(bots) || bots.length === 0) return '#bots';
-
-  const commanderBot = bots.find((bot) => String(bot?.role || '').toLowerCase() === 'commander')
-    || bots.find((bot) => String(bot?.name || '').toLowerCase().includes('dj'))
-    || bots.find((bot) => String(bot?.requiredTier || 'free').toLowerCase() === 'free' && (bot?.inviteUrl || bot?.invite_url))
-    || bots[0];
-
-  return commanderBot?.inviteUrl || commanderBot?.invite_url || '#bots';
 }
 
 function Hero({ stats, bots }) {

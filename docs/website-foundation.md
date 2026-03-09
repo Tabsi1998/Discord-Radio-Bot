@@ -173,6 +173,9 @@ Must answer:
 - what Free includes
 - why Pro is worth it
 - why Ultimate exists
+- why the upgrade step feels low-risk and operationally clean
+- how licensing and server seats work in practice
+- where Free users can act immediately without hunting for another CTA
 
 ### Commands
 

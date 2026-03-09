@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Crown, Shield, X, Zap } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Crown, KeyRound, Layers3, Shield, X, Zap } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { buildApiUrl } from '../lib/api';
+import { resolvePrimaryInviteUrl } from '../lib/invite';
 
 const PLAN_ORDER = ['free', 'pro', 'ultimate'];
 const PLAN_META = {
@@ -94,11 +95,61 @@ function mapTierToColor(tier) {
   return '#A1A1AA';
 }
 
+function formatEuroAmount(value, formatDecimal) {
+  return `${formatDecimal(value)} EUR`;
+}
+
 function buildPriceLabel(planId, tier, copy, formatDecimal) {
   if (planId === 'free') return copy.premium.freePrice;
   const startPrice = parsePriceNumber(tier.startingAt);
-  if (Number.isFinite(startPrice)) return `${formatDecimal(startPrice)} EUR`;
-  return `${formatDecimal(tier.pricePerMonth / 100)} EUR`;
+  if (Number.isFinite(startPrice)) return formatEuroAmount(startPrice, formatDecimal);
+  return formatEuroAmount(tier.pricePerMonth / 100, formatDecimal);
+}
+
+function buildProofCards(pricing, copy) {
+  const seatOptions = Array.isArray(pricing?.seatOptions)
+    ? pricing.seatOptions.map((value) => Number(value)).filter(Number.isFinite)
+    : [];
+  const minSeats = seatOptions.length > 0 ? Math.min(...seatOptions) : 1;
+  const maxSeats = seatOptions.length > 0 ? Math.max(...seatOptions) : 1;
+  const trialMonths = Number(pricing?.trial?.months) > 0 ? Number(pricing.trial.months) : 1;
+
+  return [
+    {
+      key: 'trial',
+      icon: BadgeCheck,
+      color: '#39FF14',
+      title: copy.premium.proofCards.trial.title,
+      value: pricing?.trial?.enabled !== false
+        ? copy.premium.proofCards.trial.valueEnabled({ months: trialMonths })
+        : copy.premium.proofCards.trial.valueDisabled,
+      desc: copy.premium.proofCards.trial.desc,
+    },
+    {
+      key: 'seats',
+      icon: Layers3,
+      color: '#00F0FF',
+      title: copy.premium.proofCards.seats.title,
+      value: copy.premium.proofCards.seats.value({ min: minSeats, max: maxSeats }),
+      desc: copy.premium.proofCards.seats.desc,
+    },
+    {
+      key: 'activation',
+      icon: KeyRound,
+      color: '#FFB800',
+      title: copy.premium.proofCards.activation.title,
+      value: copy.premium.proofCards.activation.value,
+      desc: copy.premium.proofCards.activation.desc,
+    },
+    {
+      key: 'tiers',
+      icon: Crown,
+      color: '#BD00FF',
+      title: copy.premium.proofCards.tiers.title,
+      value: copy.premium.proofCards.tiers.value,
+      desc: copy.premium.proofCards.tiers.desc,
+    },
+  ];
 }
 
 function CheckoutModal(props) {
@@ -148,7 +199,7 @@ function CheckoutModal(props) {
     durationLabel,
     seatsLabel: selectedSeats > 1 ? seatsLabel : '',
   });
-  const payAmount = `${formatDecimal(totalPrice)} €`;
+  const payAmount = formatEuroAmount(totalPrice, formatDecimal);
 
   const inputStyle = {
     width: '100%',
@@ -422,7 +473,7 @@ function CheckoutModal(props) {
                     </div>
                     <div style={{ fontSize: 11, marginTop: 2 }}>{copy.premium.seatsSuffix}</div>
                     <div style={{ fontSize: 10, marginTop: 2, color: '#52525B' }}>
-                      {copy.premium.seatsMonthly({ amount: `${formatDecimal(monthlyTotal)} €` })}
+                      {copy.premium.seatsMonthly({ amount: formatEuroAmount(monthlyTotal, formatDecimal) })}
                     </div>
                   </button>
                 );
@@ -615,7 +666,7 @@ function CheckoutModal(props) {
   );
 }
 
-function Premium() {
+function Premium({ bots = [] }) {
   const { copy, locale, formatDate, formatDecimal } = useI18n();
 
   const fallbackPricing = useMemo(() => ({
@@ -634,6 +685,9 @@ function Premium() {
   const [resultColor, setResultColor] = useState('#52525B');
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState(null);
+  const freeInviteUrl = resolvePrimaryInviteUrl(bots);
+  const freeInviteIsExternal = freeInviteUrl.startsWith('http');
+  const proofCards = useMemo(() => buildProofCards(pricing, copy), [copy, pricing]);
 
   useEffect(() => {
     setPricing((current) => normalizePricing(current, fallbackPricing));
@@ -753,6 +807,57 @@ function Premium() {
             })}
           </div>
         </div>
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#71717A', marginBottom: 14 }}>
+            {copy.premium.proofTitle}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+            {proofCards.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  key={item.key}
+                  data-testid={`premium-proof-card-${item.key}`}
+                  style={{
+                    padding: '18px 20px',
+                    borderRadius: 16,
+                    background: 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${item.color}20`,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <div style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: `${item.color}12`,
+                      border: `1px solid ${item.color}30`,
+                    }}>
+                      <Icon size={18} color={item.color} />
+                    </div>
+                    <div>
+                      <div style={{ color: item.color, fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', marginBottom: 4 }}>
+                        {item.value}
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>
+                        {item.title}
+                      </div>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 13, lineHeight: 1.65, color: '#A1A1AA', margin: 0 }}>
+                    {item.desc}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ margin: '12px 0 0', color: '#71717A', fontSize: 13, lineHeight: 1.7, maxWidth: 760 }}>
+            {copy.premium.flowNote}
+          </p>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20, marginBottom: 40 }}>
           {PLAN_ORDER.map((planId) => {
             const tier = pricing.tiers[planId];
@@ -760,6 +865,7 @@ function Premium() {
             const Icon = meta.icon;
             const isPro = planId === 'pro';
             const trialEnabled = isPro && pricing.trial?.enabled !== false;
+            const planNarrative = copy.premium.planOutcomes[planId];
 
             return (
               <div
@@ -841,6 +947,38 @@ function Premium() {
                   </span>
                 </div>
 
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.65, color: '#D4D4D8' }}>
+                    {planNarrative.note}
+                  </p>
+                  <div style={{
+                    padding: '12px 14px',
+                    borderRadius: 12,
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}>
+                    <div style={{ fontSize: 10, color: meta.color, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 800, marginBottom: 6, fontFamily: "'Orbitron', sans-serif" }}>
+                      {copy.premium.planFitLabel}
+                    </div>
+                    <div data-testid={`plan-fit-${planId}`} style={{ fontSize: 13, color: '#A1A1AA', lineHeight: 1.6 }}>
+                      {planNarrative.fit}
+                    </div>
+                  </div>
+                  <div style={{
+                    padding: '12px 14px',
+                    borderRadius: 12,
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}>
+                    <div style={{ fontSize: 10, color: meta.color, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 800, marginBottom: 6, fontFamily: "'Orbitron', sans-serif" }}>
+                      {copy.premium.planUpgradeLabel}
+                    </div>
+                    <div data-testid={`plan-upgrade-${planId}`} style={{ fontSize: 13, color: '#A1A1AA', lineHeight: 1.6 }}>
+                      {planNarrative.upgrade}
+                    </div>
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                   {tier.features.map((feature) => (
                     <div key={feature} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -850,7 +988,45 @@ function Premium() {
                   ))}
                 </div>
 
-                {planId !== 'free' && (
+                {planId === 'free' ? (
+                  <a
+                    href={freeInviteUrl}
+                    target={freeInviteIsExternal ? '_blank' : undefined}
+                    rel={freeInviteIsExternal ? 'noopener noreferrer' : undefined}
+                    data-testid="premium-free-start-btn"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      padding: '12px 0',
+                      borderRadius: 10,
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: 'rgba(255,255,255,0.04)',
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: 14,
+                      fontFamily: "'DM Sans', sans-serif",
+                      textDecoration: 'none',
+                      transition: 'transform 0.15s, border-color 0.2s, background 0.2s',
+                    }}
+                    onMouseEnter={(event) => {
+                      event.currentTarget.style.transform = 'scale(1.02)';
+                      event.currentTarget.style.borderColor = 'rgba(0,240,255,0.35)';
+                      event.currentTarget.style.background = 'rgba(0,240,255,0.08)';
+                    }}
+                    onMouseLeave={(event) => {
+                      event.currentTarget.style.transform = 'scale(1)';
+                      event.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                      event.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                    }}
+                  >
+                    {copy.premium.freeCta}
+                    <ArrowRight size={16} />
+                  </a>
+                ) : (
                   <>
                     <button
                       data-testid={`buy-btn-${planId}`}
@@ -918,6 +1094,9 @@ function Premium() {
           <div style={{ fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A1A1AA', marginBottom: 12, fontWeight: 600 }}>
             {copy.premium.statusTitle}
           </div>
+          <p data-testid="premium-status-hint" style={{ margin: '0 0 14px', fontSize: 13, color: '#71717A', lineHeight: 1.65 }}>
+            {copy.premium.statusHint}
+          </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               data-testid="premium-server-id-input"

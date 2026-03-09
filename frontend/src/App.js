@@ -230,7 +230,7 @@ function AppContent() {
       <BotDirectory bots={bots} loading={loading} />
       <StationBrowser stations={stations} loading={loading} />
       <UseCasesSection />
-      <Premium />
+      <Premium bots={bots} />
       <PlanMatrix />
       <Commands commands={commands} loading={loading} />
       <CommandMatrix />
