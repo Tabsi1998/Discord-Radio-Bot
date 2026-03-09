@@ -183,6 +183,7 @@ export default function DashboardPortal() {
   const [stats, setStats] = useState({ basic: null, advanced: null, tier: 'free' });
   const [detailStats, setDetailStats] = useState(null);
   const [detailDays, setDetailDays] = useState(30);
+  const [inviteLinks, setInviteLinks] = useState({ serverId: '', serverTier: 'free', bots: [] });
 
   const selectedGuild = useMemo(() => (session.guilds || []).find((g) => g.id === selectedGuildId) || null, [session.guilds, selectedGuildId]);
   const sessionCapabilityPayload = useMemo(() => normalizeDashboardCapabilityPayload(selectedGuild ? {
@@ -276,6 +277,7 @@ export default function DashboardPortal() {
         permsPayload,
         rolesPayload,
         detailPayload,
+        inviteLinksPayload,
       ] = await Promise.all([
         apiRequest(`/api/dashboard/stats?serverId=${encodeURIComponent(selectedGuildId)}`),
         canManageEvents
@@ -290,10 +292,18 @@ export default function DashboardPortal() {
         canViewAdvancedStats
           ? apiRequest(`/api/dashboard/stats/detail?serverId=${encodeURIComponent(selectedGuildId)}&days=${encodeURIComponent(String(detailDays))}`).catch(() => null)
           : Promise.resolve(null),
+        apiRequest(`/api/premium/invite-links?serverId=${encodeURIComponent(selectedGuildId)}`).catch(() => ({
+          serverId: selectedGuildId,
+          serverTier: selectedGuild?.tier || 'free',
+          bots: [],
+        })),
       ]);
 
       setStats({ tier: statsPayload.tier || selectedGuild?.tier || 'free', basic: statsPayload.basic || null, advanced: statsPayload.advanced || null });
       setDetailStats(detailPayload);
+      setInviteLinks(inviteLinksPayload && Array.isArray(inviteLinksPayload.bots)
+        ? inviteLinksPayload
+        : { serverId: selectedGuildId, serverTier: selectedGuild?.tier || 'free', bots: [] });
       setEvents(sortDashboardEvents(Array.isArray(eventsPayload?.events) ? eventsPayload.events : []));
       setAvailableRoles(Array.isArray(rolesPayload?.roles) ? rolesPayload.roles : []);
       setPermsDraft(buildPermissionsDraftFromPayload(permsPayload));
@@ -319,7 +329,8 @@ export default function DashboardPortal() {
   useEffect(() => {
     setEditingEventId('');
     setEventForm(buildEmptyEventForm());
-  }, [selectedGuildId]);
+    setInviteLinks({ serverId: selectedGuildId || '', serverTier: selectedGuild?.tier || 'free', bots: [] });
+  }, [selectedGuild?.tier, selectedGuildId]);
   useEffect(() => {
     const activeTabConfig = tabs.find((entry) => entry.key === activeTab);
     if (activeTabConfig?.requiredCapability && capabilities[activeTabConfig.requiredCapability] !== true) {
@@ -760,6 +771,7 @@ export default function DashboardPortal() {
             <DashboardOverview
               stats={stats}
               detailStats={detailStats}
+              inviteLinks={inviteLinks}
               t={t}
               isUltimate={canViewAdvancedStats}
               onResetStats={resetStatsForSelectedGuild}

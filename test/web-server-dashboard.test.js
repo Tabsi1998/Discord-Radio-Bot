@@ -595,6 +595,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(premiumInviteLinksResponse.payload.serverTier, "pro");
   assert.equal(premiumInviteLinksResponse.payload.bots.length, 1);
   assert.equal(premiumInviteLinksResponse.payload.bots[0].botId, "bot-test-1");
+  assert.equal(premiumInviteLinksResponse.payload.bots[0].role, "commander");
   assert.equal(premiumInviteLinksResponse.payload.bots[0].hasAccess, true);
   assert.equal(premiumInviteLinksResponse.payload.bots[0].requiredTier, "free");
 

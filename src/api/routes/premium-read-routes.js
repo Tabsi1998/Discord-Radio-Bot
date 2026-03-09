@@ -80,6 +80,7 @@ export function createPremiumReadRoutesHandler(deps) {
           botId: runtime.config.id,
           name: runtime.config.name,
           index: runtime.config.index,
+          role: runtime.role || "worker",
           requiredTier: botTier,
           hasAccess: access.hasAccess,
           blockedReason: access.reason,
