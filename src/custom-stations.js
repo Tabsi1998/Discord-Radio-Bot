@@ -9,7 +9,14 @@ const DEFAULT_CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json"
 const CUSTOM_FILE = path.resolve(process.env.OMNIFM_CUSTOM_STATIONS_FILE || DEFAULT_CUSTOM_FILE);
 const CUSTOM_BACKUP_FILE = `${CUSTOM_FILE}.bak`;
 const MAX_STATIONS_PER_GUILD = 50;
+const MAX_TAGS_PER_STATION = 8;
+const MAX_FOLDER_LENGTH = 40;
+const MAX_TAG_LENGTH = 24;
 const CUSTOM_STATION_PREFIX = "custom:";
+
+function normalizeWhitespace(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
 
 function readStationsFile(filePath) {
   if (!fs.existsSync(filePath)) return null;
@@ -43,6 +50,8 @@ function load() {
                 name: String(item.name || item.title || key).trim().substring(0, 100),
                 url: String(item.streamURL || item.url || item.streamUrl || "").trim(),
                 genre: String(item.genre || "").trim().substring(0, 80),
+                folder: normalizeCustomStationFolder(item.folder || item.group || ""),
+                tags: normalizeCustomStationTags(item.tags),
                 addedAt: item.addedAt || new Date().toISOString(),
               };
             }
@@ -112,6 +121,44 @@ function sanitizeKey(raw) {
 
 function normalizeCustomStationKey(raw) {
   return sanitizeKey(raw);
+}
+
+function normalizeCustomStationFolder(raw) {
+  return normalizeWhitespace(raw).substring(0, MAX_FOLDER_LENGTH);
+}
+
+function normalizeCustomStationTags(rawTags) {
+  const source = Array.isArray(rawTags)
+    ? rawTags
+    : typeof rawTags === "string"
+      ? rawTags.split(/[,\n]/g)
+      : [];
+
+  const tags = [];
+  const seen = new Set();
+  for (const rawTag of source) {
+    const value = normalizeWhitespace(rawTag).substring(0, MAX_TAG_LENGTH);
+    if (!value) continue;
+    const normalizedKey = value.toLowerCase();
+    if (seen.has(normalizedKey)) continue;
+    seen.add(normalizedKey);
+    tags.push(value);
+    if (tags.length >= MAX_TAGS_PER_STATION) break;
+  }
+
+  return tags;
+}
+
+function normalizeStoredStation(station, fallbackKey = "") {
+  const raw = station && typeof station === "object" ? station : {};
+  return {
+    name: String(raw.name || raw.title || fallbackKey).trim().substring(0, 100),
+    url: String(raw.url || raw.streamURL || raw.streamUrl || "").trim(),
+    genre: String(raw.genre || "").trim().substring(0, 80),
+    folder: normalizeCustomStationFolder(raw.folder || raw.group || ""),
+    tags: normalizeCustomStationTags(raw.tags),
+    addedAt: raw.addedAt || null,
+  };
 }
 
 function buildCustomStationReference(rawKey) {
@@ -254,7 +301,12 @@ async function validateCustomStationUrlWithDns(rawUrl) {
 
 function getGuildStations(guildId) {
   const data = load();
-  return data[String(guildId)] || {};
+  const rawStations = data[String(guildId)] || {};
+  const stations = {};
+  for (const [key, station] of Object.entries(rawStations)) {
+    stations[key] = normalizeStoredStation(station, key);
+  }
+  return stations;
 }
 
 function normalizeStationInput(nameOrStation, url) {
@@ -263,6 +315,8 @@ function normalizeStationInput(nameOrStation, url) {
       name: String(nameOrStation.name || "").trim(),
       url: String(nameOrStation.url || nameOrStation.streamURL || nameOrStation.streamUrl || "").trim(),
       genre: String(nameOrStation.genre || "").trim().substring(0, 80),
+      folder: normalizeCustomStationFolder(nameOrStation.folder || ""),
+      tags: normalizeCustomStationTags(nameOrStation.tags),
     };
   }
 
@@ -270,6 +324,8 @@ function normalizeStationInput(nameOrStation, url) {
     name: String(nameOrStation || "").trim(),
     url: String(url || "").trim(),
     genre: "",
+    folder: "",
+    tags: [],
   };
 }
 
@@ -300,6 +356,8 @@ async function saveGuildStation(guildId, key, nameOrStation, url, options = {}) 
     name: stationInput.name.substring(0, 100),
     url: validation.url,
     genre: stationInput.genre,
+    folder: stationInput.folder,
+    tags: stationInput.tags,
     addedAt: existingStation?.addedAt || new Date().toISOString(),
   };
   save(data);
@@ -348,7 +406,10 @@ const listCustomStations = listGuildStations;
 export {
   CUSTOM_STATION_PREFIX,
   MAX_STATIONS_PER_GUILD,
+  MAX_TAGS_PER_STATION,
   normalizeCustomStationKey,
+  normalizeCustomStationFolder,
+  normalizeCustomStationTags,
   buildCustomStationReference,
   parseCustomStationReference,
   validateCustomStationUrl,

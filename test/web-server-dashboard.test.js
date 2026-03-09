@@ -263,6 +263,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "dashboard.json.bak"),
     path.join(repoRoot, "command-permissions.json"),
     path.join(repoRoot, "command-permissions.json.bak"),
+    path.join(repoRoot, "custom-stations.json"),
+    path.join(repoRoot, "custom-stations.json.bak"),
     path.join(repoRoot, "scheduled-events.json"),
   ];
   const snapshots = new Map();
@@ -472,12 +474,80 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(detailStatsResponse.status, 200);
   assert.equal(detailStatsResponse.payload.connectionHealth.timeline.length, 30);
 
+  const initialCustomStationsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/custom-stations?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(initialCustomStationsResponse.status, 200);
+  assert.deepEqual(initialCustomStationsResponse.payload.stations, []);
+
+  const createCustomStationResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/custom-stations?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: "nightwave",
+        name: "Nightwave FM",
+        url: "https://1.1.1.1/live",
+        genre: "Synthwave",
+        folder: "Night Rotation",
+        tags: "night, synthwave, night",
+      }),
+    }
+  );
+  assert.equal(createCustomStationResponse.status, 201);
+  assert.equal(createCustomStationResponse.payload.station.folder, "Night Rotation");
+  assert.deepEqual(createCustomStationResponse.payload.station.tags, ["night", "synthwave"]);
+
+  const updateCustomStationResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/custom-stations?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: "nightwave",
+        name: "Nightwave Live",
+        url: "https://1.1.1.1/live",
+        genre: "Synthwave",
+        folder: "Featured",
+        tags: ["featured", "live"],
+      }),
+    }
+  );
+  assert.equal(updateCustomStationResponse.status, 200);
+  assert.equal(updateCustomStationResponse.payload.station.name, "Nightwave Live");
+  assert.equal(updateCustomStationResponse.payload.station.folder, "Featured");
+  assert.deepEqual(updateCustomStationResponse.payload.station.tags, ["featured", "live"]);
+
+  const customStationsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/custom-stations?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(customStationsResponse.status, 200);
+  assert.equal(customStationsResponse.payload.stations.length, 1);
+  assert.equal(customStationsResponse.payload.stations[0].folder, "Featured");
+  assert.deepEqual(customStationsResponse.payload.stations[0].tags, ["featured", "live"]);
+
   const stationsResponse = await requestJson(
     baseUrl,
     `/api/dashboard/stations?serverId=${GUILD_ID}`,
     { headers: authHeaders }
   );
   assert.equal(stationsResponse.status, 200);
+  assert.equal(stationsResponse.payload.custom.length, 1);
+  assert.equal(stationsResponse.payload.custom[0].folder, "Featured");
+  assert.deepEqual(stationsResponse.payload.custom[0].tags, ["featured", "live"]);
   const availableFailoverStations = [
     ...(stationsResponse.payload.custom || []).map((station) => `custom:${station.key}`),
     ...(stationsResponse.payload.free || []).map((station) => station.key),

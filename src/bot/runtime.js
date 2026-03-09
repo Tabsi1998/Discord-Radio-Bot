@@ -6918,7 +6918,16 @@ class BotRuntime {
       if (keys.length === 0) {
         await interaction.reply({ content: t("Keine Custom-Stationen. Nutze `/addstation`, um eine hinzuzufügen.", "No custom stations. Use `/addstation` to add one."), flags: MessageFlags.Ephemeral });
       } else {
-        const list = keys.map(k => `\`${k}\` - ${custom[k].name}`).join("\n");
+        const list = keys.map((k) => {
+          const station = custom[k] || {};
+          const meta = [];
+          if (station.folder) meta.push(`[${station.folder}]`);
+          if (Array.isArray(station.tags) && station.tags.length > 0) {
+            meta.push(station.tags.map((tag) => `#${tag}`).join(", "));
+          }
+          const suffix = meta.length > 0 ? ` - ${meta.join(" ")}` : "";
+          return `\`${k}\` - ${station.name}${suffix}`;
+        }).join("\n");
         await this.respondLongInteraction(
           interaction,
           `**${t("Custom Stationen", "Custom stations")} (${keys.length}/${MAX_STATIONS_PER_GUILD}):**\n${list}`,

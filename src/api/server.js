@@ -201,6 +201,18 @@ function buildServerCapabilityPayload(serverId) {
   };
 }
 
+function mapDashboardCustomStation(key, station) {
+  return {
+    key,
+    name: station?.name || key,
+    url: station?.url || "",
+    genre: station?.genre || "",
+    folder: station?.folder || "",
+    tags: Array.isArray(station?.tags) ? station.tags : [],
+    custom: true,
+  };
+}
+
 function buildDashboardSelectableStations(guildId) {
   const tier = getTier(guildId);
   const scopedStations = filterStationsByTier(loadStations().stations || {}, tier);
@@ -215,6 +227,8 @@ function buildDashboardSelectableStations(guildId) {
       label: `${station?.name || key} (Custom)`,
       tier: "ultimate",
       isCustom: true,
+      folder: station?.folder || "",
+      tags: Array.isArray(station?.tags) ? station.tags : [],
     });
   }
 
@@ -3280,9 +3294,13 @@ function startWebServer(runtimes) {
       })).sort((a, b) => a.name.localeCompare(b.name));
 
       const customStations = serverHasCapability(guildInfo.id, "custom_station_urls") ? getCustomStations(guildInfo.id) : {};
-      const customList = Object.entries(customStations).map(([key, st]) => ({
-        key, name: st.name || key, url: st.url || "", genre: st.genre || "", custom: true,
-      })).sort((a, b) => a.name.localeCompare(b.name));
+      const customList = Object.entries(customStations)
+        .map(([key, st]) => mapDashboardCustomStation(key, st))
+        .sort((a, b) => {
+          const folderCompare = String(a.folder || "").localeCompare(String(b.folder || ""));
+          if (folderCompare !== 0) return folderCompare;
+          return a.name.localeCompare(b.name);
+        });
 
       sendJson(res, 200, {
         free: formatList(freeStations),
@@ -3315,9 +3333,13 @@ function startWebServer(runtimes) {
 
       if (req.method === "GET") {
         const stations = getCustomStations(guildInfo.id);
-        const list = Object.entries(stations).map(([key, st]) => ({
-          key, name: st.name || key, url: st.url || "", genre: st.genre || "",
-        })).sort((a, b) => a.name.localeCompare(b.name));
+        const list = Object.entries(stations)
+          .map(([key, st]) => mapDashboardCustomStation(key, st))
+          .sort((a, b) => {
+            const folderCompare = String(a.folder || "").localeCompare(String(b.folder || ""));
+            if (folderCompare !== 0) return folderCompare;
+            return a.name.localeCompare(b.name);
+          });
         sendJson(res, 200, { stations: list, tier: guildInfo.tier });
         return;
       }
@@ -3332,7 +3354,15 @@ function startWebServer(runtimes) {
             sendLocalizedError(res, 400, language, "Key, Name und URL sind erforderlich.", "Key, name and URL are required.");
             return;
           }
-          const result = await addCustomStation(guildInfo.id, key, { name, url, genre: clipText(body?.genre || "", 80) });
+          const result = await addCustomStation(guildInfo.id, key, {
+            name,
+            url,
+            genre: clipText(body?.genre || "", 80),
+            folder: clipText(body?.folder || "", 80),
+            tags: Array.isArray(body?.tags)
+              ? body.tags.map((tag) => clipText(tag || "", 40))
+              : clipText(body?.tags || "", 240),
+          });
           if (!result?.success) {
             sendJson(res, 400, {
               error: translateCustomStationErrorMessage(
@@ -3342,7 +3372,7 @@ function startWebServer(runtimes) {
             });
             return;
           }
-          sendJson(res, 201, { success: true, station: { key: result.key, ...result.station } });
+          sendJson(res, 201, { success: true, station: mapDashboardCustomStation(result.key, result.station) });
         } catch (err) {
           sendJson(res, 400, {
             error: translateCustomStationErrorMessage(
@@ -3374,6 +3404,10 @@ function startWebServer(runtimes) {
             name: clipText(body?.name || current.name || key, 120).trim(),
             url: clipText(body?.url || current.url || "", 500).trim(),
             genre: clipText(body?.genre !== undefined ? body.genre : (current.genre || ""), 80),
+            folder: clipText(body?.folder !== undefined ? body.folder : (current.folder || ""), 80),
+            tags: Array.isArray(body?.tags)
+              ? body.tags.map((tag) => clipText(tag || "", 40))
+              : (body?.tags !== undefined ? clipText(body.tags || "", 240) : (current.tags || [])),
           };
           const result = await updateCustomStation(guildInfo.id, key, updated);
           if (!result?.success) {
@@ -3385,7 +3419,7 @@ function startWebServer(runtimes) {
             });
             return;
           }
-          sendJson(res, 200, { success: true, station: { key: result.key, ...result.station } });
+          sendJson(res, 200, { success: true, station: mapDashboardCustomStation(result.key, result.station) });
         } catch (err) {
           sendJson(res, 400, {
             error: translateCustomStationErrorMessage(
