@@ -28,7 +28,7 @@ function normalizeIso(rawValue, fallback = new Date().toISOString()) {
 function normalizeVote(rawVote, source = "webhook") {
   if (!rawVote || typeof rawVote !== "object") return null;
 
-  const userId = String(rawVote.id || rawVote.user_id || "").trim();
+  const userId = String(rawVote.id || rawVote.user_id || rawVote.userId || "").trim();
   if (!/^\d{17,22}$/.test(userId)) return null;
 
   const discriminator = String(rawVote.discriminator || "").trim();
@@ -37,15 +37,16 @@ function normalizeVote(rawVote, source = "webhook") {
     ? `${usernameBase}#${discriminator}`
     : usernameBase;
   const votedAt = normalizeIso(rawVote.timestamp || rawVote.votedAt);
+  const voteSource = String(rawVote.source || source || "webhook").trim() || "webhook";
 
   return {
     userId,
     username: username.slice(0, 120),
     avatar: String(rawVote.avatar || "").trim() || null,
     admin: rawVote.admin === true,
-    source: String(source || "webhook").trim() || "webhook",
+    source: voteSource,
     votedAt,
-    receivedAt: new Date().toISOString(),
+    receivedAt: normalizeIso(rawVote.receivedAt),
   };
 }
 

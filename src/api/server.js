@@ -21,6 +21,8 @@ import { createDashboardSettingsRouteHandler } from "./routes/dashboard-settings
 import { createDashboardStationsRouteHandler } from "./routes/dashboard-stations.js";
 import { createDashboardStatsRouteHandler } from "./routes/dashboard-stats.js";
 import { createDashboardTelemetryRouteHandler } from "./routes/dashboard-telemetry.js";
+import { createDiscordBotListRoutesHandler } from "./routes/discordbotlist-routes.js";
+import { createPremiumReadRoutesHandler } from "./routes/premium-read-routes.js";
 import { createPublicRoutesHandler } from "./routes/public-routes.js";
 
 import { log, webDir, webRootSource, frontendBuildStamp, rootDir } from "../lib/logging.js";
@@ -520,6 +522,48 @@ const handleDashboardAccessRoute = createDashboardAccessRouteHandler({
   resolveDashboardGuildsForSession,
   sendJson,
   sendLocalizedError,
+});
+
+const handleDiscordBotListRoutes = createDiscordBotListRoutesHandler({
+  getDashboardRequestTranslator,
+  getDiscordBotListStatus,
+  getLocalizedJsonBodyError,
+  handleDiscordBotListVoteWebhook,
+  isAdminApiRequest,
+  languagePick,
+  log,
+  methodNotAllowed,
+  sendJson,
+  syncDiscordBotListCommands,
+  syncDiscordBotListStats,
+  syncDiscordBotListVotes,
+});
+
+const handlePremiumReadRoutes = createPremiumReadRoutesHandler({
+  BRAND,
+  DURATION_OPTIONS,
+  PRO_TRIAL_MONTHS,
+  SEAT_OPTIONS,
+  TIERS,
+  buildInviteUrlForRuntime,
+  calculateUpgradePrice,
+  durationPricingInEuro,
+  getBotAccessForTier,
+  getDashboardRequestTranslator,
+  getDefaultLanguage,
+  getLicense,
+  getPricePerMonthCents,
+  getTierConfig,
+  isAdminApiRequest,
+  isProTrialEnabled,
+  languagePick,
+  methodNotAllowed,
+  normalizeLanguage,
+  normalizeSeats,
+  resolveLanguageFromAcceptLanguage,
+  sanitizeLicenseForApi,
+  seatPricingInEuro,
+  sendJson,
 });
 
 const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
@@ -2460,133 +2504,7 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (requestUrl.pathname === "/api/discordbotlist/status") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      if (!isAdminApiRequest(req)) {
-        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
-        return;
-      }
-      const voteLimit = Number.parseInt(String(requestUrl.searchParams.get("limit") || "20"), 10);
-      sendJson(res, 200, getDiscordBotListStatus(runtimes, { voteLimit }));
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/discordbotlist/votes") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      if (!isAdminApiRequest(req)) {
-        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
-        return;
-      }
-      const voteLimit = Number.parseInt(String(requestUrl.searchParams.get("limit") || "50"), 10);
-      const status = getDiscordBotListStatus(runtimes, { voteLimit });
-      sendJson(res, 200, {
-        totalVotes: status?.state?.totalVotes || 0,
-        votes: status?.state?.votes || [],
-      });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/discordbotlist/vote") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      try {
-        const body = await readJsonBody();
-        const result = handleDiscordBotListVoteWebhook(req.headers || {}, body || {});
-        sendJson(
-          res,
-          result.status || (result.ok ? 200 : 400),
-          result.ok
-            ? {
-              success: true,
-              added: result.added,
-              totalVotes: result.totalVotes,
-            }
-            : {
-              success: false,
-              error: result.error,
-            }
-        );
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 400 || status === 413) {
-          sendJson(res, status, {
-            success: false,
-            error: status === 413 ? "Request-Body ist zu groß." : "Ungültiges JSON im Request-Body.",
-          });
-          return;
-        }
-        log("ERROR", `DiscordBotList webhook error: ${err?.message || err}`);
-        sendJson(res, 500, { success: false, error: "DiscordBotList Webhook fehlgeschlagen." });
-      }
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/discordbotlist/sync") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-      if (!isAdminApiRequest(req)) {
-        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
-        return;
-      }
-      try {
-        const body = await readJsonBody();
-        const runCommands = body?.commands !== false;
-        const runStats = body?.stats !== false;
-        const runVotes = body?.votes !== false;
-        const results = {};
-        let hadFailure = false;
-
-        if (runCommands) {
-          try {
-            results.commands = await syncDiscordBotListCommands(runtimes);
-          } catch (err) {
-            hadFailure = true;
-            results.commands = { ok: false, error: err?.message || String(err) };
-          }
-        }
-        if (runStats) {
-          try {
-            results.stats = await syncDiscordBotListStats(runtimes);
-          } catch (err) {
-            hadFailure = true;
-            results.stats = { ok: false, error: err?.message || String(err) };
-          }
-        }
-        if (runVotes) {
-          try {
-            results.votes = await syncDiscordBotListVotes(runtimes);
-          } catch (err) {
-            hadFailure = true;
-            results.votes = { ok: false, error: err?.message || String(err) };
-          }
-        }
-
-        sendJson(res, hadFailure ? 500 : 200, {
-          success: !hadFailure,
-          results,
-        });
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 400 || status === 413) {
-          sendJson(res, status, {
-            success: false,
-            error: status === 413 ? "Request-Body ist zu groß." : "Ungültiges JSON im Request-Body.",
-          });
-          return;
-        }
-        log("ERROR", `DiscordBotList sync API error: ${err?.message || err}`);
-        sendJson(res, 500, { success: false, error: "DiscordBotList Sync fehlgeschlagen." });
-      }
+    if (await handleDiscordBotListRoutes({ req, res, requestUrl, readJsonBody, runtimes })) {
       return;
     }
 
@@ -2639,67 +2557,7 @@ function startWebServer(runtimes) {
     }
 
     // --- Premium API ---
-    if (requestUrl.pathname === "/api/premium/check") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const serverId = requestUrl.searchParams.get("serverId");
-      if (!serverId || !/^\d{17,22}$/.test(serverId)) {
-        sendJson(res, 400, { error: "serverId muss 17-22 Ziffern sein." });
-        return;
-      }
-      const tierConfig = getTierConfig(serverId);
-      const license = getLicense(serverId);
-      const includeSensitive = isAdminApiRequest(req);
-      sendJson(res, 200, {
-        serverId,
-        tier: tierConfig.tier,
-        name: tierConfig.name,
-        bitrate: tierConfig.bitrate,
-        reconnectMs: tierConfig.reconnectMs,
-        maxBots: tierConfig.maxBots,
-        license: sanitizeLicenseForApi(license, includeSensitive),
-      });
-      return;
-    }
-
-    // Premium Bot Invite-Links: nur fuer berechtigte Server
-    if (requestUrl.pathname === "/api/premium/invite-links") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const serverId = requestUrl.searchParams.get("serverId");
-      if (!serverId || !/^\d{17,22}$/.test(serverId)) {
-        sendJson(res, 400, { error: "serverId muss 17-22 Ziffern sein." });
-        return;
-      }
-      const tierConfig = getTierConfig(serverId);
-      const links = runtimes.map((rt) => {
-        const botTier = rt.config.requiredTier || "free";
-        const access = getBotAccessForTier(rt.config, tierConfig);
-        return {
-          botId: rt.config.id,
-          name: rt.config.name,
-          index: rt.config.index,
-          requiredTier: botTier,
-          hasAccess: access.hasAccess,
-          blockedReason: access.reason,
-          inviteUrl: access.hasAccess ? buildInviteUrlForRuntime(rt) : null,
-        };
-      });
-
-      sendJson(res, 200, { serverId, serverTier: tierConfig.tier, bots: links });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/premium/tiers") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      sendJson(res, 200, { tiers: TIERS });
+    if (await handlePremiumReadRoutes({ req, res, requestUrl, runtimes })) {
       return;
     }
 
@@ -3349,99 +3207,6 @@ function startWebServer(runtimes) {
         log("ERROR", `Stripe verify error: ${err.message}`);
         sendJson(res, 500, { error: "Verifizierung fehlgeschlagen: " + err.message });
       }
-      return;
-    }
-
-    // --- Pricing info endpoint ---
-    if (requestUrl.pathname === "/api/premium/pricing") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const pricingLanguage = normalizeLanguage(
-        requestUrl.searchParams.get("lang"),
-        resolveLanguageFromAcceptLanguage(req.headers["accept-language"], getDefaultLanguage())
-      );
-      const t = (de, en) => languagePick(pricingLanguage, de, en);
-      const formatPricingValue = (cents) => (Number(cents || 0) / 100).toFixed(2);
-      const serverId = requestUrl.searchParams.get("serverId");
-      const result = {
-        brand: BRAND.name,
-        tiers: {
-          free: {
-            name: "Free",
-            pricePerMonth: 0,
-            features: [
-              t("64k Bitrate", "64k bitrate"),
-              t("Bis zu 2 Bots", "Up to 2 bots"),
-              t("20 Free Stationen", "20 free stations"),
-              t("Standard Reconnect (5s)", "Standard reconnect (5s)"),
-            ]
-          },
-          pro: {
-            name: "Pro",
-            pricePerMonth: TIERS.pro.pricePerMonth,
-            startingAt: formatPricingValue(getPricePerMonthCents("pro", 1)),
-            durationPricing: durationPricingInEuro("pro"),
-            seatPricing: seatPricingInEuro("pro"),
-            features: [
-              t("128k Bitrate (HQ Opus)", "128k bitrate (HQ Opus)"),
-              t("Bis zu 8 Bots", "Up to 8 bots"),
-              t("120 Stationen (Free + Pro)", "120 stations (free + pro)"),
-              t("Priority Reconnect (1,5s)", "Priority reconnect (1.5s)"),
-              t("Rollenbasierte Command-Berechtigungen", "Role-based command permissions"),
-              t("Event-Scheduler", "Event scheduler"),
-            ]
-          },
-          ultimate: {
-            name: "Ultimate",
-            pricePerMonth: TIERS.ultimate.pricePerMonth,
-            startingAt: formatPricingValue(getPricePerMonthCents("ultimate", 1)),
-            durationPricing: durationPricingInEuro("ultimate"),
-            seatPricing: seatPricingInEuro("ultimate"),
-            features: [
-              t("320k Bitrate (Ultra HQ)", "320k bitrate (Ultra HQ)"),
-              t("Bis zu 16 Bots", "Up to 16 bots"),
-              t("Alle Stationen + Custom URLs", "All stations + custom URLs"),
-              t("Instant Reconnect (0,4s)", "Instant reconnect (0.4s)"),
-              t("Rollenbasierte Command-Berechtigungen", "Role-based command permissions"),
-            ]
-          },
-        },
-        durations: [...DURATION_OPTIONS],
-        seatOptions: [...SEAT_OPTIONS],
-        trial: {
-          enabled: isProTrialEnabled(),
-          tier: "pro",
-          months: PRO_TRIAL_MONTHS,
-          oneTimePerEmail: true,
-        },
-      };
-
-      if (serverId && /^\d{17,22}$/.test(serverId)) {
-        const license = getLicense(serverId);
-        if (license && !license.expired) {
-          result.currentLicense = {
-            tier: license.tier || license.plan,
-            seats: normalizeSeats(license.seats || 1),
-            expiresAt: license.expiresAt,
-            remainingDays: license.remainingDays,
-          };
-          if ((license.tier || license.plan) === "pro") {
-            const upgrade = calculateUpgradePrice(license, "ultimate");
-            if (upgrade) {
-              result.upgrade = {
-                to: "ultimate",
-                seats: upgrade.seats,
-                cost: upgrade.upgradeCost,
-                daysLeft: upgrade.daysLeft,
-              };
-            }
-          }
-        }
-      }
-
-      sendJson(res, 200, result);
       return;
     }
 

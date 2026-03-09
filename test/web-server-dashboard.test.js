@@ -280,6 +280,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "coupons.json.bak"),
     path.join(repoRoot, "custom-stations.json"),
     path.join(repoRoot, "custom-stations.json.bak"),
+    path.join(repoRoot, "discordbotlist.json"),
     path.join(repoRoot, "scheduled-events.json"),
   ];
   const snapshots = new Map();
@@ -292,7 +293,14 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     WEB_PORT: "0",
     WEB_BIND: "127.0.0.1",
     API_ADMIN_TOKEN: "test-admin-token",
+    API_RATE_LIMIT_MAX: "200",
+    API_RATE_LIMIT_PREMIUM_MAX: "50",
+    API_RATE_LIMIT_WEBHOOK_MAX: "200",
     OMNIFM_ALLOW_LOCAL_WEBHOOKS: "1",
+    DISCORDBOTLIST_ENABLED: "1",
+    DISCORDBOTLIST_TOKEN: "test-discordbotlist-token",
+    DISCORDBOTLIST_BOT_ID: "923456789012345678",
+    DISCORDBOTLIST_WEBHOOK_SECRET: "test-discordbotlist-secret",
     DISCORD_CLIENT_ID: undefined,
     DISCORD_CLIENT_SECRET: undefined,
     DISCORD_REDIRECT_URI: undefined,
@@ -495,6 +503,118 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   const globalStatsResponse = await requestJson(baseUrl, "/api/stats/global?lang=en");
   assert.equal(globalStatsResponse.status, 200);
   assert.equal(typeof globalStatsResponse.payload, "object");
+
+  const discordBotListUnauthorizedResponse = await requestJson(
+    baseUrl,
+    "/api/discordbotlist/status?lang=de"
+  );
+  assert.equal(discordBotListUnauthorizedResponse.status, 401);
+  assert.match(discordBotListUnauthorizedResponse.payload.error, /API-Admin-Token erforderlich/i);
+
+  const discordBotListStatusResponse = await requestJson(
+    baseUrl,
+    "/api/discordbotlist/status?limit=5",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(discordBotListStatusResponse.status, 200);
+  assert.equal(discordBotListStatusResponse.payload.configured, true);
+  assert.equal(discordBotListStatusResponse.payload.botId, "923456789012345678");
+  assert.equal(discordBotListStatusResponse.payload.state.totalVotes, 0);
+  assert.deepEqual(discordBotListStatusResponse.payload.state.votes, []);
+
+  const discordBotListVoteResponse = await requestJson(
+    baseUrl,
+    "/api/discordbotlist/vote",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "test-discordbotlist-secret",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: "623456789012345678",
+        username: "VoteUser",
+        discriminator: "0420",
+        avatar: "avatar-hash",
+        timestamp: "2026-03-09T12:00:00.000Z",
+      }),
+    }
+  );
+  assert.equal(discordBotListVoteResponse.status, 200);
+  assert.equal(discordBotListVoteResponse.payload.success, true);
+  assert.equal(discordBotListVoteResponse.payload.added, true);
+  assert.equal(discordBotListVoteResponse.payload.totalVotes, 1);
+
+  const discordBotListVotesResponse = await requestJson(
+    baseUrl,
+    "/api/discordbotlist/votes?limit=10",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(discordBotListVotesResponse.status, 200);
+  assert.equal(discordBotListVotesResponse.payload.totalVotes, 1);
+  assert.equal(discordBotListVotesResponse.payload.votes.length, 1);
+  assert.equal(discordBotListVotesResponse.payload.votes[0].userId, "623456789012345678");
+  assert.equal(discordBotListVotesResponse.payload.votes[0].username, "VoteUser#0420");
+
+  const discordBotListSyncUnauthorizedResponse = await requestJson(
+    baseUrl,
+    "/api/discordbotlist/sync",
+    {
+      method: "POST",
+      headers: {
+        "X-OmniFM-Language": "de",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    }
+  );
+  assert.equal(discordBotListSyncUnauthorizedResponse.status, 401);
+  assert.match(discordBotListSyncUnauthorizedResponse.payload.error, /API-Admin-Token erforderlich/i);
+
+  const premiumCheckResponse = await requestJson(
+    baseUrl,
+    `/api/premium/check?serverId=${GUILD_ID}`
+  );
+  assert.equal(premiumCheckResponse.status, 200);
+  assert.equal(premiumCheckResponse.payload.serverId, GUILD_ID);
+  assert.equal(premiumCheckResponse.payload.tier, "pro");
+  assert.equal(premiumCheckResponse.payload.maxBots, 8);
+  assert.equal(premiumCheckResponse.payload.license.tier, "pro");
+  assert.equal(premiumCheckResponse.payload.license.plan, "pro");
+  assert.equal(premiumCheckResponse.payload.license.active, true);
+
+  const premiumInviteLinksResponse = await requestJson(
+    baseUrl,
+    `/api/premium/invite-links?serverId=${GUILD_ID}`
+  );
+  assert.equal(premiumInviteLinksResponse.status, 200);
+  assert.equal(premiumInviteLinksResponse.payload.serverTier, "pro");
+  assert.equal(premiumInviteLinksResponse.payload.bots.length, 1);
+  assert.equal(premiumInviteLinksResponse.payload.bots[0].botId, "bot-test-1");
+  assert.equal(premiumInviteLinksResponse.payload.bots[0].hasAccess, true);
+  assert.equal(premiumInviteLinksResponse.payload.bots[0].requiredTier, "free");
+
+  const premiumTiersResponse = await requestJson(baseUrl, "/api/premium/tiers");
+  assert.equal(premiumTiersResponse.status, 200);
+  assert.equal(typeof premiumTiersResponse.payload.tiers, "object");
+  assert.equal(premiumTiersResponse.payload.tiers.free.name, "Free");
+  assert.equal(premiumTiersResponse.payload.tiers.pro.name, "Pro");
+  assert.equal(premiumTiersResponse.payload.tiers.ultimate.name, "Ultimate");
+
+  const premiumPricingResponse = await requestJson(
+    baseUrl,
+    `/api/premium/pricing?lang=en&serverId=${GUILD_ID}`
+  );
+  assert.equal(premiumPricingResponse.status, 200);
+  assert.equal(premiumPricingResponse.payload.brand, "OmniFM");
+  assert.equal(premiumPricingResponse.payload.currentLicense.tier, "pro");
+  assert.equal(premiumPricingResponse.payload.currentLicense.seats, 2);
+  assert.equal(premiumPricingResponse.payload.upgrade.to, "ultimate");
+  assert.equal(premiumPricingResponse.payload.trial.enabled, true);
 
   const oauthUnavailableResponse = await requestJson(baseUrl, "/api/auth/discord/login?lang=en");
   assert.equal(oauthUnavailableResponse.status, 503);
