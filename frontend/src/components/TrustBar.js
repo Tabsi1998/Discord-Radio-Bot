@@ -44,107 +44,122 @@ export default function TrustBar({ stats }) {
       style={{
         position: 'relative',
         zIndex: 2,
-        padding: '0 0 48px',
+        padding: '0 0 56px',
       }}
     >
       <div className="section-container">
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 800, fontFamily: "'Orbitron', sans-serif", marginBottom: 8 }}>
-            {copy.trustBar.introEyebrow}
-          </div>
-          <p style={{ margin: 0, color: '#A1A1AA', fontSize: 14, lineHeight: 1.7, maxWidth: 760 }}>
-            {copy.trustBar.introBody}
-          </p>
-        </div>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: 12,
+            gridTemplateColumns: 'minmax(0, 0.95fr) minmax(0, 1.05fr)',
+            gap: 24,
+            padding: '24px 0',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}
+          className="trust-bar-layout"
         >
-          {ITEMS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.key}
-                data-testid={`trust-bar-card-${item.key}`}
-                style={{
-                  padding: '18px 20px',
-                  borderRadius: 16,
-                  background: 'rgba(255,255,255,0.02)',
-                  border: `1px solid ${item.color}22`,
-                  boxShadow: `0 0 24px ${item.color}08`,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 10,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: `${item.color}12`,
-                      border: `1px solid ${item.color}28`,
-                    }}
-                  >
-                    <Icon size={16} color={item.color} />
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: '#A1A1AA',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.12em',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {copy.trustBar.items[item.key].label}
-                  </span>
-                </div>
+          <div style={{ paddingRight: 12 }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: '#71717A',
+                textTransform: 'uppercase',
+                letterSpacing: '0.18em',
+                fontWeight: 800,
+                fontFamily: "'Orbitron', sans-serif",
+                marginBottom: 10,
+              }}
+            >
+              {copy.trustBar.introEyebrow}
+            </div>
+            <p style={{ margin: 0, color: '#D4D4D8', fontSize: 18, lineHeight: 1.7, maxWidth: 560 }}>
+              {copy.trustBar.introBody}
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              borderLeft: '1px solid rgba(255,255,255,0.08)',
+            }}
+            className="trust-bar-metrics"
+          >
+            {ITEMS.map((item, index) => {
+              const Icon = item.icon;
+              const rightBorder = index % 2 === 0 ? '1px solid rgba(255,255,255,0.08)' : 'none';
+              const topBorder = index >= 2 ? '1px solid rgba(255,255,255,0.08)' : 'none';
+              return (
                 <div
+                  key={item.key}
+                  data-testid={`trust-bar-card-${item.key}`}
                   style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 24,
-                    fontWeight: 800,
-                    color: '#fff',
-                    marginBottom: 6,
+                    padding: '18px 18px 16px',
+                    borderRight: rightBorder,
+                    borderTop: topBorder,
+                    minHeight: 126,
                   }}
                 >
-                  {resolveValue(item.key, stats, copy, formatNumber)}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                    <Icon size={16} color={item.color} />
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: item.color,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.14em',
+                        fontWeight: 800,
+                      }}
+                    >
+                      {copy.trustBar.items[item.key].label}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 24,
+                      fontWeight: 800,
+                      color: '#fff',
+                      marginBottom: 6,
+                    }}
+                  >
+                    {resolveValue(item.key, stats, copy, formatNumber)}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#71717A', fontWeight: 700, marginBottom: 8 }}>
+                    {resolveSupport(item.key, stats, copy, formatNumber)}
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, color: '#A1A1AA', lineHeight: 1.6 }}>
+                    {copy.trustBar.items[item.key].detail}
+                  </p>
                 </div>
-                <div style={{ fontSize: 11, color: item.color, fontWeight: 700, letterSpacing: '0.06em', marginBottom: 6 }}>
-                  {resolveSupport(item.key, stats, copy, formatNumber)}
-                </div>
-                <p style={{ fontSize: 13, color: '#71717A', lineHeight: 1.6 }}>
-                  {copy.trustBar.items[item.key].detail}
-                </p>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
+
         <div
           data-testid="trust-bar-proof-checks"
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: 10,
-            marginTop: 14,
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: 0,
+            marginTop: 10,
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
           }}
+          className="trust-bar-checks"
         >
-          {copy.trustBar.proofChecks.map((item) => (
+          {copy.trustBar.proofChecks.map((item, index) => (
             <div
               key={item}
               style={{
-                padding: '10px 12px',
-                borderRadius: 12,
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px solid rgba(255,255,255,0.06)',
+                padding: '12px 0',
+                paddingRight: 16,
+                borderRight: index < copy.trustBar.proofChecks.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                 color: '#71717A',
                 fontSize: 12,
-                lineHeight: 1.6,
+                lineHeight: 1.7,
               }}
             >
               {item}
@@ -152,6 +167,25 @@ export default function TrustBar({ stats }) {
           ))}
         </div>
       </div>
+
+      <style>{`
+        @media (max-width: 920px) {
+          .trust-bar-layout,
+          .trust-bar-metrics,
+          .trust-bar-checks {
+            grid-template-columns: 1fr !important;
+          }
+
+          .trust-bar-metrics {
+            border-left: none !important;
+          }
+
+          .trust-bar-checks > div,
+          .trust-bar-metrics > div {
+            border-right: none !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }

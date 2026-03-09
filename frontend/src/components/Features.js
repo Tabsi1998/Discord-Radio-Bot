@@ -1,258 +1,184 @@
 import React from 'react';
-import {
-  ArrowRight,
-  Clock,
-  Gauge,
-  Radio,
-  RefreshCw,
-  Shield,
-  Users,
-  Volume2,
-  Zap,
-} from 'lucide-react';
+import { ArrowRight, Radio, Shield, Volume2 } from 'lucide-react';
 import { useI18n } from '../i18n';
 
-const FEATURE_ICONS = [Clock, Users, Zap, Volume2, RefreshCw, Gauge];
-const FEATURE_COLORS = ['#00F0FF', '#39FF14', '#FFB800', '#EC4899', '#BD00FF', '#FF2A2A'];
 const STEP_ICONS = [Shield, Radio, Volume2];
 const STEP_COLORS = ['#00F0FF', '#39FF14', '#FFB800'];
 
-function HowItWorks() {
+function FlowColumn() {
   const { copy } = useI18n();
 
   return (
-    <div style={{ marginBottom: 80 }}>
-      <div style={{ marginBottom: 48 }}>
-        <span style={{
+    <div>
+      <span
+        style={{
           fontFamily: "'Orbitron', sans-serif",
           fontSize: 11,
-          fontWeight: 600,
+          fontWeight: 700,
           letterSpacing: '0.15em',
           textTransform: 'uppercase',
           color: '#00F0FF',
-        }}>
-          {copy.features.eyebrow}
-        </span>
-        <h2
-          data-testid="how-it-works-title"
-          style={{
-            fontFamily: "'Orbitron', sans-serif",
-            fontWeight: 800,
-            fontSize: 'clamp(24px, 4vw, 40px)',
-            marginTop: 8,
-            marginBottom: 16,
-          }}
-        >
-          {copy.features.title}
-        </h2>
-      </div>
+        }}
+      >
+        {copy.features.eyebrow}
+      </span>
+      <h2
+        data-testid="how-it-works-title"
+        style={{
+          fontFamily: "'Orbitron', sans-serif",
+          fontWeight: 800,
+          fontSize: 'clamp(24px, 4vw, 40px)',
+          marginTop: 8,
+          marginBottom: 14,
+        }}
+      >
+        {copy.features.title}
+      </h2>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
+      <div style={{ display: 'grid', gap: 0, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
         {copy.features.steps.map((item, index) => {
           const Icon = STEP_ICONS[index] || Shield;
           const color = STEP_COLORS[index] || '#00F0FF';
-
           return (
             <div
               key={item.step}
               data-testid={`step-card-${index}`}
               style={{
-                position: 'relative',
-                padding: '32px 28px',
-                borderRadius: 16,
-                background: 'rgba(255,255,255,0.02)',
-                border: `1px solid ${color}15`,
-                transition: 'border-color 0.3s',
+                display: 'grid',
+                gridTemplateColumns: '56px minmax(0, 1fr) auto',
+                gap: 14,
+                alignItems: 'start',
+                padding: '18px 0',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
               }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.borderColor = `${color}40`;
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.borderColor = `${color}15`;
-              }}
+              className="features-step-row"
             >
-              <div style={{
-                position: 'absolute',
-                top: 16,
-                right: 20,
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 42,
-                fontWeight: 800,
-                color: `${color}08`,
-                lineHeight: 1,
-              }}>
-                {item.step}
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: `1px solid ${color}45`,
+                  color,
+                }}
+              >
+                <Icon size={18} />
               </div>
-              <div style={{
-                width: 48,
-                height: 48,
-                borderRadius: 14,
-                background: `${color}10`,
-                border: `1px solid ${color}25`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 20,
-              }}>
-                <Icon size={22} color={color} />
+              <div>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color,
+                    fontWeight: 800,
+                    letterSpacing: '0.14em',
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}
+                >
+                  {item.step}
+                </div>
+                <h3
+                  style={{
+                    fontFamily: "'Orbitron', sans-serif",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    marginBottom: 6,
+                  }}
+                >
+                  {item.title}
+                </h3>
+                <p style={{ margin: 0, fontSize: 14, color: '#A1A1AA', lineHeight: 1.7 }}>
+                  {item.desc}
+                </p>
               </div>
-              <h3 style={{
-                fontFamily: "'Orbitron', sans-serif",
-                fontSize: 16,
-                fontWeight: 700,
-                marginBottom: 8,
-                letterSpacing: '0.01em',
-              }}>
-                {item.title}
-              </h3>
-              <p style={{ fontSize: 14, color: '#A1A1AA', lineHeight: 1.7, margin: 0 }}>
-                {item.desc}
-              </p>
+              {index < copy.features.steps.length - 1 ? <ArrowRight size={16} color="#3F3F46" style={{ marginTop: 12 }} /> : null}
             </div>
           );
         })}
-      </div>
-
-      <div
-        data-testid="architecture-flow"
-        style={{
-          marginTop: 40,
-          padding: '28px 32px',
-          borderRadius: 16,
-          background: 'rgba(0,240,255,0.03)',
-          border: '1px solid rgba(0,240,255,0.1)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 20,
-          flexWrap: 'wrap',
-          justifyContent: 'center',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Shield size={20} color="#00F0FF" />
-          <div>
-            <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 700, color: '#00F0FF' }}>
-              {copy.features.architecture.commander}
-            </div>
-            <div style={{ fontSize: 11, color: '#52525B' }}>
-              {copy.features.architecture.commanderDesc}
-            </div>
-          </div>
-        </div>
-        <ArrowRight size={18} color="#52525B" />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Radio size={20} color="#39FF14" />
-          <div>
-            <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 700, color: '#39FF14' }}>
-              {copy.features.architecture.workers}
-            </div>
-            <div style={{ fontSize: 11, color: '#52525B' }}>
-              {copy.features.architecture.workersDesc}
-            </div>
-          </div>
-        </div>
-        <ArrowRight size={18} color="#52525B" />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Volume2 size={20} color="#FFB800" />
-          <div>
-            <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 700, color: '#FFB800' }}>
-              {copy.features.architecture.channel}
-            </div>
-            <div style={{ fontSize: 11, color: '#52525B' }}>
-              {copy.features.architecture.channelDesc}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
 }
 
-function FeatureGrid() {
+function CapabilityColumn() {
   const { copy } = useI18n();
 
   return (
     <div>
-      <div style={{ marginBottom: 40 }}>
-        <span style={{
+      <div
+        style={{
           fontFamily: "'Orbitron', sans-serif",
           fontSize: 11,
-          fontWeight: 600,
+          fontWeight: 700,
           letterSpacing: '0.15em',
           textTransform: 'uppercase',
           color: '#39FF14',
-        }}>
-          {copy.features.gridEyebrow}
-        </span>
-        <h2
-          data-testid="features-title"
-          style={{
-            fontFamily: "'Orbitron', sans-serif",
-            fontWeight: 800,
-            fontSize: 'clamp(24px, 4vw, 40px)',
-            marginTop: 8,
-          }}
-        >
-          {copy.features.gridTitle}
-        </h2>
+          marginBottom: 10,
+        }}
+      >
+        {copy.features.gridEyebrow}
+      </div>
+      <h3
+        data-testid="features-title"
+        style={{
+          fontFamily: "'Orbitron', sans-serif",
+          fontWeight: 800,
+          fontSize: 'clamp(22px, 3vw, 30px)',
+          marginBottom: 20,
+        }}
+      >
+        {copy.features.gridTitle}
+      </h3>
+
+      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        {copy.features.grid.map((feature, index) => (
+          <div
+            key={feature.title}
+            data-testid={`feature-card-${index}`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 0.9fr) minmax(0, 1.1fr)',
+              gap: 14,
+              padding: '16px 0',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+            }}
+            className="feature-line-row"
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#F4F4F5' }}>
+              {feature.title}
+            </div>
+            <div style={{ fontSize: 13, color: '#71717A', lineHeight: 1.7 }}>
+              {feature.desc}
+            </div>
+          </div>
+        ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-        {copy.features.grid.map((feature, index) => {
-          const Icon = FEATURE_ICONS[index] || Clock;
-          const color = FEATURE_COLORS[index] || '#00F0FF';
-
-          return (
-            <div
-              key={feature.title}
-              data-testid={`feature-card-${index}`}
-              style={{
-                padding: 24,
-                display: 'flex',
-                gap: 16,
-                alignItems: 'flex-start',
-                borderRadius: 14,
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px solid rgba(255,255,255,0.06)',
-                transition: 'border-color 0.3s',
-              }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.borderColor = `${color}30`;
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
-              }}
-            >
-              <div style={{
-                width: 40,
-                height: 40,
-                borderRadius: 10,
-                background: `${color}10`,
-                border: `1px solid ${color}25`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}>
-                <Icon size={18} color={color} />
-              </div>
-              <div>
-                <h3 style={{
-                  fontFamily: "'Orbitron', sans-serif",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  marginBottom: 6,
-                  letterSpacing: '0.01em',
-                }}>
-                  {feature.title}
-                </h3>
-                <p style={{ fontSize: 13, color: '#A1A1AA', lineHeight: 1.6, margin: 0 }}>
-                  {feature.desc}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+      <div
+        data-testid="architecture-flow"
+        style={{
+          marginTop: 20,
+          paddingTop: 18,
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          display: 'grid',
+          gap: 10,
+        }}
+      >
+        <div style={{ fontSize: 10, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 800 }}>
+          System Flow
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, color: '#D4D4D8', fontSize: 14 }}>
+          <span>{copy.features.architecture.commander}</span>
+          <ArrowRight size={14} color="#3F3F46" />
+          <span>{copy.features.architecture.workers}</span>
+          <ArrowRight size={14} color="#3F3F46" />
+          <span>{copy.features.architecture.channel}</span>
+        </div>
+        <div style={{ fontSize: 13, color: '#71717A', lineHeight: 1.7 }}>
+          {copy.features.architecture.commanderDesc}. {copy.features.architecture.workersDesc}. {copy.features.architecture.channelDesc}.
+        </div>
       </div>
     </div>
   );
@@ -263,12 +189,32 @@ function Features() {
     <section
       id="features"
       data-testid="features-section"
-      style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}
+      style={{ padding: '72px 0 80px', position: 'relative', zIndex: 1 }}
     >
       <div className="section-container">
-        <HowItWorks />
-        <FeatureGrid />
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 0.95fr) minmax(0, 1.05fr)',
+            gap: 32,
+            alignItems: 'start',
+          }}
+          className="features-main-grid"
+        >
+          <FlowColumn />
+          <CapabilityColumn />
+        </div>
       </div>
+
+      <style>{`
+        @media (max-width: 920px) {
+          .features-main-grid,
+          .features-step-row,
+          .feature-line-row {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }

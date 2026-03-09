@@ -34,9 +34,9 @@ const LOCALE_MESSAGES = {
     },
     navbar: {
       links: [
+        { key: 'flow', label: 'Ablauf', href: '#features' },
         { key: 'why', label: 'Warum', href: '#why-omnifm' },
         { key: 'dashboard', label: 'Dashboard', href: '#dashboard-showcase' },
-        { key: 'reliability', label: 'Stabilitaet', href: '#reliability' },
         { key: 'stations', label: 'Stationen', href: '#stations' },
         { key: 'pricing', label: 'Preise', href: '#premium' },
         { key: 'faq', label: 'FAQ', href: '#faq' },
@@ -897,9 +897,9 @@ const LOCALE_MESSAGES = {
     },
     navbar: {
       links: [
+        { key: 'flow', label: 'Flow', href: '#features' },
         { key: 'why', label: 'Why OmniFM', href: '#why-omnifm' },
         { key: 'dashboard', label: 'Dashboard', href: '#dashboard-showcase' },
-        { key: 'reliability', label: 'Reliability', href: '#reliability' },
         { key: 'stations', label: 'Stations', href: '#stations' },
         { key: 'pricing', label: 'Pricing', href: '#premium' },
         { key: 'faq', label: 'FAQ', href: '#faq' },

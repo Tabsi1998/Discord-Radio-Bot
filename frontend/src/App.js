@@ -1,22 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Hero from './components/Hero';
-import BotDirectory from './components/BotDirectory';
-import WorkerDashboard from './components/WorkerDashboard';
 import Features from './components/Features';
 import TrustBar from './components/TrustBar';
 import WhyOmniFM from './components/WhyOmniFM';
 import DashboardShowcase from './components/DashboardShowcase';
-import ReliabilitySection from './components/ReliabilitySection';
 import StationBrowser from './components/StationBrowser';
-import UseCasesSection from './components/UseCasesSection';
-import Commands from './components/Commands';
 import Premium from './components/Premium';
 import ImpressumSection from './components/ImpressumSection';
 import PrivacySection from './components/PrivacySection';
 import StatsFooter from './components/StatsFooter';
 import Navbar from './components/Navbar';
-import PlanMatrix from './components/PlanMatrix';
-import CommandMatrix from './components/CommandMatrix';
 import DashboardPortal from './components/DashboardPortal';
 import FaqSection from './components/FaqSection';
 import { I18nProvider } from './i18n';
@@ -66,7 +59,6 @@ function AppContent() {
   const [bots, setBots] = useState([]);
   const [stations, setStations] = useState([]);
   const [stats, setStats] = useState({});
-  const [commands, setCommands] = useState([]);
   const [legal, setLegal] = useState(null);
   const [privacy, setPrivacy] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -79,7 +71,6 @@ function AppContent() {
       '/api/bots',
       '/api/stations',
       '/api/stats',
-      '/api/commands',
       '/api/legal',
       '/api/privacy',
     ];
@@ -111,24 +102,17 @@ function AppContent() {
     }
 
     if (results[3].status === 'fulfilled') {
-      setCommands(results[3].value?.commands || []);
+      setLegal(results[3].value || null);
       anyUpdate = true;
     } else if (results[3].reason?.name !== 'AbortError') {
-      console.error('Commands API error:', results[3].reason);
+      console.error('Legal API error:', results[3].reason);
     }
 
     if (results[4].status === 'fulfilled') {
-      setLegal(results[4].value || null);
+      setPrivacy(results[4].value || null);
       anyUpdate = true;
     } else if (results[4].reason?.name !== 'AbortError') {
-      console.error('Legal API error:', results[4].reason);
-    }
-
-    if (results[5].status === 'fulfilled') {
-      setPrivacy(results[5].value || null);
-      anyUpdate = true;
-    } else if (results[5].reason?.name !== 'AbortError') {
-      console.error('Privacy API error:', results[5].reason);
+      console.error('Privacy API error:', results[4].reason);
     }
 
     const nonAbortFailures = results.filter(
@@ -225,15 +209,8 @@ function AppContent() {
       <Features />
       <WhyOmniFM />
       <DashboardShowcase />
-      <ReliabilitySection />
-      <WorkerDashboard />
-      <BotDirectory bots={bots} loading={loading} />
       <StationBrowser stations={stations} loading={loading} />
-      <UseCasesSection />
       <Premium bots={bots} />
-      <PlanMatrix />
-      <Commands commands={commands} loading={loading} />
-      <CommandMatrix />
       <FaqSection />
       <StatsFooter stats={stats} bots={bots} />
     </div>
