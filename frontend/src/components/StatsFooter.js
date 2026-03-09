@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Radio } from 'lucide-react';
+import { Activity, Globe2, Heart, LifeBuoy, Radio, ShieldCheck } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 function buildLegalHref(locale, page) {
@@ -11,8 +11,13 @@ function buildLegalHref(locale, page) {
   return `/?${params.toString()}`;
 }
 
-function StatsFooter({ stats }) {
+function StatsFooter({ stats, bots = [] }) {
   const { copy, locale, formatNumber } = useI18n();
+  const readyBots = React.useMemo(
+    () => (Array.isArray(bots) ? bots.reduce((count, bot) => count + (bot?.ready ? 1 : 0), 0) : 0),
+    [bots],
+  );
+  const totalBots = Math.max(Number(stats.bots) || 0, Array.isArray(bots) ? bots.length : 0);
 
   const footerStats = [
     { label: copy.footer.stats.servers, value: stats.servers || 0, color: '#00F0FF' },
@@ -32,6 +37,40 @@ function StatsFooter({ stats }) {
     textDecoration: 'none',
     transition: 'color 0.2s',
   };
+  const proofCards = [
+    {
+      key: 'operations',
+      icon: Activity,
+      color: '#39FF14',
+      value: copy.footer.proofCards.operations.value({ readyBots, totalBots }),
+      title: copy.footer.proofCards.operations.title,
+      desc: copy.footer.proofCards.operations.desc,
+    },
+    {
+      key: 'support',
+      icon: LifeBuoy,
+      color: '#5865F2',
+      value: copy.footer.proofCards.support.value,
+      title: copy.footer.proofCards.support.title,
+      desc: copy.footer.proofCards.support.desc,
+    },
+    {
+      key: 'languages',
+      icon: Globe2,
+      color: '#00F0FF',
+      value: copy.footer.proofCards.languages.value,
+      title: copy.footer.proofCards.languages.title,
+      desc: copy.footer.proofCards.languages.desc,
+    },
+    {
+      key: 'legal',
+      icon: ShieldCheck,
+      color: '#FFB800',
+      value: copy.footer.proofCards.legal.value,
+      title: copy.footer.proofCards.legal.title,
+      desc: copy.footer.proofCards.legal.desc,
+    },
+  ];
 
   return (
     <footer
@@ -50,7 +89,7 @@ function StatsFooter({ stats }) {
             justifyContent: 'center',
             gap: 48,
             flexWrap: 'wrap',
-            marginBottom: 48,
+            marginBottom: 14,
             padding: '28px 32px',
             borderRadius: 20,
             background: 'rgba(255,255,255,0.02)',
@@ -85,6 +124,58 @@ function StatsFooter({ stats }) {
               </div>
             </div>
           ))}
+        </div>
+        <p style={{ margin: '0 0 28px', textAlign: 'center', color: '#71717A', fontSize: 13, lineHeight: 1.7 }}>
+          {copy.footer.liveNote}
+        </p>
+
+        <div style={{ marginBottom: 40 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#71717A', marginBottom: 14, textAlign: 'center', fontFamily: "'Orbitron', sans-serif" }}>
+            {copy.footer.proofTitle}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+            {proofCards.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  key={item.key}
+                  data-testid={`footer-proof-${item.key}`}
+                  style={{
+                    padding: '18px 20px',
+                    borderRadius: 16,
+                    background: 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${item.color}22`,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                    <div style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: `${item.color}14`,
+                      border: `1px solid ${item.color}30`,
+                    }}>
+                      <Icon size={18} color={item.color} />
+                    </div>
+                    <div>
+                      <div style={{ color: item.color, fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', marginBottom: 4 }}>
+                        {item.value}
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>
+                        {item.title}
+                      </div>
+                    </div>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.65, color: '#A1A1AA' }}>
+                    {item.desc}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <div

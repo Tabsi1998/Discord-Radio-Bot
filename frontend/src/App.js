@@ -192,7 +192,7 @@ function AppContent() {
         <div className="noise-overlay" />
         <Navbar page={currentPage} />
         <ImpressumSection legal={legal} standalone />
-        <StatsFooter stats={stats} />
+        <StatsFooter stats={stats} bots={bots} />
       </div>
     );
   }
@@ -203,7 +203,7 @@ function AppContent() {
         <div className="noise-overlay" />
         <Navbar page={currentPage} />
         <PrivacySection legal={legal} privacy={privacy} standalone />
-        <StatsFooter stats={stats} />
+        <StatsFooter stats={stats} bots={bots} />
       </div>
     );
   }
@@ -235,7 +235,7 @@ function AppContent() {
       <Commands commands={commands} loading={loading} />
       <CommandMatrix />
       <FaqSection />
-      <StatsFooter stats={stats} />
+      <StatsFooter stats={stats} bots={bots} />
     </div>
   );
 }

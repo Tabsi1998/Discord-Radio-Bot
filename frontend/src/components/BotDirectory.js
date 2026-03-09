@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Copy, Crown, ExternalLink, Lock } from 'lucide-react';
+import { Check, CheckCircle2, Copy, Crown, ExternalLink, Lock, RadioTower, ServerCog } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 const BOT_COLORS = {
@@ -257,6 +257,18 @@ function BotDirectory({ bots, loading }) {
       || bots.find((bot) => (bot.index || 0) === 1 || bot.botId === 'bot-1')
       || bots[0]
     : null;
+  const networkSnapshot = React.useMemo(() => {
+    const list = Array.isArray(bots) ? bots : [];
+    return list.reduce((summary, bot) => ({
+      readyBots: summary.readyBots + (bot?.ready ? 1 : 0),
+      totalServers: summary.totalServers + (Number(bot?.servers) || 0),
+      totalConnections: summary.totalConnections + (Number(bot?.connections) || 0),
+    }), {
+      readyBots: 0,
+      totalServers: 0,
+      totalConnections: 0,
+    });
+  }, [bots]);
 
   return (
     <section id="bots" data-testid="bot-directory" style={{ padding: '80px 0', position: 'relative', zIndex: 1 }}>
@@ -282,7 +294,7 @@ function BotDirectory({ bots, loading }) {
         ) : !commanderBot ? (
           <div style={{ color: '#52525B', padding: 40 }}>{copy.bots.empty}</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
             <BotCard bot={commanderBot} index={0} copy={copy} formatNumber={formatNumber} />
 
             <div style={{
@@ -300,14 +312,21 @@ function BotDirectory({ bots, loading }) {
               {copy.bots.workerTiers.map((tier) => (
                 <div key={tier.tier} style={{
                   display: 'flex',
-                  alignItems: 'center',
+                  alignItems: 'flex-start',
                   justifyContent: 'space-between',
                   padding: '10px 0',
                   borderBottom: '1px solid rgba(255,255,255,0.05)',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: tier.tier === 'Free' ? '#39FF14' : tier.tier === 'Pro' ? '#FFB800' : '#BD00FF' }} />
-                    <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{tier.tier}</span>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, paddingRight: 12 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', marginTop: 6, background: tier.tier === 'Free' ? '#39FF14' : tier.tier === 'Pro' ? '#FFB800' : '#BD00FF' }} />
+                    <div>
+                      <div style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{tier.tier}</div>
+                      {tier.desc && (
+                        <div style={{ fontSize: 12, color: '#71717A', lineHeight: 1.5, marginTop: 4 }}>
+                          {tier.desc}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <span style={{ fontSize: 12, color: '#A1A1AA', fontFamily: "'JetBrains Mono', monospace" }}>
                     {tier.bots}
@@ -320,6 +339,79 @@ function BotDirectory({ bots, loading }) {
                   /invite {'<worker>'}
                 </span>{' '}
                 {copy.bots.workerHintTail}
+              </p>
+            </div>
+
+            <div style={{
+              borderRadius: 20,
+              padding: 28,
+              background: 'linear-gradient(180deg, rgba(0,240,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
+              border: '1px solid rgba(0,240,255,0.14)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <RadioTower size={15} color="#00F0FF" />
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#00F0FF', fontFamily: "'Orbitron', sans-serif" }}>
+                  {copy.bots.networkTitle}
+                </span>
+              </div>
+              <p style={{ margin: '0 0 18px', color: '#A1A1AA', fontSize: 13, lineHeight: 1.65 }}>
+                {copy.bots.networkSubtitle}
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginBottom: 18 }}>
+                {[
+                  { key: 'ready', label: copy.bots.networkMetrics.readyBots, value: networkSnapshot.readyBots, color: '#39FF14' },
+                  { key: 'servers', label: copy.bots.networkMetrics.totalServers, value: networkSnapshot.totalServers, color: '#00F0FF' },
+                  { key: 'connections', label: copy.bots.networkMetrics.totalConnections, value: networkSnapshot.totalConnections, color: '#EC4899' },
+                ].map((item) => (
+                  <div
+                    key={item.key}
+                    data-testid={`bot-network-metric-${item.key}`}
+                    style={{
+                      padding: '12px 10px',
+                      borderRadius: 14,
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 20, fontWeight: 700, color: item.color, textShadow: `0 0 16px ${item.color}35` }}>
+                      {formatNumber(item.value)}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 10, color: '#71717A', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
+                      {item.label}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{
+                padding: '16px 18px',
+                borderRadius: 16,
+                background: 'rgba(5,5,5,0.3)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                marginBottom: 16,
+              }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <ServerCog size={15} color="#FFB800" />
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#FFB800', fontFamily: "'Orbitron', sans-serif" }}>
+                    {copy.bots.proofListTitle}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {copy.bots.proofChecks.map((item) => (
+                    <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, color: '#D4D4D8', fontSize: 13, lineHeight: 1.6 }}>
+                      <CheckCircle2 size={14} color="#39FF14" style={{ flexShrink: 0, marginTop: 3 }} />
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <p style={{ margin: 0, fontSize: 12, color: '#71717A', lineHeight: 1.6 }}>
+                {copy.bots.networkHint}
               </p>
             </div>
           </div>
