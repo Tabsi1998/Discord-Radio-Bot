@@ -10,6 +10,8 @@ import {
   buildVoiceChannelUsageRows,
   formatDashboardDuration,
 } from '../lib/dashboardStats';
+import { buildDashboardNextSetupAction } from '../lib/dashboardOnboarding';
+import DashboardOnboardingHint from './DashboardOnboardingHint';
 
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const DAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -52,7 +54,7 @@ function Section({ title, testId, children }) {
   );
 }
 
-export default function DashboardStatsPanel({ stats, detailStats, t, formatDate }) {
+export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = null, t, formatDate }) {
   const basic = stats?.basic || {};
   const detail = detailStats || {};
   const isDE = t('de', 'en') === 'de';
@@ -97,10 +99,13 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
   const sessionHistory = (detail.sessionHistory || []).slice(0, 15);
   const sessionTimelineData = buildSessionTimelineRows(sessionHistory, formatDate);
   const sessionQuality = buildSessionQualitySummary(sessionHistory, t);
+  const setupStatus = basic.setupStatus || null;
+  const nextSetupAction = buildDashboardNextSetupAction({ setupStatus, inviteLinks, t });
 
   // Connection health
   const connHealth = detail.connectionHealth || {};
   const connectionTimelineData = buildConnectionTimelineRows(connHealth, formatDate);
+  const connectionEvents = Array.isArray(connHealth.events) ? connHealth.events : [];
 
   // Voice channel usage
   const channelData = buildVoiceChannelUsageRows(ls.voiceChannels, ls.voiceChannelNames);
@@ -108,6 +113,18 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
   // Hourly heatmap data
   const hoursMap = ls.hours || {};
   const dowMap = ls.daysOfWeek || {};
+  const hasAnalyticsData = (
+    stationTimeData.length > 0
+    || commandData.length > 0
+    || dailyData.length > 0
+    || timelineData.length > 0
+    || sessionHistory.length > 0
+    || unstableStreams.length > 0
+    || Boolean(eventInsights)
+    || connectionTimelineData.length > 0
+    || connectionEvents.length > 0
+    || channelData.length > 0
+  );
 
   return (
     <section data-testid="dashboard-stats-detail-panel" style={{ display: 'grid', gap: 12 }}>
@@ -134,6 +151,40 @@ export default function DashboardStatsPanel({ stats, detailStats, t, formatDate 
           <div style={{ marginTop: 4, fontSize: 12, color: '#A1A1AA' }}>{t('Durchschnitt aus Session-Werten', 'Average across session values')}</div>
         </div>
       </div>
+
+      {!hasAnalyticsData && nextSetupAction && (
+        <DashboardOnboardingHint
+          hint={{
+            ...nextSetupAction,
+            eyebrow: t('Analytics vorbereiten', 'Prepare analytics'),
+            note: t(
+              'Die Detail-Analytics fuellen sich, sobald der erste Stream laeuft und mindestens eine Session sauber abgeschlossen wurde.',
+              'Detailed analytics start filling once the first stream runs and at least one session finishes cleanly.'
+            ),
+          }}
+          t={t}
+          dataTestId="dashboard-stats-onboarding-hint"
+        />
+      )}
+
+      {!hasAnalyticsData && !nextSetupAction && (
+        <div
+          data-testid="dashboard-stats-empty-state"
+          style={{
+            border: '1px dashed #27272A',
+            background: '#050505',
+            padding: '12px 14px',
+            color: '#A1A1AA',
+            fontSize: 13,
+            lineHeight: 1.7,
+          }}
+        >
+          {t(
+            'Noch keine Detail-Analytics vorhanden. Lass ein paar Streams komplett durchlaufen, dann erscheinen hier Trends, Session-Verlaeufe und Kanalnutzung.',
+            'No detailed analytics are available yet. Let a few streams finish completely and trends, session history, and channel usage will appear here.'
+          )}
+        </div>
+      )}
 
       {connectionTimelineData.length > 0 && (
         <Section title={t(`Reliability-Trend (${detailDays} Tage)`, `Reliability trend (${detailDays} days)`)} testId="stats-reliability-trend">

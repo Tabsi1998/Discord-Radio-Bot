@@ -895,6 +895,7 @@ export default function DashboardPortal() {
             <DashboardStatsPanel
               stats={stats}
               detailStats={detailStats}
+              inviteLinks={inviteLinks}
               t={t}
               formatDate={formatDate}
             />

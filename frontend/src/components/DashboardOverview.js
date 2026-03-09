@@ -59,7 +59,7 @@ function getBotStatusPresentation(status, t) {
     case 'offline':
       return { label: t('Offline', 'Offline'), color: '#FCA5A5' };
     case 'recovering':
-      return { label: t('Recovering', 'Recovering'), color: '#FCD34D' };
+      return { label: t('Wiederherstellung', 'Recovering'), color: '#FCD34D' };
     case 'degraded':
       return { label: t('Instabil', 'Degraded'), color: '#FCD34D' };
     case 'streaming':
@@ -674,36 +674,55 @@ export default function DashboardOverview({
               'A session is one completed stream run per bot (start until stop/restart).'
             )}
           </p>
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Durchschn. Hoerzeit / Session', 'Avg listening time / session')}</span>
-              <strong>{formatDashboardDuration(avgSession)}</strong>
+          {totalSessions > 0 ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
+                <span style={{ color: '#71717A' }}>{t('Durchschn. Hoerzeit / Session', 'Avg listening time / session')}</span>
+                <strong>{formatDashboardDuration(avgSession)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
+                <span style={{ color: '#71717A' }}>{t('Laengste Hoerzeit / Session', 'Longest listening time / session')}</span>
+                <strong>{formatDashboardDuration(longestSession)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
+                <span style={{ color: '#71717A' }}>{t('Starts gesamt', 'Lifetime starts')}</span>
+                <strong>{basic.totalStarts || 0}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
+                <span style={{ color: '#71717A' }}>{t('Reconnects gesamt', 'Lifetime reconnects')}</span>
+                <strong>{basic.totalReconnects || 0}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
+                <span style={{ color: '#71717A' }}>{t('Top Station (Hoerzeit)', 'Top station (listening time)')}</span>
+                <strong style={{ maxWidth: 180, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                  {topStationByListening?.name || basic.topStation?.name || '-'}
+                </strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#71717A' }}>{t('Meist gestartet', 'Most started')}</span>
+                <strong style={{ maxWidth: 180, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                  {topStationByStarts?.name || '-'}
+                </strong>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Laengste Hoerzeit / Session', 'Longest listening time / session')}</span>
-              <strong>{formatDashboardDuration(longestSession)}</strong>
+          ) : (
+            <div
+              data-testid="overview-session-details-empty"
+              style={{
+                border: '1px dashed #27272A',
+                background: '#050505',
+                padding: '12px 14px',
+                color: '#A1A1AA',
+                fontSize: 13,
+                lineHeight: 1.7,
+              }}
+            >
+              {t(
+                'Noch keine abgeschlossene Session auf diesem Server. Nach dem ersten echten Stream erscheinen hier Laufzeiten, Starts und Top-Stationen.',
+                'There is no completed session on this server yet. After the first real stream, runtimes, starts, and top stations appear here.'
+              )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Starts gesamt', 'Lifetime starts')}</span>
-              <strong>{basic.totalStarts || 0}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Reconnects gesamt', 'Lifetime reconnects')}</span>
-              <strong>{basic.totalReconnects || 0}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1A1A2E', paddingBottom: 8 }}>
-              <span style={{ color: '#71717A' }}>{t('Top Station (Hoerzeit)', 'Top station (listening time)')}</span>
-              <strong style={{ maxWidth: 180, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                {topStationByListening?.name || basic.topStation?.name || '-'}
-              </strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#71717A' }}>{t('Meist gestartet', 'Most started')}</span>
-              <strong style={{ maxWidth: 180, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                {topStationByStarts?.name || '-'}
-              </strong>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
