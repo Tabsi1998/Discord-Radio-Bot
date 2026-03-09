@@ -64,13 +64,17 @@ The production path uses the Node app started from `src/index.js`. `backend/` is
 ./update.sh
 ./update.sh --bots
 ./update.sh --settings
+./update.sh --settings commands
 ./update.sh --stripe
 ./update.sh --premium
 ./update.sh --offers
 ./update.sh --email
 ./update.sh --status
+./update.sh --status quick
 ./update.sh --cleanup
 ```
+
+`./update.sh --settings commands` opens the slash-command and sync configuration directly. `./update.sh --status` opens the interactive admin cockpit for runtime status, API health, Docker logs, local rotated logs, MongoDB status, storage checks, and quick jumps back into settings or bot management.
 
 ## Website legal pages
 

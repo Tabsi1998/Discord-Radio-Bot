@@ -290,6 +290,276 @@ read_env() {
   printf "%s" "${val:-$default}"
 }
 
+normalize_command_registration_mode() {
+  local normalized
+  normalized="$(printf "%s" "${1:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  case "$normalized" in
+    global) echo "global" ;;
+    hybrid) echo "hybrid" ;;
+    *) echo "guild" ;;
+  esac
+}
+
+resolve_command_registration_mode_shell() {
+  local explicit legacy
+  explicit="$(read_env "COMMAND_REGISTRATION_MODE" "")"
+  if [[ -n "$explicit" ]]; then
+    normalize_command_registration_mode "$explicit"
+    return
+  fi
+  legacy="$(read_env "SYNC_GUILD_COMMANDS_ON_BOOT" "1")"
+  if [[ "$legacy" == "0" ]]; then
+    echo "global"
+  else
+    echo "guild"
+  fi
+}
+
+format_minutes_to_ms() {
+  local minutes="$1"
+  if [[ ! "$minutes" =~ ^[0-9]+$ ]]; then
+    echo "0"
+    return
+  fi
+  echo $((minutes * 60 * 1000))
+}
+
+format_ms_to_minutes() {
+  local raw="$1"
+  if [[ ! "$raw" =~ ^[0-9]+$ ]] || (( raw <= 0 )); then
+    echo "0"
+    return
+  fi
+  echo $((raw / 60000))
+}
+
+format_interval_label() {
+  local raw="$1"
+  if [[ ! "$raw" =~ ^[0-9]+$ ]] || (( raw <= 0 )); then
+    echo "deaktiviert"
+    return
+  fi
+  if (( raw % 3600000 == 0 )); then
+    echo "$((raw / 3600000))h"
+    return
+  fi
+  if (( raw % 60000 == 0 )); then
+    echo "$((raw / 60000))m"
+    return
+  fi
+  if (( raw % 1000 == 0 )); then
+    echo "$((raw / 1000))s"
+    return
+  fi
+  echo "${raw}ms"
+}
+
+mode_description_for_admin() {
+  case "$(normalize_command_registration_mode "${1:-guild}")" in
+    global) echo "globale Commands, langsamer Discord-Rollout" ;;
+    hybrid) echo "global sichtbar + schneller Guild-Sync" ;;
+    *) echo "nur Guild-Commands, schnellster und sicherster Modus" ;;
+  esac
+}
+
+show_container_status_table() {
+  echo ""
+  echo -e "  ${BOLD}Container-Status:${NC}"
+  echo ""
+  docker compose ps 2>/dev/null || warn "Kein Container aktiv."
+}
+
+show_recent_container_logs() {
+  local tail_lines="${1:-20}"
+  echo ""
+  echo -e "  ${BOLD}Letzte ${tail_lines} Log-Zeilen (docker compose / omnifm):${NC}"
+  echo ""
+  docker compose logs --tail="$tail_lines" omnifm 2>/dev/null || warn "Keine Container-Logs verfuegbar."
+}
+
+show_recent_local_logs() {
+  local tail_lines="${1:-30}"
+  local target=""
+  if [[ -f "logs/bot.log" ]]; then
+    target="logs/bot.log"
+  else
+    target="$(ls -1t logs/bot-*.log 2>/dev/null | head -1 || true)"
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Lokale Rotations-Logs:${NC}"
+  if [[ -z "$target" ]]; then
+    warn "Keine lokale Log-Datei gefunden."
+    return
+  fi
+  echo -e "    Quelle: ${DIM}${target}${NC}"
+  echo ""
+  tail -n "$tail_lines" "$target" 2>/dev/null || warn "Log-Datei konnte nicht gelesen werden."
+}
+
+show_mongodb_runtime_status() {
+  echo ""
+  echo -e "  ${BOLD}MongoDB Status:${NC}"
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^mongodb$"; then
+    echo -e "    ${GREEN}MongoDB laeuft.${NC}"
+    docker compose exec -T mongodb mongosh --eval "db.stats()" --quiet 2>/dev/null | head -10 || true
+  else
+    echo -e "    ${YELLOW}MongoDB laeuft nicht. JSON-Fallback aktiv.${NC}"
+  fi
+}
+
+show_admin_health_detail() {
+  local web_port admin_token url
+  web_port="$(read_env "WEB_PORT" "8081")"
+  admin_token="$(read_env "API_ADMIN_TOKEN" "$(read_env "ADMIN_API_TOKEN" "")")"
+  url="http://127.0.0.1:${web_port}/api/health/detail"
+
+  echo ""
+  echo -e "  ${BOLD}API Health Detail:${NC}"
+  if ! command -v curl >/dev/null 2>&1; then
+    warn "curl fehlt. /api/health/detail kann lokal nicht abgefragt werden."
+    return
+  fi
+  if [[ -z "$admin_token" ]]; then
+    warn "API_ADMIN_TOKEN fehlt. /api/health/detail ist ohne Token nicht abrufbar."
+    return
+  fi
+
+  local response
+  response="$(curl -fsS -H "Authorization: Bearer ${admin_token}" "$url" 2>/dev/null || true)"
+  if [[ -z "$response" ]]; then
+    warn "Health-Detail konnte nicht geladen werden (${url}). Container/Web-Port pruefen."
+    return
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    printf "%s" "$response" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), indent=2, ensure_ascii=False))' 2>/dev/null || printf "%s\n" "$response"
+  else
+    printf "%s\n" "$response"
+  fi
+}
+
+show_admin_runtime_summary() {
+  local bot_count commander_idx web_port public_url admin_token
+  local command_mode command_periodic cleanup_global cleanup_guild cleanup_worker
+  local log_mb log_files log_days auto_prune prune_until
+  local stripe dbl_token dbl_enabled dbl_status dash_status mongo_status container_status
+
+  bot_count="$(count_bots)"
+  commander_idx="$(read_env "COMMANDER_BOT_INDEX" "1")"
+  web_port="$(read_env "WEB_PORT" "8081")"
+  public_url="$(read_env "PUBLIC_WEB_URL" "")"
+  admin_token="$(read_env "API_ADMIN_TOKEN" "$(read_env "ADMIN_API_TOKEN" "")")"
+  command_mode="$(resolve_command_registration_mode_shell)"
+  command_periodic="$(format_interval_label "$(read_env "PERIODIC_GUILD_COMMAND_SYNC_MS" "1800000")")"
+  cleanup_global="$(read_env "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1")"
+  cleanup_guild="$(read_env "CLEAN_GUILD_COMMANDS_ON_BOOT" "0")"
+  cleanup_worker="$(read_env "CLEAN_WORKER_GUILD_COMMANDS_ON_BOOT" "1")"
+  log_mb="$(read_env "LOG_MAX_MB" "5")"
+  log_files="$(read_env "LOG_MAX_FILES" "30")"
+  log_days="$(read_env "LOG_MAX_DAYS" "14")"
+  auto_prune="$(read_env "AUTO_DOCKER_PRUNE" "1")"
+  prune_until="$(read_env "DOCKER_BUILDER_PRUNE_UNTIL" "168h")"
+  stripe="$(read_env "STRIPE_SECRET_KEY" "$(read_env "STRIPE_API_KEY" "")")"
+  dbl_token="$(read_env "DISCORDBOTLIST_TOKEN" "")"
+  dbl_enabled="$(read_env "DISCORDBOTLIST_ENABLED" "1")"
+
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
+    container_status="${GREEN}laeuft${NC}"
+  else
+    container_status="${YELLOW}gestoppt${NC}"
+  fi
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^mongodb$"; then
+    mongo_status="${GREEN}MongoDB${NC}"
+  else
+    mongo_status="${YELLOW}JSON-Fallback${NC}"
+  fi
+  if [[ -n "$(read_env "DISCORD_CLIENT_ID" "")" && -n "$(read_env "DISCORD_CLIENT_SECRET" "")" && "$(read_env "DISCORD_REDIRECT_URI" "")" == *"/api/auth/discord/callback"* ]]; then
+    dash_status="${GREEN}ok${NC}"
+  else
+    dash_status="${YELLOW}unvollstaendig${NC}"
+  fi
+  if [[ "$dbl_enabled" == "0" ]]; then
+    dbl_status="${YELLOW}deaktiviert${NC}"
+  elif [[ -n "$dbl_token" ]]; then
+    dbl_status="${GREEN}ok${NC}"
+  else
+    dbl_status="${RED}fehlt${NC}"
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Admin-Cockpit${NC}"
+  echo "  ------------------------------------"
+  echo -e "    Runtime:             ${container_status} / ${mongo_status}"
+  echo -e "    Commander/Bots:      ${CYAN}#${commander_idx}${NC} / ${CYAN}${bot_count}${NC}"
+  echo -e "    Slash-Commands:      ${CYAN}${command_mode}${NC} (${DIM}$(mode_description_for_admin "$command_mode")${NC})"
+  echo -e "    Periodischer Sync:   ${CYAN}${command_periodic}${NC}"
+  echo -e "    Cleanup on boot:     global=${cleanup_global}, guild=${cleanup_guild}, worker=${cleanup_worker}"
+  echo -e "    Web/API:             ${CYAN}http://localhost:${web_port}${NC}"
+  if [[ -n "$public_url" ]]; then
+    echo -e "    Public URL:          ${CYAN}${public_url}${NC}"
+  else
+    echo -e "    Public URL:          ${YELLOW}nicht gesetzt${NC}"
+  fi
+  echo -e "    Dashboard OAuth:     ${dash_status}"
+  echo -e "    Stripe / DBL:        $(if [[ -n "$stripe" ]]; then echo -e "${GREEN}ok${NC}"; else echo -e "${RED}fehlt${NC}"; fi) / ${dbl_status}"
+  echo -e "    Admin API Token:     $(if [[ -n "$admin_token" ]]; then echo -e "${GREEN}gesetzt${NC}"; else echo -e "${YELLOW}nicht gesetzt${NC}"; fi)"
+  echo -e "    Logs:                ${CYAN}${log_mb}MB${NC}, ${CYAN}${log_files}${NC} Dateien, ${CYAN}${log_days}${NC} Tage"
+  echo -e "    Docker Cleanup:      $(if [[ "$auto_prune" == "0" ]]; then echo -e "${YELLOW}aus${NC}"; else echo -e "${GREEN}an${NC}"; fi) (${DIM}${prune_until}${NC})"
+}
+
+run_status_menu() {
+  local status_choice
+  while true; do
+    show_admin_runtime_summary
+    echo ""
+    echo -e "  ${BOLD}Status & Logs${NC}"
+    echo -e "    ${GREEN}1${NC}) Container-Status anzeigen"
+    echo -e "    ${CYAN}2${NC}) API Health Detail anzeigen"
+    echo -e "    ${YELLOW}3${NC}) Docker-Logs (omnifm)"
+    echo -e "    ${MAGENTA}4${NC}) Lokale Rotations-Logs"
+    echo -e "    ${GREEN}5${NC}) MongoDB Status"
+    echo -e "    ${CYAN}6${NC}) Speicher-Uebersicht"
+    echo -e "    ${YELLOW}7${NC}) Doctor Check"
+    echo -e "    ${RED}8${NC}) Cleanup jetzt ausfuehren"
+    echo -e "    ${MAGENTA}9${NC}) Einstellungen oeffnen"
+    echo -e "    ${CYAN}10${NC}) Bots verwalten"
+    echo -e "    ${DIM}0${NC}) Zurueck / Beenden"
+    echo ""
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [0-10]${NC}: ")" status_choice
+    case "${status_choice:-}" in
+      1) show_container_status_table ;;
+      2) show_admin_health_detail ;;
+      3) show_recent_container_logs 40 ;;
+      4) show_recent_local_logs 40 ;;
+      5) show_mongodb_runtime_status ;;
+      6) show_storage_overview ;;
+      7) run_system_doctor || true ;;
+      8)
+        prune_update_backups
+        cleanup_rotated_logs
+        if [[ "$(read_env "AUTO_DOCKER_PRUNE" "1")" != "0" ]]; then
+          cleanup_docker_cache
+        fi
+        show_storage_overview
+        ;;
+      9)
+        MODE="--settings"
+        MODE_ARG=""
+        return 0
+        ;;
+      10)
+        MODE="--bots"
+        MODE_ARG=""
+        return 0
+        ;;
+      0|q|Q|exit|quit) exit 0 ;;
+      *) warn "Ungueltige Auswahl. Bitte 0-10 waehlen." ;;
+    esac
+    echo ""
+  done
+}
+
 ensure_env_default() {
   local key="$1" value="$2"
   if [[ ! -f .env ]]; then
@@ -913,6 +1183,7 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 ensure_env_default "SYNC_GUILD_COMMANDS_ON_BOOT" "1"
+ensure_env_default "COMMAND_REGISTRATION_MODE" "guild"
 ensure_env_default "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1"
 ensure_env_default "CLEAN_GUILD_COMMANDS_ON_BOOT" "0"
 ensure_env_default "CLEAN_WORKER_GUILD_COMMANDS_ON_BOOT" "1"
@@ -974,14 +1245,15 @@ if [[ -z "$MODE" ]]; then
     echo -e "    ${BOLD}4${NC})  Premium verwalten - Lizenzen, Coupons, Referrals"
     echo -e "    ${DIM}5${NC})  E-Mail (SMTP)     - E-Mail-Versand konfigurieren"
     echo -e "    ${DIM}6${NC})  Einstellungen     - Port, Domain und mehr"
-    echo -e "    ${DIM}7${NC})  Status & Logs     - Container-Status pruefen"
+    echo -e "    ${DIM}7${NC})  Status & Logs     - Admin-Cockpit fuer Status, Health und Logs"
     echo -e "    ${DIM}8${NC})  Speicher cleanup  - Logs/Backups/Docker-Cache aufraeumen"
     echo -e "    ${BOLD}9${NC})  Codes verwalten  - Coupon/Referral (Pro/Ultimate Setup)"
     echo -e "    ${CYAN}0${NC})  Doctor Check     - System, OAuth, JSON, Runtime pruefen"
+    echo -e "    ${MAGENTA}c${NC})  Slash Commands  - Registrierung & Sync konfigurieren"
     echo -e "    ${MAGENTA}d${NC})  Dashboard OAuth - Pro-Dashboard Login/SSO konfigurieren"
     echo -e "    ${DIM}q${NC})  Beenden"
     echo ""
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [0-9/d/q]${NC}: ")" MODE_CHOICE
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [0-9/c/d/q]${NC}: ")" MODE_CHOICE
     case "${MODE_CHOICE:-}" in
       0) MODE="--doctor"; break ;;
       1) MODE="--update"; break ;;
@@ -993,10 +1265,11 @@ if [[ -z "$MODE" ]]; then
       7) MODE="--status"; break ;;
       8) MODE="--cleanup"; break ;;
       9) MODE="--offers"; break ;;
+      c|C) MODE="--settings"; MODE_ARG="commands"; break ;;
       d|D) MODE="--settings"; MODE_ARG="dashboard"; break ;;
       q|Q|exit|quit) info "Abbruch."; exit 0 ;;
       *)
-        warn "Ungueltige Auswahl '${MODE_CHOICE}'. Bitte 0-9, d oder q eingeben."
+        warn "Ungueltige Auswahl '${MODE_CHOICE}'. Bitte 0-9, c, d oder q eingeben."
         echo ""
         ;;
     esac
@@ -1032,27 +1305,20 @@ fi
 # MODE: Status & Logs
 # ============================================================
 if [[ "$MODE" == "--status" ]]; then
-  echo ""
-  echo -e "  ${BOLD}Container-Status:${NC}"
-  echo ""
-  docker compose ps 2>/dev/null || warn "Kein Container aktiv."
-  echo ""
-  echo -e "  ${BOLD}Letzte 20 Log-Zeilen (omnifm):${NC}"
-  echo ""
-  docker compose logs --tail=20 omnifm 2>/dev/null || warn "Keine Logs verfuegbar."
-  echo ""
-  echo -e "  ${BOLD}MongoDB Status:${NC}"
-  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "mongodb"; then
-    echo -e "    ${GREEN}MongoDB laeuft.${NC}"
-    docker compose exec -T mongodb mongosh --eval "db.stats()" --quiet 2>/dev/null | head -10 || true
-  else
-    echo -e "    ${YELLOW}MongoDB laeuft nicht. JSON-Fallback aktiv.${NC}"
+  if [[ "${MODE_ARG:-}" == "quick" || ! -t 0 ]]; then
+    show_admin_runtime_summary
+    show_container_status_table
+    show_recent_container_logs 20
+    show_mongodb_runtime_status
+    show_storage_overview
+    echo ""
+    echo -e "  ${DIM}Tipp: Fuer das interaktive Admin-Cockpit: ./update.sh --status${NC}"
+    exit 0
   fi
-  show_storage_overview
-  echo ""
-  echo -e "  ${DIM}Tipp: Fuer Live-Logs: docker compose logs -f omnifm${NC}"
-  echo -e "  ${DIM}Tipp: Speicher aufraeumen: ./update.sh --cleanup${NC}"
-  exit 0
+  run_status_menu
+  if [[ "$MODE" == "--status" ]]; then
+    exit 0
+  fi
 fi
 
 # ============================================================
@@ -1355,6 +1621,15 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_dash_cookie=$(read_env "DASHBOARD_SESSION_COOKIE" "omnifm_session")
   cur_dash_ttl=$(read_env "DASHBOARD_SESSION_TTL_SECONDS" "86400")
   cur_dash_state_ttl=$(read_env "DISCORD_OAUTH_STATE_TTL_SECONDS" "600")
+  cur_command_mode=$(resolve_command_registration_mode_shell)
+  cur_sync_guild_legacy=$(read_env "SYNC_GUILD_COMMANDS_ON_BOOT" "1")
+  cur_clean_global_commands=$(read_env "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1")
+  cur_clean_guild_commands=$(read_env "CLEAN_GUILD_COMMANDS_ON_BOOT" "0")
+  cur_clean_worker_guild_commands=$(read_env "CLEAN_WORKER_GUILD_COMMANDS_ON_BOOT" "1")
+  cur_periodic_guild_sync_ms=$(read_env "PERIODIC_GUILD_COMMAND_SYNC_MS" "1800000")
+  cur_periodic_guild_sync_minutes=$(format_ms_to_minutes "$cur_periodic_guild_sync_ms")
+  cur_guild_sync_retries=$(read_env "GUILD_COMMAND_SYNC_RETRIES" "3")
+  cur_guild_sync_retry_ms=$(read_env "GUILD_COMMAND_SYNC_RETRY_MS" "1200")
   cur_dash_status="unvollstaendig"
   if [[ -n "$cur_discord_client_id" && -n "$cur_discord_client_secret" && "$cur_discord_redirect_uri" == *"/api/auth/discord/callback"* ]]; then
     cur_dash_status="konfiguriert"
@@ -1385,6 +1660,12 @@ if [[ "$MODE" == "--settings" ]]; then
       cur_fpcalc_status="fehlt"
     fi
   fi
+  cur_log_max_mb=$(read_env "LOG_MAX_MB" "5")
+  cur_log_max_files=$(read_env "LOG_MAX_FILES" "30")
+  cur_log_max_days=$(read_env "LOG_MAX_DAYS" "14")
+  cur_auto_docker_prune=$(read_env "AUTO_DOCKER_PRUNE" "1")
+  cur_docker_prune_until=$(read_env "DOCKER_BUILDER_PRUNE_UNTIL" "168h")
+  cur_admin_api_token=$(read_env "API_ADMIN_TOKEN" "$(read_env "ADMIN_API_TOKEN" "")")
 
   echo -e "  Web-Port (extern):     ${CYAN}${cur_port}${NC}"
   echo -e "  Web-Port (intern):     ${DIM}${cur_iport}${NC}"
@@ -1410,6 +1691,9 @@ if [[ "$MODE" == "--settings" ]]; then
     echo -e "  Pro-Testmonat:         ${GREEN}aktiv${NC}"
   fi
   echo -e "  Standardsprache:       ${CYAN}${cur_default_language}${NC}"
+  echo -e "  Slash-Commands:        ${CYAN}${cur_command_mode}${NC} (${DIM}$(mode_description_for_admin "$cur_command_mode")${NC})"
+  echo -e "  Periodischer Sync:     ${CYAN}$(format_interval_label "$cur_periodic_guild_sync_ms")${NC}"
+  echo -e "  Command Cleanup:       ${DIM}global=${cur_clean_global_commands}, guild=${cur_clean_guild_commands}, worker=${cur_clean_worker_guild_commands}${NC}"
   echo -e "  Bots konfiguriert:     ${CYAN}${bot_count}${NC}"
   if [[ -n "$cur_stripe" ]]; then
     echo -e "  Stripe:                ${GREEN}konfiguriert${NC}"
@@ -1455,6 +1739,9 @@ if [[ "$MODE" == "--settings" ]]; then
     echo -e "  OAuth Redirect URI:    ${RED}nicht gesetzt${NC}"
   fi
   echo -e "  Dashboard Session:     ${DIM}cookie=${cur_dash_cookie}, ttl=${cur_dash_ttl}s, state-ttl=${cur_dash_state_ttl}s${NC}"
+  echo -e "  Logs:                  ${CYAN}${cur_log_max_mb}MB${NC}, ${CYAN}${cur_log_max_files}${NC} Dateien, ${CYAN}${cur_log_max_days}${NC} Tage"
+  echo -e "  Docker Cleanup:        $(if [[ "$cur_auto_docker_prune" == "0" ]]; then echo -e "${YELLOW}deaktiviert${NC}"; else echo -e "${GREEN}aktiv${NC}"; fi) (${DIM}${cur_docker_prune_until}${NC})"
+  echo -e "  Admin API Token:       $(if [[ -n "$cur_admin_api_token" ]]; then echo -e "${GREEN}gesetzt${NC}"; else echo -e "${YELLOW}nicht gesetzt${NC}"; fi)"
   echo ""
 
   echo -e "  ${BOLD}Was aendern?${NC}"
@@ -1467,16 +1754,22 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${GREEN}7${NC}) Track-Erkennung (AcoustID/MusicBrainz)"
   echo -e "    ${CYAN}8${NC}) Impressum & Datenschutz"
   echo -e "    ${MAGENTA}9${NC}) Dashboard & Discord OAuth"
-  echo -e "    ${GREEN}10${NC}) Fertig -> einmal neu starten"
-  echo -e "    ${DIM}11${NC}) Fertig ohne Neustart"
-  echo -e "    ${CYAN}12${NC}) Doctor Check (ohne Aenderung)"
+  echo -e "    ${GREEN}10${NC}) Slash-Commands & Sync"
+  echo -e "    ${CYAN}11${NC}) Betrieb, Logs & Admin-Token"
+  echo -e "    ${GREEN}12${NC}) Fertig -> einmal neu starten"
+  echo -e "    ${DIM}13${NC}) Fertig ohne Neustart"
+  echo -e "    ${CYAN}14${NC}) Doctor Check (ohne Aenderung)"
   echo ""
   if [[ "$MODE_ARG" == "dashboard" && "${_DASHBOARD_SETTINGS_OPENED:-0}" != "1" ]]; then
     _DASHBOARD_SETTINGS_OPENED=1
     SET_CHOICE="9"
     info "Direktmodus: Dashboard & Discord OAuth"
+  elif [[ "$MODE_ARG" == "commands" && "${_COMMAND_SETTINGS_OPENED:-0}" != "1" ]]; then
+    _COMMAND_SETTINGS_OPENED=1
+    SET_CHOICE="10"
+    info "Direktmodus: Slash-Commands & Sync"
   else
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-12]${NC}: ")" SET_CHOICE
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-14]${NC}: ")" SET_CHOICE
   fi
 
   case "${SET_CHOICE:-}" in
@@ -1728,6 +2021,99 @@ if [[ "$MODE" == "--settings" ]]; then
       fi
       ;;
     10)
+      echo ""
+      info "Slash-Commands & Sync"
+      echo -e "    ${DIM}Empfohlen fuer OmniFM: guild als Default, hybrid wenn globale Sichtbarkeit gewuenscht ist.${NC}"
+      echo -e "    ${DIM}global ist moeglich, hat aber Discord-seitig den langsamsten Rollout.${NC}"
+
+      new_command_mode="$(prompt_default "Command Registration Mode (guild/global/hybrid)" "$cur_command_mode")"
+      new_command_mode="$(normalize_command_registration_mode "$new_command_mode")"
+      new_periodic_sync_minutes="$(prompt_default "Periodischer Guild-Sync in Minuten (0 = aus)" "$cur_periodic_guild_sync_minutes")"
+      if [[ ! "$new_periodic_sync_minutes" =~ ^[0-9]+$ ]]; then
+        warn "Ungueltige Minutenangabe. Verwende aktuellen Wert ${cur_periodic_guild_sync_minutes}."
+        new_periodic_sync_minutes="$cur_periodic_guild_sync_minutes"
+      fi
+      new_guild_sync_retries="$(prompt_default "Guild-Sync Retries" "$cur_guild_sync_retries")"
+      if [[ ! "$new_guild_sync_retries" =~ ^[0-9]+$ ]] || (( new_guild_sync_retries < 1 )); then
+        warn "Ungueltige Retry-Anzahl. Verwende 3."
+        new_guild_sync_retries="3"
+      fi
+      new_guild_sync_retry_ms="$(prompt_default "Guild-Sync Retry Delay (ms)" "$cur_guild_sync_retry_ms")"
+      if [[ ! "$new_guild_sync_retry_ms" =~ ^[0-9]+$ ]] || (( new_guild_sync_retry_ms < 100 )); then
+        warn "Ungueltiger Retry-Delay. Verwende 1200."
+        new_guild_sync_retry_ms="1200"
+      fi
+
+      if prompt_yes_no "Global Commands auf Boot aktiv bereinigen?" "$(if [[ "$cur_clean_global_commands" == "0" ]]; then echo n; else echo j; fi)"; then
+        new_clean_global_commands="1"
+      else
+        new_clean_global_commands="0"
+      fi
+      if prompt_yes_no "Guild-Commands auf Boot aktiv bereinigen?" "$(if [[ "$cur_clean_guild_commands" == "0" ]]; then echo n; else echo j; fi)"; then
+        new_clean_guild_commands="1"
+      else
+        new_clean_guild_commands="0"
+      fi
+      if prompt_yes_no "Worker-Guild-Commands auf Boot bereinigen?" "$(if [[ "$cur_clean_worker_guild_commands" == "0" ]]; then echo n; else echo j; fi)"; then
+        new_clean_worker_guild_commands="1"
+      else
+        new_clean_worker_guild_commands="0"
+      fi
+
+      write_env_line "COMMAND_REGISTRATION_MODE" "$new_command_mode"
+      if [[ "$new_command_mode" == "global" ]]; then
+        write_env_line "SYNC_GUILD_COMMANDS_ON_BOOT" "0"
+      else
+        write_env_line "SYNC_GUILD_COMMANDS_ON_BOOT" "1"
+      fi
+      write_env_line "PERIODIC_GUILD_COMMAND_SYNC_MS" "$(format_minutes_to_ms "$new_periodic_sync_minutes")"
+      write_env_line "GUILD_COMMAND_SYNC_RETRIES" "$new_guild_sync_retries"
+      write_env_line "GUILD_COMMAND_SYNC_RETRY_MS" "$new_guild_sync_retry_ms"
+      write_env_line "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "$new_clean_global_commands"
+      write_env_line "CLEAN_GUILD_COMMANDS_ON_BOOT" "$new_clean_guild_commands"
+      write_env_line "CLEAN_WORKER_GUILD_COMMANDS_ON_BOOT" "$new_clean_worker_guild_commands"
+      ok "Slash-Command Konfiguration gespeichert (${new_command_mode})."
+      mark_settings_dirty
+      ;;
+    11)
+      echo ""
+      info "Betrieb, Logs & Admin-Token"
+      new_log_max_mb="$(prompt_default "Maximale bot.log Groesse in MB" "$cur_log_max_mb")"
+      if [[ ! "$new_log_max_mb" =~ ^[0-9]+$ ]] || (( new_log_max_mb < 1 )); then
+        warn "Ungueltiger Wert fuer LOG_MAX_MB. Verwende 5."
+        new_log_max_mb="5"
+      fi
+      new_log_max_files="$(prompt_default "Maximale Anzahl rotierter Log-Dateien" "$cur_log_max_files")"
+      if [[ ! "$new_log_max_files" =~ ^[0-9]+$ ]] || (( new_log_max_files < 1 )); then
+        warn "Ungueltiger Wert fuer LOG_MAX_FILES. Verwende 30."
+        new_log_max_files="30"
+      fi
+      new_log_max_days="$(prompt_default "Log-Aufbewahrung in Tagen" "$cur_log_max_days")"
+      if [[ ! "$new_log_max_days" =~ ^[0-9]+$ ]] || (( new_log_max_days < 1 )); then
+        warn "Ungueltiger Wert fuer LOG_MAX_DAYS. Verwende 14."
+        new_log_max_days="14"
+      fi
+      if prompt_yes_no "Docker Cache automatisch bei Cleanup/Update aufraeumen?" "$(if [[ "$cur_auto_docker_prune" == "0" ]]; then echo n; else echo j; fi)"; then
+        new_auto_docker_prune="1"
+      else
+        new_auto_docker_prune="0"
+      fi
+      new_docker_prune_until="$(prompt_default "Docker Builder prune until" "$cur_docker_prune_until")"
+      new_admin_api_token="$(prompt_default "API Admin Token (ENTER = behalten, '-' = leeren)" "$cur_admin_api_token")"
+      if [[ "$new_admin_api_token" == "-" ]]; then
+        new_admin_api_token=""
+      fi
+
+      write_env_line "LOG_MAX_MB" "$new_log_max_mb"
+      write_env_line "LOG_MAX_FILES" "$new_log_max_files"
+      write_env_line "LOG_MAX_DAYS" "$new_log_max_days"
+      write_env_line "AUTO_DOCKER_PRUNE" "$new_auto_docker_prune"
+      write_env_line "DOCKER_BUILDER_PRUNE_UNTIL" "$new_docker_prune_until"
+      write_env_line "API_ADMIN_TOKEN" "$new_admin_api_token"
+      ok "Betriebs- und Log-Einstellungen gespeichert."
+      mark_settings_dirty
+      ;;
+    12)
       if (( settings_restart_needed == 1 )); then
         info "Fuehre einen einzigen Neustart fuer alle geaenderten Einstellungen aus..."
         restart_container
@@ -1738,24 +2124,24 @@ if [[ "$MODE" == "--settings" ]]; then
       fi
       break
       ;;
-    11)
+    13)
       if (( settings_restart_needed == 1 )); then
         warn "Es gibt noch offene Aenderungen ohne Neustart."
       fi
       break
       ;;
-    12)
+    14)
       run_system_doctor || true
       continue
       ;;
     *)
-      warn "Ungueltige Auswahl. Bitte 1-12 waehlen."
+      warn "Ungueltige Auswahl. Bitte 1-14 waehlen."
       continue
       ;;
   esac
 
   if (( settings_changed == 1 )); then
-    info "Du kannst weitere Einstellungen bearbeiten oder mit 10/11 beenden."
+    info "Du kannst weitere Einstellungen bearbeiten oder mit 12/13 beenden."
   fi
 done
 
@@ -2273,9 +2659,11 @@ echo -e "    Premium:          ${GREEN}./update.sh --premium${NC}"
 echo -e "    Codes:            ${GREEN}./update.sh --offers${NC}"
 echo -e "    E-Mail Setup:     ${GREEN}./update.sh --email${NC}"
 echo -e "    Einstellungen:    ${GREEN}./update.sh --settings${NC}"
+echo -e "    Slash Commands:   ${GREEN}./update.sh --settings commands${NC}"
 echo -e "    Dashboard OAuth:  ${GREEN}./update.sh --dashboard-settings${NC}"
 echo -e "    Doctor Check:     ${GREEN}./update.sh --doctor${NC}"
 echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
+echo -e "    Status Quick:     ${GREEN}./update.sh --status quick${NC}"
 echo -e "    Speicher cleanup: ${GREEN}./update.sh --cleanup${NC}"
 echo -e "    Recognition-Test:${GREEN} ./update.sh --recognition-test <URL>${NC}"
 echo -e "    Dieses Menue:     ${GREEN}./update.sh${NC}"
