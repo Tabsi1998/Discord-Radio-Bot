@@ -75,6 +75,114 @@ export function buildSubscriptionUpgradeSummary(data, blockedFeatureLabels, t) {
   };
 }
 
+export function buildSubscriptionNextAction(data, blockedFeatureLabels, t) {
+  const license = data?.license || null;
+  if (!license) return null;
+
+  const recommendedUpgrade = data?.recommendedUpgrade || null;
+  const effectiveTier = String(data?.effectiveTier || license?.plan || data?.tier || 'free').trim().toLowerCase();
+  const hasBillingEmail = Boolean(license?.hasBillingEmail || String(license?.emailMasked || '').trim());
+  const seats = Math.max(1, Number(license?.seats || 1) || 1);
+  const seatsUsed = Math.max(0, Number(license?.seatsUsed || 0) || 0);
+  const seatsAvailable = Math.max(0, Number(license?.seatsAvailable || (seats - seatsUsed)) || 0);
+  const remainingDays = Number(license?.remainingDays || 0) || 0;
+  const upgradeHighlights = Array.isArray(blockedFeatureLabels)
+    ? blockedFeatureLabels.filter(Boolean).slice(0, 2)
+    : [];
+
+  if (license?.expired) {
+    return {
+      key: 'renew-expired',
+      accent: '#EF4444',
+      eyebrow: t('Naechste Aktion', 'Next action'),
+      title: t('Diese Lizenz jetzt direkt verlaengern', 'Renew this license right now'),
+      body: t(
+        'Die Lizenz ist bereits abgelaufen. Starte den Checkout direkt aus dem Dashboard, damit Pro- oder Ultimate-Funktionen wieder freigeschaltet werden.',
+        'The license has already expired. Start the checkout directly from the dashboard so Pro or Ultimate features become active again.'
+      ),
+      cta: {
+        kind: 'checkout',
+        label: t('Jetzt verlaengern', 'Renew now'),
+      },
+    };
+  }
+
+  if (!hasBillingEmail) {
+    return {
+      key: 'billing-email',
+      accent: '#F59E0B',
+      eyebrow: t('Naechste Aktion', 'Next action'),
+      title: t('Eine gueltige Lizenz-E-Mail hinterlegen', 'Save a valid license email'),
+      body: t(
+        'Ohne gueltige E-Mail werden Checkout, Rechnungen und Lizenz-Kommunikation unnoetig fragil. Hinterlege sie direkt in diesem Panel.',
+        'Without a valid email, checkout, invoices, and license communication become unnecessarily fragile. Save it directly in this panel.'
+      ),
+      cta: {
+        kind: 'edit-email',
+        label: t('E-Mail hinterlegen', 'Add email'),
+      },
+    };
+  }
+
+  if (seatsAvailable <= 0) {
+    return {
+      key: 'seat-capacity',
+      accent: '#F59E0B',
+      eyebrow: t('Naechste Aktion', 'Next action'),
+      title: t('Seat-Kapazitaet fuer weitere Server planen', 'Plan seat capacity for more servers'),
+      body: t(
+        'Alle Seats dieser Lizenz sind bereits belegt. Fuer weitere Server brauchst du ein groesseres Seat-Bundle oder eine zweite Lizenz ueber die Hauptseite.',
+        'All seats of this license are already linked. Additional servers need a larger seat bundle or a second license on the main site.'
+      ),
+      cta: {
+        kind: 'plans',
+        label: t('Seat-Optionen oeffnen', 'Open seat options'),
+      },
+    };
+  }
+
+  if (remainingDays > 0 && remainingDays <= 7) {
+    return {
+      key: 'renew-soon',
+      accent: '#F59E0B',
+      eyebrow: t('Naechste Aktion', 'Next action'),
+      title: t('Die Verlaengerung vor Ablauf vorbereiten', 'Prepare the renewal before expiry'),
+      body: t(
+        `Die Lizenz laeuft in ${remainingDays} Tagen ab. Verlaengere sie jetzt direkt im Dashboard, damit es zu keiner Unterbrechung kommt.`,
+        `The license expires in ${remainingDays} days. Renew it directly in the dashboard now to avoid any interruption.`
+      ),
+      cta: {
+        kind: 'checkout',
+        label: t('Verlaengerung starten', 'Start renewal'),
+      },
+    };
+  }
+
+  if (effectiveTier === 'pro' && recommendedUpgrade) {
+    const targetTier = String(recommendedUpgrade?.tierName || recommendedUpgrade?.tier || 'ultimate').toUpperCase();
+    const highlightText = upgradeHighlights.length > 0
+      ? upgradeHighlights.join(', ')
+      : t('mehr Operator-Funktionen', 'more operator features');
+
+    return {
+      key: 'review-upgrade',
+      accent: '#8B5CF6',
+      eyebrow: t('Naechste Aktion', 'Next action'),
+      title: t(`Upgrade auf ${targetTier} pruefen`, `Review ${targetTier} upgrade`),
+      body: t(
+        `Fuer diesen Server sprechen aktuell vor allem ${highlightText} fuer den naechsten Schritt Richtung ${targetTier}.`,
+        `For this server, ${highlightText} are currently the strongest reasons for the next step toward ${targetTier}.`
+      ),
+      cta: {
+        kind: 'checkout',
+        label: t(`Upgrade zu ${targetTier}`, `Upgrade to ${targetTier}`),
+      },
+    };
+  }
+
+  return null;
+}
+
 export function buildSubscriptionPromotionNotes(data, t) {
   const notes = [];
   const license = data?.license || null;

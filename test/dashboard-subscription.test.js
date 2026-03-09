@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   formatSubscriptionPriceCents,
   buildSubscriptionLimitCards,
+  buildSubscriptionNextAction,
   buildSubscriptionUpgradeSummary,
   buildSubscriptionPromotionNotes,
   buildSubscriptionReplayStatus,
@@ -121,6 +122,73 @@ test("subscription promotion notes expose coupon, trial, and seat saturation hin
       detail: "All seats of this license are currently linked. Additional servers require a larger seat bundle or a second license.",
     },
   ]);
+});
+
+test("subscription next action prioritizes renewal, email hygiene, seat planning, and upgrades", () => {
+  const t = (_de, en) => en;
+
+  const expiredAction = buildSubscriptionNextAction({
+    license: {
+      expired: true,
+      remainingDays: 0,
+      plan: "pro",
+      hasBillingEmail: true,
+      seats: 2,
+      seatsUsed: 1,
+      seatsAvailable: 1,
+    },
+  }, [], t);
+  assert.equal(expiredAction.key, "renew-expired");
+  assert.equal(expiredAction.cta.kind, "checkout");
+
+  const emailAction = buildSubscriptionNextAction({
+    license: {
+      expired: false,
+      remainingDays: 21,
+      plan: "pro",
+      hasBillingEmail: false,
+      emailMasked: "",
+      seats: 2,
+      seatsUsed: 1,
+      seatsAvailable: 1,
+    },
+  }, [], t);
+  assert.equal(emailAction.key, "billing-email");
+  assert.equal(emailAction.cta.kind, "edit-email");
+
+  const seatAction = buildSubscriptionNextAction({
+    license: {
+      expired: false,
+      remainingDays: 21,
+      plan: "ultimate",
+      hasBillingEmail: true,
+      seats: 2,
+      seatsUsed: 2,
+      seatsAvailable: 0,
+    },
+  }, [], t);
+  assert.equal(seatAction.key, "seat-capacity");
+  assert.equal(seatAction.cta.kind, "plans");
+
+  const upgradeAction = buildSubscriptionNextAction({
+    effectiveTier: "pro",
+    license: {
+      expired: false,
+      remainingDays: 21,
+      plan: "pro",
+      hasBillingEmail: true,
+      seats: 2,
+      seatsUsed: 1,
+      seatsAvailable: 1,
+    },
+    recommendedUpgrade: {
+      tier: "ultimate",
+      tierName: "Ultimate",
+    },
+  }, ["Advanced analytics", "Failover rules"], t);
+  assert.equal(upgradeAction.key, "review-upgrade");
+  assert.equal(upgradeAction.cta.kind, "checkout");
+  assert.match(upgradeAction.body, /Advanced analytics/i);
 });
 
 test("subscription replay status and activity rows summarize processed billing sessions", () => {

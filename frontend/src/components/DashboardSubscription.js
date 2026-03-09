@@ -16,6 +16,7 @@ import { getDashboardBlockedFeatureLabels } from '../lib/dashboardCapabilities';
 import {
   formatSubscriptionPriceCents,
   buildSubscriptionLimitCards,
+  buildSubscriptionNextAction,
   buildSubscriptionUpgradeSummary,
   buildSubscriptionPromotionNotes,
   buildSubscriptionReplayStatus,
@@ -481,6 +482,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
   const isExpiringSoon = !isExpired && lic?.remainingDays != null && lic.remainingDays <= 7;
   const canManagePaidPlan = lic && ['pro', 'ultimate'].includes(String(lic.plan || effectiveTier || '').toLowerCase());
   const canUpgradeToUltimate = String(lic?.plan || effectiveTier || '').toLowerCase() === 'pro';
+  const plansHref = `/?page=home&lang=${encodeURIComponent(locale)}#premium`;
   const blockedFeatureLabels = useMemo(
     () => getDashboardBlockedFeatureLabels(capabilityPayload?.upgradeHints?.blockedFeatures, t, 6),
     [capabilityPayload?.upgradeHints?.blockedFeatures, t]
@@ -495,6 +497,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
   const promotionNotes = useMemo(() => buildSubscriptionPromotionNotes(data, t), [data, t]);
   const replayStatus = useMemo(() => buildSubscriptionReplayStatus(data?.activity, t), [data?.activity, t]);
   const activityRows = useMemo(() => buildSubscriptionActivityRows(data?.activity, t), [data?.activity, t]);
+  const nextAction = useMemo(() => buildSubscriptionNextAction(data, blockedFeatureLabels, t), [blockedFeatureLabels, data, t]);
   const trialActivity = data?.activity?.trial || null;
 
   const planFeatures = useMemo(() => {
@@ -672,7 +675,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
               )}
             </p>
             <a
-              href={`/?page=home&lang=${encodeURIComponent(locale)}#premium`}
+              href={plansHref}
               data-testid="subscription-upgrade-link"
               style={{
                 display: 'inline-flex',
@@ -691,6 +694,84 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
             >
               <ExternalLink size={15} /> {t('Pläne öffnen', 'Open plans')}
             </a>
+          </div>
+        ) : null}
+
+        {nextAction ? (
+          <div
+            data-testid="subscription-next-action-card"
+            style={{
+              border: `1px solid ${nextAction.accent}44`,
+              background: `${nextAction.accent}12`,
+              padding: 16,
+              display: 'grid',
+              gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 11, color: nextAction.accent, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              {nextAction.eyebrow}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0, flex: '1 1 320px' }}>
+                <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20, color: '#F4F4F5' }}>
+                  {nextAction.title}
+                </h4>
+                <div style={{ marginTop: 6, fontSize: 13, color: '#D4D4D8', lineHeight: 1.65 }}>
+                  {nextAction.body}
+                </div>
+              </div>
+              {nextAction.cta?.kind === 'plans' ? (
+                <a
+                  href={plansHref}
+                  data-testid="subscription-next-action-link"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    border: `1px solid ${nextAction.accent}`,
+                    background: `${nextAction.accent}1A`,
+                    color: '#fff',
+                    padding: '10px 14px',
+                    textDecoration: 'none',
+                    fontWeight: 600,
+                    fontSize: 14,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <ExternalLink size={15} /> {nextAction.cta.label}
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="subscription-next-action-button"
+                  onClick={() => {
+                    if (nextAction.cta?.kind === 'edit-email') {
+                      setEmailEditing(true);
+                      return;
+                    }
+                    if (nextAction.cta?.kind === 'checkout') {
+                      openCheckout();
+                    }
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    border: `1px solid ${nextAction.accent}`,
+                    background: `${nextAction.accent}1A`,
+                    color: '#fff',
+                    padding: '10px 14px',
+                    fontWeight: 600,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {nextAction.cta?.kind === 'edit-email' ? <Mail size={15} /> : <ArrowRight size={15} />}
+                  {nextAction.cta?.label}
+                </button>
+              )}
+            </div>
           </div>
         ) : null}
 
