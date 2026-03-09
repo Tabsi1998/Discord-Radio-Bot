@@ -4,11 +4,12 @@
 import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
-import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { ChannelType, PermissionFlagsBits } from "discord.js";
 import { createDashboardChannelsRouteHandler } from "./routes/dashboard-channels.js";
+import { createAuthRoutesHandler } from "./routes/auth-routes.js";
 import { createDashboardCustomStationsRouteHandler } from "./routes/dashboard-custom-stations.js";
+import { createDashboardAccessRouteHandler } from "./routes/dashboard-access.js";
 import { createDashboardEmojisRouteHandler } from "./routes/dashboard-emojis.js";
 import { createDashboardEventsRouteHandler } from "./routes/dashboard-events.js";
 import { createDashboardExportsRouteHandler } from "./routes/dashboard-exports.js";
@@ -20,6 +21,7 @@ import { createDashboardSettingsRouteHandler } from "./routes/dashboard-settings
 import { createDashboardStationsRouteHandler } from "./routes/dashboard-stations.js";
 import { createDashboardStatsRouteHandler } from "./routes/dashboard-stats.js";
 import { createDashboardTelemetryRouteHandler } from "./routes/dashboard-telemetry.js";
+import { createPublicRoutesHandler } from "./routes/public-routes.js";
 
 import { log, webDir, webRootSource, frontendBuildStamp, rootDir } from "../lib/logging.js";
 import {
@@ -454,6 +456,70 @@ const handleDashboardPermsRoute = createDashboardPermsRouteHandler({
   sendLocalizedError,
   serverHasCapability,
   setCommandRolePermission,
+});
+
+const handlePublicRoutes = createPublicRoutesHandler({
+  API_COMMANDS,
+  BRAND,
+  TIERS,
+  appStartTime,
+  buildPublicLegalNotice,
+  buildPublicPrivacyNotice,
+  buildPublicStationCatalog,
+  frontendBuildStamp,
+  getDashboardRequestTranslator,
+  getGlobalStats,
+  getHealthBinaryProbe,
+  getStripeSecretKey,
+  isAdminApiRequest,
+  languagePick,
+  loadStations,
+  log,
+  methodNotAllowed,
+  rootDir,
+  sendJson,
+  sendLocalizedError,
+  webRootSource,
+});
+
+const handleAuthRoutes = createAuthRoutesHandler({
+  buildDashboardErrorRedirect,
+  buildDashboardSessionCookie,
+  buildDashboardSessionCookieDeletion,
+  buildDiscordAuthorizeUrl,
+  deleteDashboardAuthSession,
+  exchangeDiscordCodeForToken,
+  fetchDiscordUserGuilds,
+  fetchDiscordUserProfile,
+  getCommonSecurityHeaders,
+  getDashboardSession,
+  getDashboardSessionTtlSeconds,
+  getDefaultLanguage,
+  getDiscordOauthStateTtlSeconds,
+  getFrontendBaseOrigin,
+  isDiscordOauthConfigured,
+  languagePick,
+  log,
+  methodNotAllowed,
+  normalizeLanguage,
+  popDashboardOauthState,
+  resolveDashboardGuildsForSession,
+  resolveDashboardRequestLanguage,
+  sanitizeDashboardPage,
+  sendJson,
+  setDashboardAuthSession,
+  setDashboardOauthState,
+});
+
+const handleDashboardAccessRoute = createDashboardAccessRouteHandler({
+  buildServerCapabilityPayload,
+  getDashboardRequestTranslator,
+  getDashboardSession,
+  methodNotAllowed,
+  resolveDashboardGuildForSession,
+  resolveDashboardGuildsForSession,
+  sendJson,
+  sendLocalizedError,
 });
 
 const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
@@ -2382,252 +2448,15 @@ function startWebServer(runtimes) {
     }
 
     // --- API routes ---
-    if (requestUrl.pathname === "/api/bots") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const bots = runtimes.map((runtime) => runtime.getPublicStatus());
-      const totals = bots.reduce(
-        (acc, bot) => {
-          acc.servers += Number(bot.servers) || 0;
-          acc.users += Number(bot.users) || 0;
-          acc.connections += Number(bot.connections) || 0;
-          acc.listeners += Number(bot.listeners) || 0;
-          return acc;
-        },
-        { servers: 0, users: 0, connections: 0, listeners: 0 }
-      );
-
-      sendJson(res, 200, { bots, totals });
+    if (await handlePublicRoutes({ req, res, requestUrl, runtimes })) {
       return;
     }
 
-    if (requestUrl.pathname === "/api/workers") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-
-      const sortedRuntimes = [...runtimes].sort(
-        (a, b) => Number(a?.config?.index || 0) - Number(b?.config?.index || 0)
-      );
-      const commanderRuntime = sortedRuntimes.find((runtime) => runtime.role === "commander") || sortedRuntimes[0] || null;
-
-      const toWorkerPayload = (runtime, fallbackIndex = 0) => {
-        const status = runtime.getPublicStatus?.() || {};
-        const stats = runtime.collectStats?.() || {};
-        const activeStreams = Number(
-          runtime.getPlayingGuildCount?.()
-          ?? status.connections
-          ?? status.listeners
-          ?? 0
-        ) || 0;
-        const servers = Number(stats.servers ?? status.servers ?? status.guilds ?? 0) || 0;
-        const index = Number(runtime?.config?.index || fallbackIndex || 0) || fallbackIndex || 0;
-
-        return {
-          id: runtime?.config?.id || null,
-          botId: runtime?.config?.id || null,
-          index,
-          name: runtime?.config?.name || `Bot ${index || "?"}`,
-          role: runtime?.role || "worker",
-          requiredTier: runtime?.config?.requiredTier || "free",
-          color: status.color || (runtime?.role === "commander" ? "#00F0FF" : "#39FF14"),
-          online: Boolean(runtime?.client?.isReady?.()),
-          servers,
-          activeStreams,
-        };
-      };
-
-      const workers = sortedRuntimes
-        .filter((runtime) => runtime !== commanderRuntime)
-        .map((runtime, position) => toWorkerPayload(runtime, position + 1));
-
-      sendJson(res, 200, {
-        architecture: "commander_worker",
-        commander: commanderRuntime ? toWorkerPayload(commanderRuntime, 1) : null,
-        workers,
-        tiers: {
-          free: { maxWorkers: Number(TIERS.free?.maxBots || 2) },
-          pro: { maxWorkers: Number(TIERS.pro?.maxBots || 8) },
-          ultimate: { maxWorkers: Number(TIERS.ultimate?.maxBots || 16) },
-        },
-      });
+    if (await handleAuthRoutes({ req, res, requestUrl, publicUrl })) {
       return;
     }
 
-    if (requestUrl.pathname === "/api/commands") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      sendJson(res, 200, { commands: API_COMMANDS });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/stats") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const bots = runtimes.map((runtime) => runtime.getPublicStatus());
-      const totals = bots.reduce(
-        (acc, bot) => {
-          acc.servers += Number(bot.servers) || 0;
-          acc.users += Number(bot.users) || 0;
-          acc.connections += Number(bot.connections) || 0;
-          acc.listeners += Number(bot.listeners) || 0;
-          return acc;
-        },
-        { servers: 0, users: 0, connections: 0, listeners: 0 }
-      );
-      const publicStations = buildPublicStationCatalog(loadStations());
-      sendJson(res, 200, {
-        ...totals,
-        bots: runtimes.length,
-        stations: publicStations.total,
-        freeStations: publicStations.freeStations,
-        proStations: publicStations.proStations,
-        ultimateStations: publicStations.ultimateStations,
-      });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/stations") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const publicStations = buildPublicStationCatalog(loadStations());
-      sendJson(res, 200, {
-        defaultStationKey: publicStations.defaultStationKey,
-        qualityPreset: publicStations.qualityPreset,
-        total: publicStations.total,
-        stations: publicStations.stations,
-      });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/legal") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      sendJson(res, 200, buildPublicLegalNotice());
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/privacy") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      sendJson(res, 200, buildPublicPrivacyNotice());
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/health") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const readyBots = runtimes.filter((runtime) => runtime.client.isReady()).length;
-      sendJson(res, 200, {
-        ok: true,
-        status: "online",
-        brand: BRAND.name,
-        timestamp: new Date().toISOString(),
-        uptimeSec: Math.floor((Date.now() - appStartTime) / 1000),
-        bots: runtimes.length,
-        readyBots
-      });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/health/detail") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      if (!isAdminApiRequest(req)) {
-        sendJson(res, 401, { error: "Unauthorized. API admin token required." });
-        return;
-      }
-
-      const { getDb, isConnected } = await import("../lib/db.js");
-      const binaryProbe = getHealthBinaryProbe();
-      const readyBots = runtimes.filter((runtime) => runtime.client.isReady()).length;
-      const runtimeDetails = runtimes.map((runtime) => {
-        const snapshot = runtime.buildStatusSnapshot();
-        return {
-          id: snapshot.id,
-          name: snapshot.name,
-          role: snapshot.role,
-          requiredTier: snapshot.requiredTier,
-          ready: snapshot.ready,
-          servers: snapshot.servers,
-          listeners: snapshot.listeners,
-          connections: snapshot.connections,
-          uptimeSec: snapshot.uptimeSec,
-          error: snapshot.error,
-        };
-      });
-
-      sendJson(res, 200, {
-        ok: true,
-        status: readyBots > 0 ? "online" : "degraded",
-        brand: BRAND.name,
-        timestamp: new Date().toISOString(),
-        uptimeSec: Math.floor((Date.now() - appStartTime) / 1000),
-        container: {
-          pid: process.pid,
-          nodeVersion: process.version,
-          platform: process.platform,
-          arch: process.arch,
-          webRootSource,
-          frontendBuildStamp,
-        },
-        discord: {
-          bots: runtimes.length,
-          readyBots,
-          runtimes: runtimeDetails,
-        },
-        db: {
-          connected: isConnected(),
-          database: getDb()?.databaseName || null,
-          fallbackActive: !isConnected(),
-        },
-        stripe: {
-          configured: Boolean(getStripeSecretKey()),
-        },
-        binaries: {
-          ffmpeg: binaryProbe.ffmpeg,
-          fpcalc: binaryProbe.fpcalc,
-        },
-        stores: {
-          dashboardSessions: {
-            backend: "json-file",
-            filePresent: fs.existsSync(path.join(rootDir, "dashboard.json")),
-          },
-          premiumLicenses: {
-            backend: "json-file",
-            filePresent: fs.existsSync(path.join(rootDir, "premium.json")),
-          },
-          commandPermissions: {
-            backend: "json-file",
-            filePresent: fs.existsSync(path.join(rootDir, "command-permissions.json")),
-          },
-          customStations: {
-            backend: "json-file",
-            filePresent: fs.existsSync(path.join(rootDir, "custom-stations.json")),
-          },
-          listeningStats: {
-            backend: isConnected() ? "mongodb+json-fallback" : "json-fallback",
-            dbConnected: isConnected(),
-          },
-        },
-      });
+    if (await handleDashboardAccessRoute({ req, res, requestUrl })) {
       return;
     }
 
@@ -2761,208 +2590,10 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (requestUrl.pathname === "/api/auth/discord/login") {
-      const requestLanguage = resolveDashboardRequestLanguage(req, requestUrl);
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      if (!isDiscordOauthConfigured()) {
-        sendJson(res, 503, {
-          error: languagePick(requestLanguage, "Discord OAuth ist noch nicht konfiguriert.", "Discord OAuth is not configured yet."),
-          oauthConfigured: false,
-        });
-        return;
-      }
-
-      const nextPage = sanitizeDashboardPage(requestUrl.searchParams.get("nextPage"));
-      const stateToken = randomBytes(24).toString("base64url");
-      const frontendOrigin = getFrontendBaseOrigin(req, publicUrl);
-      const nowTs = Math.floor(Date.now() / 1000);
-      setDashboardOauthState(stateToken, {
-        nextPage,
-        language: requestLanguage,
-        origin: frontendOrigin,
-        createdAt: nowTs,
-        expiresAt: nowTs + getDiscordOauthStateTtlSeconds(),
-      });
-
-      sendJson(res, 200, {
-        oauthConfigured: true,
-        authUrl: buildDiscordAuthorizeUrl(stateToken),
-        state: stateToken,
-      });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/auth/discord/callback") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-
-      const code = String(requestUrl.searchParams.get("code") || "").trim();
-      const stateToken = String(requestUrl.searchParams.get("state") || "").trim();
-      const fallbackOrigin = getFrontendBaseOrigin(req, publicUrl);
-      const statePayload = popDashboardOauthState(stateToken);
-      const frontendOrigin = statePayload?.origin || fallbackOrigin;
-      const oauthLanguage = normalizeLanguage(statePayload?.language, getDefaultLanguage());
-
-      if (!isDiscordOauthConfigured()) {
-        res.writeHead(302, {
-          ...getCommonSecurityHeaders(),
-          Location: buildDashboardErrorRedirect(frontendOrigin, "oauth_not_configured", oauthLanguage),
-        });
-        res.end();
-        return;
-      }
-      if (!statePayload) {
-        res.writeHead(302, {
-          ...getCommonSecurityHeaders(),
-          Location: buildDashboardErrorRedirect(frontendOrigin, "invalid_state", oauthLanguage),
-        });
-        res.end();
-        return;
-      }
-      if (!code) {
-        res.writeHead(302, {
-          ...getCommonSecurityHeaders(),
-          Location: buildDashboardErrorRedirect(frontendOrigin, "missing_code", oauthLanguage),
-        });
-        res.end();
-        return;
-      }
-
-      try {
-        const accessToken = await exchangeDiscordCodeForToken(code);
-        const userProfile = await fetchDiscordUserProfile(accessToken);
-        const guilds = await fetchDiscordUserGuilds(accessToken);
-        const sessionToken = randomBytes(32).toString("base64url");
-        const nowTs = Math.floor(Date.now() / 1000);
-        setDashboardAuthSession(sessionToken, {
-          user: userProfile,
-          guilds,
-          createdAt: nowTs,
-          expiresAt: nowTs + getDashboardSessionTtlSeconds(),
-        });
-
-        res.writeHead(302, {
-          ...getCommonSecurityHeaders(),
-          Location: `${frontendOrigin}/?page=${sanitizeDashboardPage(statePayload.nextPage)}&lang=${encodeURIComponent(oauthLanguage)}`,
-          "Set-Cookie": buildDashboardSessionCookie(sessionToken, req, frontendOrigin),
-        });
-        res.end();
-      } catch (err) {
-        log("ERROR", `Discord OAuth callback failed: ${err?.message || err}`);
-        res.writeHead(302, {
-          ...getCommonSecurityHeaders(),
-          Location: buildDashboardErrorRedirect(frontendOrigin, "oauth_exchange_failed", oauthLanguage),
-        });
-        res.end();
-      }
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/auth/session") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-
-      const { session } = getDashboardSession(req);
-      if (!session) {
-        sendJson(res, 200, {
-          authenticated: false,
-          oauthConfigured: isDiscordOauthConfigured(),
-          user: null,
-          guilds: [],
-        });
-        return;
-      }
-
-      sendJson(res, 200, {
-        authenticated: true,
-        oauthConfigured: isDiscordOauthConfigured(),
-        user: session.user || null,
-        guilds: resolveDashboardGuildsForSession(session),
-        expiresAt: session.expiresAt || null,
-      });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/auth/logout") {
-      if (req.method !== "POST") {
-        methodNotAllowed(res, ["POST"]);
-        return;
-      }
-
-      const { token } = getDashboardSession(req);
-      if (token) {
-        deleteDashboardAuthSession(token);
-      }
-      res.writeHead(200, {
-        ...getCommonSecurityHeaders(),
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-        "Set-Cookie": buildDashboardSessionCookieDeletion(req, getFrontendBaseOrigin(req, publicUrl)),
-      });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/dashboard/guilds") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const { session } = getDashboardSession(req);
-      if (!session) {
-        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
-        return;
-      }
-      sendJson(res, 200, { guilds: resolveDashboardGuildsForSession(session) });
-      return;
-    }
-
-    if (requestUrl.pathname === "/api/dashboard/capabilities") {
-      const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      const { session } = getDashboardSession(req);
-      if (!session) {
-        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
-        return;
-      }
-      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
-      if (!guild) {
-        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
-        return;
-      }
-      sendJson(res, 200, buildServerCapabilityPayload(guild.id));
-      return;
-    }
     if (await handleDashboardStatsRoute({ req, res, requestUrl, runtimes })) {
       return;
     }
 
-    // Global stats endpoint (public, anonymized)
-    if (requestUrl.pathname === "/api/stats/global") {
-      if (req.method !== "GET") {
-        methodNotAllowed(res, ["GET"]);
-        return;
-      }
-      try {
-        const globalStats = await getGlobalStats();
-        sendJson(res, 200, globalStats);
-      } catch (err) {
-        log("ERROR", `Global stats error: ${err?.message || err}`);
-        sendJson(res, 500, { error: "Globale Statistiken konnten nicht geladen werden." });
-      }
-      return;
-    }
     if (await handleDashboardTelemetryRoute({ req, res, requestUrl, readJsonBody })) {
       return;
     }

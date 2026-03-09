@@ -293,6 +293,9 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     WEB_BIND: "127.0.0.1",
     API_ADMIN_TOKEN: "test-admin-token",
     OMNIFM_ALLOW_LOCAL_WEBHOOKS: "1",
+    DISCORD_CLIENT_ID: undefined,
+    DISCORD_CLIENT_SECRET: undefined,
+    DISCORD_REDIRECT_URI: undefined,
   });
 
   let activePlan = "pro";
@@ -458,10 +461,54 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
 
   const authHeaders = { "x-session-token": sessionToken };
 
+  const publicHealthResponse = await requestJson(baseUrl, "/api/health");
+  assert.equal(publicHealthResponse.status, 200);
+  assert.equal(publicHealthResponse.payload.ok, true);
+  assert.equal(publicHealthResponse.payload.readyBots, 1);
+
+  const publicBotsResponse = await requestJson(baseUrl, "/api/bots");
+  assert.equal(publicBotsResponse.status, 200);
+  assert.equal(publicBotsResponse.payload.bots.length, 1);
+  assert.equal(publicBotsResponse.payload.totals.servers, 1);
+
+  const publicWorkersResponse = await requestJson(baseUrl, "/api/workers");
+  assert.equal(publicWorkersResponse.status, 200);
+  assert.equal(publicWorkersResponse.payload.architecture, "commander_worker");
+  assert.equal(publicWorkersResponse.payload.commander.id, "bot-test-1");
+  assert.deepEqual(publicWorkersResponse.payload.workers, []);
+
+  const publicCommandsResponse = await requestJson(baseUrl, "/api/commands");
+  assert.equal(publicCommandsResponse.status, 200);
+  assert.equal(Array.isArray(publicCommandsResponse.payload.commands), true);
+  assert.ok(publicCommandsResponse.payload.commands.length > 0);
+
+  const publicStatsResponse = await requestJson(baseUrl, "/api/stats");
+  assert.equal(publicStatsResponse.status, 200);
+  assert.equal(publicStatsResponse.payload.bots, 1);
+  assert.ok(publicStatsResponse.payload.stations >= 1);
+
+  const publicStationsResponse = await requestJson(baseUrl, "/api/stations");
+  assert.equal(publicStationsResponse.status, 200);
+  assert.ok(publicStationsResponse.payload.total >= 1);
+  assert.equal(typeof publicStationsResponse.payload.defaultStationKey, "string");
+
+  const globalStatsResponse = await requestJson(baseUrl, "/api/stats/global?lang=en");
+  assert.equal(globalStatsResponse.status, 200);
+  assert.equal(typeof globalStatsResponse.payload, "object");
+
+  const oauthUnavailableResponse = await requestJson(baseUrl, "/api/auth/discord/login?lang=en");
+  assert.equal(oauthUnavailableResponse.status, 503);
+  assert.match(oauthUnavailableResponse.payload.error, /Discord OAuth is not configured yet/i);
+
   const sessionResponse = await requestJson(baseUrl, "/api/auth/session", { headers: authHeaders });
   assert.equal(sessionResponse.status, 200);
   assert.equal(sessionResponse.payload.authenticated, true);
   assert.equal(sessionResponse.payload.guilds[0].capabilities.dashboardAccess, true);
+
+  const dashboardGuildsResponse = await requestJson(baseUrl, "/api/dashboard/guilds", { headers: authHeaders });
+  assert.equal(dashboardGuildsResponse.status, 200);
+  assert.equal(dashboardGuildsResponse.payload.guilds.length, 1);
+  assert.equal(dashboardGuildsResponse.payload.guilds[0].id, GUILD_ID);
 
   const capabilityResponse = await requestJson(
     baseUrl,
@@ -1238,8 +1285,9 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
 
   activePlan = "pro";
   activeSeats = 2;
-  const unauthorizedHealth = await requestJson(baseUrl, "/api/health/detail");
+  const unauthorizedHealth = await requestJson(baseUrl, "/api/health/detail?lang=de");
   assert.equal(unauthorizedHealth.status, 401);
+  assert.match(unauthorizedHealth.payload.error, /API-Admin-Token erforderlich/i);
 
   const authorizedHealth = await requestJson(baseUrl, "/api/health/detail", {
     headers: { "x-admin-token": "test-admin-token" },
@@ -1261,4 +1309,15 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(resetStatsResponse.payload.success, true);
   assert.equal(resetStatsResponse.payload.serverId, GUILD_ID);
   assert.equal(typeof resetStatsResponse.payload.deleted, "object");
+
+  const logoutResponse = await requestJson(baseUrl, "/api/auth/logout", {
+    method: "POST",
+    headers: authHeaders,
+  });
+  assert.equal(logoutResponse.status, 200);
+  assert.equal(logoutResponse.payload.success, true);
+
+  const sessionAfterLogoutResponse = await requestJson(baseUrl, "/api/auth/session", { headers: authHeaders });
+  assert.equal(sessionAfterLogoutResponse.status, 200);
+  assert.equal(sessionAfterLogoutResponse.payload.authenticated, false);
 });
