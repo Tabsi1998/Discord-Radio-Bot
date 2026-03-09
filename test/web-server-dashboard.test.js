@@ -10,6 +10,10 @@ import { startWebServer } from "../src/api/server.js";
 import { setLicenseProvider } from "../src/core/entitlements.js";
 import { connect as connectDb, close as closeDb, getDb } from "../src/lib/db.js";
 import {
+  createLicense,
+  linkServerToLicense,
+} from "../src/premium-store.js";
+import {
   setDashboardAuthSession,
   deleteDashboardAuthSession,
 } from "../src/dashboard-store.js";
@@ -264,6 +268,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "dashboard.json.bak"),
     path.join(repoRoot, "command-permissions.json"),
     path.join(repoRoot, "command-permissions.json.bak"),
+    path.join(repoRoot, "premium.json"),
+    path.join(repoRoot, "premium.json.bak"),
     path.join(repoRoot, "custom-stations.json"),
     path.join(repoRoot, "custom-stations.json.bak"),
     path.join(repoRoot, "scheduled-events.json"),
@@ -292,6 +298,18 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
       seats: activeSeats,
     };
   });
+
+  const seededLicense = createLicense({
+    plan: "pro",
+    seats: 2,
+    billingPeriod: "monthly",
+    months: 3,
+    activatedBy: "test-suite",
+    contactEmail: "owner@example.com",
+    preferredLanguage: "en",
+  });
+  const seededLink = linkServerToLicense(GUILD_ID, seededLicense.id);
+  assert.equal(seededLink.ok, true);
 
   try {
     await connectDb();
@@ -395,6 +413,60 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(capabilityResponse.payload.limits.seats, 2);
   assert.equal(capabilityResponse.payload.upgradeHints.nextTier, "ultimate");
   assert.ok(capabilityResponse.payload.upgradeHints.blockedFeatures.includes("advancedAnalytics"));
+
+  const initialLicenseResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(initialLicenseResponse.status, 200);
+  assert.equal(initialLicenseResponse.payload.license.plan, "pro");
+  assert.equal(initialLicenseResponse.payload.license.seats, 2);
+  assert.equal(initialLicenseResponse.payload.license.seatsUsed, 1);
+  assert.equal(initialLicenseResponse.payload.license.seatsAvailable, 1);
+  assert.equal(initialLicenseResponse.payload.license.emailMasked, "ow***@example.com");
+  assert.equal(initialLicenseResponse.payload.currentPlan.limits.maxBots, 8);
+  assert.equal(initialLicenseResponse.payload.currentPlan.pricing.monthlyCents, 549);
+  assert.equal(initialLicenseResponse.payload.recommendedUpgrade.tier, "ultimate");
+  assert.equal(initialLicenseResponse.payload.recommendedUpgrade.pricing.monthlyCents, 799);
+
+  const invalidLicenseEmailUpdate = await requestJson(
+    baseUrl,
+    `/api/dashboard/license?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contactEmail: "invalid-email",
+        language: "en",
+      }),
+    }
+  );
+  assert.equal(invalidLicenseEmailUpdate.status, 400);
+  assert.match(invalidLicenseEmailUpdate.payload.error, /valid license email/i);
+
+  const updatedLicenseResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contactEmail: "billing@example.com",
+        language: "en",
+      }),
+    }
+  );
+  assert.equal(updatedLicenseResponse.status, 200);
+  assert.equal(updatedLicenseResponse.payload.success, true);
+  assert.equal(updatedLicenseResponse.payload.license.emailMasked, "bi***@example.com");
+  assert.equal(updatedLicenseResponse.payload.license.contactEmailDomain, "example.com");
 
   const settingsResponse = await requestJson(
     baseUrl,

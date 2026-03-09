@@ -5,6 +5,7 @@ import {
   Check,
   Clock,
   Crown,
+  Mail,
   ExternalLink,
   RefreshCw,
   Users,
@@ -12,6 +13,11 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { getDashboardBlockedFeatureLabels } from '../lib/dashboardCapabilities';
+import {
+  formatSubscriptionPriceCents,
+  buildSubscriptionLimitCards,
+  buildSubscriptionUpgradeSummary,
+} from '../lib/dashboardSubscription';
 
 const TIER_COLORS = { free: '#71717A', pro: '#10B981', ultimate: '#8B5CF6' };
 const TIER_LABELS = { free: 'Free', pro: 'Pro', ultimate: 'Ultimate' };
@@ -24,15 +30,6 @@ function formatLicenseDate(isoStr, formatDate) {
   } catch {
     return '-';
   }
-}
-
-function formatEuroCents(cents, locale = 'de-AT') {
-  const amount = Math.max(0, Number(cents || 0) || 0) / 100;
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-  }).format(amount);
 }
 
 function CheckoutChoiceButton({ active, label, subLabel, onClick, accent }) {
@@ -207,7 +204,7 @@ function DashboardCheckoutModal({
                   `${option} Monat${option > 1 ? 'e' : ''}`,
                   `${option} month${option > 1 ? 's' : ''}`
                 )}
-                subLabel={formatEuroCents(prices?.[tier]?.[option] || 0, locale)}
+                subLabel={formatSubscriptionPriceCents(prices?.[tier]?.[option] || 0, locale)}
                 onClick={() => setMonths(option)}
               />
             ))}
@@ -253,7 +250,7 @@ function DashboardCheckoutModal({
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
             <span style={{ color: '#71717A' }}>{t('Preis', 'Price')}</span>
-            <strong>{formatEuroCents(currentPrice, locale)}</strong>
+            <strong>{formatSubscriptionPriceCents(currentPrice, locale)}</strong>
           </div>
         </div>
 
@@ -311,6 +308,9 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
+  const [emailDraft, setEmailDraft] = useState('');
+  const [emailEditing, setEmailEditing] = useState(false);
+  const [emailSaving, setEmailSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!selectedGuildId) return;
@@ -327,6 +327,11 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
   }, [selectedGuildId, apiRequest]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setEmailDraft('');
+    setEmailEditing(false);
+    setEmailSaving(false);
+  }, [selectedGuildId, data?.license?.emailMasked]);
 
   const lic = data?.license || null;
   const effectiveTier = data?.effectiveTier || lic?.plan || data?.tier || 'free';
@@ -341,6 +346,11 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
   );
   const nextUpgradeTier = String(capabilityPayload?.upgradeHints?.nextTier || '').trim().toLowerCase();
   const nextUpgradeLabel = nextUpgradeTier ? nextUpgradeTier.toUpperCase() : '';
+  const limitCards = useMemo(() => buildSubscriptionLimitCards(data, t), [data, t]);
+  const upgradeSummary = useMemo(
+    () => buildSubscriptionUpgradeSummary(data, blockedFeatureLabels, t),
+    [data, blockedFeatureLabels, t]
+  );
 
   const planFeatures = useMemo(() => {
     if (effectiveTier === 'ultimate') {
@@ -401,6 +411,32 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
       setCheckoutLoading(false);
     }
   }, [apiRequest, locale, selectedGuildId, t]);
+
+  const saveLicenseEmail = useCallback(async () => {
+    const nextEmail = String(emailDraft || '').trim().toLowerCase();
+    if (!nextEmail) {
+      setError(t('Bitte eine Lizenz-E-Mail eingeben.', 'Please enter a license email.'));
+      return;
+    }
+    setEmailSaving(true);
+    setError('');
+    try {
+      const result = await apiRequest(`/api/dashboard/license?serverId=${encodeURIComponent(selectedGuildId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          contactEmail: nextEmail,
+          language: locale,
+        }),
+      });
+      setData(result);
+      setEmailDraft('');
+      setEmailEditing(false);
+    } catch (err) {
+      setError(err.message || t('Lizenz-E-Mail konnte nicht aktualisiert werden.', 'License email could not be updated.'));
+    } finally {
+      setEmailSaving(false);
+    }
+  }, [apiRequest, emailDraft, locale, selectedGuildId, t]);
 
   if (loading) {
     return (
@@ -542,18 +578,97 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
               </div>
             </div>
 
-            {lic.emailMasked ? (
-              <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
-                <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-                  {t('Lizenz-E-Mail', 'License email')}
+            <div data-testid="subscription-email-card" style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14, display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <Mail size={14} color="#71717A" />
+                    <span style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      {t('Lizenz-E-Mail', 'License email')}
+                    </span>
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: '#A1A1AA' }}>
+                    {lic.emailMasked || t('Noch keine gueltige E-Mail gespeichert', 'No valid email stored yet')}
+                  </div>
                 </div>
-                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: '#A1A1AA' }}>
-                  {lic.emailMasked}
-                </div>
+                <button
+                  data-testid="subscription-email-edit-toggle"
+                  onClick={() => {
+                    setEmailEditing((current) => !current);
+                    setEmailDraft('');
+                  }}
+                  style={{
+                    border: '1px solid #1A1A2E',
+                    background: 'transparent',
+                    color: '#A1A1AA',
+                    padding: '8px 10px',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  {emailEditing ? t('Schliessen', 'Close') : t('E-Mail aendern', 'Change email')}
+                </button>
               </div>
-            ) : null}
+              <div style={{ fontSize: 12, color: '#71717A', lineHeight: 1.6 }}>
+                {t(
+                  'Diese Adresse wird fuer Checkout, Rechnungen und Lizenz-Kommunikation verwendet.',
+                  'This address is used for checkout, invoices, and license communication.'
+                )}
+              </div>
+              {emailEditing ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10 }}>
+                  <input
+                    data-testid="subscription-email-input"
+                    type="email"
+                    value={emailDraft}
+                    onChange={(event) => setEmailDraft(event.target.value)}
+                    placeholder={t('name@beispiel.de', 'name@example.com')}
+                    style={{
+                      height: 40,
+                      border: '1px solid #1A1A2E',
+                      background: '#050505',
+                      color: '#fff',
+                      padding: '0 12px',
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    data-testid="subscription-email-save-btn"
+                    onClick={saveLicenseEmail}
+                    disabled={emailSaving}
+                    style={{
+                      border: 'none',
+                      background: '#10B981',
+                      color: '#042f2e',
+                      padding: '0 14px',
+                      fontWeight: 700,
+                      cursor: emailSaving ? 'wait' : 'pointer',
+                      opacity: emailSaving ? 0.7 : 1,
+                    }}
+                  >
+                    {emailSaving ? t('Speichert...', 'Saving...') : t('Speichern', 'Save')}
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
+
+        <div data-testid="subscription-limits-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+          {limitCards.map((card) => (
+            <div key={card.key} style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
+              <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                {card.label}
+              </div>
+              <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 18, fontWeight: 700, color: '#F4F4F5' }}>
+                {card.value}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: '#71717A', lineHeight: 1.6 }}>
+                {card.detail}
+              </div>
+            </div>
+          ))}
+        </div>
 
         {isExpired && canManagePaidPlan ? (
           <div
@@ -649,6 +764,105 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
           </div>
         ) : null}
       </div>
+
+      {upgradeSummary ? (
+        <div
+          data-testid="subscription-upgrade-summary-card"
+          style={{
+            background: '#0A0A0A',
+            border: '1px solid rgba(139,92,246,0.25)',
+            padding: 16,
+            display: 'grid',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 18, color: '#D4D4D8' }}>
+                {upgradeSummary.title}
+              </h4>
+              <div style={{ marginTop: 6, color: '#A1A1AA', fontSize: 13, lineHeight: 1.6 }}>
+                {upgradeSummary.description}
+              </div>
+            </div>
+            <Crown size={20} color="#C4B5FD" />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+            <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
+              <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                {t('Ab', 'From')}
+              </div>
+              <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 18, fontWeight: 700, color: '#F4F4F5' }}>
+                {formatSubscriptionPriceCents(upgradeSummary.pricing.monthlyCents, localeMeta.intl)}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: '#71717A' }}>
+                {t('pro Monat', 'per month')}
+              </div>
+            </div>
+
+            <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
+              <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                {t('12 Monate', '12 months')}
+              </div>
+              <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 18, fontWeight: 700, color: '#F4F4F5' }}>
+                {formatSubscriptionPriceCents(upgradeSummary.pricing.yearlyCents, localeMeta.intl)}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: '#71717A' }}>
+                {t('bei direkter Verlaengerung', 'for direct renewal')}
+              </div>
+            </div>
+
+            {upgradeSummary.upgradeCostCents > 0 ? (
+              <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 14 }}>
+                <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  {t('Upgrade heute', 'Upgrade today')}
+                </div>
+                <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 18, fontWeight: 700, color: '#F4F4F5' }}>
+                  {formatSubscriptionPriceCents(upgradeSummary.upgradeCostCents, localeMeta.intl)}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#71717A' }}>
+                  {t(
+                    `bei ${upgradeSummary.daysLeft} Tagen Restlaufzeit`,
+                    `with ${upgradeSummary.daysLeft} days remaining`
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {upgradeSummary.highlights.length > 0 ? (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {upgradeSummary.highlights.map((feature) => (
+                <FeatureRow key={`upgrade-${feature}`} label={feature} />
+              ))}
+            </div>
+          ) : null}
+
+          {canManagePaidPlan ? (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                data-testid="subscription-recommended-upgrade-btn"
+                onClick={openCheckout}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  border: '1px solid #8B5CF6',
+                  background: 'rgba(139,92,246,0.12)',
+                  color: '#fff',
+                  padding: '10px 16px',
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+              >
+                <Crown size={15} /> {t('Upgrade jetzt pruefen', 'Review upgrade now')}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {blockedFeatureLabels.length > 0 ? (
         <div

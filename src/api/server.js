@@ -180,6 +180,96 @@ function getLicense(guildId) {
   return getServerLicense(guildId);
 }
 
+function maskDashboardEmail(rawEmail) {
+  const email = String(rawEmail || "").trim().toLowerCase();
+  if (!isValidEmailAddress(email)) return "";
+  const [localPart = "", domain = ""] = email.split("@");
+  const visible = localPart.slice(0, Math.min(2, localPart.length));
+  const maskedLocal = localPart.length > 2 ? `${visible}***` : `${visible}***`;
+  return `${maskedLocal}@${domain}`;
+}
+
+function buildDashboardUpgradePreview(currentLicense, targetTier, seatCount) {
+  const normalizedTier = String(targetTier || "").trim().toLowerCase();
+  if (!["pro", "ultimate"].includes(normalizedTier)) return null;
+
+  const seats = Math.max(1, Number(seatCount || 1) || 1);
+  const targetLimits = getPlanLimits(normalizedTier);
+  const upgradeCost = currentLicense ? calculateUpgradePrice(currentLicense, normalizedTier) : null;
+
+  return {
+    tier: normalizedTier,
+    tierName: normalizedTier === "ultimate" ? "Ultimate" : "Pro",
+    seats,
+    limits: targetLimits,
+    pricing: {
+      monthlyCents: calculatePrice(normalizedTier, 1, seats),
+      quarterlyCents: calculatePrice(normalizedTier, 3, seats),
+      yearlyCents: calculatePrice(normalizedTier, 12, seats),
+    },
+    upgradeCostCents: Number(upgradeCost?.upgradeCost || 0) || 0,
+    daysLeft: Number(upgradeCost?.daysLeft || 0) || 0,
+  };
+}
+
+function buildDashboardLicensePayload(guildInfo) {
+  const license = getLicense(guildInfo.id);
+  const capabilityPayload = buildServerCapabilityPayload(guildInfo.id);
+  const effectiveTier = String(license?.plan || guildInfo.tier || "free").trim().toLowerCase();
+  const currentLimits = getPlanLimits(effectiveTier);
+  const seats = Math.max(1, Number(license?.seats || capabilityPayload?.limits?.seats || 1) || 1);
+  const nextUpgradeTier = String(capabilityPayload?.upgradeHints?.nextTier || "").trim().toLowerCase();
+  const licenseEmail = String(license?.contactEmail || license?.email || "").trim().toLowerCase();
+  const hasBillingEmail = isValidEmailAddress(licenseEmail);
+  const linkedServers = Array.isArray(license?.linkedServerIds) ? license.linkedServerIds : [];
+
+  return {
+    serverId: guildInfo.id,
+    tier: guildInfo.tier,
+    effectiveTier,
+    tierName: effectiveTier === "ultimate" ? "Ultimate" : effectiveTier === "pro" ? "Pro" : "Free",
+    capabilities: capabilityPayload.capabilities,
+    limits: capabilityPayload.limits,
+    upgradeHints: capabilityPayload.upgradeHints,
+    dashboardEnabled: capabilityPayload.capabilities.dashboardAccess === true,
+    ultimateEnabled: capabilityPayload.capabilities.advancedAnalytics === true
+      || capabilityPayload.capabilities.customStationUrls === true
+      || capabilityPayload.capabilities.failoverRules === true,
+    currentPlan: {
+      tier: effectiveTier,
+      tierName: effectiveTier === "ultimate" ? "Ultimate" : effectiveTier === "pro" ? "Pro" : "Free",
+      limits: currentLimits,
+      pricing: effectiveTier === "free"
+        ? null
+        : {
+          monthlyCents: calculatePrice(effectiveTier, 1, seats),
+          quarterlyCents: calculatePrice(effectiveTier, 3, seats),
+          yearlyCents: calculatePrice(effectiveTier, 12, seats),
+        },
+    },
+    recommendedUpgrade: nextUpgradeTier
+      ? buildDashboardUpgradePreview(license, nextUpgradeTier, seats)
+      : null,
+    license: license ? {
+      plan: license.plan || license.tier || "free",
+      seats,
+      seatsUsed: linkedServers.length,
+      seatsAvailable: Math.max(0, seats - linkedServers.length),
+      active: Boolean(license.active) && !Boolean(license.expired),
+      expired: Boolean(license.expired),
+      expiresAt: license.expiresAt || null,
+      remainingDays: Number.isFinite(license.remainingDays) ? license.remainingDays : 0,
+      billingPeriod: license.billingPeriod || "monthly",
+      durationMonths: license.durationMonths || null,
+      emailMasked: maskDashboardEmail(licenseEmail),
+      hasBillingEmail,
+      canUpdateEmail: true,
+      updatedAt: license.updatedAt || null,
+      contactEmailDomain: hasBillingEmail ? licenseEmail.split("@")[1] : "",
+    } : null,
+  };
+}
+
 function extractMailbox(rawValue) {
   const text = String(rawValue || "").trim();
   if (!text) return "";
@@ -3487,55 +3577,71 @@ function startWebServer(runtimes) {
     // --- Dashboard: License / Subscription Info ---
     if (requestUrl.pathname === "/api/dashboard/license") {
       const { language } = getDashboardRequestTranslator(req, requestUrl);
-      if (req.method !== "GET") { methodNotAllowed(res, ["GET"]); return; }
       const { session } = getDashboardSession(req);
       if (!session) { sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in."); return; }
       const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
       if (!guildInfo) { sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
 
-      const license = getLicense(guildInfo.id);
-      const effectiveTier = String(license?.plan || guildInfo.tier || "free").trim().toLowerCase();
-      const capabilityPayload = buildServerCapabilityPayload(guildInfo.id);
-      const result = {
-        serverId: guildInfo.id,
-        tier: guildInfo.tier,
-        effectiveTier,
-        tierName: effectiveTier === "ultimate" ? "Ultimate" : effectiveTier === "pro" ? "Pro" : "Free",
-        capabilities: capabilityPayload.capabilities,
-        limits: capabilityPayload.limits,
-        upgradeHints: capabilityPayload.upgradeHints,
-        dashboardEnabled: capabilityPayload.capabilities.dashboardAccess === true,
-        ultimateEnabled: capabilityPayload.capabilities.advancedAnalytics === true
-          || capabilityPayload.capabilities.customStationUrls === true
-          || capabilityPayload.capabilities.failoverRules === true,
-        license: null,
-      };
-
-      if (license) {
-        const linkedServers = Array.isArray(license.linkedServerIds) ? license.linkedServerIds : [];
-        const seats = Math.max(1, Number(license.seats || 1) || 1);
-        const email = license.email || license.contactEmail || "";
-        const emailParts = email.split("@");
-        const maskedEmail = emailParts.length === 2
-          ? emailParts[0].slice(0, 2) + "***@" + emailParts[1]
-          : "";
-        const hasBillingEmail = isValidEmailAddress(email);
-        result.license = {
-          plan: license.plan || license.tier || "free",
-          seats,
-          seatsUsed: linkedServers.length,
-          active: Boolean(license.active) && !Boolean(license.expired),
-          expired: Boolean(license.expired),
-          expiresAt: license.expiresAt || null,
-          remainingDays: Number.isFinite(license.remainingDays) ? license.remainingDays : 0,
-          billingPeriod: license.billingPeriod || "monthly",
-          durationMonths: license.durationMonths || null,
-          emailMasked: maskedEmail,
-          hasBillingEmail,
-        };
+      if (req.method === "GET") {
+        sendJson(res, 200, buildDashboardLicensePayload(guildInfo));
+        return;
       }
 
-      sendJson(res, 200, result);
+      if (req.method === "PUT") {
+        try {
+          const body = await readJsonBody();
+          const license = getLicense(guildInfo.id);
+          if (!license?.id) {
+            sendLocalizedError(
+              res,
+              404,
+              language,
+              "Fuer diesen Server wurde keine bearbeitbare Lizenz gefunden.",
+              "No editable license was found for this server."
+            );
+            return;
+          }
+
+          const nextEmail = String(body?.contactEmail || body?.email || "").trim().toLowerCase();
+          if (!isValidEmailAddress(nextEmail)) {
+            sendLocalizedError(
+              res,
+              400,
+              language,
+              "Bitte eine gueltige Lizenz-E-Mail eingeben.",
+              "Please enter a valid license email."
+            );
+            return;
+          }
+
+          const updated = updateLicenseContactEmail(license.id, nextEmail, normalizeLanguage(body?.language, language));
+          if (!updated) {
+            sendLocalizedError(
+              res,
+              404,
+              language,
+              "Lizenz konnte nicht aktualisiert werden.",
+              "License could not be updated."
+            );
+            return;
+          }
+
+          sendJson(res, 200, {
+            success: true,
+            ...buildDashboardLicensePayload(guildInfo),
+          });
+        } catch (err) {
+          const status = Number(err?.status || 0);
+          if (status === 400 || status === 413) {
+            sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
+            return;
+          }
+          sendJson(res, 400, { error: err?.message || languagePick(language, "Ungueltige Anfrage.", "Invalid request.") });
+        }
+        return;
+      }
+
+      methodNotAllowed(res, ["GET", "PUT"]);
       return;
     }
 

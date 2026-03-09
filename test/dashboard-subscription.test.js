@@ -1,0 +1,79 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  formatSubscriptionPriceCents,
+  buildSubscriptionLimitCards,
+  buildSubscriptionUpgradeSummary,
+} from "../frontend/src/lib/dashboardSubscription.js";
+
+test("subscription helpers format prices and expose current plan limits", () => {
+  assert.equal(formatSubscriptionPriceCents(549, "de-AT"), "€ 5,49");
+
+  const cards = buildSubscriptionLimitCards({
+    license: {
+      seats: 2,
+      seatsUsed: 1,
+      seatsAvailable: 1,
+    },
+    currentPlan: {
+      limits: {
+        maxBots: 8,
+        bitrate: "128k",
+        reconnectMs: 2500,
+      },
+    },
+  }, (_de, en) => en);
+
+  assert.equal(cards.length, 4);
+  assert.deepEqual(cards[0], {
+    key: "seats",
+    label: "Seat status",
+    value: "1 / 2",
+    detail: "1 free",
+  });
+  assert.deepEqual(cards[1], {
+    key: "bots",
+    label: "Bot limit",
+    value: "8",
+    detail: "manageable in parallel",
+  });
+  assert.equal(cards[2].value, "128k");
+  assert.equal(cards[3].value, "2500 ms");
+});
+
+test("subscription upgrade summary stays null without a recommendation", () => {
+  const summary = buildSubscriptionUpgradeSummary({}, [], (_de, en) => en);
+  assert.equal(summary, null);
+});
+
+test("subscription upgrade summary highlights upgrade path and pricing", () => {
+  const summary = buildSubscriptionUpgradeSummary({
+    recommendedUpgrade: {
+      tier: "ultimate",
+      tierName: "Ultimate",
+      limits: {
+        maxBots: 16,
+        bitrate: "320k",
+      },
+      pricing: {
+        monthlyCents: 799,
+        yearlyCents: 3588,
+      },
+      upgradeCostCents: 240,
+      daysLeft: 18,
+    },
+  }, ["Advanced analytics", "Custom stations", "Failover rules"], (_de, en) => en);
+
+  assert.equal(summary.tier, "ultimate");
+  assert.equal(summary.title, "Best next step: ULTIMATE");
+  assert.match(summary.description, /Up to 16 bots/);
+  assert.deepEqual(summary.highlights, [
+    "Advanced analytics",
+    "Custom stations",
+    "Failover rules",
+  ]);
+  assert.equal(summary.pricing.monthlyCents, 799);
+  assert.equal(summary.upgradeCostCents, 240);
+  assert.equal(summary.daysLeft, 18);
+});
