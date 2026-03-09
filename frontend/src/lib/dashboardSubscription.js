@@ -74,3 +74,44 @@ export function buildSubscriptionUpgradeSummary(data, blockedFeatureLabels, t) {
     daysLeft: Number(recommended.daysLeft || 0) || 0,
   };
 }
+
+export function buildSubscriptionPromotionNotes(data, t) {
+  const notes = [];
+  const license = data?.license || null;
+  const promotions = data?.promotions || {};
+
+  if (promotions.couponCodesSupported) {
+    notes.push({
+      key: 'coupons',
+      label: t('Rabattcodes', 'Coupon codes'),
+      detail: t(
+        'Rabattcodes koennen direkt im Dashboard-Checkout geprueft und angewendet werden.',
+        'Coupon codes can be checked and applied directly in the dashboard checkout.'
+      ),
+    });
+  }
+
+  if (promotions.proTrialEnabled && !license) {
+    notes.push({
+      key: 'trial',
+      label: t('Pro-Testmonat', 'Pro trial month'),
+      detail: t(
+        `Aktuell verfuegbar fuer Neukunden: ${Math.max(1, Number(promotions.proTrialMonths || 1) || 1)} Monat Pro.`,
+        `Currently available for new customers: ${Math.max(1, Number(promotions.proTrialMonths || 1) || 1)} month of Pro.`
+      ),
+    });
+  }
+
+  if (license && Number(license.seatsAvailable || 0) <= 0) {
+    notes.push({
+      key: 'seats-full',
+      label: t('Seat-Auslastung', 'Seat usage'),
+      detail: t(
+        'Alle Seats dieser Lizenz sind aktuell verknuepft. Fuer weitere Server brauchst du einen groesseren Seat-Bundle oder eine zweite Lizenz.',
+        'All seats of this license are currently linked. Additional servers require a larger seat bundle or a second license.'
+      ),
+    });
+  }
+
+  return notes;
+}

@@ -5,6 +5,7 @@ import {
   formatSubscriptionPriceCents,
   buildSubscriptionLimitCards,
   buildSubscriptionUpgradeSummary,
+  buildSubscriptionPromotionNotes,
 } from "../frontend/src/lib/dashboardSubscription.js";
 
 test("subscription helpers format prices and expose current plan limits", () => {
@@ -76,4 +77,46 @@ test("subscription upgrade summary highlights upgrade path and pricing", () => {
   assert.equal(summary.pricing.monthlyCents, 799);
   assert.equal(summary.upgradeCostCents, 240);
   assert.equal(summary.daysLeft, 18);
+});
+
+test("subscription promotion notes expose coupon, trial, and seat saturation hints", () => {
+  const t = (_de, en) => en;
+
+  const freeNotes = buildSubscriptionPromotionNotes({
+    promotions: {
+      couponCodesSupported: true,
+      proTrialEnabled: true,
+      proTrialMonths: 1,
+    },
+    license: null,
+  }, t);
+  assert.deepEqual(freeNotes, [
+    {
+      key: "coupons",
+      label: "Coupon codes",
+      detail: "Coupon codes can be checked and applied directly in the dashboard checkout.",
+    },
+    {
+      key: "trial",
+      label: "Pro trial month",
+      detail: "Currently available for new customers: 1 month of Pro.",
+    },
+  ]);
+
+  const fullSeatNotes = buildSubscriptionPromotionNotes({
+    promotions: {
+      couponCodesSupported: false,
+      proTrialEnabled: false,
+    },
+    license: {
+      seatsAvailable: 0,
+    },
+  }, t);
+  assert.deepEqual(fullSeatNotes, [
+    {
+      key: "seats-full",
+      label: "Seat usage",
+      detail: "All seats of this license are currently linked. Additional servers require a larger seat bundle or a second license.",
+    },
+  ]);
 });

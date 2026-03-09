@@ -9,6 +9,7 @@ OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium 
 - Streams radio stations into Discord voice and stage channels
 - Uses one commander bot for slash commands and multiple worker bots for playback
 - Supports Free, Pro, and Ultimate plans with seat-based licensing
+- Lets server admins manage subscription email, renewals, and coupon-aware upgrade previews in the dashboard
 - Provides `/now`, `/history`, `/stats`, `/workers`, `/invite`, `/event`, `/premium`, and more
 - Publishes cleaner now-playing embeds with cover art and search buttons
 - Falls back to audio fingerprint recognition when stations provide bad or missing metadata

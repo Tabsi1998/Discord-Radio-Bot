@@ -250,6 +250,12 @@ function buildDashboardLicensePayload(guildInfo) {
     recommendedUpgrade: nextUpgradeTier
       ? buildDashboardUpgradePreview(license, nextUpgradeTier, seats)
       : null,
+    promotions: {
+      couponCodesSupported: true,
+      proTrialEnabled: isProTrialEnabled(),
+      proTrialMonths: PRO_TRIAL_MONTHS,
+      trialOnlyForNewCustomers: true,
+    },
     license: license ? {
       plan: license.plan || license.tier || "free",
       seats,
@@ -3645,6 +3651,148 @@ function startWebServer(runtimes) {
       return;
     }
 
+    if (requestUrl.pathname === "/api/dashboard/license/offer-preview") {
+      const requestLanguage = resolveDashboardRequestLanguage(req, requestUrl);
+      if (req.method !== "POST") { methodNotAllowed(res, ["POST"]); return; }
+      const { session } = getDashboardSession(req);
+      if (!session) { sendLocalizedError(res, 401, requestLanguage, "Nicht eingeloggt.", "Not signed in."); return; }
+      const guildInfo = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guildInfo) { sendLocalizedError(res, 403, requestLanguage, "Kein Zugriff auf diesen Server.", "No access to this server."); return; }
+
+      try {
+        const body = await readJsonBody();
+        const license = getLicense(guildInfo.id);
+        const previewLanguage = normalizeLanguage(
+          body?.language,
+          normalizeLanguage(license?.preferredLanguage, requestLanguage)
+        );
+        const isDe = previewLanguage === "de";
+        const t = (de, en) => (isDe ? de : en);
+
+        if (!license) {
+          sendJson(res, 404, {
+            success: false,
+            error: t(
+              "Fuer diesen Server wurde keine aktive oder abgelaufene Lizenz gefunden.",
+              "No active or expired license was found for this server."
+            ),
+          });
+          return;
+        }
+
+        const providedBillingEmail = String(body?.email || "").trim().toLowerCase();
+        if (providedBillingEmail && !isValidEmailAddress(providedBillingEmail)) {
+          sendJson(res, 400, {
+            success: false,
+            error: t(
+              "Bitte eine gueltige Abrechnungs-E-Mail eingeben.",
+              "Please enter a valid billing email address."
+            ),
+          });
+          return;
+        }
+
+        const previewEmail = providedBillingEmail || String(license.contactEmail || license.email || "").trim().toLowerCase();
+        const currentPlan = String(license.plan || guildInfo.tier || "free").trim().toLowerCase();
+        const requestedTier = String(body?.tier || currentPlan).trim().toLowerCase();
+        const durationMonths = normalizeDuration(body?.months);
+        const seats = normalizeSeats(license.seats || 1);
+        const couponCode = body?.couponCode ?? body?.coupon ?? "";
+        const referralCode = body?.referralCode ?? body?.referral ?? "";
+
+        if (!["pro", "ultimate"].includes(currentPlan)) {
+          sendJson(res, 400, {
+            success: false,
+            error: t(
+              "Dieses Dashboard kann nur bestehende Pro- oder Ultimate-Abos verlaengern.",
+              "This dashboard can only renew existing Pro or Ultimate subscriptions."
+            ),
+          });
+          return;
+        }
+
+        if (!["pro", "ultimate"].includes(requestedTier)) {
+          sendJson(res, 400, {
+            success: false,
+            error: t("Ungueltiger Zielplan.", "Invalid target plan."),
+          });
+          return;
+        }
+
+        if (currentPlan === "ultimate" && requestedTier !== "ultimate") {
+          sendJson(res, 400, {
+            success: false,
+            error: t(
+              "Ein Ultimate-Abo kann nicht im Dashboard heruntergestuft werden.",
+              "An Ultimate subscription cannot be downgraded in the dashboard."
+            ),
+          });
+          return;
+        }
+
+        const basePriceInCents = calculatePrice(requestedTier, durationMonths, seats);
+        if (basePriceInCents <= 0) {
+          sendJson(res, 400, {
+            success: false,
+            error: t(
+              "Ungueltige Preisberechnung fuer die gewaehlte Verlaengerung.",
+              "Invalid price calculation for the selected renewal."
+            ),
+          });
+          return;
+        }
+
+        const offerResolution = resolveCheckoutOfferForRequest({
+          tier: requestedTier,
+          seats,
+          months: durationMonths,
+          email: previewEmail,
+          couponCode,
+          referralCode,
+          baseAmountCents: basePriceInCents,
+          language: previewLanguage,
+        });
+        if (!offerResolution.ok) {
+          sendJson(res, offerResolution.status || 400, {
+            success: false,
+            error: offerResolution.error || t("Rabattcode konnte nicht angewendet werden.", "Could not apply discount code."),
+            discount: offerResolution.preview || null,
+          });
+          return;
+        }
+
+        const offerPreview = offerResolution.preview;
+        sendJson(res, 200, {
+          success: true,
+          pricing: {
+            baseAmountCents: basePriceInCents,
+            discountCents: Math.max(0, Number(offerPreview?.discountCents || 0) || 0),
+            finalAmountCents: Math.max(0, Number(offerPreview?.finalAmountCents || basePriceInCents) || 0),
+          },
+          discount: offerPreview,
+          renewal: {
+            currentPlan,
+            targetPlan: requestedTier,
+            seats,
+            months: durationMonths,
+            emailMasked: maskDashboardEmail(previewEmail),
+          },
+        });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 400 || status === 413) {
+          sendJson(res, status, {
+            success: false,
+            error: getLocalizedJsonBodyError(requestLanguage, status),
+          });
+          return;
+        }
+        log("ERROR", `Dashboard offer preview error: ${err.message}`);
+        sendLocalizedError(res, 500, requestLanguage, "Dashboard-Angebotsvorschau fehlgeschlagen.", "Dashboard offer preview failed.");
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/dashboard/license/checkout") {
       const requestLanguage = resolveDashboardRequestLanguage(req, requestUrl);
       if (req.method !== "POST") { methodNotAllowed(res, ["POST"]); return; }
@@ -3705,6 +3853,8 @@ function startWebServer(runtimes) {
         const durationMonths = normalizeDuration(body?.months);
         const seats = normalizeSeats(license.seats || 1);
         const returnUrl = String(body?.returnUrl || "").trim();
+        const couponCode = body?.couponCode ?? body?.coupon ?? "";
+        const referralCode = body?.referralCode ?? body?.referral ?? "";
 
         if (!["pro", "ultimate"].includes(currentPlan)) {
           sendJson(res, 400, {
@@ -3730,15 +3880,6 @@ function startWebServer(runtimes) {
           return;
         }
 
-        const stripeKey = getStripeSecretKey();
-        if (!stripeKey) {
-          sendJson(res, 503, {
-            error: t("Stripe ist nicht konfiguriert.", "Stripe is not configured."),
-          });
-          return;
-        }
-
-        const publicUrl = resolvePublicWebsiteUrl(req);
         const basePriceInCents = calculatePrice(requestedTier, durationMonths, seats);
         if (basePriceInCents <= 0) {
           sendJson(res, 400, {
@@ -3749,6 +3890,48 @@ function startWebServer(runtimes) {
           });
           return;
         }
+
+        const offerResolution = resolveCheckoutOfferForRequest({
+          tier: requestedTier,
+          seats,
+          months: durationMonths,
+          email: licenseEmail,
+          couponCode,
+          referralCode,
+          baseAmountCents: basePriceInCents,
+          language: checkoutLanguage,
+        });
+        if (!offerResolution.ok) {
+          sendJson(res, offerResolution.status || 400, {
+            error: offerResolution.error || t("Rabattcode konnte nicht angewendet werden.", "Could not apply discount code."),
+            discount: offerResolution.preview || null,
+          });
+          return;
+        }
+
+        const offerPreview = offerResolution.preview;
+        const discountCents = Math.max(0, Number(offerPreview?.discountCents || 0) || 0);
+        const priceInCents = Math.max(0, Number(offerPreview?.finalAmountCents || basePriceInCents) || 0);
+        const appliedOfferCode = sanitizeOfferCode(offerPreview?.applied?.code);
+        const appliedOfferKind = String(offerPreview?.applied?.kind || "").trim().toLowerCase();
+        const resolvedReferralCode = sanitizeOfferCode(offerPreview?.attributionReferralCode || "");
+        if (priceInCents <= 0) {
+          sendJson(res, 400, {
+            error: t("Preis ist nach Rabatt ungültig.", "Price is invalid after discount."),
+            discount: offerPreview,
+          });
+          return;
+        }
+
+        const stripeKey = getStripeSecretKey();
+        if (!stripeKey) {
+          sendJson(res, 503, {
+            error: t("Stripe ist nicht konfiguriert.", "Stripe is not configured."),
+          });
+          return;
+        }
+
+        const publicUrl = resolvePublicWebsiteUrl(req);
 
         const seatsLabel = seats > 1
           ? (isDe ? ` (${seats} Server)` : ` (${seats} servers)`)
@@ -3775,7 +3958,7 @@ function startWebServer(runtimes) {
                 name: `${BRAND.name} ${TIERS[requestedTier].name}`,
                 description,
               },
-              unit_amount: basePriceInCents,
+              unit_amount: priceInCents,
             },
             quantity: 1,
           }],
@@ -3787,14 +3970,14 @@ function startWebServer(runtimes) {
             language: checkoutLanguage,
             isUpgrade: String(isUpgrade),
             checkoutCreatedAt: new Date().toISOString(),
-            couponCode: "",
-            referralCode: "",
-            appliedOfferCode: "",
-            appliedOfferKind: "",
-            offerOwnerLabel: "",
+            couponCode: offerResolution.couponCode || "",
+            referralCode: resolvedReferralCode || "",
+            appliedOfferCode: appliedOfferCode || "",
+            appliedOfferKind: appliedOfferKind || "",
+            offerOwnerLabel: String(offerPreview?.applied?.ownerLabel || ""),
             baseAmountCents: String(basePriceInCents),
-            discountCents: "0",
-            finalAmountCents: String(basePriceInCents),
+            discountCents: String(discountCents),
+            finalAmountCents: String(priceInCents),
           },
           success_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=success&session_id={CHECKOUT_SESSION_ID}",
           cancel_url: resolveCheckoutReturnBase(returnUrl, publicUrl, req) + "?payment=cancelled",
@@ -3805,9 +3988,10 @@ function startWebServer(runtimes) {
           url: checkoutSession.url,
           pricing: {
             baseAmountCents: basePriceInCents,
-            discountCents: 0,
-            finalAmountCents: basePriceInCents,
+            discountCents,
+            finalAmountCents: priceInCents,
           },
+          discount: offerPreview,
           renewal: {
             currentPlan,
             targetPlan: requestedTier,

@@ -13,6 +13,7 @@ import {
   createLicense,
   linkServerToLicense,
 } from "../src/premium-store.js";
+import { upsertOffer } from "../src/coupon-store.js";
 import {
   setDashboardAuthSession,
   deleteDashboardAuthSession,
@@ -270,6 +271,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "command-permissions.json.bak"),
     path.join(repoRoot, "premium.json"),
     path.join(repoRoot, "premium.json.bak"),
+    path.join(repoRoot, "coupons.json"),
+    path.join(repoRoot, "coupons.json.bak"),
     path.join(repoRoot, "custom-stations.json"),
     path.join(repoRoot, "custom-stations.json.bak"),
     path.join(repoRoot, "scheduled-events.json"),
@@ -310,6 +313,17 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   });
   const seededLink = linkServerToLicense(GUILD_ID, seededLicense.id);
   assert.equal(seededLink.ok, true);
+  upsertOffer({
+    code: "RENEW25",
+    kind: "coupon",
+    active: true,
+    percentOff: 25,
+    allowedTiers: ["ultimate"],
+    allowedSeats: [2],
+    minMonths: 3,
+    ownerLabel: "Spring Promo",
+    createdBy: "test-suite",
+  });
 
   try {
     await connectDb();
@@ -429,6 +443,9 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(initialLicenseResponse.payload.currentPlan.pricing.monthlyCents, 549);
   assert.equal(initialLicenseResponse.payload.recommendedUpgrade.tier, "ultimate");
   assert.equal(initialLicenseResponse.payload.recommendedUpgrade.pricing.monthlyCents, 799);
+  assert.equal(initialLicenseResponse.payload.promotions.couponCodesSupported, true);
+  assert.equal(initialLicenseResponse.payload.promotions.proTrialEnabled, true);
+  assert.equal(initialLicenseResponse.payload.promotions.proTrialMonths, 1);
 
   const invalidLicenseEmailUpdate = await requestJson(
     baseUrl,
@@ -467,6 +484,53 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(updatedLicenseResponse.payload.success, true);
   assert.equal(updatedLicenseResponse.payload.license.emailMasked, "bi***@example.com");
   assert.equal(updatedLicenseResponse.payload.license.contactEmailDomain, "example.com");
+
+  const offerPreviewResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license/offer-preview?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        tier: "ultimate",
+        months: 3,
+        couponCode: "renew25",
+        language: "en",
+      }),
+    }
+  );
+  assert.equal(offerPreviewResponse.status, 200);
+  assert.equal(offerPreviewResponse.payload.success, true);
+  assert.equal(offerPreviewResponse.payload.pricing.baseAmountCents, 1917);
+  assert.equal(offerPreviewResponse.payload.pricing.discountCents, 479);
+  assert.equal(offerPreviewResponse.payload.pricing.finalAmountCents, 1438);
+  assert.equal(offerPreviewResponse.payload.discount.applied.code, "RENEW25");
+  assert.equal(offerPreviewResponse.payload.discount.applied.ownerLabel, "Spring Promo");
+  assert.equal(offerPreviewResponse.payload.renewal.targetPlan, "ultimate");
+  assert.equal(offerPreviewResponse.payload.renewal.seats, 2);
+
+  const invalidOfferPreviewResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license/offer-preview?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        tier: "ultimate",
+        months: 3,
+        couponCode: "INVALID",
+        language: "en",
+      }),
+    }
+  );
+  assert.equal(invalidOfferPreviewResponse.status, 400);
+  assert.match(invalidOfferPreviewResponse.payload.error, /(coupon|offer_not_found)/i);
 
   const settingsResponse = await requestJson(
     baseUrl,

@@ -17,6 +17,7 @@ import {
   formatSubscriptionPriceCents,
   buildSubscriptionLimitCards,
   buildSubscriptionUpgradeSummary,
+  buildSubscriptionPromotionNotes,
 } from '../lib/dashboardSubscription';
 
 const TIER_COLORS = { free: '#71717A', pro: '#10B981', ultimate: '#8B5CF6' };
@@ -68,15 +69,21 @@ function DashboardCheckoutModal({
   t,
   locale,
   onSubmit,
+  onPreview,
   allowUpgrade,
   hasBillingEmail,
 }) {
   const [months, setMonths] = useState(3);
   const [tier, setTier] = useState(initialTier);
   const [billingEmail, setBillingEmail] = useState('');
+  const [couponCode, setCouponCode] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [previewData, setPreviewData] = useState(null);
   const accent = TIER_COLORS[tier] || '#8B5CF6';
   const requiresBillingEmail = hasBillingEmail === false;
   const normalizedBillingEmail = String(billingEmail || '').trim().toLowerCase();
+  const normalizedCouponCode = String(couponCode || '').trim().toUpperCase();
   const hasValidBillingEmailInput = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedBillingEmail);
 
   useEffect(() => {
@@ -84,7 +91,17 @@ function DashboardCheckoutModal({
     setTier(initialTier);
     setMonths(initialTier === 'ultimate' ? 1 : 3);
     setBillingEmail('');
+    setCouponCode('');
+    setPreviewError('');
+    setPreviewData(null);
+    setPreviewLoading(false);
   }, [initialTier, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setPreviewError('');
+    setPreviewData(null);
+  }, [couponCode, months, normalizedBillingEmail, open, tier]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -114,6 +131,35 @@ function DashboardCheckoutModal({
   };
 
   const currentPrice = prices?.[tier]?.[months] || 0;
+  const previewPricing = previewData?.pricing || null;
+  const previewOffer = previewData?.discount?.applied || null;
+  const summaryBaseAmountCents = Math.max(0, Number(previewPricing?.baseAmountCents || currentPrice) || 0);
+  const summaryDiscountCents = Math.max(0, Number(previewPricing?.discountCents || 0) || 0);
+  const summaryFinalAmountCents = Math.max(0, Number(previewPricing?.finalAmountCents || currentPrice) || 0);
+
+  const handlePreview = async () => {
+    if (!normalizedCouponCode) {
+      setPreviewError(t('Bitte zuerst einen Rabattcode eingeben.', 'Please enter a coupon code first.'));
+      setPreviewData(null);
+      return;
+    }
+    setPreviewLoading(true);
+    setPreviewError('');
+    try {
+      const result = await onPreview({
+        months,
+        tier,
+        email: normalizedBillingEmail || undefined,
+        couponCode: normalizedCouponCode,
+      });
+      setPreviewData(result);
+    } catch (err) {
+      setPreviewData(null);
+      setPreviewError(err.message || t('Rabattcode konnte nicht geprueft werden.', 'Could not validate coupon code.'));
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   return (
     <div
@@ -239,6 +285,84 @@ function DashboardCheckoutModal({
           </div>
         ) : null}
 
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            {t('Rabattcode', 'Coupon code')}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10 }}>
+            <input
+              data-testid="dashboard-checkout-coupon-input"
+              type="text"
+              value={couponCode}
+              onChange={(event) => setCouponCode(event.target.value)}
+              placeholder={t('OPTIONALER-CODE', 'OPTIONAL-CODE')}
+              style={{
+                height: 42,
+                border: '1px solid #1A1A2E',
+                background: '#050505',
+                color: '#fff',
+                padding: '0 12px',
+                outline: 'none',
+              }}
+            />
+            <button
+              data-testid="dashboard-checkout-coupon-preview-btn"
+              onClick={handlePreview}
+              disabled={previewLoading}
+              style={{
+                border: '1px solid #1A1A2E',
+                background: 'transparent',
+                color: '#D4D4D8',
+                padding: '0 14px',
+                cursor: previewLoading ? 'wait' : 'pointer',
+                opacity: previewLoading ? 0.7 : 1,
+              }}
+            >
+              {previewLoading ? t('Prueft...', 'Checking...') : t('Code pruefen', 'Check code')}
+            </button>
+          </div>
+          <div style={{ fontSize: 12, color: '#71717A', lineHeight: 1.6 }}>
+            {t(
+              `Dashboard-Verlaengerungen behalten den aktuellen Seat-Bundle (${seats} Server) bei.`,
+              `Dashboard renewals keep the current seat bundle (${seats} servers).`
+            )}
+          </div>
+          {previewError ? (
+            <div style={{ border: '1px solid rgba(252,165,165,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', fontSize: 13 }}>
+              {previewError}
+            </div>
+          ) : null}
+          {previewOffer ? (
+            <div
+              data-testid="dashboard-checkout-coupon-preview"
+              style={{
+                border: '1px solid rgba(16,185,129,0.25)',
+                background: 'rgba(6,78,59,0.16)',
+                padding: '10px 12px',
+                display: 'grid',
+                gap: 4,
+                color: '#D1FAE5',
+                fontSize: 13,
+              }}
+            >
+              <strong>
+                {t('Code aktiv:', 'Code active:')} {previewOffer.code}
+              </strong>
+              <span>
+                {t(
+                  `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} Rabatt werden fuer diesen Checkout angewendet.`,
+                  `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} discount will be applied to this checkout.`
+                )}
+              </span>
+              {previewOffer.ownerLabel ? (
+                <span style={{ color: '#A7F3D0' }}>
+                  {t(`Partner: ${previewOffer.ownerLabel}`, `Partner: ${previewOffer.ownerLabel}`)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: 16, display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
             <span style={{ color: '#71717A' }}>{t('Zielplan', 'Target plan')}</span>
@@ -250,7 +374,17 @@ function DashboardCheckoutModal({
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
             <span style={{ color: '#71717A' }}>{t('Preis', 'Price')}</span>
-            <strong>{formatSubscriptionPriceCents(currentPrice, locale)}</strong>
+            <strong>{formatSubscriptionPriceCents(summaryBaseAmountCents, locale)}</strong>
+          </div>
+          {summaryDiscountCents > 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
+              <span style={{ color: '#71717A' }}>{t('Rabatt', 'Discount')}</span>
+              <strong style={{ color: '#10B981' }}>- {formatSubscriptionPriceCents(summaryDiscountCents, locale)}</strong>
+            </div>
+          ) : null}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 13 }}>
+            <span style={{ color: '#71717A' }}>{t('Heute faellig', 'Due today')}</span>
+            <strong>{formatSubscriptionPriceCents(summaryFinalAmountCents, locale)}</strong>
           </div>
         </div>
 
@@ -262,7 +396,12 @@ function DashboardCheckoutModal({
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button
-            onClick={() => onSubmit({ months, tier, email: normalizedBillingEmail || undefined })}
+            onClick={() => onSubmit({
+              months,
+              tier,
+              email: normalizedBillingEmail || undefined,
+              couponCode: normalizedCouponCode || undefined,
+            })}
             disabled={loading || (requiresBillingEmail && !hasValidBillingEmailInput)}
             style={{
               border: 'none',
@@ -351,6 +490,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
     () => buildSubscriptionUpgradeSummary(data, blockedFeatureLabels, t),
     [data, blockedFeatureLabels, t]
   );
+  const promotionNotes = useMemo(() => buildSubscriptionPromotionNotes(data, t), [data, t]);
 
   const planFeatures = useMemo(() => {
     if (effectiveTier === 'ultimate') {
@@ -385,7 +525,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
     setCheckoutOpen(true);
   }, []);
 
-  const startCheckout = useCallback(async ({ months, tier, email }) => {
+  const startCheckout = useCallback(async ({ months, tier, email, couponCode }) => {
     if (!selectedGuildId) return;
     setCheckoutLoading(true);
     setCheckoutError('');
@@ -396,6 +536,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
           months,
           tier,
           email,
+          couponCode,
           language: locale,
           returnUrl: `${window.location.origin}/?page=dashboard&lang=${encodeURIComponent(locale)}`,
         }),
@@ -411,6 +552,20 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
       setCheckoutLoading(false);
     }
   }, [apiRequest, locale, selectedGuildId, t]);
+
+  const previewCheckout = useCallback(async ({ months, tier, email, couponCode }) => {
+    if (!selectedGuildId) return null;
+    return apiRequest(`/api/dashboard/license/offer-preview?serverId=${encodeURIComponent(selectedGuildId)}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        months,
+        tier,
+        email,
+        couponCode,
+        language: locale,
+      }),
+    });
+  }, [apiRequest, locale, selectedGuildId]);
 
   const saveLicenseEmail = useCallback(async () => {
     const nextEmail = String(emailDraft || '').trim().toLowerCase();
@@ -864,6 +1019,31 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
         </div>
       ) : null}
 
+      {promotionNotes.length > 0 ? (
+        <div
+          data-testid="subscription-promotion-notes-card"
+          style={{
+            background: '#0A0A0A',
+            border: '1px solid #1A1A2E',
+            padding: 16,
+            display: 'grid',
+            gap: 10,
+          }}
+        >
+          <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 18, color: '#D4D4D8' }}>
+            {t('Checkout & Hinweise', 'Checkout & notes')}
+          </h4>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {promotionNotes.map((note) => (
+              <div key={note.key} style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px' }}>
+                <div style={{ fontSize: 12, color: '#F4F4F5', fontWeight: 700 }}>{note.label}</div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#A1A1AA', lineHeight: 1.6 }}>{note.detail}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {blockedFeatureLabels.length > 0 ? (
         <div
           data-testid="subscription-locked-features-card"
@@ -923,6 +1103,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
         t={t}
         locale={localeMeta.intl}
         onSubmit={startCheckout}
+        onPreview={previewCheckout}
         allowUpgrade={canUpgradeToUltimate}
         hasBillingEmail={lic ? Boolean(lic.hasBillingEmail || lic.emailMasked) : true}
       />
