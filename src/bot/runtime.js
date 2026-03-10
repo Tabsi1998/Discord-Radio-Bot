@@ -203,6 +203,39 @@ import {
 } from "./runtime-message-builders.js";
 import { buildRuntimePresenceActivity } from "./runtime-presence.js";
 import {
+  normalizeStationReference,
+  resolveStationForGuild,
+  getResolvedCurrentStation,
+  clearScheduledEventPlayback,
+  markScheduledEventPlayback,
+  setScheduledEventPlaybackInGuild,
+  clearScheduledEventPlaybackInGuild,
+  getScheduledEventEndAtMs,
+  formatDiscordTimestamp,
+  normalizeClearableText,
+  isScheduledEventStopDue,
+  resolveGuildEmojiAliases,
+  buildScheduledEventServerDescription,
+  validateDiscordScheduledEventPermissions,
+  buildScheduledEventSummary,
+  buildScheduledEventEmbed,
+  buildScheduledEventsListEmbed,
+  parseEventWindowInput,
+  queueImmediateScheduledEventTick,
+  resolveGuildVoiceChannel,
+  ensureStageChannelReady,
+  deleteDiscordScheduledEventById,
+  syncDiscordScheduledEvent,
+  ensureVoiceConnectionForChannel,
+  postScheduledEventAnnouncement,
+  executeScheduledEvent,
+  executeScheduledEventStop,
+  tickScheduledEvents,
+  startEventScheduler,
+  stopEventScheduler,
+  handleEventCommand,
+} from "./runtime-events.js";
+import {
   handleRuntimeAutocomplete,
   handleRuntimeInteraction,
 } from "./runtime-interactions.js";
@@ -2887,1357 +2920,128 @@ class BotRuntime {
     await interaction.reply({ content: t("Unbekannte /perm Aktion.", "Unknown /perm action."), flags: MessageFlags.Ephemeral });
   }
 
-  normalizeStationReference(rawStationKey) {
-    const customRef = parseCustomStationReference(rawStationKey);
-    if (customRef.isCustom) {
-      return {
-        key: customRef.reference || "",
-        lookupKey: customRef.key || "",
-        isCustom: true,
-      };
-    }
-
-    const normalized = normalizeKey(rawStationKey);
-    return {
-      key: normalized,
-      lookupKey: normalized,
-      isCustom: false,
-    };
+  normalizeStationReference(...args) {
+    return normalizeStationReference(this, ...args);
   }
 
-  resolveStationForGuild(guildId, rawStationKey, language = "de") {
-    const t = (de, en) => languagePick(language, de, en);
-    const stationRef = this.normalizeStationReference(rawStationKey);
-    if (!stationRef.key || !stationRef.lookupKey) {
-      return { ok: false, message: t("Stations-Key ist ungültig.", "Station key is invalid.") };
-    }
-
-    const stations = loadStations();
-    const guildTier = getTier(guildId);
-    const available = filterStationsByTier(stations.stations, guildTier);
-    if (!stationRef.isCustom && available[stationRef.key]) {
-      return {
-        ok: true,
-        key: stationRef.key,
-        station: available[stationRef.key],
-        stations: buildScopedStationsData(stations, available),
-        isCustom: false,
-      };
-    }
-
-    if (guildTier === "ultimate") {
-      const customStations = getGuildStations(guildId);
-      const custom = customStations[stationRef.lookupKey];
-      if (custom) {
-        const validation = validateCustomStationUrl(custom.url);
-        if (!validation.ok) {
-          const translated = translateCustomStationErrorMessage(validation.error, language);
-          return { ok: false, message: t(`Custom-Station kann nicht genutzt werden: ${translated}`, `Custom station cannot be used: ${translated}`) };
-        }
-        const station = { name: custom.name, url: validation.url, tier: "ultimate" };
-        const resolvedKey = buildCustomStationReference(stationRef.lookupKey) || stationRef.key;
-        return {
-          ok: true,
-          key: resolvedKey,
-          station,
-          stations: buildScopedStationsData(stations, { ...available, [resolvedKey]: station }),
-          isCustom: true,
-        };
-      }
-    }
-
-    if (!stationRef.isCustom && stations.stations[stationRef.key]) {
-      return {
-        ok: false,
-        message: t(
-          `Station \`${stationRef.key}\` ist in deinem Plan nicht verfügbar.`,
-          `Station \`${stationRef.key}\` is not available in your plan.`
-        )
-      };
-    }
-    return {
-      ok: false,
-      message: t(
-        `Station \`${stationRef.key}\` wurde nicht gefunden.`,
-        `Station \`${stationRef.key}\` was not found.`
-      )
-    };
+  resolveStationForGuild(...args) {
+    return resolveStationForGuild(this, ...args);
   }
 
-  getResolvedCurrentStation(guildId, state, language = null) {
-    if (!state?.currentStationKey) return null;
-    const resolved = this.resolveStationForGuild(guildId, state.currentStationKey, language || this.resolveGuildLanguage(guildId));
-    return resolved.ok ? resolved : null;
+  getResolvedCurrentStation(...args) {
+    return getResolvedCurrentStation(this, ...args);
   }
 
-  clearScheduledEventPlayback(state) {
-    if (!state) return;
-    state.activeScheduledEventId = null;
-    state.activeScheduledEventStopAtMs = 0;
+  clearScheduledEventPlayback(...args) {
+    return clearScheduledEventPlayback(this, ...args);
   }
 
-  markScheduledEventPlayback(state, eventId, stopAtMs = 0) {
-    if (!state) return;
-    const normalizedId = String(eventId || "").trim();
-    state.activeScheduledEventId = normalizedId || null;
-    const normalizedStopAtMs = Number.parseInt(String(stopAtMs || 0), 10);
-    state.activeScheduledEventStopAtMs = Number.isFinite(normalizedStopAtMs) && normalizedStopAtMs > 0
-      ? normalizedStopAtMs
-      : 0;
+  markScheduledEventPlayback(...args) {
+    return markScheduledEventPlayback(this, ...args);
   }
 
-  setScheduledEventPlaybackInGuild(guildId, eventId, stopAtMs = 0) {
-    const state = this.getState(guildId);
-    this.markScheduledEventPlayback(state, eventId, stopAtMs);
-    this.persistState();
-    return { ok: true };
+  setScheduledEventPlaybackInGuild(...args) {
+    return setScheduledEventPlaybackInGuild(this, ...args);
   }
 
-  clearScheduledEventPlaybackInGuild(guildId) {
-    const state = this.guildState.get(guildId);
-    if (!state) return { ok: false, error: "Kein State für diesen Server." };
-    this.clearScheduledEventPlayback(state);
-    this.persistState();
-    return { ok: true };
+  clearScheduledEventPlaybackInGuild(...args) {
+    return clearScheduledEventPlaybackInGuild(this, ...args);
   }
 
-  getScheduledEventEndAtMs(event, runAtMs = null) {
-    const durationMs = Number.parseInt(String(event?.durationMs || 0), 10);
-    if (!Number.isFinite(durationMs) || durationMs <= 0) return 0;
-    const baseRunAtMs = Number.parseInt(String(runAtMs ?? event?.runAtMs ?? 0), 10);
-    if (!Number.isFinite(baseRunAtMs) || baseRunAtMs <= 0) return 0;
-    return baseRunAtMs + durationMs;
+  getScheduledEventEndAtMs(...args) {
+    return getScheduledEventEndAtMs(this, ...args);
   }
 
-  formatDiscordTimestamp(ms, style = "F") {
-    const value = Number.parseInt(String(ms || 0), 10);
-    if (!Number.isFinite(value) || value <= 0) return "-";
-    return `<t:${Math.floor(value / 1000)}:${style}>`;
+  formatDiscordTimestamp(...args) {
+    return formatDiscordTimestamp(this, ...args);
   }
 
-  normalizeClearableText(rawValue, maxLen) {
-    if (rawValue === undefined || rawValue === null) return undefined;
-    const trimmed = clipText(String(rawValue || "").trim(), maxLen);
-    if (!trimmed) return null;
-    const lower = trimmed.toLowerCase();
-    if (["-", "clear", "none", "off"].includes(lower)) return null;
-    return trimmed;
+  normalizeClearableText(...args) {
+    return normalizeClearableText(this, ...args);
   }
 
-  isScheduledEventStopDue(stopAtMs, now = Date.now()) {
-    const normalizedStopAtMs = Number.parseInt(String(stopAtMs || 0), 10);
-    return Number.isFinite(normalizedStopAtMs) && normalizedStopAtMs > 0 && now >= normalizedStopAtMs;
+  isScheduledEventStopDue(...args) {
+    return isScheduledEventStopDue(this, ...args);
   }
 
-  async resolveGuildEmojiAliases(text, guild) {
-    const source = String(text || "");
-    if (!source || !guild?.emojis) return source;
-
-    try {
-      if (typeof guild.emojis.fetch === "function") {
-        await guild.emojis.fetch();
-      }
-    } catch {}
-
-    return expandDiscordEmojiAliases(source, [...(guild.emojis.cache?.values() || [])]);
+  resolveGuildEmojiAliases(...args) {
+    return resolveGuildEmojiAliases(this, ...args);
   }
 
-  async buildScheduledEventServerDescription(event, stationName, guild = null) {
-    const eventLanguage = event?.guildId ? this.resolveGuildLanguage(event.guildId) : "de";
-    const baseDescription = String(event?.description || "").trim();
-    const details = [
-      `OmniFM Auto-Event | Station: ${clipText(stationName || event?.stationKey || "-", 120)}`,
-    ];
-    if (normalizeRepeatMode(event?.repeat || "none") !== "none") {
-      details.push(
-        `${languagePick(eventLanguage, "Wiederholung", "Repeat")}: ${getRepeatLabel(event?.repeat, eventLanguage, {
-          runAtMs: event?.runAtMs,
-          timeZone: event?.timeZone,
-        })}`
-      );
-    }
-    const description = baseDescription ? `${baseDescription}\n\n${details.join("\n")}` : details.join("\n");
-    const resolvedDescription = await this.resolveGuildEmojiAliases(description, guild);
-    return clipText(resolvedDescription, 1000);
+  buildScheduledEventServerDescription(...args) {
+    return buildScheduledEventServerDescription(this, ...args);
   }
 
-  validateDiscordScheduledEventPermissions(guild, channel, language = "de") {
-    if (!guild || !channel) {
-      return languagePick(language, "Guild oder Channel fehlt.", "Guild or channel is missing.");
-    }
-
-    const me = guild.members.me;
-    if (!me) {
-      return languagePick(language, "Bot-Mitglied konnte nicht geladen werden.", "Could not resolve the bot member.");
-    }
-
-    const guildPerms = me.permissions;
-    const channelPerms = channel.permissionsFor(me);
-    const missing = [];
-
-    if (!guildPerms?.has(PermissionFlagsBits.CreateEvents)) {
-      missing.push("Create Events");
-    }
-    if (!channelPerms?.has(PermissionFlagsBits.ViewChannel)) {
-      missing.push("View Channel");
-    }
-    if (!channelPerms?.has(PermissionFlagsBits.Connect)) {
-      missing.push("Connect");
-    }
-
-    if (channel.type === ChannelType.GuildStageVoice) {
-      if (!guildPerms?.has(PermissionFlagsBits.ManageChannels)) {
-        missing.push("Manage Channels");
-      }
-      if (!guildPerms?.has(PermissionFlagsBits.MuteMembers)) {
-        missing.push("Mute Members");
-      }
-      if (!guildPerms?.has(PermissionFlagsBits.MoveMembers)) {
-        missing.push("Move Members");
-      }
-    }
-
-    if (!missing.length) return null;
-    return languagePick(
-      language,
-      `Discord-Server-Event nicht möglich. Fehlende Rechte: ${missing.join(", ")}.`,
-      `Discord server event is not possible. Missing permissions: ${missing.join(", ")}.`
-    );
+  validateDiscordScheduledEventPermissions(...args) {
+    return validateDiscordScheduledEventPermissions(this, ...args);
   }
 
-  buildScheduledEventSummary(event, stationName, language = "de", { includeId = true } = {}) {
-    const now = Date.now();
-    const timeZone = normalizeEventTimeZone(event?.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
-    const effectiveEndAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10) > 0
-      ? Number.parseInt(String(event.activeUntilMs), 10)
-      : this.getScheduledEventEndAtMs(event, event?.runAtMs);
-    const isActive = effectiveEndAtMs > now && Number(event?.lastStopAtMs || 0) < effectiveEndAtMs;
-    const status = !event?.enabled
-      ? languagePick(language, "pausiert", "paused")
-      : isActive
-        ? `${languagePick(language, "aktiv bis", "active until")} ${this.formatDiscordTimestamp(effectiveEndAtMs, "F")}`
-        : languagePick(language, "geplant", "scheduled");
-    const stationLine = stationName && stationName !== event?.stationKey
-      ? `\`${event?.stationKey || "-"}\` (${stationName})`
-      : `\`${event?.stationKey || "-"}\``;
-    const lines = [];
-
-    if (includeId) {
-      lines.push(`\`${event?.id || "-"}\` • **${clipText(event?.name || "-", 80)}**`);
-    } else {
-      lines.push(`**${clipText(event?.name || "-", 80)}**`);
-    }
-
-    lines.push(`${languagePick(language, "Status", "Status")}: ${status}`);
-    lines.push(`${languagePick(language, "Station", "Station")}: ${stationLine}`);
-    lines.push(`${languagePick(language, "Voice/Stage", "Voice/Stage")}: <#${event?.voiceChannelId || "-"}>`);
-    lines.push(`${languagePick(language, "Start", "Start")}: ${this.formatDiscordTimestamp(event?.runAtMs, "F")} (${formatDateTime(event?.runAtMs, language, timeZone)})`);
-    lines.push(
-      `${languagePick(language, "Ende", "End")}: ${
-        effectiveEndAtMs > 0
-          ? `${this.formatDiscordTimestamp(effectiveEndAtMs, "F")} (${formatDateTime(effectiveEndAtMs, language, timeZone)})`
-          : languagePick(language, "offen", "open")
-      }`
-    );
-    lines.push(`${languagePick(language, "Wiederholung", "Repeat")}: ${getRepeatLabel(event?.repeat, language, { runAtMs: event?.runAtMs, timeZone })}`);
-    lines.push(`${languagePick(language, "Zeitzone", "Time zone")}: \`${timeZone}\``);
-    lines.push(`${languagePick(language, "Ankündigung", "Announcement")}: ${event?.textChannelId ? `<#${event.textChannelId}>` : languagePick(language, "aus", "off")}`);
-    lines.push(`${languagePick(language, "Server-Event", "Server event")}: ${event?.createDiscordEvent ? (event?.discordScheduledEventId ? `on (\`${event.discordScheduledEventId}\`)` : "on") : "off"}`);
-    if (event?.stageTopic) {
-      lines.push(`${languagePick(language, "Stage-Thema", "Stage topic")}: \`${event.stageTopic}\``);
-    }
-    if (event?.description) {
-      lines.push(`${languagePick(language, "Beschreibung", "Description")}: ${clipText(event.description, 180)}`);
-    }
-
-    return lines.join("\n");
+  buildScheduledEventSummary(...args) {
+    return buildScheduledEventSummary(this, ...args);
   }
 
-  buildScheduledEventEmbed(event, stationName, language = "de", { includeId = true, titlePrefix = "" } = {}) {
-    const timeZone = normalizeEventTimeZone(event?.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
-    const effectiveEndAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10) > 0
-      ? Number.parseInt(String(event.activeUntilMs), 10)
-      : this.getScheduledEventEndAtMs(event, event?.runAtMs);
-    const now = Date.now();
-    const isActive = effectiveEndAtMs > now && Number(event?.lastStopAtMs || 0) < effectiveEndAtMs;
-    const statusLabel = !event?.enabled
-      ? languagePick(language, "Pausiert", "Paused")
-      : isActive
-        ? languagePick(language, "Aktiv", "Active")
-        : languagePick(language, "Geplant", "Scheduled");
-    const stationLabel = stationName && stationName !== event?.stationKey
-      ? `${stationName} (\`${event?.stationKey || "-"}\`)`
-      : `\`${event?.stationKey || "-"}\``;
-    const embed = new EmbedBuilder()
-      .setColor(!event?.enabled ? 0x80848e : (isActive ? 0x1DB954 : BRAND.color))
-      .setTitle(`${titlePrefix}${clipText(event?.name || "-", 120)}`)
-      .setDescription(includeId ? `${languagePick(language, "Event-ID", "Event ID")}: \`${event?.id || "-"}\`` : null)
-      .addFields(
-        { name: languagePick(language, "Status", "Status"), value: statusLabel, inline: true },
-        { name: languagePick(language, "Station", "Station"), value: stationLabel, inline: true },
-        { name: languagePick(language, "Voice", "Voice"), value: `<#${event?.voiceChannelId || "-"}>`, inline: true },
-        {
-          name: languagePick(language, "Start", "Start"),
-          value: `${this.formatDiscordTimestamp(event?.runAtMs, "F")}\n${formatDateTime(event?.runAtMs, language, timeZone)}`,
-          inline: true,
-        },
-        {
-          name: languagePick(language, "Ende", "End"),
-          value: effectiveEndAtMs > 0
-            ? `${this.formatDiscordTimestamp(effectiveEndAtMs, "F")}\n${formatDateTime(effectiveEndAtMs, language, timeZone)}`
-            : languagePick(language, "Offen", "Open"),
-          inline: true,
-        },
-        {
-          name: languagePick(language, "Wiederholung", "Repeat"),
-          value: getRepeatLabel(event?.repeat, language, { runAtMs: event?.runAtMs, timeZone }),
-          inline: true,
-        },
-        { name: languagePick(language, "Zeitzone", "Time zone"), value: `\`${timeZone}\``, inline: true },
-        {
-          name: languagePick(language, "Ankündigung", "Announcement"),
-          value: event?.textChannelId ? `<#${event.textChannelId}>` : languagePick(language, "Aus", "Off"),
-          inline: true,
-        },
-        {
-          name: languagePick(language, "Server-Event", "Server event"),
-          value: event?.createDiscordEvent
-            ? (event?.discordScheduledEventId ? `On (\`${event.discordScheduledEventId}\`)` : "On")
-            : "Off",
-          inline: true,
-        }
-      )
-      .setFooter({
-        text: languagePick(language, "OmniFM Event Scheduler", "OmniFM Event Scheduler"),
-      })
-      .setTimestamp(new Date());
-
-    if (event?.stageTopic) {
-      embed.addFields({
-        name: languagePick(language, "Stage-Thema", "Stage topic"),
-        value: clipText(event.stageTopic, 120),
-        inline: false,
-      });
-    }
-    if (event?.description) {
-      embed.addFields({
-        name: languagePick(language, "Beschreibung", "Description"),
-        value: clipText(event.description, 400),
-        inline: false,
-      });
-    }
-    if (event?.announceMessage) {
-      embed.addFields({
-        name: languagePick(language, "Nachricht", "Message"),
-        value: clipText(event.announceMessage, 900),
-        inline: false,
-      });
-    }
-
-    return embed;
+  buildScheduledEventEmbed(...args) {
+    return buildScheduledEventEmbed(this, ...args);
   }
 
-  buildScheduledEventsListEmbed(events, guildId, language = "de") {
-    const embed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(languagePick(language, "Geplante Events", "Scheduled events"))
-      .setDescription(`${events.length} ${languagePick(language, "Eintrag(e) auf diesem Server", "item(s) on this server")}`)
-      .setFooter({ text: `${this.config.name} | /event list` })
-      .setTimestamp(new Date());
-
-    const guild = this.client.guilds.cache.get(guildId) || null;
-    const fields = events.slice(0, 8).map((event) => {
-      const station = this.resolveStationForGuild(guildId, event.stationKey, language);
-      const voiceChannelName = guild?.channels?.cache?.get(event.voiceChannelId)?.name || event.voiceChannelId;
-      const status = !event.enabled
-        ? languagePick(language, "Pausiert", "Paused")
-        : languagePick(language, "Geplant", "Scheduled");
-      return {
-        name: clipText(`${event.name} (${event.id})`, 256),
-        value: [
-          `${languagePick(language, "Status", "Status")}: ${status}`,
-          `${languagePick(language, "Station", "Station")}: ${station.ok ? (station.station?.name || event.stationKey) : event.stationKey}`,
-          `${languagePick(language, "Start", "Start")}: ${this.formatDiscordTimestamp(event.runAtMs, "F")}`,
-          `${languagePick(language, "Voice", "Voice")}: ${voiceChannelName ? `#${voiceChannelName}` : `<#${event.voiceChannelId}>`}`,
-        ].join("\n"),
-        inline: false,
-      };
-    });
-
-    embed.addFields(fields);
-    if (events.length > fields.length) {
-      embed.addFields({
-        name: languagePick(language, "Weitere Events", "More events"),
-        value: languagePick(
-          language,
-          `${events.length - fields.length} weitere Events sind vorhanden. Nutze \`/event edit\` oder \`/event delete\` mit der Event-ID.`,
-          `${events.length - fields.length} more events exist. Use \`/event edit\` or \`/event delete\` with the event ID.`
-        ),
-        inline: false,
-      });
-    }
-    return embed;
+  buildScheduledEventsListEmbed(...args) {
+    return buildScheduledEventsListEmbed(this, ...args);
   }
 
-  parseEventWindowInput({
-    startRaw = undefined,
-    startDateRaw = undefined,
-    startTimeRaw = undefined,
-    endRaw = undefined,
-    endDateRaw = undefined,
-    endTimeRaw = undefined,
-    baseRunAtMs = 0,
-    baseDurationMs = 0,
-    requestedTimeZone = "",
-    allowImmediate = false,
-  } = {}, language = "de") {
-    const now = Date.now();
-    let runAtMs = Number.parseInt(String(baseRunAtMs || 0), 10);
-    let timeZone = normalizeEventTimeZone(requestedTimeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
-
-    const hasStartInput = [startRaw, startDateRaw, startTimeRaw].some((value) => String(value || "").trim());
-    if (hasStartInput) {
-      const parsedStart = buildEventDateTimeFromParts({
-        rawDateTime: startRaw,
-        rawDate: startDateRaw,
-        rawTime: startTimeRaw,
-        language,
-        preferredTimeZone: timeZone,
-        fallbackRunAtMs: runAtMs || now,
-        nowMs: now,
-      });
-      if (!parsedStart.ok) return parsedStart;
-      runAtMs = parsedStart.runAtMs;
-      timeZone = parsedStart.timeZone || timeZone;
-    }
-
-    if (!Number.isFinite(runAtMs) || runAtMs <= 0) {
-      return { ok: false, message: languagePick(language, "Startzeit fehlt oder ist ungültig.", "Start time is missing or invalid.") };
-    }
-
-    let durationMs = Math.max(0, Number.parseInt(String(baseDurationMs || 0), 10) || 0);
-    let endAtMs = durationMs > 0 ? runAtMs + durationMs : 0;
-
-    const hasEndInput = [endRaw, endDateRaw, endTimeRaw].some((value) => value !== undefined && value !== null && String(value || "").trim());
-    if (hasEndInput) {
-      const rawEndText = String(endRaw || "").trim().toLowerCase();
-      if (["-", "clear", "none", "off"].includes(rawEndText)) {
-        durationMs = 0;
-        endAtMs = 0;
-      } else {
-        const parsedEnd = buildEventDateTimeFromParts({
-          rawDateTime: endRaw,
-          rawDate: endDateRaw,
-          rawTime: endTimeRaw,
-          language,
-          preferredTimeZone: timeZone,
-          fallbackRunAtMs: runAtMs,
-          nowMs: now,
-        });
-        if (!parsedEnd.ok) return parsedEnd;
-        if (parsedEnd.runAtMs <= runAtMs) {
-          return {
-            ok: false,
-            message: languagePick(language, "Endzeit muss nach der Startzeit liegen.", "End time must be after the start time."),
-          };
-        }
-        durationMs = parsedEnd.runAtMs - runAtMs;
-        endAtMs = parsedEnd.runAtMs;
-      }
-    } else if (hasStartInput && durationMs > 0) {
-      endAtMs = runAtMs + durationMs;
-    }
-
-    if (allowImmediate && runAtMs <= (now + 60_000) && runAtMs >= (now - 60_000)) {
-      runAtMs = now;
-      if (durationMs > 0) {
-        endAtMs = runAtMs + durationMs;
-      }
-    }
-
-    return { ok: true, runAtMs, timeZone, durationMs, endAtMs };
+  parseEventWindowInput(...args) {
+    return parseEventWindowInput(this, ...args);
   }
 
-  queueImmediateScheduledEventTick(delayMs = 250) {
-    const timer = setTimeout(() => {
-      this.tickScheduledEvents().catch((err) => {
-        log("ERROR", `[${this.config.name}] Sofortiger Event-Start fehlgeschlagen: ${err?.message || err}`);
-      });
-    }, Math.max(0, delayMs));
-    if (typeof timer?.unref === "function") {
-      timer.unref();
-    }
+  queueImmediateScheduledEventTick(...args) {
+    return queueImmediateScheduledEventTick(this, ...args);
   }
 
-  async resolveGuildVoiceChannel(guildId, channelId) {
-    return resolveRuntimeGuildVoiceChannel(this, guildId, channelId);
+  resolveGuildVoiceChannel(...args) {
+    return resolveGuildVoiceChannel(this, ...args);
   }
 
-  async ensureStageChannelReady(guild, channel, {
-    topic = null,
-    guildScheduledEventId = null,
-    createInstance = true,
-    ensureSpeaker = true,
-  } = {}) {
-    return ensureRuntimeStageChannelReady(this, guild, channel, {
-      topic,
-      guildScheduledEventId,
-      createInstance,
-      ensureSpeaker,
-    });
+  ensureStageChannelReady(...args) {
+    return ensureStageChannelReady(this, ...args);
   }
 
-  async deleteDiscordScheduledEventById(guildId, scheduledEventId) {
-    const eventId = String(scheduledEventId || "").trim();
-    if (!/^\d{17,22}$/.test(eventId)) return false;
-
-    const guild = this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
-    if (!guild) return false;
-
-    const scheduled = await guild.scheduledEvents.fetch(eventId).catch(() => null);
-    if (!scheduled) return false;
-
-    await scheduled.delete().catch(() => null);
-    return true;
+  deleteDiscordScheduledEventById(...args) {
+    return deleteDiscordScheduledEventById(this, ...args);
   }
 
-  async syncDiscordScheduledEvent(event, station, { runAtMs = null, forceCreate = false } = {}) {
-    if (!event?.createDiscordEvent) return null;
-
-    const { guild, channel } = await this.resolveGuildVoiceChannel(event.guildId, event.voiceChannelId);
-    if (!guild || !channel) {
-      throw new Error("Voice- oder Stage-Channel für Server-Event nicht gefunden.");
-    }
-
-    const requestedRunAtMs = Number.parseInt(String(runAtMs ?? event.runAtMs ?? 0), 10);
-    const minDiscordStartMs = Date.now() + 60_000;
-    const scheduledRunAtMs = Number.isFinite(requestedRunAtMs) && requestedRunAtMs > 0
-      ? Math.max(requestedRunAtMs, minDiscordStartMs)
-      : minDiscordStartMs;
-
-    const stationName = clipText(station?.name || event.stationKey || "-", 100) || "-";
-    const scheduledEndAtMs = this.getScheduledEventEndAtMs(event, scheduledRunAtMs);
-    const recurrenceRule = buildDiscordScheduledEventRecurrenceRule(
-      scheduledRunAtMs,
-      event?.repeat || "none",
-      event?.timeZone,
-    );
-    const payload = {
-      name: clipText(event.name || stationName || `${BRAND.name} Event`, 100),
-      scheduledStartTime: new Date(scheduledRunAtMs),
-      privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
-      entityType: channel.type === ChannelType.GuildStageVoice
-        ? GuildScheduledEventEntityType.StageInstance
-        : GuildScheduledEventEntityType.Voice,
-      channel,
-      description: await this.buildScheduledEventServerDescription(event, stationName, guild),
-      reason: `OmniFM scheduled event ${event.id}`,
-    };
-    if (recurrenceRule) {
-      payload.recurrenceRule = recurrenceRule;
-    }
-    if (scheduledEndAtMs > scheduledRunAtMs) {
-      payload.scheduledEndTime = new Date(scheduledEndAtMs);
-    }
-
-    const existingId = String(event.discordScheduledEventId || "").trim();
-    let scheduledEvent = null;
-
-    if (!forceCreate && existingId) {
-      const existingEvent = await guild.scheduledEvents.fetch(existingId).catch(() => null);
-      if (existingEvent) {
-        if (!recurrenceRule) {
-          payload.recurrenceRule = null;
-        }
-        scheduledEvent = await existingEvent.edit(payload).catch(() => null);
-      }
-    }
-
-    if (!scheduledEvent) {
-      scheduledEvent = await guild.scheduledEvents.create(payload);
-    }
-
-    if (scheduledEvent?.id && scheduledEvent.id !== existingId) {
-      patchScheduledEvent(event.id, { discordScheduledEventId: scheduledEvent.id });
-    }
-
-    return scheduledEvent || null;
+  syncDiscordScheduledEvent(...args) {
+    return syncDiscordScheduledEvent(this, ...args);
   }
 
-  async ensureVoiceConnectionForChannel(guildId, channelId, state) {
-    return ensureRuntimeVoiceConnectionForChannel(this, guildId, channelId, state);
+  ensureVoiceConnectionForChannel(...args) {
+    return ensureVoiceConnectionForChannel(this, ...args);
   }
 
-  async postScheduledEventAnnouncement(event, station, language = "de") {
-    if (!event?.textChannelId) return;
-
-    const guild = this.client.guilds.cache.get(event.guildId);
-    if (!guild) return;
-
-    const channel = guild.channels.cache.get(event.textChannelId)
-      || await guild.channels.fetch(event.textChannelId).catch(() => null);
-    if (!channel || typeof channel.send !== "function") return;
-
-    const me = await this.resolveBotMember(guild);
-    if (!me) return;
-
-    const perms = channel.permissionsFor?.(me);
-    if (!perms?.has(PermissionFlagsBits.ViewChannel) || !perms?.has(PermissionFlagsBits.SendMessages)) return;
-
-    const endAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10) > 0
-      ? Number.parseInt(String(event.activeUntilMs), 10)
-      : this.getScheduledEventEndAtMs(event, event?.runAtMs);
-    const rendered = renderEventAnnouncement(event.announceMessage, {
-      event: event.name,
-      station: station?.name || event.stationKey,
-      voice: `<#${event.voiceChannelId}>`,
-      time: formatDateTime(event.runAtMs, language, event.timeZone),
-      end: endAtMs > 0 ? formatDateTime(endAtMs, language, event.timeZone) : "-",
-      timeZone: normalizeEventTimeZone(event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE,
-    }, language);
-    const resolvedMessage = await this.resolveGuildEmojiAliases(rendered, guild);
-    if (!resolvedMessage) return;
-
-    await channel.send({
-      content: clipText(resolvedMessage, 1800),
-      allowedMentions: { parse: [] },
-    });
+  postScheduledEventAnnouncement(...args) {
+    return postScheduledEventAnnouncement(this, ...args);
   }
 
-  async executeScheduledEvent(event) {
-    const now = Date.now();
-    if (!this.client.guilds.cache.has(event.guildId)) {
-      deleteScheduledEvent(event.id, { guildId: event.guildId, botId: this.config.id });
-      return;
-    }
-
-    const feature = requireFeature(event.guildId, "scheduledEvents");
-    if (!feature.ok) {
-      patchScheduledEvent(event.id, { enabled: false, lastRunAtMs: now });
-      log(
-        "INFO",
-        `[${this.config.name}] Event deaktiviert (Plan zu niedrig): guild=${event.guildId} id=${event.id}`
-      );
-      return;
-    }
-
-    const state = this.getState(event.guildId);
-    const eventGuild = this.client.guilds.cache.get(event.guildId) || null;
-    const eventLanguage = this.resolveGuildLanguage(event.guildId);
-    const stationResult = this.resolveStationForGuild(event.guildId, event.stationKey, eventLanguage);
-    if (!stationResult.ok) {
-      patchScheduledEvent(event.id, { runAtMs: now + EVENT_SCHEDULER_RETRY_MS, enabled: true });
-      log(
-        "ERROR",
-        `[${this.config.name}] Event ${event.id} konnte nicht starten: ${stationResult.message}`
-      );
-      return;
-    }
-
-    try {
-      const scheduledStopAtMs = this.getScheduledEventEndAtMs(event, event.runAtMs);
-      const activeOccurrenceEvent = scheduledStopAtMs > 0
-        ? { ...event, activeUntilMs: scheduledStopAtMs }
-        : event;
-      const eventEndLabel = scheduledStopAtMs > 0
-        ? formatDateTime(scheduledStopAtMs, eventLanguage, event.timeZone)
-        : "-";
-      const eventTimeZone = normalizeEventTimeZone(event.timeZone, EVENT_FALLBACK_TIME_ZONE) || EVENT_FALLBACK_TIME_ZONE;
-      let startedBy = this.config.name;
-      if (this.role === "commander" && this.workerManager) {
-        const guildTier = getTier(event.guildId);
-        const worker = this.workerManager.findFreeWorker(event.guildId, guildTier);
-        if (!worker) {
-          patchScheduledEvent(event.id, { runAtMs: now + EVENT_SCHEDULER_RETRY_MS, enabled: true });
-          log(
-            "WARN",
-            `[${this.config.name}] Event ${event.id} wartet auf freien Worker (guild=${event.guildId}, tier=${guildTier}).`
-          );
-          return;
-        }
-
-        const rawStageTopic = renderStageTopic(event.stageTopic, {
-          event: event.name,
-          station: stationResult.station?.name || event.stationKey,
-          time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
-          end: eventEndLabel,
-          timeZone: eventTimeZone,
-        });
-        const stageTopic = clipText(await this.resolveGuildEmojiAliases(rawStageTopic, eventGuild), 120);
-        const delegatedResult = await worker.playInGuild(
-          event.guildId,
-          event.voiceChannelId,
-          stationResult.key,
-          stationResult.stations,
-          worker.getState(event.guildId).volume || 100,
-          {
-            stageTopic,
-            guildScheduledEventId: event.discordScheduledEventId || null,
-            createStageInstance: true,
-            scheduledEventId: event.id,
-            scheduledEventStopAtMs,
-          }
-        );
-        if (!delegatedResult.ok) {
-          throw new Error(delegatedResult.error || "Worker konnte Event nicht starten.");
-        }
-        startedBy = delegatedResult.workerName || worker.config.name;
-      } else {
-        const connectionInfo = await this.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state);
-        if (connectionInfo?.channel?.type === ChannelType.GuildStageVoice) {
-          const rawStageTopic = renderStageTopic(event.stageTopic, {
-            event: event.name,
-            station: stationResult.station?.name || event.stationKey,
-            time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
-            end: eventEndLabel,
-            timeZone: eventTimeZone,
-          });
-          const stageTopic = clipText(await this.resolveGuildEmojiAliases(rawStageTopic, connectionInfo.guild), 120);
-          await this.ensureStageChannelReady(connectionInfo.guild, connectionInfo.channel, {
-            topic: stageTopic,
-            guildScheduledEventId: event.discordScheduledEventId || null,
-            createInstance: true,
-            ensureSpeaker: true,
-          });
-        }
-
-        await this.playStation(state, stationResult.stations, stationResult.key, event.guildId);
-        this.markScheduledEventPlayback(state, event.id, scheduledStopAtMs);
-        this.persistState();
-      }
-
-      await this.postScheduledEventAnnouncement(activeOccurrenceEvent, stationResult.station, eventLanguage);
-
-      const nextRunAtMs = computeNextEventRunAtMs(event.runAtMs, event.repeat, now, event.timeZone);
-      if (nextRunAtMs) {
-        let nextDiscordScheduledEventId = event.discordScheduledEventId || null;
-        if (event.createDiscordEvent) {
-          try {
-            const nextDiscordEvent = await this.syncDiscordScheduledEvent(event, stationResult.station, {
-              runAtMs: nextRunAtMs,
-              forceCreate: false,
-            });
-            nextDiscordScheduledEventId = nextDiscordEvent?.id || nextDiscordScheduledEventId;
-          } catch (syncErr) {
-            log(
-              "WARN",
-              `[${this.config.name}] Discord-Server-Event konnte nicht auf Folgetermin gesetzt werden (guild=${event.guildId}, id=${event.id}): ${syncErr?.message || syncErr}`
-            );
-          }
-        }
-
-        patchScheduledEvent(event.id, {
-          runAtMs: nextRunAtMs,
-          lastRunAtMs: now,
-          enabled: true,
-          activeUntilMs: scheduledStopAtMs > 0 ? scheduledStopAtMs : 0,
-          deleteAfterStop: false,
-          discordScheduledEventId: nextDiscordScheduledEventId,
-        });
-      } else if (scheduledStopAtMs > 0) {
-        patchScheduledEvent(event.id, {
-          lastRunAtMs: now,
-          activeUntilMs: scheduledStopAtMs,
-          enabled: true,
-          deleteAfterStop: true,
-        });
-      } else {
-        deleteScheduledEvent(event.id, { guildId: event.guildId, botId: this.config.id });
-      }
-
-      log(
-        "INFO",
-        `[${this.config.name}] Event gestartet: guild=${event.guildId} id=${event.id} station=${stationResult.key} via=${startedBy}`
-      );
-    } catch (err) {
-      patchScheduledEvent(event.id, { runAtMs: now + EVENT_SCHEDULER_RETRY_MS, enabled: true });
-      log(
-        "ERROR",
-        `[${this.config.name}] Event ${event.id} Startfehler: ${err?.message || err}`
-      );
-    }
+  executeScheduledEvent(...args) {
+    return executeScheduledEvent(this, ...args);
   }
 
-  async executeScheduledEventStop(event) {
-    const stopAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10);
-    if (!Number.isFinite(stopAtMs) || stopAtMs <= 0) return;
-
-    let stoppedBy = null;
-    let stopped = false;
-
-    const localState = this.guildState.get(event.guildId);
-    if (localState?.activeScheduledEventId === event.id) {
-      const result = this.stopInGuild(event.guildId);
-      stopped = Boolean(result?.ok);
-      stoppedBy = this.config.name;
-    }
-
-    if (!stopped && this.workerManager) {
-      const worker = this.workerManager.findWorkerByScheduledEvent(event.guildId, event.id);
-      if (worker) {
-        const result = worker.stopInGuild(event.guildId);
-        stopped = Boolean(result?.ok);
-        stoppedBy = worker.config?.name || "Worker";
-      }
-    }
-
-    if (event.deleteAfterStop) {
-      deleteScheduledEvent(event.id, { guildId: event.guildId, botId: this.config.id });
-    } else {
-      patchScheduledEvent(event.id, {
-        activeUntilMs: 0,
-        lastStopAtMs: Date.now(),
-        deleteAfterStop: false,
-      });
-    }
-
-    log(
-      "INFO",
-      `[${this.config.name}] Event beendet: guild=${event.guildId} id=${event.id} stopped=${stopped ? "yes" : "no"} via=${stoppedBy || "state-cleanup"}`
-    );
+  executeScheduledEventStop(...args) {
+    return executeScheduledEventStop(this, ...args);
   }
 
-  async tickScheduledEvents() {
-    if (!EVENT_SCHEDULER_ENABLED) return;
-    if (!this.client.isReady()) return;
-
-    const now = Date.now();
-    const scheduled = listScheduledEvents({
-      botId: this.config.id,
-      includeDisabled: true,
-    });
-    const events = Array.isArray(scheduled) ? scheduled : [];
-
-    for (const event of events) {
-      const stopAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10);
-      const alreadyStoppedAt = Number.parseInt(String(event?.lastStopAtMs || 0), 10);
-      if (!Number.isFinite(stopAtMs) || stopAtMs <= 0) continue;
-      if (alreadyStoppedAt >= stopAtMs) continue;
-      if (stopAtMs > now + 1000) continue;
-      if (this.scheduledEventInFlight.has(`${event.id}:stop`)) continue;
-
-      this.scheduledEventInFlight.add(`${event.id}:stop`);
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await this.executeScheduledEventStop(event);
-      } finally {
-        this.scheduledEventInFlight.delete(`${event.id}:stop`);
-      }
-    }
-
-    for (const event of events) {
-      if (!event.enabled) continue;
-      if (event.runAtMs > now + 1000) continue;
-      if (event.lastRunAtMs && event.lastRunAtMs >= event.runAtMs) continue;
-      if (this.scheduledEventInFlight.has(event.id)) continue;
-
-      this.scheduledEventInFlight.add(event.id);
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await this.executeScheduledEvent(event);
-      } finally {
-        this.scheduledEventInFlight.delete(event.id);
-      }
-    }
+  tickScheduledEvents(...args) {
+    return tickScheduledEvents(this, ...args);
   }
 
-  startEventScheduler() {
-    if (!EVENT_SCHEDULER_ENABLED) return;
-    if (this.eventSchedulerTimer) return;
-
-    const run = () => {
-      this.tickScheduledEvents().catch((err) => {
-        log("ERROR", `[${this.config.name}] Event-Scheduler Fehler: ${err?.message || err}`);
-      });
-    };
-
-    run();
-    this.eventSchedulerTimer = setInterval(run, EVENT_SCHEDULER_POLL_MS);
+  startEventScheduler(...args) {
+    return startEventScheduler(this, ...args);
   }
 
-  stopEventScheduler() {
-    if (this.eventSchedulerTimer) {
-      clearInterval(this.eventSchedulerTimer);
-      this.eventSchedulerTimer = null;
-    }
-    this.scheduledEventInFlight.clear();
+  stopEventScheduler(...args) {
+    return stopEventScheduler(this, ...args);
   }
 
-  async handleEventCommand(interaction) {
-    const guildId = interaction.guildId;
-    const { t, language } = this.createInteractionTranslator(interaction);
-    if (!this.hasGuildManagePermissions(interaction)) {
-      await interaction.reply({
-        content: t(
-          "Du brauchst die Berechtigung `Server verwalten` für `/event`.",
-          "You need the `Manage Server` permission for `/event`."
-        ),
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const feature = requireFeature(guildId, "scheduledEvents");
-    if (!feature.ok) {
-      await interaction.reply({
-        content: `${getFeatureRequirementMessage(feature, language)}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const sub = interaction.options.getSubcommand();
-    const guild = interaction.guild || this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
-    const me = guild ? await this.resolveBotMember(guild) : null;
-
-    if (!guild || !me) {
-      await interaction.reply({
-        content: t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load the bot member in this server."),
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const validateTextChannel = (channel) => {
-      if (!channel) return null;
-      if (channel.guildId !== guildId) {
-        return t("Der gewaehlte Text-Channel ist nicht in diesem Server.", "The selected text channel is not in this server.");
-      }
-      const perms = channel.permissionsFor(me);
-      if (!perms?.has(PermissionFlagsBits.ViewChannel) || !perms?.has(PermissionFlagsBits.SendMessages)) {
-        return t(`Ich kann in ${channel.toString()} nicht schreiben.`, `I cannot send messages in ${channel.toString()}.`);
-      }
-      return null;
-    };
-
-    const validateVoiceChannel = (channel, { stageTopic = null, createDiscordEvent = false } = {}) => {
-      if (!channel) {
-        return t("Voice- oder Stage-Channel fehlt.", "Voice or stage channel is missing.");
-      }
-      if (channel.guildId !== guildId) {
-        return t("Der gewaehlte Voice/Stage-Channel ist nicht in diesem Server.", "The selected voice/stage channel is not in this server.");
-      }
-      if (!channel.isVoiceBased() || (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice)) {
-        return t("Bitte waehle einen Voice- oder Stage-Channel.", "Please choose a voice or stage channel.");
-      }
-      if (stageTopic && channel.type !== ChannelType.GuildStageVoice) {
-        return t("`stagetopic` funktioniert nur mit Stage-Channels.", "`stagetopic` only works with stage channels.");
-      }
-      const perms = channel.permissionsFor(me);
-      if (!perms?.has(PermissionFlagsBits.Connect)) {
-        return t(`Ich habe keine Connect-Berechtigung für ${channel.toString()}.`, `I do not have Connect permission for ${channel.toString()}.`);
-      }
-      if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
-        return t(`Ich habe keine Speak-Berechtigung für ${channel.toString()}.`, `I do not have Speak permission for ${channel.toString()}.`);
-      }
-      if (createDiscordEvent) {
-        return this.validateDiscordScheduledEventPermissions(guild, channel, language);
-      }
-      return null;
-    };
-
-    const parseWindow = (input) => this.parseEventWindowInput(input, language);
-
-    if (sub === "create") {
-      const name = clipText(interaction.options.getString("name", true).trim(), 120);
-      const stationRaw = interaction.options.getString("station", true);
-      const voiceChannel = interaction.options.getChannel("voice", true);
-      const textChannel = interaction.options.getChannel("text");
-      const startRaw = interaction.options.getString("start");
-      const startDateRaw = interaction.options.getString("startdate");
-      const startTimeRaw = interaction.options.getString("starttime");
-      const endRaw = interaction.options.getString("end");
-      const endDateRaw = interaction.options.getString("enddate");
-      const endTimeRaw = interaction.options.getString("endtime");
-      const requestedTimeZone = interaction.options.getString("timezone") || "";
-      const repeat = normalizeRepeatMode(interaction.options.getString("repeat") || "none");
-      const createDiscordEvent = interaction.options.getBoolean("serverevent") === true;
-      const stageTopicTemplate = this.normalizeClearableText(interaction.options.getString("stagetopic"), 120);
-      const message = this.normalizeClearableText(interaction.options.getString("message"), 1200);
-      const description = this.normalizeClearableText(interaction.options.getString("description"), 800);
-
-      if (!name) {
-        await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      const voiceError = validateVoiceChannel(voiceChannel, {
-        stageTopic: stageTopicTemplate,
-        createDiscordEvent,
-      });
-      if (voiceError) {
-        await interaction.reply({ content: voiceError, flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      const textError = validateTextChannel(textChannel);
-      if (textError) {
-        await interaction.reply({ content: textError, flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      if (![startRaw, startDateRaw, startTimeRaw].some((value) => String(value || "").trim())) {
-        await interaction.reply({
-          content: t(
-            "Bitte gib eine Startzeit an. Nutze entweder `start` oder die Kombination aus `startdate` + `starttime`.",
-            "Please provide a start time. Use either `start` or the `startdate` + `starttime` combination."
-          ),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-
-      const parsedWindow = parseWindow({
-        startRaw,
-        startDateRaw,
-        startTimeRaw,
-        endRaw,
-        endDateRaw,
-        endTimeRaw,
-        requestedTimeZone,
-        allowImmediate: !createDiscordEvent,
-      });
-      if (!parsedWindow.ok) {
-        await interaction.reply({ content: parsedWindow.message, flags: MessageFlags.Ephemeral });
-        return;
-      }
-      if (createDiscordEvent && parsedWindow.runAtMs < Date.now() + 60_000) {
-        await interaction.reply({
-          content: t(
-            "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
-            "With `serverevent`, start time must be at least 60 seconds in the future."
-          ),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      if (repeat === "weekdays" && !isWorkdayInTimeZone(parsedWindow.runAtMs, parsedWindow.timeZone)) {
-        await interaction.reply({
-          content: t(
-            "Für `weekdays` muss die Startzeit auf Montag bis Freitag liegen.",
-            "For `weekdays`, the start time must fall on Monday to Friday."
-          ),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-
-      const station = this.resolveStationForGuild(guildId, stationRaw, language);
-      if (!station.ok) {
-        await interaction.reply({ content: station.message, flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      if (this.role === "commander" && this.workerManager) {
-        const guildTier = getTier(guildId);
-        const invitedWorkers = this.workerManager.getInvitedWorkers(guildId, guildTier);
-        if (invitedWorkers.length === 0) {
-          await interaction.reply({
-            content: t(
-              "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit `/invite worker:1` einladen.",
-              "No eligible worker bot is invited on this server. Please invite one first with `/invite worker:1`."
-            ),
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-      }
-
-      const created = createScheduledEvent({
-        guildId,
-        botId: this.config.id,
-        name,
-        stationKey: station.key,
-        voiceChannelId: voiceChannel.id,
-        textChannelId: textChannel?.id || null,
-        announceMessage: message || null,
-        description: description || null,
-        stageTopic: stageTopicTemplate || null,
-        timeZone: parsedWindow.timeZone,
-        createDiscordEvent,
-        discordScheduledEventId: null,
-        repeat,
-        runAtMs: parsedWindow.runAtMs,
-        durationMs: parsedWindow.durationMs,
-        activeUntilMs: 0,
-        deleteAfterStop: false,
-        createdByUserId: interaction.user?.id || null,
-      });
-
-      if (!created.ok) {
-        const storeMessage = translateScheduledEventStoreMessage(created.message, language);
-        await interaction.reply({ content: t(`Event konnte nicht gespeichert werden: ${storeMessage}`, `Could not save event: ${storeMessage}`), flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      let replyEvent = created.event;
-      let serverEventNote = "";
-      if (createDiscordEvent) {
-        try {
-          const scheduledEvent = await this.syncDiscordScheduledEvent(created.event, station.station, {
-            runAtMs: created.event.runAtMs,
-          });
-          if (scheduledEvent?.id) {
-            const patched = patchScheduledEvent(created.event.id, { discordScheduledEventId: scheduledEvent.id });
-            replyEvent = patched?.event || { ...created.event, discordScheduledEventId: scheduledEvent.id };
-          }
-        } catch (err) {
-          serverEventNote = `${t("Server-Event Hinweis", "Server event note")}: ${clipText(err?.message || err, 180)}`;
-          log("WARN", `[${this.config.name}] Event ${created.event.id}: Discord-Server-Event konnte nicht erstellt werden: ${err?.message || err}`);
-        }
-      }
-
-      const embed = this.buildScheduledEventEmbed(replyEvent, station.station?.name || null, language, {
-        titlePrefix: `${t("Event erstellt", "Event created")}: `,
-      });
-      if (serverEventNote) {
-        embed.addFields({
-          name: t("Hinweis", "Note"),
-          value: clipText(serverEventNote, 800),
-          inline: false,
-        });
-      }
-      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-      if (replyEvent.runAtMs <= Date.now() + 5_000) {
-        this.queueImmediateScheduledEventTick(250);
-      }
-      return;
-    }
-
-    if (sub === "edit") {
-      const id = interaction.options.getString("id", true);
-      const existing = getScheduledEvent(id);
-      if (!existing || existing.guildId !== guildId || existing.botId !== this.config.id) {
-        await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      const nameRaw = interaction.options.getString("name");
-      const stationRaw = interaction.options.getString("station");
-      const voiceChannelOption = interaction.options.getChannel("voice");
-      const startRaw = interaction.options.getString("start");
-      const startDateRaw = interaction.options.getString("startdate");
-      const startTimeRaw = interaction.options.getString("starttime");
-      const endRaw = interaction.options.getString("end");
-      const endDateRaw = interaction.options.getString("enddate");
-      const endTimeRaw = interaction.options.getString("endtime");
-      const timeZoneRaw = interaction.options.getString("timezone");
-      const repeatRaw = interaction.options.getString("repeat");
-      const textChannelOption = interaction.options.getChannel("text");
-      const clearText = interaction.options.getBoolean("cleartext") === true;
-      const serverEventRaw = interaction.options.getBoolean("serverevent");
-      const stageTopicRaw = interaction.options.getString("stagetopic");
-      const messageRaw = interaction.options.getString("message");
-      const descriptionRaw = interaction.options.getString("description");
-      const enabledRaw = interaction.options.getBoolean("enabled");
-
-      const existingVoiceChannel = await guild.channels.fetch(existing.voiceChannelId).catch(() => null);
-      const nextVoiceChannel = voiceChannelOption || existingVoiceChannel;
-      const nextStageTopic = stageTopicRaw !== null
-        ? this.normalizeClearableText(stageTopicRaw, 120)
-        : existing.stageTopic;
-      const nextCreateDiscordEvent = serverEventRaw !== null ? serverEventRaw === true : existing.createDiscordEvent;
-      const nextTextChannel = textChannelOption
-        ? textChannelOption
-        : clearText
-          ? null
-          : (existing.textChannelId ? await guild.channels.fetch(existing.textChannelId).catch(() => null) : null);
-      const nextName = nameRaw !== null ? clipText(nameRaw.trim(), 120) : existing.name;
-      const nextMessage = messageRaw !== null
-        ? this.normalizeClearableText(messageRaw, 1200)
-        : existing.announceMessage;
-      const nextDescription = descriptionRaw !== null
-        ? this.normalizeClearableText(descriptionRaw, 800)
-        : existing.description;
-
-      if (!nextName) {
-        await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      const voiceError = validateVoiceChannel(nextVoiceChannel, {
-        stageTopic: nextStageTopic,
-        createDiscordEvent: nextCreateDiscordEvent,
-      });
-      if (voiceError) {
-        await interaction.reply({ content: voiceError, flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      const textError = validateTextChannel(nextTextChannel);
-      if (textError) {
-        await interaction.reply({ content: textError, flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      const currentDurationMs = Math.max(0, Number.parseInt(String(existing.durationMs || 0), 10) || 0);
-      const hasStartChange = [startRaw, startDateRaw, startTimeRaw].some((value) => String(value || "").trim());
-      const parsedWindow = parseWindow({
-        startRaw,
-        startDateRaw,
-        startTimeRaw,
-        endRaw,
-        endDateRaw,
-        endTimeRaw,
-        baseRunAtMs: existing.runAtMs,
-        baseDurationMs: currentDurationMs,
-        requestedTimeZone: timeZoneRaw || existing.timeZone || "",
-        allowImmediate: !nextCreateDiscordEvent,
-      });
-      if (!parsedWindow.ok) {
-        await interaction.reply({ content: parsedWindow.message, flags: MessageFlags.Ephemeral });
-        return;
-      }
-      if (nextCreateDiscordEvent && (hasStartChange || serverEventRaw === true) && parsedWindow.runAtMs < Date.now() + 60_000) {
-        await interaction.reply({
-          content: t(
-            "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
-            "With `serverevent`, start time must be at least 60 seconds in the future."
-          ),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      const nextRepeat = repeatRaw ? normalizeRepeatMode(repeatRaw) : existing.repeat;
-      if (nextRepeat === "weekdays" && !isWorkdayInTimeZone(parsedWindow.runAtMs, parsedWindow.timeZone)) {
-        await interaction.reply({
-          content: t(
-            "Für `weekdays` muss die Startzeit auf Montag bis Freitag liegen.",
-            "For `weekdays`, the start time must fall on Monday to Friday."
-          ),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-
-      let resolvedStation = this.resolveStationForGuild(guildId, existing.stationKey, language);
-      if (stationRaw) {
-        resolvedStation = this.resolveStationForGuild(guildId, stationRaw, language);
-        if (!resolvedStation.ok) {
-          await interaction.reply({ content: resolvedStation.message, flags: MessageFlags.Ephemeral });
-          return;
-        }
-      } else if (!resolvedStation.ok) {
-        resolvedStation = { ok: true, key: existing.stationKey, station: null };
-      }
-
-      const eventIsActive = Number.parseInt(String(existing.activeUntilMs || 0), 10) > Date.now()
-        && Number.parseInt(String(existing.lastStopAtMs || 0), 10) < Number.parseInt(String(existing.activeUntilMs || 0), 10);
-
-      const patchPayload = {
-        name: nextName,
-        stationKey: resolvedStation.key,
-        voiceChannelId: nextVoiceChannel.id,
-        textChannelId: nextTextChannel?.id || null,
-        announceMessage: nextMessage || null,
-        description: nextDescription || null,
-        stageTopic: nextStageTopic || null,
-        timeZone: parsedWindow.timeZone,
-        createDiscordEvent: nextCreateDiscordEvent,
-        repeat: nextRepeat,
-        runAtMs: parsedWindow.runAtMs,
-        durationMs: parsedWindow.durationMs,
-        activeUntilMs: eventIsActive ? parsedWindow.endAtMs : 0,
-        enabled: enabledRaw === null ? existing.enabled : enabledRaw === true,
-      };
-
-      const updated = patchScheduledEvent(existing.id, patchPayload);
-      if (!updated.ok) {
-        await interaction.reply({
-          content: translateScheduledEventStoreMessage(updated.message, language),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-
-      let replyEvent = updated.event;
-      let serverEventNote = "";
-      if (!nextCreateDiscordEvent && existing.discordScheduledEventId) {
-        await this.deleteDiscordScheduledEventById(guildId, existing.discordScheduledEventId).catch(() => null);
-        const cleared = patchScheduledEvent(existing.id, { discordScheduledEventId: null });
-        replyEvent = cleared?.event || { ...replyEvent, discordScheduledEventId: null };
-      } else if (nextCreateDiscordEvent) {
-        try {
-          const scheduledEvent = await this.syncDiscordScheduledEvent(replyEvent, resolvedStation.station || { name: replyEvent.stationKey }, {
-            runAtMs: replyEvent.runAtMs,
-          });
-          if (scheduledEvent?.id) {
-            const synced = patchScheduledEvent(existing.id, { discordScheduledEventId: scheduledEvent.id });
-            replyEvent = synced?.event || { ...replyEvent, discordScheduledEventId: scheduledEvent.id };
-          }
-        } catch (err) {
-          serverEventNote = `${t("Server-Event Hinweis", "Server event note")}: ${clipText(err?.message || err, 180)}`;
-          log("WARN", `[${this.config.name}] Event ${existing.id}: Discord-Server-Event Sync fehlgeschlagen: ${err?.message || err}`);
-        }
-      }
-
-      const embed = this.buildScheduledEventEmbed(replyEvent, resolvedStation.station?.name || null, language, {
-        titlePrefix: `${t("Event aktualisiert", "Event updated")}: `,
-      });
-      if (serverEventNote) {
-        embed.addFields({
-          name: t("Hinweis", "Note"),
-          value: clipText(serverEventNote, 800),
-          inline: false,
-        });
-      }
-      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-      if (replyEvent.enabled && replyEvent.runAtMs <= Date.now() + 5_000) {
-        this.queueImmediateScheduledEventTick(250);
-      }
-      return;
-    }
-
-    if (sub === "list") {
-      const events = listScheduledEvents({
-        guildId,
-        botId: this.config.id,
-        includeDisabled: true,
-      });
-
-      if (!events.length) {
-        await interaction.reply({ content: t("Keine geplanten Events.", "No scheduled events."), flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      await interaction.reply({
-        embeds: [this.buildScheduledEventsListEmbed(events, guildId, language)],
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    if (sub === "delete") {
-      const id = interaction.options.getString("id", true);
-      const existing = getScheduledEvent(id);
-      if (!existing || existing.guildId !== guildId || existing.botId !== this.config.id) {
-        await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      if (Number.parseInt(String(existing.activeUntilMs || 0), 10) > Date.now()
-        && Number.parseInt(String(existing.lastStopAtMs || 0), 10) < Number.parseInt(String(existing.activeUntilMs || 0), 10)
-      ) {
-        await this.executeScheduledEventStop({ ...existing, deleteAfterStop: false });
-      }
-
-      let removedDiscordEvent = false;
-      if (existing.discordScheduledEventId) {
-        removedDiscordEvent = await this.deleteDiscordScheduledEventById(guildId, existing.discordScheduledEventId);
-      }
-      const removed = deleteScheduledEvent(id, { guildId, botId: this.config.id });
-      if (!removed.ok) {
-        await interaction.reply({ content: translateScheduledEventStoreMessage(removed.message, language), flags: MessageFlags.Ephemeral });
-        return;
-      }
-      await interaction.reply({
-        content: `${t("Event", "Event")} \`${id}\` ${t("entfernt", "removed")}.${removedDiscordEvent ? ` ${t("Discord-Server-Event ebenfalls entfernt.", "Discord server event was removed too.")}` : ""}`,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    await interaction.reply({ content: t("Unbekannte /event Aktion.", "Unknown /event action."), flags: MessageFlags.Ephemeral });
+  handleEventCommand(...args) {
+    return handleEventCommand(this, ...args);
   }
 
   async handleLanguageCommand(interaction) {
