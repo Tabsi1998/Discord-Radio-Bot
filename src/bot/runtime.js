@@ -195,6 +195,27 @@ import {
 import {
   previewCheckoutOffer,
 } from "../coupon-store.js";
+import {
+  DASHBOARD_URL,
+  WEBSITE_URL,
+  SUPPORT_URL,
+  INVITE_COMPONENT_PREFIX,
+  INVITE_COMPONENT_ID_OPEN,
+  INVITE_COMPONENT_ID_REFRESH,
+  INVITE_COMPONENT_ID_SELECT,
+  INVITE_COMPONENT_ID_CLOSE,
+  WORKERS_COMPONENT_PREFIX,
+  WORKERS_COMPONENT_ID_OPEN,
+  WORKERS_COMPONENT_ID_REFRESH,
+  WORKERS_COMPONENT_ID_PAGE_PREFIX,
+  withLanguageParam,
+} from "./runtime-links.js";
+import {
+  buildRuntimeHelpMessage,
+  buildRuntimeSetupMessagePayload,
+  buildRuntimeWorkersStatusPayload,
+} from "./runtime-message-builders.js";
+import { buildRuntimePresenceActivity } from "./runtime-presence.js";
 
 // Helper: wraps getServerPlanConfig + adds 'tier' alias for backward compatibility
 function getTierConfig(guildId) {
@@ -248,48 +269,6 @@ function resolveStreamRestartReason({
   if (reason === "idle") return "provider-eof";
   return String(reason || "restart");
 }
-
-function resolveWebsiteUrl() {
-  const explicit = String(process.env.PUBLIC_WEB_URL || "").trim();
-  if (explicit) return explicit;
-  const domain = String(process.env.WEB_DOMAIN || "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
-  if (domain && !/[\s/\\]/.test(domain)) return `https://${domain}`;
-  return "https://omnifm.xyz";
-}
-
-const WEBSITE_URL = resolveWebsiteUrl();
-function resolveDashboardUrl() {
-  const base = String(WEBSITE_URL || "").replace(/\/+$/, "");
-  return `${base}/?page=dashboard`;
-}
-const DASHBOARD_URL = resolveDashboardUrl();
-function withLanguageParam(url, language) {
-  const safeUrl = String(url || "").trim();
-  if (!safeUrl) return safeUrl;
-  const lang = normalizeLanguage(language, getDefaultLanguage());
-  try {
-    const parsed = new URL(safeUrl);
-    parsed.searchParams.set("lang", lang);
-    return parsed.toString();
-  } catch {
-    const hashIndex = safeUrl.indexOf("#");
-    const base = hashIndex >= 0 ? safeUrl.slice(0, hashIndex) : safeUrl;
-    const hash = hashIndex >= 0 ? safeUrl.slice(hashIndex) : "";
-    const sep = base.includes("?") ? "&" : "?";
-    return `${base}${sep}lang=${encodeURIComponent(lang)}${hash}`;
-  }
-}
-const SUPPORT_URL = "https://discord.gg/UeRkfGS43R";
-const INVITE_COMPONENT_PREFIX = "omnifm:invite:";
-const INVITE_COMPONENT_ID_OPEN = `${INVITE_COMPONENT_PREFIX}open`;
-const INVITE_COMPONENT_ID_REFRESH = `${INVITE_COMPONENT_PREFIX}refresh`;
-const INVITE_COMPONENT_ID_SELECT = `${INVITE_COMPONENT_PREFIX}select`;
-const INVITE_COMPONENT_ID_CLOSE = `${INVITE_COMPONENT_PREFIX}close`;
-const WORKERS_COMPONENT_PREFIX = "omnifm:workers:";
-const WORKERS_COMPONENT_ID_OPEN = `${WORKERS_COMPONENT_PREFIX}open`;
-const WORKERS_COMPONENT_ID_REFRESH = `${WORKERS_COMPONENT_PREFIX}refresh`;
-const WORKERS_COMPONENT_ID_PAGE_PREFIX = `${WORKERS_COMPONENT_PREFIX}page:`;
-
 
 const VOICE_CHANNEL_STATUS_ENABLED = String(process.env.VOICE_CHANNEL_STATUS_ENABLED ?? "1") !== "0";
 const VOICE_CHANNEL_STATUS_TEMPLATE =
@@ -597,78 +576,7 @@ class BotRuntime {
   }
 
   buildSetupMessagePayload({ guild = null, language = null, guildId = null } = {}) {
-    const resolvedGuildId = String(guildId || guild?.id || "").trim();
-    const resolvedLanguage = normalizeLanguage(
-      language || (resolvedGuildId ? this.resolveGuildLanguage(resolvedGuildId) : getDefaultLanguage()),
-      getDefaultLanguage()
-    );
-    const guildName = guild?.name || (resolvedGuildId ? `Server ${resolvedGuildId}` : null);
-    const isDe = resolvedLanguage === "de";
-    const dashboardUrl = withLanguageParam(DASHBOARD_URL, resolvedLanguage);
-    const websiteUrl = withLanguageParam(WEBSITE_URL, resolvedLanguage);
-
-    const embed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(isDe ? `${BRAND.name}: Erste Schritte` : `${BRAND.name}: First steps`)
-      .setDescription(
-        isDe
-          ? `Danke für den Invite auf **${guildName || "deinen Server"}**.\nDer Commander ist bereit. Als Nächstes: mindestens einen Worker einladen und dann \`/play\` ausführen.`
-          : `Thanks for inviting me to **${guildName || "your server"}**.\nThe commander is ready. Next: invite at least one worker and then run \`/play\`.`
-      )
-      .addFields(
-        {
-          name: isDe ? "1) Worker checken" : "1) Check workers",
-          value: isDe
-            ? "`/workers` zeigt verfügbare, eingeladene und gesperrte Worker-Slots."
-            : "`/workers` shows available, invited, and locked worker slots.",
-        },
-        {
-          name: isDe ? "2) Worker einladen" : "2) Invite worker",
-          value: isDe
-            ? "`/invite` öffnet ein Menü für freie Worker-Slots. Lade mindestens einen Worker ein."
-            : "`/invite` opens a menu for free worker slots. Invite at least one worker.",
-        },
-        {
-          name: isDe ? "3) Stream starten" : "3) Start stream",
-          value: isDe
-            ? "`/play [station] [voice]` startet Radio im Voice-/Stage-Channel, sobald ein Worker auf dem Server ist."
-            : "`/play [station] [voice]` starts radio in your voice/stage channel once a worker is on the server.",
-        },
-        {
-          name: isDe ? "4) Hilfe & Setup" : "4) Help & setup",
-          value: isDe
-            ? "`/setup` zeigt diesen Guide erneut. `/help` liefert die komplette Befehlsliste."
-            : "`/setup` shows this guide again. `/help` gives you the full command list.",
-        }
-      );
-
-    const actionRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(WORKERS_COMPONENT_ID_OPEN)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel(isDe ? "Worker-Status" : "Worker status"),
-      new ButtonBuilder()
-        .setCustomId(INVITE_COMPONENT_ID_OPEN)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel(isDe ? "Worker einladen" : "Invite worker")
-    );
-
-    const linkRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "📊 Dashboard" : "📊 Dashboard")
-        .setURL(dashboardUrl),
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "🌐 Website" : "🌐 Website")
-        .setURL(websiteUrl),
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "🛟 Support" : "🛟 Support")
-        .setURL(SUPPORT_URL)
-    );
-
-    return { embeds: [embed], components: [actionRow, linkRow] };
+    return buildRuntimeSetupMessagePayload(this, { guild, language, guildId });
   }
 
   buildOnboardingMessagePayload(guild) {
@@ -2496,66 +2404,7 @@ class BotRuntime {
   }
 
   buildPresenceActivity() {
-    const activeStates = [...this.guildState.entries()]
-      .filter(([, state]) => state.currentStationKey && state.connection);
-    const activeStreams = activeStates.length;
-    const connectedGuilds = Number(this.client?.guilds?.cache?.size || 0) || 0;
-    const publicUrlRaw = String(process.env.PUBLIC_WEB_URL || WEBSITE_URL || "").trim();
-    const publicLabel = publicUrlRaw
-      ? clipText(publicUrlRaw.replace(/\/+$/, ""), 64)
-      : "";
-    const workerSlot = Number(this.workerSlot || this.config?.index || 0) || null;
-    const countLabel = (count, singular, plural = `${singular}s`) =>
-      `${count} ${count === 1 ? singular : plural}`;
-
-    let totalListeners = 0;
-    if (typeof this.collectStats === "function") {
-      totalListeners = Math.max(0, Number(this.collectStats()?.listeners || 0) || 0);
-    } else {
-      for (const [guildId, state] of activeStates) {
-        const listeners = typeof this.getCurrentListenerCount === "function"
-          ? this.getCurrentListenerCount(guildId, state)
-          : Number(state?.listenerCount || 0) || 0;
-        totalListeners += Math.max(0, Number(listeners || 0) || 0);
-      }
-    }
-    const listenerSuffix = totalListeners > 0 ? ` | ${countLabel(totalListeners, "listener")}` : "";
-    const commanderName = clipText(this.config?.name || "OmniFM DJ", 48) || "OmniFM DJ";
-
-    if (this.role === "commander") {
-      if (activeStreams > 0) {
-        return {
-          type: ActivityType.Playing,
-          name: clipText(`DJ on ${countLabel(activeStreams, "server")}${listenerSuffix}`, 120),
-        };
-      }
-      return {
-        type: ActivityType.Listening,
-        name: clipText(
-          publicLabel
-            ? `${commanderName} | /play | ${publicLabel}`
-            : `${commanderName} | /play | ${countLabel(connectedGuilds, "server")}`,
-          120
-        ),
-      };
-    }
-
-    if (activeStreams > 0) {
-      return {
-        type: ActivityType.Playing,
-        name: clipText(`Play on ${countLabel(activeStreams, "server")}${listenerSuffix}`, 120),
-      };
-    }
-
-    return {
-      type: ActivityType.Listening,
-      name: clipText(
-        publicLabel
-          ? `Worker ${workerSlot || "?"} ready | /play | ${publicLabel}`
-          : `Worker ${workerSlot || "?"} ready | /play`,
-        120
-      ),
-    };
+    return buildRuntimePresenceActivity(this);
   }
 
   updatePresence() {
@@ -3326,142 +3175,7 @@ class BotRuntime {
   }
 
   async buildWorkersStatusPayload(interaction, { hint = "", page = 0 } = {}) {
-    const { t, language } = this.createInteractionTranslator(interaction);
-    const guildId = String(interaction?.guildId || "").trim();
-    if (!guildId) {
-      return {
-        content: t(
-          "Dieser Befehl funktioniert nur auf einem Discord-Server (nicht in DMs).",
-          "This command only works inside a Discord server (not in DMs)."
-        ),
-        embeds: [],
-        components: [],
-      };
-    }
-
-    const guildTier = getTier(guildId);
-    const maxIndex = this.workerManager.getMaxWorkerIndex(guildTier);
-    const statuses = this.workerManager.getAllStatuses();
-    const onlineCount = statuses.filter((ws) => ws?.online).length;
-    const activeTotal = statuses.reduce((sum, ws) => sum + (Number(ws?.activeStreams || 0) || 0), 0);
-    const lines = [];
-
-    for (const ws of statuses) {
-      const runtime = this.workerManager.getWorkerByIndex(ws.index);
-      const inGuild = ws.online && runtime?.client?.guilds?.cache?.has(guildId);
-      const streaming = Array.isArray(ws.streams)
-        ? ws.streams.find((stream) => stream.guildId === guildId)
-        : null;
-      const tierLocked = ws.index > maxIndex;
-
-      let statusEmoji = "";
-      let statusText = "";
-      if (tierLocked) {
-        statusEmoji = "🔒";
-        statusText = t("(Upgrade erforderlich)", "(Upgrade required)");
-      } else if (!ws.online) {
-        statusEmoji = "🔴";
-        statusText = t("Offline", "Offline");
-      } else if (!inGuild) {
-        statusEmoji = "📨";
-        statusText = t("Nicht eingeladen", "Not invited");
-      } else if (streaming) {
-        statusEmoji = "🟢";
-        statusText = t("Aktiv auf diesem Server", "Active on this server");
-      } else {
-        statusEmoji = "🟡";
-        statusText = t("Bereit", "Ready");
-      }
-
-      const botIndexText = ws.botIndex ? `, BOT_${ws.botIndex}` : "";
-      lines.push(
-        `${statusEmoji} **${ws.name}** - ${statusText} (${ws.totalGuilds} ${t("Server", "servers")}, ${ws.activeStreams} ${t("aktiv", "active")}, ${t("Slot", "Slot")} ${ws.index}${botIndexText})`
-      );
-    }
-
-    const pagedLines = [];
-    let currentPageLines = [];
-    let currentLength = 0;
-    const maxFieldLength = 1024;
-    for (const rawLine of lines) {
-      const line = clipText(String(rawLine || "-"), 320);
-      const nextLength = currentPageLines.length > 0
-        ? currentLength + 1 + line.length
-        : line.length;
-      if (nextLength > maxFieldLength && currentPageLines.length > 0) {
-        pagedLines.push(currentPageLines.join("\n"));
-        currentPageLines = [line];
-        currentLength = line.length;
-      } else {
-        currentPageLines.push(line);
-        currentLength = nextLength;
-      }
-    }
-    if (currentPageLines.length > 0) {
-      pagedLines.push(currentPageLines.join("\n"));
-    }
-    if (pagedLines.length === 0) {
-      pagedLines.push("-");
-    }
-
-    const totalPages = Math.max(1, pagedLines.length);
-    const resolvedPage = Math.max(0, Math.min(totalPages - 1, Number.parseInt(String(page || 0), 10) || 0));
-    const summaryValue = pagedLines[resolvedPage] || "-";
-
-    const summaryEmbed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(t("Worker-Status", "Worker status"))
-      .setDescription(
-        t(
-          `Plan: **${this.formatTierLabel(guildTier, language)}** | Freigeschaltet: **1-${maxIndex}**\nOnline: **${onlineCount}/${statuses.length}** | Aktiv: **${activeTotal}**`,
-          `Plan: **${this.formatTierLabel(guildTier, language)}** | Unlocked: **1-${maxIndex}**\nOnline: **${onlineCount}/${statuses.length}** | Active: **${activeTotal}**`
-        )
-      )
-      .addFields({
-        name: t("Uebersicht", "Overview"),
-        value: summaryValue,
-        inline: false,
-      });
-
-    if (hint) {
-      summaryEmbed.addFields({
-        name: t("Hinweis", "Note"),
-        value: clipText(String(hint), 900),
-        inline: false,
-      });
-    }
-    summaryEmbed.setFooter({
-      text: t(
-        `Seite ${resolvedPage + 1}/${totalPages} | 🟢 Spielt | 🟡 Bereit | 🔴 Offline | 📨 Nicht eingeladen | 🔒 Upgrade`,
-        `Page ${resolvedPage + 1}/${totalPages} | 🟢 Playing | 🟡 Ready | 🔴 Offline | 📨 Not invited | 🔒 Upgrade`
-      ),
-    });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(INVITE_COMPONENT_ID_OPEN)
-        .setStyle(ButtonStyle.Primary)
-        .setLabel(t("Worker einladen", "Invite worker")),
-      new ButtonBuilder()
-        .setCustomId(`${WORKERS_COMPONENT_ID_PAGE_PREFIX}${resolvedPage - 1}`)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel(t("Zurueck", "Back"))
-        .setDisabled(resolvedPage <= 0),
-      new ButtonBuilder()
-        .setCustomId(`${WORKERS_COMPONENT_ID_PAGE_PREFIX}${resolvedPage + 1}`)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel(t("Weiter", "Next"))
-        .setDisabled(resolvedPage >= (totalPages - 1)),
-      new ButtonBuilder()
-        .setCustomId(WORKERS_COMPONENT_ID_REFRESH)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel(t("Aktualisieren", "Refresh"))
-    );
-
-    return {
-      embeds: [summaryEmbed],
-      components: [row],
-    };
+    return buildRuntimeWorkersStatusPayload(this, interaction, { hint, page });
   }
 
   async handleWorkersComponentInteraction(interaction) {
@@ -3554,154 +3268,7 @@ class BotRuntime {
   }
 
   buildHelpMessage(interaction) {
-    const language = this.resolveInteractionLanguage(interaction);
-    const isDe = language === "de";
-    const dashboardUrl = withLanguageParam(DASHBOARD_URL, language);
-    const websiteUrl = withLanguageParam(WEBSITE_URL, language);
-    const guildId = interaction?.guildId;
-    const tierConfig = guildId ? getTierConfig(guildId) : PLANS.free;
-
-    const headerEmbed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(isDe ? `🧭 ${BRAND.name} Hilfe` : `🧭 ${BRAND.name} Help`)
-      .setDescription(
-        isDe
-          ? `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker-Slots: **${tierConfig.maxBots}**`
-          : `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker slots: **${tierConfig.maxBots}**`
-      )
-      .addFields(
-        {
-          name: isDe ? "Schnellstart" : "Quick start",
-          value: isDe
-            ? "1. `/setup` zeigt den geführten Start für diesen Server.\n2. Mit `/workers` prüfen, welche Worker verfügbar oder bereits eingeladen sind.\n3. Mit `/invite` mindestens einen Worker einladen.\n4. `/play station:<sender> voice:<kanal>` startet den Stream."
-            : "1. `/setup` shows the guided start for this server.\n2. Use `/workers` to check which workers are available or already invited.\n3. Use `/invite` to add at least one worker.\n4. `/play station:<station> voice:<channel>` starts the stream.",
-          inline: false,
-        },
-        {
-          name: isDe ? "Sprache" : "Language",
-          value: isDe
-            ? "OmniFM erkennt Server- und Discord-Sprache automatisch. Mit `/language set value:de|en` kannst du sie fest setzen."
-            : "OmniFM auto-detects the server/Discord language. Use `/language set value:de|en` to force it.",
-          inline: false,
-        },
-        {
-          name: isDe ? "Dashboard" : "Dashboard",
-          value: isDe
-            ? "Web-Dashboard mit SSO: Statistiken, Events, Abo und Server-Einstellungen."
-            : "Web dashboard with SSO: stats, events, subscription, and server settings.",
-          inline: false,
-        }
-      );
-
-    const playbackEmbed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(isDe ? "🎧 Wiedergabe & Live" : "🎧 Playback & Live")
-      .addFields(
-        {
-          name: "/play /pause /resume /stop",
-          value: isDe
-            ? "Startet, pausiert oder beendet Streams im Voice- oder Stage-Channel."
-            : "Start, pause, or stop streams in voice or stage channels.",
-          inline: false,
-        },
-        {
-          name: "/stations /list /now /history /stats",
-          value: isDe
-            ? "Zeigt verfügbare Sender, aktuelle Songs, History und Server-Statistiken."
-            : "Shows available stations, current songs, history, and server statistics.",
-          inline: false,
-        },
-        {
-          name: "/setvolume /status /health /diag",
-          value: isDe
-            ? "Audio, Worker-Zustand und technische Checks für Admins."
-            : "Audio, worker status, and technical checks for admins.",
-          inline: false,
-        }
-      );
-
-    const automationEmbed = new EmbedBuilder()
-      .setColor(BRAND.color)
-      .setTitle(isDe ? "🗓 Events & Automationen" : "🗓 Events & Automation")
-      .addFields(
-        {
-          name: "/event create|edit|list|delete",
-          value: isDe
-            ? "Flexible Event-Planung mit Voice-/Stage-Channel, Wiederholung, Server-Event und Ankündigung."
-            : "Flexible event scheduling with voice/stage channel, recurrence, server event, and announcement.",
-          inline: false,
-        },
-        {
-          name: isDe ? "Datumsformate" : "Date formats",
-          value: isDe
-            ? "`DD.MM.YYYY HH:MM`, `YYYY-MM-DD HH:MM`, `20:00`, `heute`, `morgen` oder getrennt über `startdate` + `starttime`."
-            : "`DD.MM.YYYY HH:MM`, `YYYY-MM-DD HH:MM`, `20:00`, `today`, `tomorrow`, or split across `startdate` + `starttime`.",
-          inline: false,
-        },
-        {
-          name: isDe ? "Wichtig" : "Important",
-          value: isDe
-            ? "Ohne `serverevent` darf ein Event sofort starten. Mit `serverevent` muss der Start mindestens 60 Sekunden in der Zukunft liegen."
-            : "Without `serverevent`, an event may start immediately. With `serverevent`, start time must be at least 60 seconds in the future.",
-          inline: false,
-        }
-      );
-
-    const adminEmbed = new EmbedBuilder()
-      .setColor(tierConfig.tier === "ultimate" ? BRAND.ultimateColor : BRAND.proColor)
-      .setTitle(isDe ? "🛠 Admin & Premium" : "🛠 Admin & Premium")
-      .addFields(
-        {
-          name: "/setup /invite /workers /perm",
-          value: isDe
-            ? "Geführten Start öffnen, Worker-Setup prüfen, Worker einladen und Rollenrechte für Commands regeln."
-            : "Open the guided start, inspect worker setup, invite workers, and manage role permissions for commands.",
-          inline: false,
-        },
-        {
-          name: "/premium /license",
-          value: isDe
-            ? "Lizenzstatus, Upgrades und Seat-Verwaltung für deinen Server."
-            : "License status, upgrades, and seat management for your server.",
-          inline: false,
-        },
-        {
-          name: "/addstation /removestation /mystations",
-          value: isDe
-            ? "Ultimate-only für eigene Sender und private Streams."
-            : "Ultimate-only for custom stations and private streams.",
-          inline: false,
-        }
-      )
-      .setFooter({
-        text: isDe
-          ? "Commander nimmt Befehle entgegen, Worker halten die Voice-/Stage-Streams."
-          : "The commander handles commands, workers keep the voice/stage streams running.",
-      });
-
-    const linkRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "📊 Dashboard" : "📊 Dashboard")
-        .setURL(dashboardUrl),
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "🌐 Website" : "🌐 Website")
-        .setURL(websiteUrl),
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "🛟 Support" : "🛟 Support")
-        .setURL(SUPPORT_URL),
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(isDe ? "💎 Premium" : "💎 Premium")
-        .setURL(BRAND.upgradeUrl || WEBSITE_URL)
-    );
-
-    return {
-      embeds: [headerEmbed, playbackEmbed, automationEmbed, adminEmbed],
-      components: [linkRow],
-    };
+    return buildRuntimeHelpMessage(this, interaction);
   }
 
   getInteractionRoleIds(interaction) {
