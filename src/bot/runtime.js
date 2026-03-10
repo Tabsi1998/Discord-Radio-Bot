@@ -47,7 +47,6 @@ import {
   TIER_RANK,
   clipText,
   clampVolume,
-  waitMs,
   applyJitter,
   isWithinWorkerPlanLimit,
   splitTextForDiscord,
@@ -59,8 +58,6 @@ import {
   STREAM_PROCESS_FAILURE_WINDOW_MS,
   STREAM_ERROR_COOLDOWN_THRESHOLD,
   STREAM_ERROR_COOLDOWN_MS,
-  VOICE_RECONNECT_MAX_MS,
-  VOICE_RECONNECT_EXP_STEPS,
   NOW_PLAYING_ENABLED,
   NOW_PLAYING_POLL_MS,
   SONG_HISTORY_ENABLED,
@@ -113,7 +110,7 @@ import {
 import { buildFailoverCandidateChain, normalizeFailoverChain } from "../lib/failover-chain.js";
 import { createResource } from "../services/stream.js";
 import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier, buildScopedStationsData } from "../stations-store.js";
-import { saveBotState, getBotState, clearBotGuild } from "../bot-state.js";
+import { saveBotState, clearBotGuild } from "../bot-state.js";
 import {
   addCustomStation,
   removeCustomStation,
@@ -216,6 +213,23 @@ import {
   buildRuntimeWorkersStatusPayload,
 } from "./runtime-message-builders.js";
 import { buildRuntimePresenceActivity } from "./runtime-presence.js";
+import {
+  handleRuntimeBotVoiceStateUpdate,
+  resetRuntimeVoiceSession,
+  clearQueuedRuntimeVoiceReconcile,
+  queueRuntimeVoiceStateReconcile,
+  confirmRuntimeBotVoiceChannel,
+  fetchRuntimeBotVoiceState,
+  reconcileRuntimeGuildVoiceState,
+  tickRuntimeVoiceStateHealth,
+  startRuntimeVoiceStateReconciler,
+  stopRuntimeVoiceStateReconciler,
+  attachRuntimeConnectionHandlers,
+  tryRuntimeReconnect,
+  handleRuntimeNetworkRecovered,
+  scheduleRuntimeReconnect,
+  restoreRuntimeState,
+} from "./runtime-recovery.js";
 
 // Helper: wraps getServerPlanConfig + adds 'tier' alias for backward compatibility
 function getTierConfig(guildId) {
@@ -276,8 +290,6 @@ const VOICE_CHANNEL_STATUS_TEMPLATE =
   || "\uD83D\uDD0A | 24/7 {station}";
 const VOICE_CHANNEL_STATUS_MAX_LENGTH = Math.max(1, Math.min(100, toPositiveInt(process.env.VOICE_CHANNEL_STATUS_MAX_LENGTH, 80)));
 const ONBOARDING_MESSAGE_ENABLED = String(process.env.ONBOARDING_MESSAGE_ENABLED ?? "1") !== "0";
-const VOICE_STATE_RECONCILE_ENABLED = String(process.env.VOICE_STATE_RECONCILE_ENABLED ?? "1") !== "0";
-const VOICE_STATE_RECONCILE_MS = Math.max(15_000, toPositiveInt(process.env.VOICE_STATE_RECONCILE_MS, 30_000));
 const LISTENER_STATS_POLL_MS = Math.max(15_000, toPositiveInt(process.env.LISTENER_STATS_POLL_MS, 30_000));
 
 
@@ -2436,313 +2448,47 @@ class BotRuntime {
   }
 
   handleBotVoiceStateUpdate(oldState, newState) {
-    if (!this.client.user) return;
-    if (newState.id !== this.client.user.id) return;
-
-    const guildId = newState.guild.id;
-    const state = this.getState(guildId);
-    const oldChannelId = oldState.channelId;
-    const newChannelId = newState.channelId;
-
-    // Bot hat Channel gewechselt oder ist einem beigetreten
-    if (newChannelId) {
-      if (state.lastChannelId !== newChannelId) {
-        this.markNowPlayingTargetDirty(state, newChannelId);
-      }
-      state.lastChannelId = newChannelId;
-      if (state.reconnectTimer) {
-        this.clearReconnectTimer(state);
-        state.reconnectAttempts = 0;
-      }
-      this.persistState();
-      this.queueVoiceStateReconcile(guildId, "voice-state-update", 1500);
-      return;
-    }
-
-    // Bot hat Voice verlassen
-    if (!oldChannelId) return;
-
-    const shouldAutoReconnect = Boolean(state.shouldReconnect && state.currentStationKey && state.lastChannelId);
-    this.resetVoiceSession(guildId, state, {
-      preservePlaybackTarget: shouldAutoReconnect,
-      clearLastChannel: !shouldAutoReconnect,
-    });
-
-    // Auto-reconnect: schedule if we should reconnect and had an active station
-    if (shouldAutoReconnect) {
-      log("INFO",
-        `[${this.config.name}] Voice lost (Guild ${guildId}, Channel ${oldChannelId}). Scheduling auto-reconnect...`
-      );
-      // scheduleReconnect has built-in dedup (checks reconnectTimer)
-      this.scheduleReconnect(guildId, { reason: "voice-lost" });
-      return;
-    }
-
-    // Intentional disconnect (/stop or shouldReconnect=false) - clean up fully
-    log("INFO",
-      `[${this.config.name}] Voice left (Guild ${guildId}, Channel ${oldChannelId}). No reconnect.`
-    );
-    this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+    return handleRuntimeBotVoiceStateUpdate(this, oldState, newState);
   }
 
   resetVoiceSession(guildId, state, { preservePlaybackTarget = false, clearLastChannel = false } = {}) {
-    if (!state) return;
-    this.clearQueuedVoiceReconcile(guildId);
-
-    // End active listening session before cleanup
-    if (!preservePlaybackTarget && state.currentStationKey) {
-      recordStationStop(guildId, { botId: this.config.id || "" });
-    }
-
-    if (state.connection) {
-      try { state.connection.destroy(); } catch {}
-      state.connection = null;
-    }
-
-    state.player.stop();
-    this.clearCurrentProcess(state);
-    this.clearReconnectTimer(state);
-    this.clearNowPlayingTimer(state);
-    this.syncVoiceChannelStatus(guildId, "").catch(() => null);
-
-    if (!preservePlaybackTarget) {
-      state.currentStationKey = null;
-      state.currentStationName = null;
-      state.currentMeta = null;
-      state.nowPlayingSignature = null;
-      state.nowPlayingMessageId = null;
-      state.nowPlayingChannelId = null;
-      this.clearScheduledEventPlayback(state);
-    }
-
-    if (clearLastChannel) {
-      state.lastChannelId = null;
-    }
-
-    if (!preservePlaybackTarget) {
-      state.reconnectAttempts = 0;
-      state.streamErrorCount = 0;
-      state.idleRestartStreak = 0;
-      state.lastIdleRestartAt = 0;
-      state.lastProcessExitDetail = null;
-      state.lastStreamEndReason = null;
-    }
-
-    this.updatePresence();
-    this.persistState();
+    return resetRuntimeVoiceSession(this, guildId, state, { preservePlaybackTarget, clearLastChannel });
   }
 
   clearQueuedVoiceReconcile(guildId) {
-    const key = String(guildId || "").trim();
-    const timer = this.pendingVoiceReconcileTimers.get(key);
-    if (timer) {
-      clearTimeout(timer);
-      this.pendingVoiceReconcileTimers.delete(key);
-    }
+    return clearQueuedRuntimeVoiceReconcile(this, guildId);
   }
 
   queueVoiceStateReconcile(guildId, reason = "queued", delayMs = 1200) {
-    const key = String(guildId || "").trim();
-    if (!key) return;
-    this.clearQueuedVoiceReconcile(key);
-    const timer = setTimeout(() => {
-      this.pendingVoiceReconcileTimers.delete(key);
-      this.reconcileGuildVoiceState(key, { reason }).catch((err) => {
-        log("WARN", `[${this.config.name}] Voice-State-Reconcile (${reason}) fehlgeschlagen guild=${key}: ${err?.message || err}`);
-      });
-    }, Math.max(0, delayMs));
-    if (typeof timer?.unref === "function") {
-      timer.unref();
-    }
-    this.pendingVoiceReconcileTimers.set(key, timer);
+    return queueRuntimeVoiceStateReconcile(this, guildId, reason, delayMs);
   }
 
   async confirmBotVoiceChannel(guildId, expectedChannelId, { timeoutMs = 10_000, intervalMs = 800 } = {}) {
-    const normalizedGuildId = String(guildId || "").trim();
-    const normalizedChannelId = String(expectedChannelId || "").trim();
-    if (!normalizedGuildId || !normalizedChannelId) return false;
-
-    const startedAt = Date.now();
-    while ((Date.now() - startedAt) <= Math.max(intervalMs, timeoutMs)) {
-      const { channelId } = await this.fetchBotVoiceState(normalizedGuildId);
-      if (String(channelId || "").trim() === normalizedChannelId) {
-        return true;
-      }
-      await waitMs(intervalMs);
-    }
-    return false;
+    return confirmRuntimeBotVoiceChannel(this, guildId, expectedChannelId, { timeoutMs, intervalMs });
   }
 
   async fetchBotVoiceState(guildId) {
-    const guild = this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
-    if (!guild) return { guild: null, voiceState: null, channelId: null };
-
-    try {
-      const voiceState = await guild.voiceStates.fetch("@me", { force: true, cache: true });
-      return { guild, voiceState, channelId: voiceState?.channelId || null };
-    } catch {
-      return { guild, voiceState: null, channelId: null };
-    }
+    return fetchRuntimeBotVoiceState(this, guildId);
   }
 
   async reconcileGuildVoiceState(guildId, { reason = "periodic" } = {}) {
-    if (!this.client.isReady()) return;
-    const state = this.guildState.get(guildId);
-    if (!state) return;
-    if (!state.connection && !state.currentStationKey && !state.lastChannelId) return;
-
-    const { channelId: actualChannelId } = await this.fetchBotVoiceState(guildId);
-    const expectedChannelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
-
-    if (actualChannelId && state.lastChannelId !== actualChannelId) {
-      this.markNowPlayingTargetDirty(state, actualChannelId);
-      state.lastChannelId = actualChannelId;
-      this.persistState();
-    }
-
-    if (!actualChannelId) {
-      const shouldReconnect = Boolean(state.shouldReconnect && state.currentStationKey && state.lastChannelId);
-      if (!state.connection && !state.currentProcess && !shouldReconnect) return;
-      if (!state.connection && shouldReconnect && state.reconnectTimer) {
-        return;
-      }
-
-      log(
-        "WARN",
-        `[${this.config.name}] Voice-State abweichend erkannt (guild=${guildId}, expected=${expectedChannelId || "-"}, reason=${reason}).`
-      );
-      this.resetVoiceSession(guildId, state, {
-        preservePlaybackTarget: shouldReconnect,
-        clearLastChannel: !shouldReconnect,
-      });
-      if (shouldReconnect) {
-        this.scheduleReconnect(guildId, { resetAttempts: true, reason: `voice-state-${reason}` });
-      }
-      return;
-    }
-
-    if (expectedChannelId && actualChannelId !== expectedChannelId) {
-      log(
-        "INFO",
-        `[${this.config.name}] Voice-Channel-Mismatch korrigiert (guild=${guildId}, expected=${expectedChannelId}, actual=${actualChannelId}, reason=${reason}).`
-      );
-      this.markNowPlayingTargetDirty(state, actualChannelId);
-      state.lastChannelId = actualChannelId;
-      if (state.connection?.joinConfig?.channelId && state.connection.joinConfig.channelId !== actualChannelId) {
-        this.resetVoiceSession(guildId, state, { preservePlaybackTarget: true, clearLastChannel: false });
-        this.scheduleReconnect(guildId, { resetAttempts: true, reason: "voice-channel-mismatch" });
-        return;
-      }
-      this.persistState();
-    }
-
-    if (!state.connection && state.currentStationKey && state.lastChannelId) {
-      if (state.reconnectTimer) return;
-      this.scheduleReconnect(guildId, { resetAttempts: true, reason: `voice-no-local-connection-${reason}` });
-      return;
-    }
-
-    if (state.currentStationKey && state.player.state.status === AudioPlayerStatus.Idle && !state.streamRestartTimer && !state.reconnectTimer) {
-      this.scheduleStreamRestart(guildId, state, 750, `voice-health-${reason}`);
-    }
+    return reconcileRuntimeGuildVoiceState(this, guildId, { reason });
   }
 
   async tickVoiceStateHealth() {
-    if (!VOICE_STATE_RECONCILE_ENABLED) return;
-    if (!this.client.isReady()) return;
-
-    for (const guildId of this.guildState.keys()) {
-      // eslint-disable-next-line no-await-in-loop
-      await this.reconcileGuildVoiceState(guildId, { reason: "timer" });
-    }
+    return tickRuntimeVoiceStateHealth(this);
   }
 
   startVoiceStateReconciler() {
-    if (!VOICE_STATE_RECONCILE_ENABLED) return;
-    if (this.voiceHealthTimer) return;
-
-    const run = () => {
-      this.tickVoiceStateHealth().catch((err) => {
-        log("ERROR", `[${this.config.name}] Voice-State-Reconcile Fehler: ${err?.message || err}`);
-      });
-    };
-
-    run();
-    this.voiceHealthTimer = setInterval(run, VOICE_STATE_RECONCILE_MS);
+    return startRuntimeVoiceStateReconciler(this);
   }
 
   stopVoiceStateReconciler() {
-    if (this.voiceHealthTimer) {
-      clearInterval(this.voiceHealthTimer);
-      this.voiceHealthTimer = null;
-    }
-    for (const guildId of this.pendingVoiceReconcileTimers.keys()) {
-      this.clearQueuedVoiceReconcile(guildId);
-    }
+    return stopRuntimeVoiceStateReconciler(this);
   }
 
   attachConnectionHandlers(guildId, connection) {
-    const state = this.getState(guildId);
-
-    const markDisconnected = () => {
-      if (state.connection === connection) {
-        state.connection = null;
-      }
-    };
-
-    // Workaround: configureNetworking() when connection drops from Ready to Connecting
-    connection.on(VoiceConnectionStatus.Connecting, () => {
-      try { connection.configureNetworking(); } catch {}
-    });
-
-    connection.on(VoiceConnectionStatus.Disconnected, async () => {
-      recordConnectionEvent(guildId, {
-        botId: this.config.id || "",
-        eventType: "disconnect",
-        channelId: state.lastChannelId || "",
-        details: "VoiceConnectionStatus.Disconnected",
-      });
-      if (!state.shouldReconnect) {
-        markDisconnected();
-        return;
-      }
-
-      // Try to recover the existing connection first (e.g. after region move)
-      try {
-        await Promise.race([
-          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-        ]);
-        // Connection is recovering on its own
-        log("INFO", `[${this.config.name}] Voice connection recovering for guild=${guildId}`);
-      } catch {
-        // Recovery failed - destroy connection, voiceStateUpdate will handle reconnect
-        log("INFO", `[${this.config.name}] Voice connection recovery failed for guild=${guildId}, destroying`);
-        markDisconnected();
-        try { connection.destroy(); } catch { /* ignore */ }
-        this.scheduleReconnect(guildId, { reason: "voice-disconnected" });
-      }
-    });
-
-    connection.on(VoiceConnectionStatus.Destroyed, () => {
-      markDisconnected();
-      if (state.shouldReconnect && state.currentStationKey && state.lastChannelId) {
-        this.scheduleReconnect(guildId, { reason: "voice-destroyed" });
-      }
-    });
-
-    connection.on("error", (err) => {
-      log("ERROR", `[${this.config.name}] VoiceConnection error: ${err?.message || err}`);
-      recordConnectionEvent(guildId, {
-        botId: this.config.id || "",
-        eventType: "error",
-        channelId: state.lastChannelId || "",
-        details: String(err?.message || err).slice(0, 200),
-      });
-      markDisconnected();
-      if (!state.shouldReconnect) return;
-      this.scheduleReconnect(guildId, { reason: "voice-error" });
-    });
+    return attachRuntimeConnectionHandlers(this, guildId, connection);
   }
 
   hasGuildManagePermissions(interaction) {
@@ -5260,208 +5006,15 @@ class BotRuntime {
   }
 
   async tryReconnect(guildId) {
-    const state = this.getState(guildId);
-    if (!state.shouldReconnect || !state.lastChannelId) return;
-    if (this.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
-      this.stopInGuild(guildId);
-      return;
-    }
-
-    const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
-    if (networkCooldownMs > 0) {
-      log(
-        "INFO",
-        `[${this.config.name}] Reconnect fuer guild=${guildId} verschoben (Netz-Cooldown ${Math.round(networkCooldownMs)}ms)`
-      );
-      return;
-    }
-
-    const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) {
-      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
-      return;
-    }
-
-    const channel = await guild.channels.fetch(state.lastChannelId).catch(() => null);
-    if (!channel || !channel.isVoiceBased()) {
-      log("WARN", `[${this.config.name}] Reconnect abgebrochen: Voice-Channel fehlt guild=${guildId} channel=${state.lastChannelId || "-"}`);
-      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
-      return;
-    }
-
-    const me = await this.resolveBotMember(guild);
-    const perms = me ? channel.permissionsFor(me) : null;
-    if (!me || !perms?.has(PermissionFlagsBits.Connect) || (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak))) {
-      log("WARN", `[${this.config.name}] Reconnect abgebrochen: Rechte fehlen guild=${guildId} channel=${channel.id}`);
-      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
-      return;
-    }
-
-    if (state.connection) {
-      try { state.connection.destroy(); } catch {}
-      state.connection = null;
-    }
-
-    // Custom adapter creator wrapper (same as ensureVoiceConnection)
-    const originalAdapter = guild.voiceAdapterCreator;
-    const botName = this.config.name;
-    const wrappedAdapter = (methods) => {
-      const adapter = originalAdapter(methods);
-      const originalSendPayload = adapter.sendPayload.bind(adapter);
-      adapter.sendPayload = (data) => {
-        const result = originalSendPayload(data);
-        if (!result) {
-          log("WARN", `[${botName}] Reconnect sendPayload returned false for guild=${guildId}`);
-        }
-        return result;
-      };
-      return adapter;
-    };
-
-    const connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: guild.id,
-      adapterCreator: wrappedAdapter,
-      group: this.voiceGroup,
-      selfDeaf: true,
-      debug: true
-    });
-
-    connection.on("stateChange", (oldState, newState) => {
-      const oldStatus = String(oldState?.status || "");
-      const newStatus = String(newState?.status || "");
-      if (!newStatus || oldStatus === newStatus) return;
-      log("INFO", `[${botName}] ReconnectVoiceState: ${oldStatus} -> ${newStatus} guild=${guildId}`);
-      if (
-        newStatus === VoiceConnectionStatus.Connecting &&
-        (oldStatus === VoiceConnectionStatus.Ready || oldStatus === VoiceConnectionStatus.Signalling)
-      ) {
-        try { connection.configureNetworking(); } catch {}
-      }
-    });
-
-    log("INFO", `[${this.config.name}] Rejoin Voice: guild=${guild.id} channel=${channel.id} group=${this.voiceGroup}`);
-    state.connection = connection;
-
-    try {
-      await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
-    } catch {
-      log("WARN", `[${this.config.name}] Reconnect Voice-Timeout: guild=${guildId} channel=${channel.id} state=${connection.state?.status || "unknown"}`);
-      if (state.connection === connection) {
-        state.connection = null;
-      }
-      networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-timeout`, `guild=${guildId}`);
-      try { connection.destroy(); } catch {}
-      return;
-    }
-
-    const joinedVoiceState = await this.confirmBotVoiceChannel(guildId, channel.id, { timeoutMs: 10_000, intervalMs: 700 });
-    if (!joinedVoiceState) {
-      if (state.connection === connection) {
-        state.connection = null;
-      }
-      networkRecoveryCoordinator.noteFailure(`${this.config.name} reconnect-ghost`, `guild=${guildId}`);
-      try { connection.destroy(); } catch {}
-      return;
-    }
-
-    connection.subscribe(state.player);
-    state.reconnectAttempts = 0;
-    state.lastReconnectAt = new Date().toISOString();
-    this.clearReconnectTimer(state);
-    this.attachConnectionHandlers(guildId, connection);
-    networkRecoveryCoordinator.noteSuccess(`${this.config.name} rejoin-ready guild=${guildId}`);
-    recordConnectionEvent(guildId, {
-      botId: this.config.id || "",
-      eventType: "connect",
-      channelId: channel.id || "",
-      details: "Voice reconnect ready",
-    });
-    if (channel.type === ChannelType.GuildStageVoice) {
-      await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
-    }
-    this.queueVoiceStateReconcile(guildId, "voice-rejoin", 1200);
-
-    // Always restart station on reconnect (stream is stale after disconnect)
-    if (state.currentStationKey) {
-      try {
-        await this.restartCurrentStation(state, guildId);
-        log("INFO", `[${this.config.name}] Reconnect successful: guild=${guildId}`);
-      } catch (err) {
-        log("ERROR", `[${this.config.name}] Station restart after reconnect failed: ${err?.message || err}`);
-      }
-    }
+    return tryRuntimeReconnect(this, guildId);
   }
 
   handleNetworkRecovered() {
-    for (const [guildId, state] of this.guildState.entries()) {
-      if (!state.shouldReconnect || !state.currentStationKey || !state.lastChannelId) continue;
-
-      if (!state.connection) {
-        if (state.reconnectTimer) {
-          clearTimeout(state.reconnectTimer);
-          state.reconnectTimer = null;
-        }
-        this.scheduleReconnect(guildId, { resetAttempts: true, reason: "network-recovered" });
-        continue;
-      }
-
-      if (state.player.state.status === AudioPlayerStatus.Idle && !state.streamRestartTimer) {
-        this.scheduleStreamRestart(guildId, state, 750, "network-recovered");
-      }
-    }
+    return handleRuntimeNetworkRecovered(this);
   }
 
   scheduleReconnect(guildId, options = {}) {
-    const state = this.getState(guildId);
-    if (!state.shouldReconnect || !state.lastChannelId) return;
-    if (this.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
-      this.stopInGuild(guildId);
-      return;
-    }
-    if (options.resetAttempts) {
-      state.reconnectAttempts = 0;
-    }
-    if (state.reconnectTimer) return;
-
-    const attempt = state.reconnectAttempts + 1;
-    state.reconnectAttempts = attempt;
-
-    const tierConfig = getTierConfig(guildId);
-    const baseDelay = Math.max(400, tierConfig.reconnectMs || 5_000);
-    const exp = Math.min(attempt - 1, VOICE_RECONNECT_EXP_STEPS);
-    let delay = Math.min(VOICE_RECONNECT_MAX_MS, baseDelay * Math.pow(1.8, exp));
-
-    const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
-    if (networkCooldownMs > 0) {
-      delay = Math.max(delay, networkCooldownMs);
-    }
-
-    delay = applyJitter(delay, 0.2);
-    const reason = String(options.reason || "auto");
-    recordConnectionEvent(guildId, {
-      botId: this.config.id || "",
-      eventType: "reconnect",
-      channelId: state.lastChannelId || "",
-      details: `attempt=${attempt} reason=${reason}`,
-    });
-
-    log(
-      "INFO",
-      `[${this.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms (attempt ${attempt}, plan=${tierConfig.tier}, reason=${reason})`
-    );
-    state.reconnectTimer = setTimeout(async () => {
-      state.reconnectTimer = null;
-      if (!state.shouldReconnect) return;
-
-      await this.tryReconnect(guildId);
-      if (state.shouldReconnect && !state.connection) {
-        this.scheduleReconnect(guildId, { reason: "retry" });
-      }
-    }, delay);
-
-    state.reconnectCount += 1;
-    state.lastReconnectAt = new Date().toISOString();
+    return scheduleRuntimeReconnect(this, guildId, options);
   }
 
   getGuildAccess(guildId) {
@@ -7192,82 +6745,7 @@ class BotRuntime {
   }
 
   async restoreState(stations) {
-    const saved = getBotState(this.config.id);
-    if (!saved || Object.keys(saved).length === 0) {
-      log("INFO", `[${this.config.name}] Kein gespeicherter State gefunden (bot-id: ${this.config.id}).`);
-      return;
-    }
-
-    log("INFO", `[${this.config.name}] Stelle ${Object.keys(saved).length} Verbindung(en) wieder her...`);
-
-    for (const [guildId, data] of Object.entries(saved)) {
-      try {
-        const guild = this.client.guilds.cache.get(guildId);
-        if (!guild) {
-          log("INFO", `[${this.config.name}] Guild ${guildId} nicht gefunden (${this.client.guilds.cache.size} Guilds im Cache), ueberspringe.`);
-          clearBotGuild(this.config.id, guildId);
-          continue;
-        }
-
-        const allowedForRestore = await this.enforceGuildAccessForGuild(guild, "restore");
-        if (!allowedForRestore) {
-          continue;
-        }
-
-        // Fetch channel from API if not in cache
-        let channel = guild.channels.cache.get(data.channelId);
-        if (!channel) {
-          channel = await guild.channels.fetch(data.channelId).catch(() => null);
-        }
-        if (!channel || !channel.isVoiceBased()) {
-          log("INFO", `[${this.config.name}] Channel ${data.channelId} in ${guild.name} nicht gefunden.`);
-          clearBotGuild(this.config.id, guildId);
-          continue;
-        }
-
-        const restoredStation = this.resolveStationForGuild(guildId, data.stationKey, this.resolveGuildLanguage(guildId));
-        if (!restoredStation.ok) {
-          log("INFO", `[${this.config.name}] Station ${data.stationKey} nicht mehr vorhanden: ${restoredStation.message}`);
-          clearBotGuild(this.config.id, guildId);
-          continue;
-        }
-
-        log("INFO", `[${this.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${restoredStation.station.name}`);
-
-        const state = this.getState(guildId);
-        state.volume = data.volume ?? 100;
-        state.shouldReconnect = true;
-        state.lastChannelId = data.channelId;
-        state.currentStationKey = restoredStation.key;
-        state.currentStationName = restoredStation.station.name || restoredStation.key;
-        this.markScheduledEventPlayback(
-          state,
-          data.scheduledEventId || null,
-          data.scheduledEventStopAtMs || 0
-        );
-
-        try {
-          await this.ensureVoiceConnectionForChannel(guildId, channel.id, state);
-        } catch (err) {
-          log("ERROR", `[${this.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen: ${err?.message || err}`);
-          networkRecoveryCoordinator.noteFailure(`${this.config.name} restore-voice-timeout`, `guild=${guildId}`);
-          this.scheduleReconnect(guildId, { reason: "restore-ready-timeout" });
-          continue;
-        }
-
-        await this.playStation(state, restoredStation.stations, restoredStation.key, guildId);
-        log("INFO", `[${this.config.name}] Wiederhergestellt: ${guild.name} -> ${restoredStation.station.name}`);
-
-        // Kurze Pause zwischen Reconnects um Rate-Limits zu vermeiden
-        await new Promise(r => setTimeout(r, 2000));
-      } catch (err) {
-        log("ERROR", `[${this.config.name}] Restore fehlgeschlagen fuer Guild ${guildId}: ${err?.message || err}`);
-        const state = this.guildState.get(guildId);
-        if (state?.shouldReconnect && state.lastChannelId && state.currentStationKey) {
-          this.scheduleReconnect(guildId, { reason: "restore-error" });
-        }
-      }
-    }
+    return restoreRuntimeState(this, stations);
   }
 
   async stop() {
