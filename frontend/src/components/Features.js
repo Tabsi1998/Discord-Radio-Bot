@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowRight, Radio, Shield, Volume2 } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 const STEP_ICONS = [Shield, Radio, Volume2];
 const STEP_COLORS = ['#00F0FF', '#39FF14', '#FFB800'];

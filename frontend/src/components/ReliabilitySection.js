@@ -1,6 +1,6 @@
 import React from 'react';
 import { Activity, RadioTower, ShieldCheck, Split } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 const CARD_META = [
   { key: 'uptime', icon: RadioTower, color: '#00F0FF' },

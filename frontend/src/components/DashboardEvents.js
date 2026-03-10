@@ -13,7 +13,7 @@ import {
   Repeat,
   Trash2,
 } from 'lucide-react';
-import RichMessageEditor from './RichMessageEditor';
+import RichMessageEditor from './RichMessageEditor.js';
 import {
   applyDashboardEventTemplate,
   applyDashboardSchedulePreset,
@@ -25,9 +25,9 @@ import {
   getDashboardRepeatLabel,
   renderDiscordMarkdown,
   renderEventTemplate,
-} from '../lib/dashboardEvents';
-import { buildDashboardEventsHint as buildEventsOnboardingHint } from '../lib/dashboardOnboarding';
-import DashboardOnboardingHint from './DashboardOnboardingHint';
+} from '../lib/dashboardEvents.js';
+import { buildDashboardEventsHint as buildEventsOnboardingHint } from '../lib/dashboardOnboarding.js';
+import DashboardOnboardingHint from './DashboardOnboardingHint.js';
 
 function InputRow({ label, children, testId }) {
   return (

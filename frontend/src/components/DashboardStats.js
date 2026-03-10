@@ -9,9 +9,9 @@ import {
   buildSessionTimelineRows,
   buildVoiceChannelUsageRows,
   formatDashboardDuration,
-} from '../lib/dashboardStats';
-import { buildDashboardNextSetupAction } from '../lib/dashboardOnboarding';
-import DashboardOnboardingHint from './DashboardOnboardingHint';
+} from '../lib/dashboardStats.js';
+import { buildDashboardNextSetupAction } from '../lib/dashboardOnboarding.js';
+import DashboardOnboardingHint from './DashboardOnboardingHint.js';
 
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const DAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

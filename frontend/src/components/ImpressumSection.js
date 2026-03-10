@@ -7,7 +7,7 @@ import {
   MapPin,
   ShieldCheck,
 } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 function renderFieldValue(value, emptyLabel, kind = 'text') {
   const text = String(value || '').trim();

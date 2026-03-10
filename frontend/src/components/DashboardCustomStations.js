@@ -5,9 +5,9 @@ import {
   listDashboardCustomStationFolders,
   filterDashboardCustomStations,
   groupDashboardCustomStations,
-} from '../lib/dashboardCustomStations';
-import { buildDashboardCustomStationsHint } from '../lib/dashboardOnboarding';
-import DashboardOnboardingHint from './DashboardOnboardingHint';
+} from '../lib/dashboardCustomStations.js';
+import { buildDashboardCustomStationsHint } from '../lib/dashboardOnboarding.js';
+import DashboardOnboardingHint from './DashboardOnboardingHint.js';
 
 function StationRow({ station, onDelete, onEdit, t, testId }) {
   const [editing, setEditing] = useState(false);

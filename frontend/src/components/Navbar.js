@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Globe, Menu, Radio, X } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 const DISCORD_URL = 'https://discord.gg/UeRkfGS43R';
 

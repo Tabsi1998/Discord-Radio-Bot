@@ -1,6 +1,6 @@
 import React from 'react';
 import { Check, CheckCircle2, Copy, Crown, ExternalLink, Lock, RadioTower, ServerCog } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 const BOT_COLORS = {
   cyan: { accent: '#00F0FF', bg: 'rgba(0, 240, 255, 0.08)', glow: 'rgba(0, 240, 255, 0.15)', border: 'rgba(0, 240, 255, 0.25)' },

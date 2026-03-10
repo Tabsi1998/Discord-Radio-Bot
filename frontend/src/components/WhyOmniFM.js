@@ -1,6 +1,6 @@
 import React from 'react';
 import { AudioLines, Gauge, LayoutDashboard, Users } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 const CARD_META = [
   { key: 'radio', icon: AudioLines, color: '#00F0FF' },

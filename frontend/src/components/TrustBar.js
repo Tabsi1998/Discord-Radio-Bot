@@ -1,6 +1,6 @@
 import React from 'react';
 import { Layers3, LayoutDashboard, Radio, ShieldCheck } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 const ITEMS = [
   { key: 'stations', icon: Radio, color: '#00F0FF' },

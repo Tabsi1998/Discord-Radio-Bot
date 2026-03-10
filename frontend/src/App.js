@@ -1,21 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Hero from './components/Hero';
-import Features from './components/Features';
-import TrustBar from './components/TrustBar';
-import WhyOmniFM from './components/WhyOmniFM';
-import DashboardShowcase from './components/DashboardShowcase';
-import StationBrowser from './components/StationBrowser';
-import UseCasesSection from './components/UseCasesSection';
-import Premium from './components/Premium';
-import ImpressumSection from './components/ImpressumSection';
-import PrivacySection from './components/PrivacySection';
-import StatsFooter from './components/StatsFooter';
-import Navbar from './components/Navbar';
-import PlanMatrix from './components/PlanMatrix';
-import DashboardPortal from './components/DashboardPortal';
-import FaqSection from './components/FaqSection';
-import { I18nProvider } from './i18n';
-import { buildApiUrl } from './lib/api';
+import Hero from './components/Hero.js';
+import Features from './components/Features.js';
+import TrustBar from './components/TrustBar.js';
+import WhyOmniFM from './components/WhyOmniFM.js';
+import DashboardShowcase from './components/DashboardShowcase.js';
+import StationBrowser from './components/StationBrowser.js';
+import UseCasesSection from './components/UseCasesSection.js';
+import Premium from './components/Premium.js';
+import ImpressumSection from './components/ImpressumSection.js';
+import PrivacySection from './components/PrivacySection.js';
+import StatsFooter from './components/StatsFooter.js';
+import Navbar from './components/Navbar.js';
+import PlanMatrix from './components/PlanMatrix.js';
+import DashboardPortal from './components/DashboardPortal.js';
+import FaqSection from './components/FaqSection.js';
+import { I18nProvider } from './i18n.js';
+import { buildApiUrl } from './lib/api.js';
 
 async function fetchJson(path, signal) {
   const res = await fetch(buildApiUrl(path), {

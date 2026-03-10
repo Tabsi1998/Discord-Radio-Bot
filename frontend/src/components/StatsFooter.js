@@ -1,6 +1,6 @@
 import React from 'react';
 import { Heart, Radio } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 function buildLegalHref(locale, page) {
   const params = new URLSearchParams();

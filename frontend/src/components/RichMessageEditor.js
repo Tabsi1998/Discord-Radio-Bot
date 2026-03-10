@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Bold, Italic, Underline, Strikethrough, Code, List, Link2, Eye, PenLine, Smile, X, Search } from 'lucide-react';
-import EMOJI_CATEGORIES from './emojiData';
-import { EVENT_PLACEHOLDERS, renderDiscordMarkdown, renderEventTemplate } from '../lib/dashboardEvents';
+import EMOJI_CATEGORIES from './emojiData.js';
+import { EVENT_PLACEHOLDERS, renderDiscordMarkdown, renderEventTemplate } from '../lib/dashboardEvents.js';
 
 function ToolbarButton({ icon: Icon, label, onClick, active, testId }) {
   return (

@@ -11,8 +11,8 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useI18n } from '../i18n';
-import { getDashboardBlockedFeatureLabels } from '../lib/dashboardCapabilities';
+import { useI18n } from '../i18n.js';
+import { getDashboardBlockedFeatureLabels } from '../lib/dashboardCapabilities.js';
 import {
   formatSubscriptionPriceCents,
   buildSubscriptionLimitCards,
@@ -21,7 +21,7 @@ import {
   buildSubscriptionPromotionNotes,
   buildSubscriptionReplayStatus,
   buildSubscriptionActivityRows,
-} from '../lib/dashboardSubscription';
+} from '../lib/dashboardSubscription.js';
 
 const TIER_COLORS = { free: '#71717A', pro: '#10B981', ultimate: '#8B5CF6' };
 const TIER_LABELS = { free: 'Free', pro: 'Pro', ultimate: 'Ultimate' };

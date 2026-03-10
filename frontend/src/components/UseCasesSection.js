@@ -1,6 +1,6 @@
 import React from 'react';
 import { Crown, Shield, Zap } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 const CARD_META = [
   { key: 'free', icon: Shield, color: '#A1A1AA' },

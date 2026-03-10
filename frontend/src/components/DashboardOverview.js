@@ -10,9 +10,9 @@ import {
   buildDashboardHealthStatus,
   buildReliabilitySummary,
   formatDashboardDuration,
-} from '../lib/dashboardStats';
-import { buildDashboardNextSetupAction } from '../lib/dashboardOnboarding';
-import DashboardOnboardingHint from './DashboardOnboardingHint';
+} from '../lib/dashboardStats.js';
+import { buildDashboardNextSetupAction } from '../lib/dashboardOnboarding.js';
+import DashboardOnboardingHint from './DashboardOnboardingHint.js';
 
 const COLORS = ['#5865F2', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#F97316'];
 const DAYS_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];

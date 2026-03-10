@@ -1,6 +1,6 @@
 import React from 'react';
 import { Check, Crown } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 function FeatureDot({ enabled, testId }) {
   return (

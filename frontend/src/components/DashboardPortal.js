@@ -1,20 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BarChart3, CalendarDays, Crown, Globe, Lock, LogOut, ShieldCheck, TrendingUp, Radio, Settings, ListMusic, CreditCard, ArrowLeft } from 'lucide-react';
-import { useI18n } from '../i18n';
-import { buildApiUrl } from '../lib/api';
-import DashboardOverview from './DashboardOverview';
-import DashboardOnboardingHint from './DashboardOnboardingHint';
-import DashboardStatsPanel from './DashboardStats';
-import DashboardEvents from './DashboardEvents';
-import DashboardCustomStations from './DashboardCustomStations';
-import DashboardSettings from './DashboardSettings';
-import DashboardSubscription from './DashboardSubscription';
+import { useI18n } from '../i18n.js';
+import { buildApiUrl } from '../lib/api.js';
+import DashboardOverview from './DashboardOverview.js';
+import DashboardOnboardingHint from './DashboardOnboardingHint.js';
+import DashboardStatsPanel from './DashboardStats.js';
+import DashboardEvents from './DashboardEvents.js';
+import DashboardCustomStations from './DashboardCustomStations.js';
+import DashboardSettings from './DashboardSettings.js';
+import DashboardSubscription from './DashboardSubscription.js';
 import {
   getDashboardBlockedFeatureLabels,
   getDashboardCapabilityRequiredTier,
   normalizeDashboardCapabilityPayload,
-} from '../lib/dashboardCapabilities';
-import { buildDashboardPermissionsHint as buildPermissionsOnboardingHint } from '../lib/dashboardOnboarding';
+} from '../lib/dashboardCapabilities.js';
+import { buildDashboardPermissionsHint as buildPermissionsOnboardingHint } from '../lib/dashboardOnboarding.js';
 
 const PERMISSION_COMMANDS = [
   'play', 'pause', 'resume', 'stop', 'setvolume', 'stations', 'list', 'now', 'stats', 'history', 'status', 'health', 'diag', 'addstation', 'removestation', 'mystations', 'event',

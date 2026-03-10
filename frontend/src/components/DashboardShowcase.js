@@ -1,6 +1,6 @@
 import React from 'react';
 import { Activity, CalendarClock, LayoutDashboard, Shield, Webhook } from 'lucide-react';
-import { useI18n } from '../i18n';
+import { useI18n } from '../i18n.js';
 
 const CAPABILITY_META = [
   { key: 'events', icon: CalendarClock, color: '#00F0FF', tier: 'pro' },

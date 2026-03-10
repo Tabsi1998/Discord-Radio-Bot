@@ -1,7 +1,7 @@
 import React from 'react';
 import { Headphones, Radio, Volume2 } from 'lucide-react';
-import { useI18n } from '../i18n';
-import { resolvePrimaryInviteUrl } from '../lib/invite';
+import { useI18n } from '../i18n.js';
+import { resolvePrimaryInviteUrl } from '../lib/invite.js';
 
 const eqStyle = `
 @keyframes eq-bounce {

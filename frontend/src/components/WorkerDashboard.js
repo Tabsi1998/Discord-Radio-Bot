@@ -9,8 +9,8 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
-import { useI18n } from '../i18n';
-import { buildApiUrl } from '../lib/api';
+import { useI18n } from '../i18n.js';
+import { buildApiUrl } from '../lib/api.js';
 
 const ROLE_COLORS = {
   commander: { accent: '#00F0FF', bg: 'rgba(0, 240, 255, 0.06)', border: 'rgba(0, 240, 255, 0.2)', glow: 'rgba(0, 240, 255, 0.12)' },

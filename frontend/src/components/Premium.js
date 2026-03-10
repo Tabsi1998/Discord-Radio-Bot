@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Crown, Shield, X, Zap } from 'lucide-react';
-import { useI18n } from '../i18n';
-import { buildApiUrl } from '../lib/api';
-import { resolvePrimaryInviteUrl } from '../lib/invite';
+import { useI18n } from '../i18n.js';
+import { buildApiUrl } from '../lib/api.js';
+import { resolvePrimaryInviteUrl } from '../lib/invite.js';
 
 const PLAN_ORDER = ['free', 'pro', 'ultimate'];
 const PLAN_META = {

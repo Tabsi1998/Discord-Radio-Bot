@@ -1,26 +1,26 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Calendar, Shield, Save, Plus, ArrowUp, ArrowDown, X } from 'lucide-react';
-import { DASHBOARD_CAPABILITY_DEFAULTS } from '../lib/dashboardCapabilities';
+import { DASHBOARD_CAPABILITY_DEFAULTS } from '../lib/dashboardCapabilities.js';
 import {
   FAILOVER_CHAIN_LIMIT,
   buildFallbackStationSummary,
   buildWeeklyDigestSummary,
   getConfiguredFailoverChain,
   normalizeFailoverChain,
-} from '../lib/dashboardSettings';
+} from '../lib/dashboardSettings.js';
 import {
   DASHBOARD_EXPORT_WEBHOOK_EVENTS,
   normalizeDashboardExportsWebhookConfig,
   buildDashboardExportsWebhookSummary,
   getDashboardExportWebhookEventLabel,
   buildDashboardExportDownloadName,
-} from '../lib/dashboardExports';
+} from '../lib/dashboardExports.js';
 import {
   buildDashboardExportsHint,
   buildDashboardFailoverHint,
   buildDashboardWeeklyDigestHint,
-} from '../lib/dashboardOnboarding';
-import DashboardOnboardingHint from './DashboardOnboardingHint';
+} from '../lib/dashboardOnboarding.js';
+import DashboardOnboardingHint from './DashboardOnboardingHint.js';
 
 const DAYS = [
   { value: 0, de: 'Sonntag', en: 'Sunday' },
