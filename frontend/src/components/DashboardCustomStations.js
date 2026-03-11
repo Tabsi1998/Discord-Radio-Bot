@@ -334,7 +334,7 @@ export default function DashboardCustomStations({
     setMessage('');
     try {
       await apiRequest(`/api/dashboard/custom-stations?serverId=${encodeURIComponent(selectedGuildId)}&key=${encodeURIComponent(key)}`, { method: 'DELETE' });
-      setMessage(t('Station geloescht.', 'Station deleted.'));
+      setMessage(t('Station gelöscht.', 'Station deleted.'));
       await load();
     } catch (err) {
       setError(err.message);

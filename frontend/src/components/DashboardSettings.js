@@ -223,7 +223,7 @@ export default function DashboardSettings({
         body: JSON.stringify({ weeklyDigest: wd }),
       });
       setDigestPreview(result?.preview || null);
-      const channelLabel = result?.channelName ? `#${result.channelName}` : t('dem gewaehlten Channel', 'the selected channel');
+      const channelLabel = result?.channelName ? `#${result.channelName}` : t('dem gewählten Channel', 'the selected channel');
       setMessage(
         t(
           `Test-Digest erfolgreich an ${channelLabel} gesendet.`,
@@ -567,11 +567,11 @@ export default function DashboardSettings({
           </div>
 
           <div style={{ marginTop: 10, fontSize: 13, color: '#A1A1AA', lineHeight: 1.6 }}>
-            {digestPreview?.description || t('Nutze die Vorschau, um den Weekly Digest vor dem Versand zu pruefen.', 'Use the preview to inspect the weekly digest before sending it.')}
+            {digestPreview?.description || t('Nutze die Vorschau, um den Weekly Digest vor dem Versand zu prüfen.', 'Use the preview to inspect the weekly digest before sending it.')}
           </div>
 
           <div style={{ marginTop: 12, fontSize: 12, color: '#71717A' }}>
-            {t('Ziel-Channel', 'Target channel')}: {digestPreview?.channelName ? `#${digestPreview.channelName}` : t('Noch keiner ausgewaehlt', 'None selected yet')}
+            {t('Ziel-Channel', 'Target channel')}: {digestPreview?.channelName ? `#${digestPreview.channelName}` : t('Noch keiner ausgewählt', 'None selected yet')}
           </div>
 
           <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
@@ -587,7 +587,7 @@ export default function DashboardSettings({
         {digestSummary.missingChannel && (
           <div data-testid="digest-channel-warning" style={{ marginTop: 12, border: '1px solid rgba(239,68,68,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', fontSize: 13 }}>
             {t(
-              'Der Weekly Digest ist aktiviert, aber es wurde noch kein Text-Channel ausgewaehlt.',
+              'Der Weekly Digest ist aktiviert, aber es wurde noch kein Text-Channel ausgewählt.',
               'The weekly digest is enabled, but no text channel has been selected yet.'
             )}
           </div>
@@ -684,7 +684,7 @@ export default function DashboardSettings({
                     </span>
                     {preview?.valid === false && (
                       <span style={{ color: '#FCA5A5', fontSize: 12 }}>
-                        {t('Aktuell nicht verfuegbar', 'Currently unavailable')}
+                        {t('Aktuell nicht verfügbar', 'Currently unavailable')}
                       </span>
                     )}
                   </div>
@@ -763,7 +763,7 @@ export default function DashboardSettings({
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
           {t(
-            'Ultimate-Server koennen Stats und Custom-Stationen als JSON exportieren und diese Exporte optional an Automationen weiterleiten.',
+            'Ultimate-Server können Stats und Custom-Stationen als JSON exportieren und diese Exporte optional an Automationen weiterleiten.',
             'Ultimate servers can export stats and custom stations as JSON and optionally forward these exports to automations.'
           )}
         </p>

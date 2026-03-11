@@ -570,7 +570,7 @@ export default function DashboardEvents({
                   </div>
                   <div style={{ color: '#71717A', fontSize: 12, marginTop: 4 }}>
                     {t(
-                      'Setzt Startzeit und Wiederholung fuer haeufige Event-Muster.',
+                      'Setzt Startzeit und Wiederholung für häufige Event-Muster.',
                       'Sets start time and recurrence for common event patterns.'
                     )}
                   </div>

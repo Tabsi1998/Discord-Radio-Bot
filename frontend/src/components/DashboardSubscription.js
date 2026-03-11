@@ -159,7 +159,7 @@ function DashboardCheckoutModal({
       setPreviewData(result);
     } catch (err) {
       setPreviewData(null);
-      setPreviewError(err.message || t('Rabattcode konnte nicht geprueft werden.', 'Could not validate coupon code.'));
+      setPreviewError(err.message || t('Rabattcode konnte nicht geprüft werden.', 'Could not validate coupon code.'));
     } finally {
       setPreviewLoading(false);
     }
@@ -322,7 +322,7 @@ function DashboardCheckoutModal({
                 opacity: previewLoading ? 0.7 : 1,
               }}
             >
-              {previewLoading ? t('Prueft...', 'Checking...') : t('Code pruefen', 'Check code')}
+              {previewLoading ? t('Prüft...', 'Checking...') : t('Code prüfen', 'Check code')}
             </button>
           </div>
           <div style={{ fontSize: 12, color: '#71717A', lineHeight: 1.6 }}>
@@ -354,7 +354,7 @@ function DashboardCheckoutModal({
               </strong>
               <span>
                 {t(
-                  `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} Rabatt werden fuer diesen Checkout angewendet.`,
+                  `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} Rabatt werden für diesen Checkout angewendet.`,
                   `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} discount will be applied to this checkout.`
                 )}
               </span>
@@ -848,12 +848,12 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
                     fontSize: 12,
                   }}
                 >
-                  {emailEditing ? t('Schliessen', 'Close') : t('E-Mail aendern', 'Change email')}
+                  {emailEditing ? t('Schließen', 'Close') : t('E-Mail ändern', 'Change email')}
                 </button>
               </div>
               <div style={{ fontSize: 12, color: '#71717A', lineHeight: 1.6 }}>
                 {t(
-                  'Diese Adresse wird fuer Checkout, Rechnungen und Lizenz-Kommunikation verwendet.',
+                  'Diese Adresse wird für Checkout, Rechnungen und Lizenz-Kommunikation verwendet.',
                   'This address is used for checkout, invoices, and license communication.'
                 )}
               </div>
@@ -1099,7 +1099,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
                   cursor: 'pointer',
                 }}
               >
-                <Crown size={15} /> {t('Upgrade jetzt pruefen', 'Review upgrade now')}
+                <Crown size={15} /> {t('Upgrade jetzt prüfen', 'Review upgrade now')}
               </button>
             </div>
           ) : null}

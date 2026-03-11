@@ -185,7 +185,7 @@ export default function DashboardOverview({
               </strong>
               <span>
                 {t(
-                  'Die Werte werden ueber alle Sessions und Tage akkumuliert. Du kannst sie direkt hier zuruecksetzen, ohne den Bot vom Server entfernen zu muessen.',
+                  'Die Werte werden über alle Sessions und Tage akkumuliert. Du kannst sie direkt hier zurücksetzen, ohne den Bot vom Server entfernen zu müssen.',
                   'Values are accumulated across all sessions and days. You can reset them directly here without removing the bot from the server.'
                 )}
               </span>
@@ -210,7 +210,7 @@ export default function DashboardOverview({
               }}
             >
               <RotateCcw size={13} />
-              {t('Statistiken zuruecksetzen', 'Reset statistics')}
+              {t('Statistiken zurücksetzen', 'Reset statistics')}
             </button>
           ) : (
             <div
@@ -224,7 +224,7 @@ export default function DashboardOverview({
               }}
             >
               <span style={{ color: '#FCA5A5', fontSize: 12 }}>
-                {t('Wirklich alles fuer diesen Server loeschen?', 'Really delete everything for this server?')}
+                {t('Wirklich alles für diesen Server löschen?', 'Really delete everything for this server?')}
               </span>
               <button
                 data-testid="overview-stats-reset-confirm-yes"
@@ -241,7 +241,7 @@ export default function DashboardOverview({
                   opacity: resetting ? 0.6 : 1,
                 }}
               >
-                {resetting ? t('Loesche...', 'Deleting...') : t('Ja, loeschen', 'Yes, delete')}
+                {resetting ? t('Lösche...', 'Deleting...') : t('Ja, löschen', 'Yes, delete')}
               </button>
               <button
                 data-testid="overview-stats-reset-confirm-no"
@@ -314,7 +314,7 @@ export default function DashboardOverview({
                 label: t('Commander verbunden', 'Commander connected'),
                 sub: setupStatus.commanderReady === true
                   ? t('Der Hauptbot ist auf diesem Server bereit.', 'The main bot is ready on this server.')
-                  : t('Der Hauptbot muss noch auf diesem Server verfuegbar sein.', 'The main bot still needs to be available on this server.'),
+                  : t('Der Hauptbot muss noch auf diesem Server verfügbar sein.', 'The main bot still needs to be available on this server.'),
               },
               {
                 key: 'worker',
@@ -358,7 +358,7 @@ export default function DashboardOverview({
                 ...nextSetupAction,
                 note: !nextSetupAction.inviteUrl && (nextSetupAction.command === '/setup' || nextSetupAction.command === '/workers')
                   ? t(
-                    'Falls kein direkter Invite-Link erscheint, pruefe die Bot-Konfiguration oder nutze /invite direkt in Discord.',
+                    'Falls kein direkter Invite-Link erscheint, prüfe die Bot-Konfiguration oder nutze /invite direkt in Discord.',
                     'If no direct invite link appears, check the bot configuration or use /invite directly in Discord.'
                   )
                   : nextSetupAction.note,
@@ -389,7 +389,7 @@ export default function DashboardOverview({
               </h4>
               <p style={{ color: '#71717A', fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>
                 {t(
-                  'Schneller Betriebsstatus fuer Bots, Streams und geplante Events.',
+                  'Schneller Betriebsstatus für Bots, Streams und geplante Events.',
                   'Quick operational status for bots, streams, and scheduled events.'
                 )}
               </p>
@@ -626,7 +626,7 @@ export default function DashboardOverview({
             </div>
             <div style={{ color: '#A78BFA', fontSize: 12 }}>
               {t(
-                'Upgrade im Subscription-Bereich, um die erweiterten Analytics fuer diesen Server freizuschalten.',
+                'Upgrade im Subscription-Bereich, um die erweiterten Analytics für diesen Server freizuschalten.',
                 'Upgrade in the subscription area to unlock advanced analytics for this server.'
               )}
             </div>
