@@ -748,7 +748,7 @@ export async function executeScheduledEvent(runtime, event) {
           guildScheduledEventId: event.discordScheduledEventId || null,
           createStageInstance: true,
           scheduledEventId: event.id,
-          scheduledEventStopAtMs,
+          scheduledEventStopAtMs: scheduledStopAtMs,
         }
       );
       if (!delegatedResult.ok) {
@@ -1412,4 +1412,3 @@ export async function handleEventCommand(runtime, interaction) {
 
   await interaction.reply({ content: t("Unbekannte /event Aktion.", "Unknown /event action."), flags: MessageFlags.Ephemeral });
 }
-
