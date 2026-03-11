@@ -854,6 +854,64 @@ def build_public_privacy_notice():
     }
 
 
+def build_public_terms_notice():
+    legal_notice = build_public_legal_notice()
+    legal = legal_notice.get("legal", {})
+    public_url = (os.environ.get("PUBLIC_WEB_URL") or "").strip()
+    fallback_email = extract_mailbox(os.environ.get("SMTP_FROM") or "")
+    has_stripe = bool(get_stripe_secret_key())
+    has_smtp = bool((os.environ.get("SMTP_HOST") or "").strip())
+
+    operator = {
+        "providerName": legal.get("providerName", ""),
+        "representative": legal.get("representative", ""),
+        "businessPurpose": legal.get("businessPurpose", ""),
+        "website": legal.get("website", "") or public_url,
+    }
+    contact = {
+        "email": (os.environ.get("TERMS_CONTACT_EMAIL") or "").strip()
+        or (os.environ.get("PRIVACY_CONTACT_EMAIL") or "").strip()
+        or legal.get("email", "")
+        or fallback_email,
+        "website": (os.environ.get("TERMS_SUPPORT_URL") or "").strip()
+        or legal.get("website", "")
+        or public_url,
+        "effectiveDate": (os.environ.get("TERMS_EFFECTIVE_DATE") or "").strip(),
+        "governingLaw": (os.environ.get("TERMS_GOVERNING_LAW") or "").strip(),
+    }
+
+    missing_core_fields = []
+    if not operator["providerName"]:
+        missing_core_fields.append("providerName")
+    if not contact["email"]:
+        missing_core_fields.append("contactEmail")
+    if not contact["website"]:
+        missing_core_fields.append("website")
+
+    return {
+        "operator": operator,
+        "contact": contact,
+        "service": {
+            "discordBotEnabled": True,
+            "dashboardEnabled": True,
+            "stationPreviewEnabled": True,
+            "scheduledEventsEnabled": True,
+            "customStationsEnabled": True,
+        },
+        "billing": {
+            "premiumCheckoutEnabled": has_stripe,
+            "paymentProvider": "Stripe" if has_stripe else "",
+            "emailDeliveryEnabled": has_smtp,
+            "trialEnabled": is_pro_trial_enabled(),
+        },
+        "customNote": (os.environ.get("TERMS_CUSTOM_NOTE") or "").strip(),
+        "missingCoreFields": missing_core_fields,
+        "isConfigured": len(missing_core_fields) == 0,
+        "basis": ["DISCORD_TERMS", "AUSTRIAN_SERVICE_TERMS", "STREAM_RIGHTS_NOTICE"],
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def first_header_value(raw_value):
     value = str(raw_value or "").strip()
     if not value:
@@ -1949,6 +2007,14 @@ async def get_privacy_notice(request: Request):
     if rate_limited is not None:
         return rate_limited
     return build_public_privacy_notice()
+
+
+@app.get("/api/terms")
+async def get_terms_notice(request: Request):
+    rate_limited = enforce_api_rate_limit(request, "read")
+    if rate_limited is not None:
+        return rate_limited
+    return build_public_terms_notice()
 
 
 @app.get("/api/discordbotlist/status")

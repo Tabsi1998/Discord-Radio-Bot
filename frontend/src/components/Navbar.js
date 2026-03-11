@@ -1,25 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Globe, Menu, Radio, X } from 'lucide-react';
 import { useI18n } from '../i18n.js';
+import { buildHomeHref, buildPageHref } from '../lib/pageRouting.js';
 
 const DISCORD_URL = 'https://discord.gg/UeRkfGS43R';
-
-function buildHomeHref(locale, hash = '') {
-  const params = new URLSearchParams();
-  if (locale) {
-    params.set('lang', locale);
-  }
-  const query = params.toString();
-  return `/${query ? `?${query}` : ''}${hash}`;
-}
-
-function buildPageHref(locale, page) {
-  const params = new URLSearchParams();
-  if (locale) params.set('lang', locale);
-  if (page) params.set('page', page);
-  const query = params.toString();
-  return `/${query ? `?${query}` : ''}`;
-}
 
 function Navbar({ page = 'home' }) {
   const [scrolled, setScrolled] = useState(false);

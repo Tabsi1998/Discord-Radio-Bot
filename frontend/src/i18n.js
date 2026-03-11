@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { buildPageHref, resolvePageFromUrl } from './lib/pageRouting.js';
 
 const STORAGE_KEY = 'omnifm.web.locale';
 const DEFAULT_LOCALE = 'en';
@@ -768,13 +769,14 @@ const LOCALE_MESSAGES = {
         },
         legal: {
           title: 'Rechtlich erreichbar',
-          value: 'Impressum + Datenschutz',
-          desc: 'Impressum und Datenschutzerklärung sind von jeder Seite aus direkt verlinkt.',
+          value: 'Impressum + Datenschutz + Terms',
+          desc: 'Impressum, Datenschutzerklärung und Nutzungsbedingungen sind von jeder Seite aus direkt verlinkt.',
         },
       },
       links: {
         imprint: 'Impressum',
         privacy: 'Datenschutzerklärung',
+        terms: 'Nutzungsbedingungen',
       },
       builtWith: 'Gebaut mit',
       forDiscord: 'für Discord',
@@ -899,6 +901,87 @@ const LOCALE_MESSAGES = {
       noteTitle: 'Wichtiger Hinweis',
       note: 'Diese Datenschutzerklärung bildet die typischen Datenflüsse von OmniFM nach aktuellem Code- und Konfigurationsstand ab. Je nach Hosting, Reverse Proxy, Zahlungsabwicklung oder Supportprozess können zusätzliche Angaben notwendig sein.',
       basis: 'Rechtsgrundlagen: Art. 13 DSGVO sowie Art. 15 bis 22 DSGVO. Zuständige österreichische Beschwerdestelle: Österreichische Datenschutzbehörde.',
+    },
+    terms: {
+      pageTitle: 'OmniFM | Nutzungsbedingungen',
+      eyebrow: 'Nutzungsbedingungen',
+      title: 'Nutzungsbedingungen',
+      subtitle: 'Diese Bedingungen regeln die Nutzung der OmniFM-Webseite, des Discord-Bots, des Dashboards und optionaler Premium-Funktionen.',
+      cards: {
+        operator: 'Anbieter',
+        contact: 'Kontakt & Geltung',
+        service: 'Dienstumfang',
+        billing: 'Premium & Abrechnung',
+      },
+      fields: {
+        providerName: 'Name / Firma',
+        representative: 'Vertretungsbefugte Person',
+        businessPurpose: 'Unternehmensgegenstand',
+        website: 'Webseite',
+        contactEmail: 'Kontakt-E-Mail',
+        supportWebsite: 'Support / Webseite',
+        effectiveDate: 'Gueltig ab',
+        governingLaw: 'Anwendbares Recht',
+        discordBot: 'Discord-Bot',
+        dashboard: 'Dashboard',
+        stationPreview: 'Station-Vorschau',
+        scheduledEvents: 'Event-Scheduler',
+        customStations: 'Custom-Stationen',
+        premiumCheckout: 'Premium-Checkout',
+        paymentProvider: 'Zahlungsanbieter',
+        emailDelivery: 'Lizenz- & Support-E-Mails',
+        trialMonth: 'Testmonat',
+      },
+      defaultGoverningLaw: 'Oesterreichisches Recht',
+      notProvided: 'Nicht angegeben',
+      booleanEnabled: 'Aktiv',
+      booleanDisabled: 'Nicht aktiv',
+      warningTitle: 'Basisangaben ergaenzen',
+      warningFallback: 'Anbieter- und Kontaktangaben',
+      warning: ({ fields }) => `Diese Angaben fehlen aktuell noch oder sind unvollstaendig: ${fields}. Ergaenze sie, bevor du diese Nutzungsbedingungen produktiv verlinkst.`,
+      sections: {
+        overviewTitle: 'Kurzueberblick',
+        overviewBody: 'OmniFM ist ein Discord-Radio-Dienst mit Webseite, Bot, Dashboard und optionalen Premium-Funktionen. Die Nutzungsbedingungen beschreiben den vertraglichen Rahmen fuer diese Komponenten.',
+        scopeTitle: 'Leistungsumfang',
+        scopeBody: 'OmniFM umfasst den Webauftritt, die Bot-Funktionen in Discord, das Dashboard, Statistik- und Event-Funktionen sowie je nach Konfiguration Premium-, E-Mail- und Integrationsfunktionen. Der genaue Umfang kann je nach Plan, Server-Setup und aktivierten Modulen variieren.',
+        discordTitle: 'Discord als Drittplattform',
+        discordBody: 'OmniFM setzt fuer wesentliche Funktionen auf Discord. Verfuegbarkeit, API-Verhalten, Rollen, Berechtigungen, Voice-Verbindungen und App-Richtlinien haengen auch von Discord als Drittplattform ab und koennen sich ausserhalb des Einflussbereichs von OmniFM aendern.',
+        previewTitle: 'Web-Vorschau und externe Streams',
+        previewBody: 'Wenn du auf der Webseite eine Station vorhoerst, verbindet sich dein Browser direkt mit dem ausgewaehlten Stream-Anbieter. Auch im Bot-Betrieb stammen Streams, Metadaten oder Coverdaten teilweise von Drittanbietern, fuer deren Inhalte und technische Verfuegbarkeit OmniFM nicht allein verantwortlich ist.',
+        customStationsTitle: 'Custom-Stationen und nutzereingetragene Inhalte',
+        customStationsBody: 'Soweit OmniFM das Hinterlegen eigener Stream-URLs, Stationsnamen, Bilder, Beschreibungen, Webhooks oder anderer Inhalte erlaubt, bist du dafuer verantwortlich, dass diese Angaben rechtmaessig sind, keine Rechte Dritter verletzen und technisch sicher genutzt werden duerfen.',
+        acceptableUseTitle: 'Zulaessige Nutzung',
+        acceptableUseBody: 'OmniFM darf nur rechtmaessig und im Rahmen der jeweils geltenden Plattform- und Gesetzesvorgaben genutzt werden.',
+        acceptableUseItems: [
+          'keine missbraeuchliche, stoerende oder sicherheitsgefaehrdende Nutzung',
+          'keine Umgehung von Limits, Zugriffsbeschraenkungen oder technischen Schutzmechanismen',
+          'keine Nutzung fuer rechtswidrige, urheberrechtsverletzende oder irrefuehrende Streams und Inhalte',
+          'keine Weitergabe falscher, fremder oder unzulaessiger Daten im Rahmen von Premium, Support oder Dashboard-Funktionen',
+        ],
+        premiumTitle: 'Premium, digitale Leistungen und Checkout',
+        premiumBody: ({ premiumCheckoutEnabled, paymentProvider }) => `Premium-Funktionen sind digitale Leistungen. ${premiumCheckoutEnabled ? `Wenn kostenpflichtige Checkouts aktiviert sind, erfolgt die Zahlungsabwicklung ueber ${paymentProvider || 'den konfigurierten Zahlungsanbieter'}.` : 'Ein Online-Checkout ist aktuell nicht aktiviert.'} Vor Abschluss werden Plan, Laufzeit, Seats und Preis angezeigt. Massgeblich ist jeweils der konkrete Checkout- und Lizenzstatus.`,
+        streamRightsTitle: 'Radio-Streams, Rechte und Lizenzen',
+        streamRightsBody: 'Wichtig: Diese Nutzungsbedingungen loesen keine eventuellen Urheber-, Leistungsschutz-, Senderecht- oder Lizenzfragen fuer Radio-Streams. Wenn ueber OmniFM Drittstreams oder nutzergelieferte Streams ueber Discord verbreitet werden, ist das ein separates Rechtsrisiko. Diese Bedingungen regeln das Verhalten im Dienst, machen eine unzulaessige Nutzung aber nicht automatisch legal.',
+        availabilityTitle: 'Verfuegbarkeit und Aenderungen',
+        availabilityBody: 'OmniFM wird mit dem Ziel eines stabilen Betriebs bereitgestellt, schuldet aber keine jederzeitige, fehlerfreie oder unterbrechungsfreie Verfuegbarkeit. Wartung, Updates, Discord-Aenderungen, Netzwerkausfaelle, Stream-Ausfaelle oder Sicherheitsmassnahmen koennen Funktionen voruebergehend einschraenken oder aendern.',
+        suspensionTitle: 'Sperrung und Beendigung',
+        suspensionBody: 'OmniFM kann den Zugriff auf einzelne Funktionen, Server, Lizenzen oder Nutzerkontexte einschraenken oder beenden, wenn objektive Gruende dafuer bestehen.',
+        suspensionItems: [
+          'Verstoesse gegen diese Nutzungsbedingungen oder gegen Discord-Richtlinien',
+          'Hinweise auf missbraeuchliche, rechtswidrige oder sicherheitskritische Nutzung',
+          'offensichtlich unzulaessige Custom-Streams oder Inhalte',
+          'technische oder betriebliche Gruende, die eine Einschraenkung erforderlich machen',
+        ],
+        liabilityTitle: 'Haftung',
+        liabilityBody: 'Soweit gesetzlich zulaessig, haftet OmniFM nicht fuer Ausfaelle oder Inhalte externer Streams, Discord-Stoerungen, Drittanbieter-Integrationen oder Konfigurationsfehler ausserhalb des eigenen Verantwortungsbereichs. Zwingende Haftungsregeln, insbesondere bei Vorsatz, grober Fahrlaessigkeit, Personenschaeden oder nach zwingendem Verbraucherrecht, bleiben unberuehrt.',
+        lawTitle: 'Anwendbares Recht',
+        lawBody: ({ governingLaw }) => `Soweit gesetzlich zulaessig gilt ${governingLaw}. Zwingende verbraucherschuetzende Vorschriften und zwingende Gerichtsstaende bleiben unberuehrt.`,
+        contactTitle: 'Kontakt',
+        contactBody: ({ email, website }) => `Fragen zu diesen Nutzungsbedingungen kannst du an ${email || 'den oben genannten Kontakt'} richten.${website ? ` Weitere Informationen findest du unter ${website}.` : ''}`,
+      },
+      noteTitle: 'Wichtiger Hinweis',
+      note: 'Diese Nutzungsbedingungen bilden die typische Produktstruktur von OmniFM nach aktuellem Code- und Konfigurationsstand ab. Je nach Geschaeftsmodell, Rechtsform, Zahlungsablauf oder individueller Supportzusage kann eine zusaetzliche rechtliche Pruefung sinnvoll sein.',
+      basis: 'Hinweis: Diese Seite ergaenzt Impressum und Datenschutzerklaerung um den vertraglichen Nutzungsrahmen des Dienstes.',
     },
   },
   en: {
@@ -1642,13 +1725,14 @@ const LOCALE_MESSAGES = {
         },
         legal: {
           title: 'Legal basics',
-          value: 'Imprint + Privacy',
-          desc: 'Imprint and privacy pages stay directly linked from every page.',
+          value: 'Imprint + Privacy + Terms',
+          desc: 'Imprint, privacy, and terms pages stay directly linked from every page.',
         },
       },
       links: {
         imprint: 'Imprint',
         privacy: 'Privacy policy',
+        terms: 'Terms of service',
       },
       builtWith: 'Built with',
       forDiscord: 'for Discord',
@@ -1774,6 +1858,87 @@ const LOCALE_MESSAGES = {
       note: 'This privacy policy reflects the typical OmniFM data flows based on the current code and configuration. Additional details may be required depending on your hosting, reverse proxy, payment setup, or support workflow.',
       basis: 'Legal basis: GDPR Article 13 and Articles 15 to 22. Austrian complaint authority: Austrian Data Protection Authority.',
     },
+    terms: {
+      pageTitle: 'OmniFM | Terms of service',
+      eyebrow: 'Terms of service',
+      title: 'Terms of service',
+      subtitle: 'These terms govern the use of the OmniFM website, Discord bot, dashboard, and optional Premium features.',
+      cards: {
+        operator: 'Operator',
+        contact: 'Contact & scope',
+        service: 'Service scope',
+        billing: 'Premium & billing',
+      },
+      fields: {
+        providerName: 'Name / company',
+        representative: 'Authorized representative',
+        businessPurpose: 'Business purpose',
+        website: 'Website',
+        contactEmail: 'Contact email',
+        supportWebsite: 'Support / website',
+        effectiveDate: 'Effective date',
+        governingLaw: 'Governing law',
+        discordBot: 'Discord bot',
+        dashboard: 'Dashboard',
+        stationPreview: 'Station preview',
+        scheduledEvents: 'Event scheduler',
+        customStations: 'Custom stations',
+        premiumCheckout: 'Premium checkout',
+        paymentProvider: 'Payment provider',
+        emailDelivery: 'License & support emails',
+        trialMonth: 'Trial month',
+      },
+      defaultGoverningLaw: 'Austrian law',
+      notProvided: 'Not provided',
+      booleanEnabled: 'Enabled',
+      booleanDisabled: 'Not enabled',
+      warningTitle: 'Complete the basics',
+      warningFallback: 'operator and contact details',
+      warning: ({ fields }) => `These details are still missing or incomplete: ${fields}. Complete them before relying on these terms in production.`,
+      sections: {
+        overviewTitle: 'Overview',
+        overviewBody: 'OmniFM is a Discord radio service with a website, bot runtime, dashboard, and optional Premium features. These terms define the contractual framework for those components.',
+        scopeTitle: 'Service scope',
+        scopeBody: 'OmniFM includes the website, Discord bot features, dashboard access, statistics and event tooling, and, depending on configuration, Premium, email, and integration features. The exact scope may vary by plan, server setup, and enabled modules.',
+        discordTitle: 'Discord as a third-party platform',
+        discordBody: 'OmniFM depends on Discord for core functionality. Availability, API behavior, permissions, voice connections, and platform rules are therefore also shaped by Discord as a third-party platform and may change outside OmniFM\'s direct control.',
+        previewTitle: 'Web previews and external streams',
+        previewBody: 'When you preview a station on the website, your browser connects directly to the selected stream provider. During bot usage, streams, metadata, or artwork may also come from third parties whose content and availability are not solely controlled by OmniFM.',
+        customStationsTitle: 'Custom stations and user-supplied content',
+        customStationsBody: 'Where OmniFM allows you to add your own stream URLs, station names, images, descriptions, webhooks, or other content, you are responsible for ensuring that those inputs are lawful, do not infringe third-party rights, and may be used safely within the service.',
+        acceptableUseTitle: 'Acceptable use',
+        acceptableUseBody: 'OmniFM may only be used lawfully and in line with the applicable platform rules and laws.',
+        acceptableUseItems: [
+          'no abusive, disruptive, or security-threatening use',
+          'no circumvention of limits, access restrictions, or technical safeguards',
+          'no use for unlawful, infringing, or misleading streams and content',
+          'no submission of false, third-party, or otherwise impermissible data through Premium, support, or dashboard flows',
+        ],
+        premiumTitle: 'Premium, digital services, and checkout',
+        premiumBody: ({ premiumCheckoutEnabled, paymentProvider }) => `Premium features are digital services. ${premiumCheckoutEnabled ? `If paid checkout is enabled, payment processing is handled through ${paymentProvider || 'the configured payment provider'}.` : 'Online checkout is currently not enabled.'} The selected plan, duration, seats, and price are shown before checkout. The concrete checkout and license status remains decisive.`,
+        streamRightsTitle: 'Radio streams, rights, and licensing',
+        streamRightsBody: 'Important: these terms do not resolve any copyright, neighboring-rights, broadcast, or licensing issues related to radio streams. If third-party streams or user-supplied streams are distributed via OmniFM and Discord, that remains a separate legal risk. These terms regulate conduct within the service, but they do not make an unlawful use lawful.',
+        availabilityTitle: 'Availability and changes',
+        availabilityBody: 'OmniFM is provided with the goal of stable operation, but it does not guarantee uninterrupted, error-free, or always-available service. Maintenance, updates, Discord changes, network issues, stream outages, or security measures may temporarily limit or change functionality.',
+        suspensionTitle: 'Suspension and termination',
+        suspensionBody: 'OmniFM may limit or end access to individual features, servers, licenses, or usage contexts where there are objective reasons to do so.',
+        suspensionItems: [
+          'violations of these terms or Discord policies',
+          'indications of abusive, unlawful, or security-critical use',
+          'obviously impermissible custom streams or content',
+          'technical or operational reasons that require restrictions',
+        ],
+        liabilityTitle: 'Liability',
+        liabilityBody: 'To the extent permitted by law, OmniFM is not liable for outages or content of external streams, Discord disruptions, third-party integrations, or configuration errors outside its own sphere of responsibility. Mandatory liability rules, especially for intent, gross negligence, personal injury, or mandatory consumer law, remain unaffected.',
+        lawTitle: 'Governing law',
+        lawBody: ({ governingLaw }) => `To the extent permitted by law, ${governingLaw} applies. Mandatory consumer-protection rules and mandatory venue rules remain unaffected.`,
+        contactTitle: 'Contact',
+        contactBody: ({ email, website }) => `Questions about these terms can be sent to ${email || 'the contact listed above'}.${website ? ` Further information is available at ${website}.` : ''}`,
+      },
+      noteTitle: 'Important note',
+      note: 'These terms reflect the typical OmniFM product setup based on the current code and configuration. Depending on your business model, legal form, payment flow, or support commitments, additional legal review may still be advisable.',
+      basis: 'Note: this page complements the imprint and privacy policy with the contractual usage framework of the service.',
+    },
   },
 };
 
@@ -1806,8 +1971,10 @@ function writeStoredLocale(locale) {
 function syncLocaleToUrl(locale) {
   try {
     const url = new URL(window.location.href);
-    url.searchParams.set('lang', locale);
-    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    const page = resolvePageFromUrl(url);
+    const params = new URLSearchParams(url.search);
+    const nextHref = buildPageHref(locale, page, params);
+    window.history.replaceState({}, '', `${nextHref}${url.hash}`);
   } catch {
     // ignore URL update failures
   }
@@ -1817,15 +1984,6 @@ function readQueryLocale() {
   try {
     const url = new URL(window.location.href);
     return url.searchParams.get('lang') || '';
-  } catch {
-    return '';
-  }
-}
-
-function readQueryPage() {
-  try {
-    const url = new URL(window.location.href);
-    return String(url.searchParams.get('page') || '').trim().toLowerCase();
   } catch {
     return '';
   }
@@ -1907,15 +2065,20 @@ export function I18nProvider({ children }) {
   useEffect(() => {
     if (typeof document === 'undefined') return;
     document.documentElement.lang = locale;
-    const page = readQueryPage();
-    if (page === 'imprint' || page === 'impressum') {
+    const page = resolvePageFromUrl(window.location.href);
+    if (page === 'imprint') {
       document.title = copy.legal.pageTitle;
       updateMetaTag('description', copy.legal.subtitle);
       return;
     }
-    if (page === 'privacy' || page === 'datenschutz' || page === 'privacy-policy') {
+    if (page === 'privacy') {
       document.title = copy.privacy.pageTitle;
       updateMetaTag('description', copy.privacy.subtitle);
+      return;
+    }
+    if (page === 'terms') {
+      document.title = copy.terms.pageTitle;
+      updateMetaTag('description', copy.terms.subtitle);
       return;
     }
     document.title = copy.meta.title;

@@ -1745,6 +1745,14 @@ if [[ "$MODE" == "--settings" ]]; then
   elif [[ "$cur_legal_status" == "konfiguriert" && -n "$cur_privacy_contact_email" ]]; then
     cur_privacy_status="Basis vorhanden"
   fi
+  cur_terms_contact_email=$(read_env "TERMS_CONTACT_EMAIL" "$cur_privacy_contact_email")
+  cur_terms_support_url=$(read_env "TERMS_SUPPORT_URL" "$(read_env "LEGAL_WEBSITE" "${cur_public_url:-}")")
+  cur_terms_status="unvollstaendig"
+  if [[ "$cur_legal_status" == "konfiguriert" && -n "$cur_terms_contact_email" && -n "$cur_terms_support_url" ]]; then
+    cur_terms_status="konfiguriert"
+  elif [[ "$cur_legal_status" == "konfiguriert" && -n "$cur_terms_contact_email" ]]; then
+    cur_terms_status="Basis vorhanden"
+  fi
   cur_fpcalc_status="Container gestoppt"
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
     if docker compose exec -T omnifm sh -lc 'command -v fpcalc >/dev/null 2>&1' >/dev/null 2>&1; then
@@ -1821,6 +1829,11 @@ if [[ "$MODE" == "--settings" ]]; then
   else
     echo -e "  Datenschutz:           ${YELLOW}${cur_privacy_status}${NC}"
   fi
+  if [[ "$cur_terms_status" == "konfiguriert" ]]; then
+    echo -e "  Nutzungsbedingungen:   ${GREEN}${cur_terms_status}${NC}"
+  else
+    echo -e "  Nutzungsbedingungen:   ${YELLOW}${cur_terms_status}${NC}"
+  fi
   if [[ "$cur_dash_status" == "konfiguriert" ]]; then
     echo -e "  Dashboard OAuth:       ${GREEN}${cur_dash_status}${NC}"
   else
@@ -1845,7 +1858,7 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${CYAN}5${NC}) Pro-Testmonat ein/aus"
   echo -e "    ${YELLOW}6${NC}) DiscordBotList konfigurieren"
   echo -e "    ${GREEN}7${NC}) Track-Erkennung (AcoustID/MusicBrainz)"
-  echo -e "    ${CYAN}8${NC}) Impressum & Datenschutz"
+  echo -e "    ${CYAN}8${NC}) Impressum, Datenschutz & Terms"
   echo -e "    ${MAGENTA}9${NC}) Dashboard & Discord OAuth"
   echo -e "    ${GREEN}10${NC}) Slash-Commands & Sync"
   echo -e "    ${CYAN}11${NC}) Betrieb, Logs & Admin-Token"
@@ -2059,7 +2072,21 @@ if [[ "$MODE" == "--settings" ]]; then
       write_env_line "PRIVACY_CUSTOM_NOTE" "$privacy_custom_note"
       write_env_line "PRIVACY_AUTHORITY_NAME" "$privacy_authority_name"
       write_env_line "PRIVACY_AUTHORITY_WEBSITE" "$privacy_authority_website"
-      ok "Impressums- und Datenschutzdaten gespeichert."
+      echo ""
+      info "Nutzungsbedingungen / Terms of Service:"
+      echo -e "    ${DIM}Empfohlen fuer Discord-Verifizierung: Kontakt-E-Mail, Support-/Webseiten-URL, Gueltigkeitsdatum und Rechtswahl.${NC}"
+      echo -e "    ${DIM}Die Terms regeln Nutzung, Missbrauch, Premium und Stream-Hinweise. Sie loesen keine Urheber- oder Lizenzfragen fuer Radio-Streams.${NC}"
+      terms_contact_email="$(prompt_default "Terms Kontakt-E-Mail (empfohlen)" "$(read_env "TERMS_CONTACT_EMAIL" "$privacy_contact_email")")"
+      terms_support_url="$(prompt_default "Terms Support-/Webseiten-URL (empfohlen)" "$(read_env "TERMS_SUPPORT_URL" "$legal_website")")"
+      terms_effective_date="$(prompt_default "Gueltig ab (YYYY-MM-DD, optional)" "$(read_env "TERMS_EFFECTIVE_DATE" "$(date +%Y-%m-%d)")")"
+      terms_governing_law="$(prompt_default "Anwendbares Recht" "$(read_env "TERMS_GOVERNING_LAW" "Recht der Republik Oesterreich")")"
+      terms_custom_note="$(prompt_default "Zusaetzlicher Terms-Hinweis (optional)" "$(read_env "TERMS_CUSTOM_NOTE" "")")"
+      write_env_line "TERMS_CONTACT_EMAIL" "$terms_contact_email"
+      write_env_line "TERMS_SUPPORT_URL" "$terms_support_url"
+      write_env_line "TERMS_EFFECTIVE_DATE" "$terms_effective_date"
+      write_env_line "TERMS_GOVERNING_LAW" "$terms_governing_law"
+      write_env_line "TERMS_CUSTOM_NOTE" "$terms_custom_note"
+      ok "Impressums-, Datenschutz- und Terms-Daten gespeichert."
       mark_settings_dirty
       ;;
     9)

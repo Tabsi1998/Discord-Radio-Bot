@@ -37,20 +37,25 @@ def api_client():
     return session
 
 
-def test_legal_and_privacy_endpoints_return_200_json(api_client):
+def test_legal_privacy_and_terms_endpoints_return_200_json(api_client):
     legal_res = api_client.get(f"{BASE_URL}/api/legal", timeout=15)
     privacy_res = api_client.get(f"{BASE_URL}/api/privacy", timeout=15)
+    terms_res = api_client.get(f"{BASE_URL}/api/terms", timeout=15)
 
     assert legal_res.status_code == 200
     assert privacy_res.status_code == 200
+    assert terms_res.status_code == 200
 
     legal_data = legal_res.json()
     privacy_data = privacy_res.json()
+    terms_data = terms_res.json()
 
     assert isinstance(legal_data, dict)
     assert isinstance(privacy_data, dict)
+    assert isinstance(terms_data, dict)
     assert "legal" in legal_data
     assert "controller" in privacy_data
+    assert "operator" in terms_data
 
 
 def test_workers_include_bot_id_for_each_worker(api_client):

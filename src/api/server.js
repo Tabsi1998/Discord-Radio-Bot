@@ -469,6 +469,7 @@ const handlePublicRoutes = createPublicRoutesHandler({
   appStartTime,
   buildPublicLegalNotice,
   buildPublicPrivacyNotice,
+  buildPublicTermsNotice,
   buildPublicStationCatalog,
   frontendBuildStamp,
   getDashboardRequestTranslator,
@@ -1042,6 +1043,85 @@ function buildPublicPrivacyNotice() {
     basis: ["GDPR_ART_13", "GDPR_ART_15_22", "DSB_AT"],
     updatedAt: new Date().toISOString(),
   };
+}
+
+function buildPublicTermsNotice() {
+  const legalNotice = buildPublicLegalNotice();
+  const legal = legalNotice.legal || {};
+  const publicUrl = String(process.env.PUBLIC_WEB_URL || "").trim();
+  const fallbackEmail = extractMailbox(process.env.SMTP_FROM || "");
+  const hasStripe = Boolean(getStripeSecretKey());
+  const hasSmtp = Boolean(String(process.env.SMTP_HOST || "").trim());
+
+  const operator = {
+    providerName: legal.providerName || "",
+    representative: legal.representative || "",
+    businessPurpose: legal.businessPurpose || "",
+    website: legal.website || publicUrl,
+  };
+
+  const contact = {
+    email: String(process.env.TERMS_CONTACT_EMAIL || "").trim()
+      || String(process.env.PRIVACY_CONTACT_EMAIL || "").trim()
+      || legal.email
+      || fallbackEmail,
+    website: String(process.env.TERMS_SUPPORT_URL || "").trim()
+      || legal.website
+      || publicUrl,
+    effectiveDate: String(process.env.TERMS_EFFECTIVE_DATE || "").trim(),
+    governingLaw: String(process.env.TERMS_GOVERNING_LAW || "").trim(),
+  };
+
+  const missingCoreFields = [];
+  if (!operator.providerName) missingCoreFields.push("providerName");
+  if (!contact.email) missingCoreFields.push("contactEmail");
+  if (!contact.website) missingCoreFields.push("website");
+
+  return {
+    operator,
+    contact,
+    service: {
+      discordBotEnabled: true,
+      dashboardEnabled: true,
+      stationPreviewEnabled: true,
+      scheduledEventsEnabled: true,
+      customStationsEnabled: true,
+    },
+    billing: {
+      premiumCheckoutEnabled: hasStripe,
+      paymentProvider: hasStripe ? "Stripe" : "",
+      emailDeliveryEnabled: hasSmtp,
+      trialEnabled: isProTrialEnabled(),
+    },
+    customNote: String(process.env.TERMS_CUSTOM_NOTE || "").trim(),
+    missingCoreFields,
+    isConfigured: missingCoreFields.length === 0,
+    basis: ["DISCORD_TERMS", "AUSTRIAN_SERVICE_TERMS", "STREAM_RIGHTS_NOTICE"],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+const SPA_ENTRY_PATHS = new Set([
+  "/",
+  "/dashboard",
+  "/imprint",
+  "/impressum",
+  "/privacy",
+  "/privacy-policy",
+  "/datenschutz",
+  "/terms",
+  "/tos",
+  "/terms-of-service",
+  "/nutzungsbedingungen",
+  "/agb",
+]);
+
+function normalizeSpaPathname(pathname) {
+  const raw = String(pathname || "/").trim();
+  if (!raw) return "/";
+  const withLeadingSlash = raw.startsWith("/") ? raw : `/${raw}`;
+  if (withLeadingSlash.length === 1) return withLeadingSlash;
+  return withLeadingSlash.replace(/\/+$/, "");
 }
 
 function parseEnvInt(value, fallback, minimum = 1) {
@@ -2671,9 +2751,11 @@ function startWebServer(runtimes) {
     }
 
     // --- Static file serving from the built frontend ---
-    const staticPath = requestUrl.pathname === "/"
+    const normalizedPathname = normalizeSpaPathname(requestUrl.pathname);
+    const shouldServeSpaEntry = SPA_ENTRY_PATHS.has(normalizedPathname);
+    const staticPath = shouldServeSpaEntry
       ? "index.html"
-      : requestUrl.pathname.replace(/^\/+/, "");
+      : (normalizedPathname === "/" ? "index.html" : normalizedPathname.replace(/^\/+/, ""));
     const filePath = path.join(webDir, staticPath);
     sendStaticFile(res, filePath, { headOnly: req.method === "HEAD" });
   });

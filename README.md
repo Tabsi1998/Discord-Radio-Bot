@@ -15,7 +15,7 @@ OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium 
 - Publishes cleaner now-playing embeds with cover art and search buttons
 - Falls back to audio fingerprint recognition when stations provide bad or missing metadata
 - Syncs bot stats, commands, and vote webhooks with DiscordBotList
-- Serves bilingual imprint and privacy pages for the website footer
+- Serves bilingual imprint, privacy, and terms pages for the website footer
 
 ## Requirements
 
@@ -49,7 +49,7 @@ The interactive scripts now also cover:
 - SMTP credentials
 - AcoustID recognition settings
 - Default language fallback via `DEFAULT_LANGUAGE` (`en` recommended)
-- Imprint and privacy details for Austrian legal pages
+- Imprint, privacy, and terms details for Austrian legal pages
 
 After installation:
 
@@ -90,12 +90,13 @@ The commander handles commands. Workers carry the actual audio streams.
 
 ## Website legal pages
 
-OmniFM now exposes two footer-linked legal pages on the production website:
+OmniFM now exposes three footer-linked legal pages on the production website:
 
 - `Impressum / Imprint`
 - `Datenschutzerklärung / Privacy policy`
+- `Nutzungsbedingungen / Terms of service`
 
-Both pages are bilingual and use the same locale handling as the rest of the React frontend.
+All three pages are bilingual and use the same locale handling as the rest of the React frontend.
 
 ### Configure them
 
@@ -108,7 +109,7 @@ Open:
 Then choose:
 
 ```text
-8) Impressum & Datenschutz
+8) Impressum, Datenschutz & Terms
 ```
 
 ### Required imprint details
@@ -163,6 +164,38 @@ Recommended minimum for the privacy page:
 - the hosting location or region
 
 If privacy-specific fields are omitted, OmniFM falls back to the imprint data where possible and visibly marks missing details on the legal pages.
+
+### Terms details
+
+The terms page reuses the operator details from the imprint and exposes a dedicated service/contact block for Discord verification and support links. These fields are additionally available in the same menu:
+
+- `TERMS_CONTACT_EMAIL`
+- `TERMS_SUPPORT_URL`
+- `TERMS_EFFECTIVE_DATE`
+- `TERMS_GOVERNING_LAW`
+- `TERMS_CUSTOM_NOTE`
+
+Recommended minimum for the terms page:
+
+- a valid support or contact email
+- a public support or website URL
+- an effective date
+- a governing-law statement
+
+The website supports both query-style links and clean localized paths:
+
+- `/?page=imprint` and `/imprint`
+- `/?page=privacy` and `/privacy`
+- `/?page=terms` and `/terms`
+- German equivalents `/impressum`, `/datenschutz`, `/nutzungsbedingungen`
+
+The terms page includes an explicit notice that terms of service do not resolve any copyright or licensing obligations for radio streams or user-provided stream URLs.
+
+Public API payloads for the legal pages are available at:
+
+- `/api/legal`
+- `/api/privacy`
+- `/api/terms`
 
 ## Architecture
 

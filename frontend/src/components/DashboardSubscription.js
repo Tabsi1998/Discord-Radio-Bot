@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n.js';
 import { getDashboardBlockedFeatureLabels } from '../lib/dashboardCapabilities.js';
+import { buildHomeHref, buildPageHref } from '../lib/pageRouting.js';
 import {
   formatSubscriptionPriceCents,
   buildSubscriptionLimitCards,
@@ -482,7 +483,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
   const isExpiringSoon = !isExpired && lic?.remainingDays != null && lic.remainingDays <= 7;
   const canManagePaidPlan = lic && ['pro', 'ultimate'].includes(String(lic.plan || effectiveTier || '').toLowerCase());
   const canUpgradeToUltimate = String(lic?.plan || effectiveTier || '').toLowerCase() === 'pro';
-  const plansHref = `/?page=home&lang=${encodeURIComponent(locale)}#premium`;
+  const plansHref = buildHomeHref(locale, '#premium');
   const blockedFeatureLabels = useMemo(
     () => getDashboardBlockedFeatureLabels(capabilityPayload?.upgradeHints?.blockedFeatures, t, 6),
     [capabilityPayload?.upgradeHints?.blockedFeatures, t]
@@ -546,7 +547,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
           email,
           couponCode,
           language: locale,
-          returnUrl: `${window.location.origin}/?page=dashboard&lang=${encodeURIComponent(locale)}`,
+          returnUrl: new URL(buildPageHref(locale, 'dashboard'), window.location.origin).toString(),
         }),
       });
       if (result?.url) {

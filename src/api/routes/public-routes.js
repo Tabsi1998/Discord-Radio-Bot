@@ -49,6 +49,7 @@ export function createPublicRoutesHandler(deps) {
     appStartTime,
     buildPublicLegalNotice,
     buildPublicPrivacyNotice,
+    buildPublicTermsNotice,
     buildPublicStationCatalog,
     frontendBuildStamp,
     getDashboardRequestTranslator,
@@ -164,6 +165,15 @@ export function createPublicRoutesHandler(deps) {
         return true;
       }
       sendJson(res, 200, buildPublicPrivacyNotice());
+      return true;
+    }
+
+    if (requestUrl.pathname === "/api/terms") {
+      if (req.method !== "GET") {
+        methodNotAllowed(res, ["GET"]);
+        return true;
+      }
+      sendJson(res, 200, buildPublicTermsNotice());
       return true;
     }
 

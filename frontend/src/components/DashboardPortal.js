@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BarChart3, CalendarDays, Crown, Globe, Lock, LogOut, ShieldCheck, TrendingUp, Radio, Settings, ListMusic, CreditCard, ArrowLeft } from 'lucide-react';
 import { useI18n } from '../i18n.js';
 import { buildApiUrl } from '../lib/api.js';
+import { buildHomeHref } from '../lib/pageRouting.js';
 import DashboardOverview from './DashboardOverview.js';
 import DashboardOnboardingHint from './DashboardOnboardingHint.js';
 import DashboardStatsPanel from './DashboardStats.js';
@@ -166,7 +167,7 @@ export default function DashboardPortal() {
   const apiRequest = useCallback((path, options = {}) => apiRequestWithLanguage(path, locale, options), [locale]);
   const authError = resolveAuthError();
   const authErrorMessage = useMemo(() => resolveAuthErrorMessage(authError, t), [authError, t]);
-  const mainSiteHref = useMemo(() => `/?page=home&lang=${encodeURIComponent(locale || 'de')}`, [locale]);
+  const mainSiteHref = useMemo(() => buildHomeHref(locale || 'de'), [locale]);
   const premiumHref = useMemo(() => `${mainSiteHref}#premium`, [mainSiteHref]);
 
   const [loadingSession, setLoadingSession] = useState(true);

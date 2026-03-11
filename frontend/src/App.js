@@ -9,6 +9,7 @@ import UseCasesSection from './components/UseCasesSection.js';
 import Premium from './components/Premium.js';
 import ImpressumSection from './components/ImpressumSection.js';
 import PrivacySection from './components/PrivacySection.js';
+import TermsSection from './components/TermsSection.js';
 import StatsFooter from './components/StatsFooter.js';
 import Navbar from './components/Navbar.js';
 import PlanMatrix from './components/PlanMatrix.js';
@@ -16,6 +17,7 @@ import DashboardPortal from './components/DashboardPortal.js';
 import FaqSection from './components/FaqSection.js';
 import { I18nProvider } from './i18n.js';
 import { buildApiUrl } from './lib/api.js';
+import { resolvePageFromUrl } from './lib/pageRouting.js';
 
 async function fetchJson(path, signal) {
   const res = await fetch(buildApiUrl(path), {
@@ -40,33 +42,19 @@ async function fetchJson(path, signal) {
   return data || {};
 }
 
-function resolvePageFromLocation() {
-  if (typeof window === 'undefined') return 'home';
-
-  try {
-    const url = new URL(window.location.href);
-    const rawPage = String(url.searchParams.get('page') || '').trim().toLowerCase();
-    if (rawPage === 'imprint' || rawPage === 'impressum') return 'imprint';
-    if (rawPage === 'privacy' || rawPage === 'datenschutz' || rawPage === 'privacy-policy') return 'privacy';
-    if (rawPage === 'dashboard') return 'dashboard';
-    if (rawPage === 'home') return 'home';
-  } catch {
-    return 'home';
-  }
-
-  return 'home';
-}
-
 function AppContent() {
   const [bots, setBots] = useState([]);
   const [stations, setStations] = useState([]);
   const [stats, setStats] = useState({});
   const [legal, setLegal] = useState(null);
   const [privacy, setPrivacy] = useState(null);
+  const [terms, setTerms] = useState(null);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
-  const currentPage = resolvePageFromLocation();
+  const currentPage = typeof window === 'undefined'
+    ? 'home'
+    : resolvePageFromUrl(window.location.href);
 
   const fetchData = useCallback(async (signal) => {
     const endpoints = [
@@ -75,6 +63,7 @@ function AppContent() {
       '/api/stats',
       '/api/legal',
       '/api/privacy',
+      '/api/terms',
     ];
 
     const results = await Promise.allSettled(endpoints.map((path) => fetchJson(path, signal)));
@@ -115,6 +104,13 @@ function AppContent() {
       anyUpdate = true;
     } else if (results[4].reason?.name !== 'AbortError') {
       console.error('Privacy API error:', results[4].reason);
+    }
+
+    if (results[5].status === 'fulfilled') {
+      setTerms(results[5].value || null);
+      anyUpdate = true;
+    } else if (results[5].reason?.name !== 'AbortError') {
+      console.error('Terms API error:', results[5].reason);
     }
 
     const nonAbortFailures = results.filter(
@@ -189,6 +185,17 @@ function AppContent() {
         <div className="noise-overlay" />
         <Navbar page={currentPage} />
         <PrivacySection legal={legal} privacy={privacy} standalone />
+        <StatsFooter stats={stats} bots={bots} />
+      </div>
+    );
+  }
+
+  if (currentPage === 'terms') {
+    return (
+      <div data-testid="app-root" style={{ position: 'relative', minHeight: '100vh' }}>
+        <div className="noise-overlay" />
+        <Navbar page={currentPage} />
+        <TermsSection legal={legal} terms={terms} />
         <StatsFooter stats={stats} bots={bots} />
       </div>
     );

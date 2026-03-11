@@ -1,15 +1,7 @@
 import React from 'react';
 import { Heart, Radio } from 'lucide-react';
 import { useI18n } from '../i18n.js';
-
-function buildLegalHref(locale, page) {
-  const params = new URLSearchParams();
-  params.set('page', page);
-  if (locale) {
-    params.set('lang', locale);
-  }
-  return `/?${params.toString()}`;
-}
+import { buildPageHref } from '../lib/pageRouting.js';
 
 function StatsFooter({ stats }) {
   const { copy, locale, formatNumber } = useI18n();
@@ -94,11 +86,14 @@ function StatsFooter({ stats }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
-            <a href={buildLegalHref(locale, 'imprint')} data-testid="footer-impressum" style={{ color: '#71717A', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            <a href={buildPageHref(locale, 'imprint')} data-testid="footer-impressum" style={{ color: '#71717A', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               {copy.footer.links.imprint}
             </a>
-            <a href={buildLegalHref(locale, 'privacy')} data-testid="footer-privacy" style={{ color: '#71717A', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            <a href={buildPageHref(locale, 'privacy')} data-testid="footer-privacy" style={{ color: '#71717A', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               {copy.footer.links.privacy}
+            </a>
+            <a href={buildPageHref(locale, 'terms')} data-testid="footer-terms" style={{ color: '#71717A', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              {copy.footer.links.terms}
             </a>
             <a href="https://discord.gg/UeRkfGS43R" target="_blank" rel="noopener noreferrer" data-testid="footer-discord" style={{ color: '#5865F2', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               {copy.footer.discord}
