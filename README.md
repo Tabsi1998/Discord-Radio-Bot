@@ -574,6 +574,7 @@ These JSON files are used in file-store mode and are preserved by `update.sh`:
 - `stations.json`
 - `premium.json`
 - `bot-state.json`
+- `dashboard.json`
 - `custom-stations.json`
 - `command-permissions.json`
 - `guild-languages.json`
@@ -681,6 +682,29 @@ Notes:
 - `PUBLIC_WEB_URL=http://localhost:8081` is recommended for local premium and OAuth testing.
 - MongoDB is optional for local work. Without `MONGO_URL` or `MONGO_ENABLED=1`, OmniFM falls back to file-based stores.
 
+## Live acceptance after deploy or update
+
+Use the built-in live check after a restart, update, or provider configuration change:
+
+```bash
+node scripts/phase6-live-check.mjs --base-url https://omnifm.xyz --admin-token "$API_ADMIN_TOKEN" --docker-service omnifm --log-since 30m
+```
+
+The script checks:
+
+- admin status endpoints for `discordbotlist.com`, `discord.bots.gg`, `top.gg`, and unified vote events
+- live public provider snapshots where the provider exposes them
+- recent Docker logs for hard failure patterns such as guild leaves, access-denied shutdowns, reconnect circuits, and startup errors
+
+Useful inputs:
+
+- `--base-url` or `OMNIFM_BASE_URL`
+- `--admin-token` or `OMNIFM_ADMIN_TOKEN`
+- `--docker-service` or `OMNIFM_DOCKER_SERVICE`
+- `--log-since` or `OMNIFM_LOG_SINCE`
+
+The script exits non-zero when a configured provider fails its status checks or when recent logs contain hard failure patterns.
+
 ## Troubleshooting
 
 ### Bots appear stuck in voice but are not actually there
@@ -706,11 +730,13 @@ Notes:
 
 - Verify `DISCORDBOTLIST_TOKEN`
 - Verify `DISCORDBOTLIST_BOT_ID`
+- If you want public listing checks, verify `DISCORDBOTLIST_SLUG`
 - Verify `DISCORDBOTLIST_WEBHOOK_SECRET`
 - Set `PUBLIC_WEB_URL`
 - Use `POST /api/discordbotlist/sync` with the admin token to force a sync
-- Check `GET /api/discordbotlist/status?live=1` and compare it with `https://discord.bots.gg/api/v1/bots/<botId>`
-- If the public listing still shows `guildCount: 0` or `online: false`, also verify the bot page settings on `discord.bots.gg` itself, including the selected library and claimed ownership
+- Check `GET /api/discordbotlist/status?live=1`
+- If `DISCORDBOTLIST_SLUG` is configured, verify the public page at `https://discordbotlist.com/bots/<slug>`
+- If command publishing still fails, confirm the owner token is valid and the application can publish the current slash-command payload
 
 ### bots.gg guild count is not updating
 
@@ -720,6 +746,7 @@ Notes:
 - Use `POST /api/botsgg/sync` with the admin token to force a stats post
 - Check `GET /api/botsgg/status?live=1`
 - Confirm the listing is claimed correctly on `discord.bots.gg`
+- Confirm the selected library on the listing matches the real implementation, for example `discord.js`
 - Do not expect the documented stats endpoint to directly force the public `online` field
 
 ### Top.gg votes, commands, or stats are not syncing
