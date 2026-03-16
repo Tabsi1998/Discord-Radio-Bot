@@ -60,12 +60,16 @@ function buildVoiceChannelUsageRows(voiceChannels = {}, voiceChannelNames = {}) 
 
 function normalizeDashboardHealth(source = {}) {
   const input = source && typeof source === "object" ? source : {};
+  const managedBots = Math.max(0, Number(input.managedBots || 0) || 0);
+  const readyBots = Math.max(0, Number(input.readyBots || 0) || 0);
+  const providedUnavailableBots = Math.max(0, Number(input.unavailableBots || 0) || 0);
   return {
     status: ["healthy", "warning", "critical"].includes(String(input.status || ""))
       ? String(input.status)
       : "unknown",
-    managedBots: Math.max(0, Number(input.managedBots || 0) || 0),
-    readyBots: Math.max(0, Number(input.readyBots || 0) || 0),
+    managedBots,
+    readyBots,
+    unavailableBots: Math.max(providedUnavailableBots, Math.max(0, managedBots - readyBots)),
     liveStreams: Math.max(0, Number(input.liveStreams || 0) || 0),
     activeVoiceChannels: Math.max(0, Number(input.activeVoiceChannels || 0) || 0),
     listenersNow: Math.max(0, Number(input.listenersNow || 0) || 0),
@@ -127,7 +131,7 @@ function buildDashboardHealthStatus(source = {}, t = (de, en) => de) {
 function buildDashboardHealthAlerts(source = {}, t = (de, en) => de) {
   const health = normalizeDashboardHealth(source);
   const alerts = [];
-  const unavailableBots = Math.max(0, health.managedBots - health.readyBots);
+  const unavailableBots = Math.max(0, Number(health.unavailableBots || 0) || 0);
 
   if (health.managedBots <= 0) {
     alerts.push({

@@ -94,6 +94,21 @@ test("buildDashboardHealthAlerts derives actionable alert rows from health count
   assert.equal(alerts[2].severity, "critical");
 });
 
+test("buildDashboardHealthAlerts honors explicit unavailable bot counts from the API payload", () => {
+  const t = (_de, en) => en;
+  const alerts = buildDashboardHealthAlerts({
+    managedBots: 3,
+    readyBots: 3,
+    unavailableBots: 1,
+    recoveringStreams: 0,
+    degradedStreams: 0,
+  }, t);
+
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].severity, "warning");
+  assert.match(alerts[0].message, /1 bot/i);
+});
+
 test("buildDashboardAnalyticsUpgradeHint only targets non-ultimate overview users", () => {
   const t = (_de, en) => en;
   const proHint = buildDashboardAnalyticsUpgradeHint({ isUltimate: false, t });

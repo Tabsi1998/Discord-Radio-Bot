@@ -1587,6 +1587,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(statsResponse.payload.basic.setupStatus.completedSteps, 2);
   assert.equal(statsResponse.payload.basic.health.status, "warning");
   assert.equal(statsResponse.payload.basic.health.managedBots, 1);
+  assert.equal(statsResponse.payload.basic.health.unavailableBots, 0);
   assert.equal(statsResponse.payload.basic.health.liveStreams, 1);
   assert.equal(statsResponse.payload.basic.health.recoveringStreams, 1);
   assert.equal(statsResponse.payload.basic.health.streamErrors, 1);
@@ -1866,6 +1867,7 @@ test("dashboard stats keep recovering workers visible even without an active voi
   assert.equal(statsResponse.payload.basic.health.status, "warning");
   assert.equal(statsResponse.payload.basic.health.managedBots, 2);
   assert.equal(statsResponse.payload.basic.health.readyBots, 1);
+  assert.equal(statsResponse.payload.basic.health.unavailableBots, 1);
   assert.equal(statsResponse.payload.basic.health.liveStreams, 1);
   assert.equal(statsResponse.payload.basic.health.recoveringStreams, 1);
   assert.equal(statsResponse.payload.basic.health.degradedStreams, 0);

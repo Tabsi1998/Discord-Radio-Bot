@@ -1640,6 +1640,7 @@ function buildDashboardHealthSummary(serverId, runtimes, {
     status,
     managedBots,
     readyBots,
+    unavailableBots,
     liveStreams: liveStreamCount,
     activeVoiceChannels,
     listenersNow: Number(listenersNow ?? 0) || 0,
