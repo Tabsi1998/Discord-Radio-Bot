@@ -196,6 +196,18 @@ function scheduleRuntimeRestoreRetry(runtime, guildId, data, stations, reason = 
   timers.set(key, timer);
 }
 
+function syncObservedRuntimeChannel(runtime, state, actualChannelId) {
+  const normalizedActualChannelId = String(actualChannelId || "").trim();
+  if (!normalizedActualChannelId) return false;
+  if (String(state?.lastChannelId || "").trim() === normalizedActualChannelId) {
+    return false;
+  }
+  runtime.markNowPlayingTargetDirty(state, normalizedActualChannelId);
+  state.lastChannelId = normalizedActualChannelId;
+  runtime.persistState();
+  return true;
+}
+
 function confirmTransientVoiceIssue(runtime, guildId, state, code, detail, {
   threshold,
   recheckReason,
@@ -391,12 +403,16 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
   if (!state.connection && !state.currentStationKey && !state.lastChannelId) return;
 
   const { channelId: actualChannelId } = await runtime.fetchBotVoiceState(guildId);
-  const expectedChannelId = state.lastChannelId || state.connection?.joinConfig?.channelId || null;
+  const connectionChannelId = String(state.connection?.joinConfig?.channelId || "").trim() || null;
+  let expectedChannelId = connectionChannelId || state.lastChannelId || null;
 
-  if (actualChannelId && state.lastChannelId !== actualChannelId) {
-    runtime.markNowPlayingTargetDirty(state, actualChannelId);
-    state.lastChannelId = actualChannelId;
-    runtime.persistState();
+  if (actualChannelId && !expectedChannelId) {
+    syncObservedRuntimeChannel(runtime, state, actualChannelId);
+    expectedChannelId = String(actualChannelId || "").trim() || null;
+  } else if (actualChannelId && connectionChannelId && actualChannelId === connectionChannelId) {
+    if (syncObservedRuntimeChannel(runtime, state, actualChannelId)) {
+      expectedChannelId = String(actualChannelId || "").trim() || null;
+    }
   }
 
   if (!actualChannelId) {
@@ -449,13 +465,11 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
         logMessage: `Voice-Channel-Mismatch erkannt (expected=${expectedChannelId}, actual=${actualChannelId}, reason=${reason})`,
       }
     );
-    runtime.markNowPlayingTargetDirty(state, actualChannelId);
-    state.lastChannelId = actualChannelId;
-    runtime.persistState();
     if (!issue.confirmed) {
       return;
     }
     clearTransientVoiceIssue(state, "voice-channel-mismatch");
+    syncObservedRuntimeChannel(runtime, state, actualChannelId);
     if (!state.currentProcess && state.player.state.status === AudioPlayerStatus.Idle && !state.reconnectTimer) {
       runtime.scheduleReconnect(guildId, { resetAttempts: true, reason: "voice-channel-mismatch" });
       return;
