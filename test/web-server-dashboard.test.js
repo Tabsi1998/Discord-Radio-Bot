@@ -1645,3 +1645,206 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(sessionAfterLogoutResponse.status, 200);
   assert.equal(sessionAfterLogoutResponse.payload.authenticated, false);
 });
+
+test("dashboard stats keep recovering workers visible even without an active voice connection", async (t) => {
+  const trackedFiles = [
+    path.join(repoRoot, "dashboard.json"),
+    path.join(repoRoot, "dashboard.json.bak"),
+    path.join(repoRoot, "command-permissions.json"),
+    path.join(repoRoot, "command-permissions.json.bak"),
+    path.join(repoRoot, "listening-stats.json"),
+    path.join(repoRoot, "listening-stats.json.bak"),
+    path.join(repoRoot, "scheduled-events.json"),
+  ];
+  const snapshots = new Map();
+  for (const filePath of trackedFiles) {
+    snapshots.set(filePath, await snapshotFile(filePath));
+  }
+
+  const restoreEnv = setEnv({
+    WEB_INTERNAL_PORT: "0",
+    WEB_PORT: "0",
+    WEB_BIND: "127.0.0.1",
+    API_RATE_LIMIT_MAX: "200",
+    API_RATE_LIMIT_PREMIUM_MAX: "50",
+    API_RATE_LIMIT_WEBHOOK_MAX: "200",
+  });
+
+  setLicenseProvider((serverId) => {
+    if (String(serverId) !== GUILD_ID) return null;
+    return {
+      plan: "pro",
+      active: true,
+      seats: 1,
+    };
+  });
+
+  const sessionToken = `test-session-recovering-${Date.now()}`;
+  const nowTs = Math.floor(Date.now() / 1000);
+  setDashboardAuthSession(sessionToken, {
+    user: {
+      id: "523456789012345678",
+      username: "RecoveringUser",
+    },
+    guilds: [{
+      id: GUILD_ID,
+      name: "OmniFM Test Guild",
+      permissions: "32",
+      owner: true,
+    }],
+    createdAt: nowTs,
+    expiresAt: nowTs + 3600,
+  });
+
+  const guild = createGuildStub();
+  const commanderRuntime = {
+    role: "commander",
+    config: {
+      id: "bot-test-commander",
+      index: 1,
+      name: "OmniFM DJ",
+      requiredTier: "free",
+    },
+    guildState: new Map(),
+    client: {
+      isReady: () => true,
+      guilds: { cache: new Map([[GUILD_ID, guild]]) },
+    },
+    collectStats() {
+      return { servers: 1, users: 12, connections: 0, listeners: 0 };
+    },
+    getPlayingGuildCount() {
+      return 0;
+    },
+    getPublicStatus() {
+      return {
+        id: "bot-test-commander",
+        botId: "bot-test-commander",
+        name: "OmniFM DJ",
+        role: "commander",
+        requiredTier: "free",
+        ready: true,
+        servers: 1,
+        users: 12,
+        connections: 0,
+        listeners: 0,
+      };
+    },
+    getDashboardStatus() {
+      return {
+        id: "bot-test-commander",
+        botId: "bot-test-commander",
+        name: "OmniFM DJ",
+        role: "commander",
+        requiredTier: "free",
+        ready: true,
+        servers: 1,
+        users: 12,
+        connections: 0,
+        listeners: 0,
+        guildDetails: [],
+      };
+    },
+  };
+
+  const offlineWorkerRuntime = {
+    role: "worker",
+    workerSlot: 1,
+    config: {
+      id: "bot-test-worker-1",
+      index: 2,
+      name: "OmniFM 1",
+      requiredTier: "free",
+    },
+    guildState: new Map([[
+      GUILD_ID,
+      {
+        currentStationKey: "rock",
+        currentStationName: "Rock FM",
+        lastChannelId: VOICE_CHANNEL_ID,
+        shouldReconnect: true,
+        reconnectAttempts: 3,
+        reconnectTimer: { pending: true },
+        streamErrorCount: 0,
+        currentMeta: null,
+        connection: null,
+      },
+    ]]),
+    client: {
+      isReady: () => false,
+      guilds: { cache: new Map() },
+    },
+    getCurrentListenerCount() {
+      return 0;
+    },
+    getPublicStatus() {
+      return {
+        id: "bot-test-worker-1",
+        botId: "bot-test-worker-1",
+        name: "OmniFM 1",
+        role: "worker",
+        requiredTier: "free",
+        ready: false,
+        servers: 0,
+        users: 0,
+        connections: 0,
+        listeners: 0,
+      };
+    },
+    getDashboardStatus() {
+      return {
+        id: "bot-test-worker-1",
+        botId: "bot-test-worker-1",
+        name: "OmniFM 1",
+        role: "worker",
+        requiredTier: "free",
+        ready: false,
+        servers: 0,
+        users: 0,
+        connections: 0,
+        listeners: 0,
+        guildDetails: [],
+      };
+    },
+  };
+
+  const server = startWebServer([commanderRuntime, offlineWorkerRuntime]);
+  await once(server, "listening");
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    deleteDashboardAuthSession(sessionToken);
+    setLicenseProvider(() => null);
+    restoreEnv();
+    for (const [filePath, snapshot] of snapshots.entries()) {
+      await restoreFile(filePath, snapshot);
+    }
+  });
+
+  const statsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/stats?serverId=${GUILD_ID}`,
+    { headers: { "x-session-token": sessionToken } }
+  );
+
+  assert.equal(statsResponse.status, 200);
+  assert.equal(statsResponse.payload.basic.setupStatus.commanderReady, true);
+  assert.equal(statsResponse.payload.basic.setupStatus.invitedWorkerCount, 1);
+  assert.equal(statsResponse.payload.basic.setupStatus.activeStreamCount, 1);
+  assert.equal(statsResponse.payload.basic.setupStatus.firstStreamLive, true);
+  assert.equal(statsResponse.payload.basic.health.status, "warning");
+  assert.equal(statsResponse.payload.basic.health.managedBots, 2);
+  assert.equal(statsResponse.payload.basic.health.readyBots, 1);
+  assert.equal(statsResponse.payload.basic.health.liveStreams, 1);
+  assert.equal(statsResponse.payload.basic.health.recoveringStreams, 1);
+  assert.equal(statsResponse.payload.basic.health.degradedStreams, 0);
+
+  const workerRow = statsResponse.payload.basic.health.bots.find((row) => row.botId === "bot-test-worker-1");
+  assert.ok(workerRow);
+  assert.equal(workerRow.ready, false);
+  assert.equal(workerRow.status, "offline");
+  assert.equal(workerRow.recovering, true);
+  assert.equal(workerRow.stationName, "Rock FM");
+});

@@ -1412,6 +1412,71 @@ function sortDashboardRuntimes(runtimes) {
   });
 }
 
+function getDashboardStatusSnapshot(runtime) {
+  if (typeof runtime?.getDashboardStatus === "function") {
+    return runtime.getDashboardStatus();
+  }
+  if (typeof runtime?.getPublicStatus === "function") {
+    return runtime.getPublicStatus();
+  }
+  return {};
+}
+
+function buildDerivedDashboardGuildDetail(runtime, guildId) {
+  const state = runtime?.guildState?.get?.(guildId);
+  if (!state) return null;
+
+  const guild = runtime?.client?.guilds?.cache?.get?.(guildId) || null;
+  const reconnectAttempts = Number(state?.reconnectAttempts || 0) || 0;
+  const streamErrorCount = Number(state?.streamErrorCount || 0) || 0;
+  const playing = Boolean(state?.connection && state?.currentStationKey);
+  const recovering = Boolean(
+    state?.currentStationKey
+    && state?.shouldReconnect === true
+    && (!state?.connection || state?.reconnectTimer || reconnectAttempts > 0)
+  );
+  if (!playing && !recovering && !state?.currentStationKey && !state?.lastChannelId) {
+    return null;
+  }
+
+  let listenerCount = 0;
+  if (playing && typeof runtime?.getCurrentListenerCount === "function") {
+    try {
+      listenerCount = Number(runtime.getCurrentListenerCount(guildId, state) || 0) || 0;
+    } catch {
+      listenerCount = 0;
+    }
+  }
+
+  return {
+    guildId,
+    guildName: guild?.name || null,
+    stationKey: state?.currentStationKey || null,
+    stationName: state?.currentStationName || state?.currentStationKey || null,
+    channelId: state?.lastChannelId || null,
+    channelName: state?.lastChannelId ? guild?.channels?.cache?.get?.(state.lastChannelId)?.name || null : null,
+    listenerCount,
+    playing,
+    recovering,
+    reconnectAttempts,
+    streamErrorCount,
+    shouldReconnect: state?.shouldReconnect === true,
+    meta: state?.currentMeta || null,
+  };
+}
+
+function resolveDashboardGuildDetail(runtime, guildId, status = null) {
+  const snapshot = status || getDashboardStatusSnapshot(runtime);
+  const guildDetails = Array.isArray(snapshot?.guildDetails) ? snapshot.guildDetails : [];
+  const detail = guildDetails.find((entry) => String(entry?.guildId || "") === String(guildId)) || null;
+  return detail || buildDerivedDashboardGuildDetail(runtime, guildId);
+}
+
+function runtimeHasGuildContext(runtime, guildId, detail = null) {
+  if (runtime?.client?.guilds?.cache?.has?.(guildId) === true) return true;
+  return Boolean(detail);
+}
+
 function resolveRuntimeForGuild(runtimes, guildId) {
   const sorted = sortDashboardRuntimes(runtimes);
 
@@ -1427,27 +1492,23 @@ function collectGuildLiveDetails(runtimes, guildId) {
   const rows = [];
   for (const runtime of runtimes) {
     if (typeof runtime?.getPublicStatus !== "function") continue;
-    const status = typeof runtime?.getDashboardStatus === "function"
-      ? runtime.getDashboardStatus()
-      : runtime.getPublicStatus();
-    const guildDetails = Array.isArray(status?.guildDetails) ? status.guildDetails : [];
-    for (const detail of guildDetails) {
-      if (String(detail?.guildId || "") !== String(guildId)) continue;
-      if (!detail?.playing) continue;
-      rows.push({
-        botId: status.botId || status.id || null,
-        botName: status.name || "Bot",
-        stationKey: detail.stationKey || null,
-        stationName: detail.stationName || detail.stationKey || "-",
-        channelId: detail.channelId || null,
-        channelName: detail.channelName || detail.channelId || "Voice",
-        listeners: Number(detail.listenerCount || 0) || 0,
-        reconnectAttempts: Number(detail.reconnectAttempts || 0) || 0,
-        streamErrorCount: Number(detail.streamErrorCount || 0) || 0,
-        recovering: detail?.recovering === true,
-        shouldReconnect: detail.shouldReconnect === true,
-      });
-    }
+    const status = getDashboardStatusSnapshot(runtime);
+    const detail = resolveDashboardGuildDetail(runtime, guildId, status);
+    if (!detail) continue;
+    if (detail?.playing !== true && detail?.recovering !== true) continue;
+    rows.push({
+      botId: status.botId || status.id || null,
+      botName: status.name || "Bot",
+      stationKey: detail.stationKey || null,
+      stationName: detail.stationName || detail.stationKey || "-",
+      channelId: detail.channelId || null,
+      channelName: detail.channelName || detail.channelId || "Voice",
+      listeners: Number(detail.listenerCount || 0) || 0,
+      reconnectAttempts: Number(detail.reconnectAttempts || 0) || 0,
+      streamErrorCount: Number(detail.streamErrorCount || 0) || 0,
+      recovering: detail?.recovering === true,
+      shouldReconnect: detail.shouldReconnect === true,
+    });
   }
   return rows;
 }
@@ -1455,14 +1516,10 @@ function collectGuildLiveDetails(runtimes, guildId) {
 function collectGuildBotHealthRows(runtimes, guildId) {
   const rows = [];
   for (const runtime of sortDashboardRuntimes(runtimes)) {
-    const guild = runtime?.client?.guilds?.cache?.get?.(guildId) || null;
-    if (!guild) continue;
+    const status = getDashboardStatusSnapshot(runtime);
+    const detail = resolveDashboardGuildDetail(runtime, guildId, status);
+    if (!runtimeHasGuildContext(runtime, guildId, detail)) continue;
 
-    const status = typeof runtime?.getDashboardStatus === "function"
-      ? runtime.getDashboardStatus()
-      : (typeof runtime?.getPublicStatus === "function" ? runtime.getPublicStatus() : {});
-    const guildDetails = Array.isArray(status?.guildDetails) ? status.guildDetails : [];
-    const detail = guildDetails.find((entry) => String(entry?.guildId || "") === String(guildId)) || null;
     const reconnectAttempts = Number(detail?.reconnectAttempts || 0) || 0;
     const streamErrorCount = Number(detail?.streamErrorCount || 0) || 0;
     const playing = detail?.playing === true;
@@ -1523,6 +1580,7 @@ function buildDashboardHealthSummary(serverId, runtimes, {
   ).size;
   const recoveringStreams = activeLiveRows.filter((row) => row?.recovering === true).length;
   const degradedStreams = activeLiveRows.filter((row) => {
+    if (row?.recovering === true) return false;
     const reconnectAttempts = Number(row?.reconnectAttempts || 0) || 0;
     const streamErrors = Number(row?.streamErrorCount || 0) || 0;
     return reconnectAttempts > 0 || streamErrors > 0;
@@ -1593,20 +1651,15 @@ function buildDashboardSetupStatus(serverId, tier, runtimes, {
     && commanderRuntime?.client?.guilds?.cache?.has?.(safeServerId)
   );
 
-  let invitedWorkerCount = 0;
-  if (commanderRuntime?.workerManager) {
-    invitedWorkerCount = commanderRuntime.workerManager.getInvitedWorkers(safeServerId, safeTier).length;
-  } else {
-    invitedWorkerCount = sortDashboardRuntimes(runtimes)
-      .filter((runtime) => String(runtime?.role || "").trim() !== "commander")
-      .filter((runtime) => {
-        const workerSlot = Number(runtime?.workerSlot || runtime?.config?.index || 0) || 0;
-        if (!workerSlot || workerSlot > maxWorkerSlots) return false;
-        if (runtime?.client?.isReady?.() !== true) return false;
-        return runtime?.client?.guilds?.cache?.has?.(safeServerId) === true;
-      })
-      .length;
-  }
+  const invitedWorkerCount = sortDashboardRuntimes(runtimes)
+    .filter((runtime) => String(runtime?.role || "").trim() !== "commander")
+    .filter((runtime) => {
+      const workerSlot = Number(runtime?.workerSlot || runtime?.config?.index || 0) || 0;
+      if (!workerSlot || workerSlot > maxWorkerSlots) return false;
+      const detail = resolveDashboardGuildDetail(runtime, safeServerId);
+      return runtimeHasGuildContext(runtime, safeServerId, detail);
+    })
+    .length;
 
   const workerInvited = invitedWorkerCount > 0;
   const firstStreamLive = activeStreamCount > 0;
