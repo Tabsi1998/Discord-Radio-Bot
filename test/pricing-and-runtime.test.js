@@ -15,6 +15,7 @@ import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import {
   fetchRuntimeBotVoiceState,
   reconcileRuntimeGuildVoiceState,
+  restoreRuntimeGuildEntry,
   scheduleRuntimeReconnect,
   tryRuntimeReconnect,
 } from "../src/bot/runtime-recovery.js";
@@ -386,6 +387,105 @@ test("tryReconnect tolerates transient missing channels before clearing playback
 
   await tryRuntimeReconnect(runtime, "guild-1");
   assert.equal(resetCount, 1);
+});
+
+test("restore keeps saved state and schedules retry when the guild is transiently unavailable", async () => {
+  const originalSetTimeout = global.setTimeout;
+  const scheduled = [];
+  global.setTimeout = (fn, delay) => {
+    const timer = { fn, delay, unref() {} };
+    scheduled.push(timer);
+    return timer;
+  };
+
+  try {
+    const runtime = {
+      config: { name: "OmniFM Restore", id: "bot-1" },
+      guildState: new Map(),
+      client: {
+        guilds: {
+          cache: new Map(),
+          fetch: async () => {
+            const err = new Error("temporary gateway outage");
+            err.code = "ECONNRESET";
+            throw err;
+          },
+        },
+      },
+    };
+
+    const result = await restoreRuntimeGuildEntry(runtime, "guild-1", {
+      channelId: "voice-1",
+      stationKey: "station-a",
+      volume: 100,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.transient, true);
+    assert.equal(result.resource, "guild");
+    assert.equal(runtime.pendingRestoreTimers instanceof Map, true);
+    assert.equal(runtime.pendingRestoreTimers.size, 1);
+    assert.equal(runtime.restoreRetryCounts instanceof Map, true);
+    assert.equal(runtime.restoreRetryCounts.get("guild-1"), 1);
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].delay >= 5_000, true);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
+});
+
+test("restore keeps saved state and schedules retry when the voice channel is transiently unavailable", async () => {
+  const originalSetTimeout = global.setTimeout;
+  const scheduled = [];
+  global.setTimeout = (fn, delay) => {
+    const timer = { fn, delay, unref() {} };
+    scheduled.push(timer);
+    return timer;
+  };
+
+  try {
+    const guild = {
+      id: "guild-1",
+      name: "Guild One",
+      channels: {
+        cache: new Map(),
+        fetch: async () => {
+          const err = new Error("temporary channel fetch failure");
+          err.code = "ETIMEDOUT";
+          throw err;
+        },
+      },
+    };
+    const runtime = {
+      config: { name: "OmniFM Restore", id: "bot-1" },
+      guildState: new Map(),
+      client: {
+        guilds: {
+          cache: new Map(),
+          fetch: async () => guild,
+        },
+      },
+      enforceGuildAccessForGuild: async () => true,
+    };
+
+    const result = await restoreRuntimeGuildEntry(runtime, "guild-1", {
+      channelId: "voice-1",
+      stationKey: "station-a",
+      volume: 100,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.transient, true);
+    assert.equal(result.resource, "channel");
+    assert.equal(runtime.pendingRestoreTimers instanceof Map, true);
+    assert.equal(runtime.pendingRestoreTimers.size, 1);
+    assert.equal(runtime.restoreRetryCounts instanceof Map, true);
+    assert.equal(runtime.restoreRetryCounts.get("guild-1"), 1);
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].delay >= 5_000, true);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
 });
 
 test("worker manager reuses the worker already streaming in the requested channel", () => {

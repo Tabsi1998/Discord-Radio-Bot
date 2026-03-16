@@ -40,6 +40,11 @@ const VOICE_RECONNECT_CIRCUIT_BREAKER_MS = Math.max(
   60_000,
   toPositiveInt(process.env.VOICE_RECONNECT_CIRCUIT_BREAKER_MS, 15 * 60_000)
 );
+const RESTORE_RETRY_BASE_MS = Math.max(5_000, toPositiveInt(process.env.RESTORE_RETRY_BASE_MS, 15_000));
+const RESTORE_RETRY_MAX_MS = Math.max(30_000, toPositiveInt(process.env.RESTORE_RETRY_MAX_MS, 5 * 60_000));
+
+const PERMANENT_RESTORE_GUILD_ERROR_CODES = new Set([10004, 50001]);
+const PERMANENT_RESTORE_CHANNEL_ERROR_CODES = new Set([10003]);
 
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
@@ -86,6 +91,109 @@ function noteTransientVoiceIssue(state, code, detail = "") {
   };
   issues[code] = next;
   return next;
+}
+
+function getDiscordErrorCode(err) {
+  const parsed = Number.parseInt(String(err?.code ?? ""), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isPermanentRestoreResourceError(err, resourceType) {
+  const code = getDiscordErrorCode(err);
+  if (!Number.isFinite(code)) return false;
+  if (resourceType === "guild") return PERMANENT_RESTORE_GUILD_ERROR_CODES.has(code);
+  if (resourceType === "channel") return PERMANENT_RESTORE_CHANNEL_ERROR_CODES.has(code);
+  return false;
+}
+
+function getRuntimeRestoreTimers(runtime) {
+  if (!(runtime.pendingRestoreTimers instanceof Map)) {
+    runtime.pendingRestoreTimers = new Map();
+  }
+  return runtime.pendingRestoreTimers;
+}
+
+function getRuntimeRestoreRetryCounts(runtime) {
+  if (!(runtime.restoreRetryCounts instanceof Map)) {
+    runtime.restoreRetryCounts = new Map();
+  }
+  return runtime.restoreRetryCounts;
+}
+
+function clearRuntimeRestoreRetry(runtime, guildId) {
+  const key = String(guildId || "").trim();
+  if (!key) return;
+  const timers = getRuntimeRestoreTimers(runtime);
+  const retryCounts = getRuntimeRestoreRetryCounts(runtime);
+  const timer = timers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    timers.delete(key);
+  }
+  retryCounts.delete(key);
+}
+
+function getRestoreRetryDelay(runtime, guildId) {
+  const key = String(guildId || "").trim();
+  const retryCounts = getRuntimeRestoreRetryCounts(runtime);
+  const attempt = Number(retryCounts.get(key) || 0) + 1;
+  retryCounts.set(key, attempt);
+  const exp = Math.min(Math.max(0, attempt - 1), 6);
+  const baseDelay = Math.min(RESTORE_RETRY_MAX_MS, RESTORE_RETRY_BASE_MS * Math.pow(2, exp));
+  return {
+    attempt,
+    delay: applyJitter(baseDelay, 0.2),
+  };
+}
+
+async function fetchRestoreGuild(runtime, guildId) {
+  const cachedGuild = runtime.client.guilds.cache.get(guildId);
+  if (cachedGuild) {
+    return { guild: cachedGuild, error: null, source: "cache" };
+  }
+  try {
+    const guild = await runtime.client.guilds.fetch(guildId);
+    return { guild, error: null, source: "api" };
+  } catch (err) {
+    return { guild: null, error: err, source: "api" };
+  }
+}
+
+async function fetchRestoreChannel(guild, channelId) {
+  const cachedChannel = guild.channels.cache.get(channelId);
+  if (cachedChannel) {
+    return { channel: cachedChannel, error: null, source: "cache" };
+  }
+  try {
+    const channel = await guild.channels.fetch(channelId);
+    return { channel, error: null, source: "api" };
+  } catch (err) {
+    return { channel: null, error: err, source: "api" };
+  }
+}
+
+function scheduleRuntimeRestoreRetry(runtime, guildId, data, stations, reason = "retry") {
+  const key = String(guildId || "").trim();
+  if (!key) return;
+  const timers = getRuntimeRestoreTimers(runtime);
+  if (timers.has(key)) return;
+
+  const { attempt, delay } = getRestoreRetryDelay(runtime, key);
+  log(
+    "WARN",
+    `[${runtime.config.name}] Restore fuer guild=${key} verschoben (${reason}) - retry in ${Math.round(delay)}ms (attempt ${attempt}).`
+  );
+
+  const timer = setTimeout(() => {
+    timers.delete(key);
+    restoreRuntimeGuildEntry(runtime, key, data, stations, { source: "restore-retry", reason }).catch((err) => {
+      log("ERROR", `[${runtime.config.name}] Restore-Retry fehlgeschlagen fuer Guild ${key}: ${err?.message || err}`);
+    });
+  }, delay);
+  if (typeof timer?.unref === "function") {
+    timer.unref();
+  }
+  timers.set(key, timer);
 }
 
 function confirmTransientVoiceIssue(runtime, guildId, state, code, detail, {
@@ -706,6 +814,103 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   state.lastReconnectAt = new Date().toISOString();
 }
 
+export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations, { source = "restore" } = {}) {
+  void stations;
+  const existingState = runtime.guildState.get(guildId);
+  if (
+    existingState?.currentStationKey === data.stationKey
+    && existingState?.lastChannelId === data.channelId
+    && (existingState.connection || existingState.currentProcess || existingState.reconnectTimer)
+  ) {
+    clearRuntimeRestoreRetry(runtime, guildId);
+    return { ok: true, skipped: true, reason: "already-active" };
+  }
+
+  const { guild, error: guildError } = await fetchRestoreGuild(runtime, guildId);
+  if (!guild) {
+    if (isPermanentRestoreResourceError(guildError, "guild")) {
+      clearRuntimeRestoreRetry(runtime, guildId);
+      log("INFO", `[${runtime.config.name}] Guild ${guildId} ist nicht mehr verfuegbar. Entferne gespeicherten Restore-State.`);
+      clearBotGuild(runtime.config.id, guildId);
+      return { ok: false, permanent: true, resource: "guild" };
+    }
+    log(
+      "WARN",
+      `[${runtime.config.name}] Guild ${guildId} fuer Restore derzeit nicht aufloesbar: ${guildError?.message || "unbekannter Fehler"}`
+    );
+    scheduleRuntimeRestoreRetry(runtime, guildId, data, stations, "guild-unresolved");
+    return { ok: false, transient: true, resource: "guild" };
+  }
+
+  const allowedForRestore = await runtime.enforceGuildAccessForGuild(guild, source);
+  if (!allowedForRestore) {
+    clearRuntimeRestoreRetry(runtime, guildId);
+    return { ok: false, blocked: true };
+  }
+
+  const { channel, error: channelError } = await fetchRestoreChannel(guild, data.channelId);
+  if (!channel) {
+    if (isPermanentRestoreResourceError(channelError, "channel")) {
+      clearRuntimeRestoreRetry(runtime, guildId);
+      log("INFO", `[${runtime.config.name}] Channel ${data.channelId} in ${guild.name} existiert nicht mehr. Entferne gespeicherten Restore-State.`);
+      clearBotGuild(runtime.config.id, guildId);
+      return { ok: false, permanent: true, resource: "channel" };
+    }
+    log(
+      "WARN",
+      `[${runtime.config.name}] Channel ${data.channelId} in ${guild.name} fuer Restore derzeit nicht aufloesbar: ${channelError?.message || "unbekannter Fehler"}`
+    );
+    scheduleRuntimeRestoreRetry(runtime, guildId, data, stations, "channel-unresolved");
+    return { ok: false, transient: true, resource: "channel" };
+  }
+
+  if (!channel.isVoiceBased()) {
+    clearRuntimeRestoreRetry(runtime, guildId);
+    log("INFO", `[${runtime.config.name}] Channel ${data.channelId} in ${guild.name} ist kein Voice-/Stage-Channel mehr.`);
+    clearBotGuild(runtime.config.id, guildId);
+    return { ok: false, permanent: true, resource: "channel-type" };
+  }
+
+  const restoredStation = runtime.resolveStationForGuild(guildId, data.stationKey, runtime.resolveGuildLanguage(guildId));
+  if (!restoredStation.ok) {
+    clearRuntimeRestoreRetry(runtime, guildId);
+    log("INFO", `[${runtime.config.name}] Station ${data.stationKey} nicht mehr vorhanden: ${restoredStation.message}`);
+    clearBotGuild(runtime.config.id, guildId);
+    return { ok: false, permanent: true, resource: "station" };
+  }
+
+  log("INFO", `[${runtime.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${restoredStation.station.name}`);
+
+  const state = runtime.getState(guildId);
+  state.volume = data.volume ?? 100;
+  state.shouldReconnect = true;
+  state.lastChannelId = data.channelId;
+  state.currentStationKey = restoredStation.key;
+  state.currentStationName = restoredStation.station.name || restoredStation.key;
+  runtime.markScheduledEventPlayback(
+    state,
+    data.scheduledEventId || null,
+    data.scheduledEventStopAtMs || 0
+  );
+
+  try {
+    await runtime.ensureVoiceConnectionForChannel(guildId, channel.id, state);
+  } catch (err) {
+    clearRuntimeRestoreRetry(runtime, guildId);
+    log("ERROR", `[${runtime.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen: ${err?.message || err}`);
+    networkRecoveryCoordinator.noteFailure(`${runtime.config.name} restore-voice-timeout`, `guild=${guildId}`);
+    runtime.scheduleReconnect(guildId, { reason: "restore-ready-timeout" });
+    return { ok: false, reconnectScheduled: true };
+  }
+
+  await runtime.playStation(state, restoredStation.stations, restoredStation.key, guildId);
+  clearRuntimeRestoreRetry(runtime, guildId);
+  log("INFO", `[${runtime.config.name}] Wiederhergestellt: ${guild.name} -> ${restoredStation.station.name}`);
+
+  await waitMs(2000);
+  return { ok: true };
+}
+
 export async function restoreRuntimeState(runtime, stations) {
   void stations;
   const saved = getBotState(runtime.config.id);
@@ -718,62 +923,7 @@ export async function restoreRuntimeState(runtime, stations) {
 
   for (const [guildId, data] of Object.entries(saved)) {
     try {
-      const guild = runtime.client.guilds.cache.get(guildId);
-      if (!guild) {
-        log("INFO", `[${runtime.config.name}] Guild ${guildId} nicht gefunden (${runtime.client.guilds.cache.size} Guilds im Cache), ueberspringe.`);
-        clearBotGuild(runtime.config.id, guildId);
-        continue;
-      }
-
-      const allowedForRestore = await runtime.enforceGuildAccessForGuild(guild, "restore");
-      if (!allowedForRestore) {
-        continue;
-      }
-
-      let channel = guild.channels.cache.get(data.channelId);
-      if (!channel) {
-        channel = await guild.channels.fetch(data.channelId).catch(() => null);
-      }
-      if (!channel || !channel.isVoiceBased()) {
-        log("INFO", `[${runtime.config.name}] Channel ${data.channelId} in ${guild.name} nicht gefunden.`);
-        clearBotGuild(runtime.config.id, guildId);
-        continue;
-      }
-
-      const restoredStation = runtime.resolveStationForGuild(guildId, data.stationKey, runtime.resolveGuildLanguage(guildId));
-      if (!restoredStation.ok) {
-        log("INFO", `[${runtime.config.name}] Station ${data.stationKey} nicht mehr vorhanden: ${restoredStation.message}`);
-        clearBotGuild(runtime.config.id, guildId);
-        continue;
-      }
-
-      log("INFO", `[${runtime.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${restoredStation.station.name}`);
-
-      const state = runtime.getState(guildId);
-      state.volume = data.volume ?? 100;
-      state.shouldReconnect = true;
-      state.lastChannelId = data.channelId;
-      state.currentStationKey = restoredStation.key;
-      state.currentStationName = restoredStation.station.name || restoredStation.key;
-      runtime.markScheduledEventPlayback(
-        state,
-        data.scheduledEventId || null,
-        data.scheduledEventStopAtMs || 0
-      );
-
-      try {
-        await runtime.ensureVoiceConnectionForChannel(guildId, channel.id, state);
-      } catch (err) {
-        log("ERROR", `[${runtime.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen: ${err?.message || err}`);
-        networkRecoveryCoordinator.noteFailure(`${runtime.config.name} restore-voice-timeout`, `guild=${guildId}`);
-        runtime.scheduleReconnect(guildId, { reason: "restore-ready-timeout" });
-        continue;
-      }
-
-      await runtime.playStation(state, restoredStation.stations, restoredStation.key, guildId);
-      log("INFO", `[${runtime.config.name}] Wiederhergestellt: ${guild.name} -> ${restoredStation.station.name}`);
-
-      await waitMs(2000);
+      await restoreRuntimeGuildEntry(runtime, guildId, data, stations, { source: "restore" });
     } catch (err) {
       log("ERROR", `[${runtime.config.name}] Restore fehlgeschlagen fuer Guild ${guildId}: ${err?.message || err}`);
       const state = runtime.guildState.get(guildId);
