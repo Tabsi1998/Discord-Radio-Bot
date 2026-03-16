@@ -29,6 +29,14 @@ function toPositiveInt(rawValue, fallbackValue) {
 
 const VOICE_STATE_RECONCILE_ENABLED = String(process.env.VOICE_STATE_RECONCILE_ENABLED ?? "1") !== "0";
 const VOICE_STATE_RECONCILE_MS = Math.max(15_000, toPositiveInt(process.env.VOICE_STATE_RECONCILE_MS, 30_000));
+const VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS = Math.max(
+  5,
+  toPositiveInt(process.env.VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS, 30)
+);
+const VOICE_RECONNECT_CIRCUIT_BREAKER_MS = Math.max(
+  60_000,
+  toPositiveInt(process.env.VOICE_RECONNECT_CIRCUIT_BREAKER_MS, 15 * 60_000)
+);
 
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
@@ -511,31 +519,44 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   if (state.reconnectTimer) return;
 
   const attempt = state.reconnectAttempts + 1;
-  state.reconnectAttempts = attempt;
-
   const tierConfig = getTierConfig(guildId);
   const baseDelay = Math.max(400, tierConfig.reconnectMs || 5_000);
-  const exp = Math.min(attempt - 1, VOICE_RECONNECT_EXP_STEPS);
+  const exp = Math.min(Math.max(0, attempt - 1), VOICE_RECONNECT_EXP_STEPS);
   let delay = Math.min(VOICE_RECONNECT_MAX_MS, baseDelay * Math.pow(1.8, exp));
+  let logLevel = "INFO";
+  let logMessage = null;
+  let eventDetails = `attempt=${attempt} reason=${String(options.reason || "auto")}`;
 
   const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
   if (networkCooldownMs > 0) {
     delay = Math.max(delay, networkCooldownMs);
   }
 
-  delay = applyJitter(delay, 0.2);
   const reason = String(options.reason || "auto");
+  if (attempt > VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS) {
+    state.reconnectAttempts = 0;
+    delay = Math.max(delay, VOICE_RECONNECT_CIRCUIT_BREAKER_MS);
+    logLevel = "ERROR";
+    logMessage =
+      `[${runtime.config.name}] Reconnect-Circuit aktiv fuer guild=${guildId}: ` +
+      `${attempt - 1} Fehlversuche erreicht. Pausiere weitere Retries fuer ${Math.round(delay)}ms (reason=${reason}).`;
+    eventDetails = `attempt>${VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS} reason=${reason} circuit=open`;
+  } else {
+    state.reconnectAttempts = attempt;
+    delay = applyJitter(delay, 0.2);
+    logMessage =
+      `[${runtime.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms ` +
+      `(attempt ${attempt}, plan=${tierConfig.tier}, reason=${reason})`;
+  }
+
   recordConnectionEvent(guildId, {
     botId: runtime.config.id || "",
     eventType: "reconnect",
     channelId: state.lastChannelId || "",
-    details: `attempt=${attempt} reason=${reason}`,
+    details: eventDetails,
   });
 
-  log(
-    "INFO",
-    `[${runtime.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms (attempt ${attempt}, plan=${tierConfig.tier}, reason=${reason})`
-  );
+  log(logLevel, logMessage);
   state.reconnectTimer = setTimeout(async () => {
     state.reconnectTimer = null;
     if (!state.shouldReconnect) return;

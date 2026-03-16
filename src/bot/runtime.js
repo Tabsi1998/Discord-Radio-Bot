@@ -295,6 +295,9 @@ const VOICE_CHANNEL_STATUS_TEMPLATE =
 const VOICE_CHANNEL_STATUS_MAX_LENGTH = Math.max(1, Math.min(100, toPositiveInt(process.env.VOICE_CHANNEL_STATUS_MAX_LENGTH, 80)));
 const ONBOARDING_MESSAGE_ENABLED = String(process.env.ONBOARDING_MESSAGE_ENABLED ?? "1") !== "0";
 const LISTENER_STATS_POLL_MS = Math.max(15_000, toPositiveInt(process.env.LISTENER_STATS_POLL_MS, 30_000));
+const PREMIUM_GUILD_ACCESS_MODE = String(process.env.PREMIUM_GUILD_ACCESS_MODE || "restrict").trim().toLowerCase() === "leave"
+  ? "leave"
+  : "restrict";
 
 
 class BotRuntime {
@@ -515,6 +518,21 @@ class BotRuntime {
     clearBotGuild(this.config.id, guildId);
   }
 
+  getGuildAccessEnforcementMode() {
+    return PREMIUM_GUILD_ACCESS_MODE;
+  }
+
+  restrictGuildAccess(guildId) {
+    if (!guildId) return;
+    const state = this.guildState.get(guildId);
+    if (state) {
+      state.shouldReconnect = false;
+      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+      return;
+    }
+    clearBotGuild(this.config.id, guildId);
+  }
+
   async enforceGuildAccessForGuild(guild, source = "scope") {
     if (!this.isPremiumOnlyBot()) return true;
     if (!guild?.id) return false;
@@ -523,9 +541,20 @@ class BotRuntime {
     if (access.allowed) return true;
 
     const reason = !access.tierAllowed ? "tier" : "maxBots";
+    const context = `reason=${reason}, source=${source}, guildTier=${access.guildTier}, required=${access.requiredTier}, botIndex=${access.botIndex}, workerSlot=${access.workerSlot || "-"}, maxBots=${access.maxBots}`;
+    const mode = this.getGuildAccessEnforcementMode();
+    if (mode !== "leave") {
+      log(
+        "WARN",
+        `[${this.config.name}] Guild-Zugriff verweigert fuer ${guild.name} (${guild.id}) - Runtime gestoppt, Auto-Leave deaktiviert (mode=${mode}; ${context}).`
+      );
+      this.restrictGuildAccess(guild.id);
+      return false;
+    }
+
     log(
-      "INFO",
-      `[${this.config.name}] Verlasse Guild ${guild.name} (${guild.id}) - Zugriff verweigert (${reason}, source=${source}, guildTier=${access.guildTier}, required=${access.requiredTier}, botIndex=${access.botIndex}, workerSlot=${access.workerSlot || "-"}, maxBots=${access.maxBots})`
+      "WARN",
+      `[${this.config.name}] Verlasse Guild ${guild.name} (${guild.id}) - Zugriff verweigert (${context}, mode=${mode})`
     );
     this.resetGuildRuntimeState(guild.id);
     try {

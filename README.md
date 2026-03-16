@@ -359,6 +359,17 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | `STREAM_ERROR_COOLDOWN_THRESHOLD` | Error threshold before cooldown |
 | `STREAM_ERROR_COOLDOWN_MS` | Cooldown after repeated stream failures |
 | `VOICE_RECONNECT_MAX_MS` | Max voice reconnect backoff |
+| `VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS` | Failed reconnects before retries are paused |
+| `VOICE_RECONNECT_CIRCUIT_BREAKER_MS` | Pause duration after the reconnect circuit opens |
+| `PREMIUM_GUILD_ACCESS_MODE` | `restrict` keeps bots in guilds, `leave` enforces the old auto-leave behavior |
+
+### Logging
+
+| Variable | Purpose |
+| --- | --- |
+| `LOG_MAX_MB` | Max size of `logs/bot.log` and `logs/error.log` before rotation |
+| `LOG_MAX_FILES` | Max rotated log files retained per log type |
+| `LOG_MAX_DAYS` | Max age of rotated log files |
 
 ### DiscordBotList
 

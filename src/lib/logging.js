@@ -37,6 +37,7 @@ try {
 }
 const logsDir = path.join(rootDir, "logs");
 const logFile = path.join(logsDir, "bot.log");
+const errorLogFile = path.join(logsDir, "error.log");
 const maxLogSizeBytes = Number(process.env.LOG_MAX_MB || "5") * 1024 * 1024;
 const logRotateCheckIntervalMs = Number(process.env.LOG_ROTATE_CHECK_MS || "5000");
 const logPruneCheckIntervalMs = Number(process.env.LOG_PRUNE_CHECK_MS || "600000");
@@ -50,35 +51,41 @@ const maxRotatedLogDays = Math.max(
 );
 
 let logWriteQueue = Promise.resolve();
-let lastLogRotateCheckAt = 0;
-let lastLogPruneCheckAt = 0;
+const lastLogRotateCheckAt = new Map();
+const lastLogPruneCheckAt = new Map();
+const logTargets = [
+  { filePath: logFile, rotatedPrefix: "bot" },
+  { filePath: errorLogFile, rotatedPrefix: "error" },
+];
 
 async function ensureLogsDir() {
   await fs.promises.mkdir(logsDir, { recursive: true });
 }
 
-async function rotateLogIfNeeded() {
+async function rotateLogIfNeeded(filePath, rotatedPrefix) {
   const now = Date.now();
-  if (now - lastLogRotateCheckAt < logRotateCheckIntervalMs) return;
-  lastLogRotateCheckAt = now;
+  const lastCheckedAt = lastLogRotateCheckAt.get(rotatedPrefix) || 0;
+  if (now - lastCheckedAt < logRotateCheckIntervalMs) return;
+  lastLogRotateCheckAt.set(rotatedPrefix, now);
 
   try {
-    const stat = await fs.promises.stat(logFile).catch(() => null);
+    const stat = await fs.promises.stat(filePath).catch(() => null);
     if (!stat) return;
     const size = stat.size;
     if (size < maxLogSizeBytes) return;
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const rotated = path.join(logsDir, `bot-${stamp}.log`);
-    await fs.promises.rename(logFile, rotated);
+    const rotated = path.join(logsDir, `${rotatedPrefix}-${stamp}.log`);
+    await fs.promises.rename(filePath, rotated);
   } catch {
     // ignore
   }
 }
 
-async function pruneRotatedLogsIfNeeded() {
+async function pruneRotatedLogsIfNeeded(rotatedPrefix) {
   const now = Date.now();
-  if (now - lastLogPruneCheckAt < logPruneCheckIntervalMs) return;
-  lastLogPruneCheckAt = now;
+  const lastCheckedAt = lastLogPruneCheckAt.get(rotatedPrefix) || 0;
+  if (now - lastCheckedAt < logPruneCheckIntervalMs) return;
+  lastLogPruneCheckAt.set(rotatedPrefix, now);
 
   const retentionMs = maxRotatedLogDays * 24 * 60 * 60 * 1000;
   try {
@@ -86,7 +93,7 @@ async function pruneRotatedLogsIfNeeded() {
     const files = [];
     for (const entry of entries) {
       if (!entry?.isFile?.()) continue;
-      if (!/^bot-.*\.log$/i.test(entry.name)) continue;
+      if (!new RegExp(`^${rotatedPrefix}-.*\\.log$`, "i").test(entry.name)) continue;
       const filePath = path.join(logsDir, entry.name);
       // eslint-disable-next-line no-await-in-loop
       const stat = await fs.promises.stat(filePath).catch(() => null);
@@ -108,13 +115,20 @@ async function pruneRotatedLogsIfNeeded() {
   }
 }
 
-function queueLogWrite(line) {
+function queueLogWrite(line, { includeErrorLog = false } = {}) {
   logWriteQueue = logWriteQueue
     .then(async () => {
       await ensureLogsDir();
-      await rotateLogIfNeeded();
-      await pruneRotatedLogsIfNeeded();
+      for (const target of logTargets) {
+        // eslint-disable-next-line no-await-in-loop
+        await rotateLogIfNeeded(target.filePath, target.rotatedPrefix);
+        // eslint-disable-next-line no-await-in-loop
+        await pruneRotatedLogsIfNeeded(target.rotatedPrefix);
+      }
       await fs.promises.appendFile(logFile, `${line}\n`, "utf8");
+      if (includeErrorLog) {
+        await fs.promises.appendFile(errorLogFile, `${line}\n`, "utf8");
+      }
     })
     .catch(() => {
       // ignore
@@ -130,7 +144,7 @@ function log(level, message) {
     console.log(line);
   }
 
-  queueLogWrite(line);
+  queueLogWrite(line, { includeErrorLog: level === "ERROR" });
 }
 
 function shouldLogFfmpegStderrLine(line) {

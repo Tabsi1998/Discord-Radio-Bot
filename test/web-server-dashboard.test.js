@@ -68,6 +68,27 @@ function setEnv(overrides) {
   };
 }
 
+function formatLocalDateTimeForZone(timestampMs, timeZone = "Europe/Vienna") {
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  })
+    .formatToParts(new Date(timestampMs))
+    .reduce((map, part) => {
+      if (part.type !== "literal") {
+        map[part.type] = part.value;
+      }
+      return map;
+    }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
 function createGuildStub() {
   const sentMessages = [];
   const roles = new Map([
@@ -411,7 +432,10 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
 
   const scheduledEventsFile = path.join(repoRoot, "scheduled-events.json");
   await fs.rm(scheduledEventsFile, { force: true });
-  const conflictStartMs = Date.parse("2026-03-15T20:00:00.000Z");
+  const conflictStartMs = Date.now() + (24 * 60 * 60 * 1000);
+  const conflictStartLocal = formatLocalDateTimeForZone(conflictStartMs);
+  const createEventStartLocal = formatLocalDateTimeForZone(Date.now() + (48 * 60 * 60 * 1000) + (75 * 60 * 1000));
+  const updateEventStartLocal = formatLocalDateTimeForZone(Date.now() + (72 * 60 * 60 * 1000) + (90 * 60 * 1000));
   const seededEvent = createScheduledEvent({
     guildId: GUILD_ID,
     botId: "bot-test-1",
@@ -1382,7 +1406,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
         stationKey: "rock",
         channelId: VOICE_CHANNEL_ID,
         textChannelId: TEXT_CHANNEL_ID,
-        startsAtLocal: "2026-03-15T20:00",
+        startsAtLocal: conflictStartLocal,
         timezone: "Europe/Vienna",
         durationMs: 30 * 60 * 1000,
         repeat: "none",
@@ -1451,7 +1475,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
         stationKey: "rock",
         channelId: VOICE_CHANNEL_ID,
         textChannelId: TEXT_CHANNEL_ID,
-        startsAtLocal: "2026-03-16T21:15",
+        startsAtLocal: createEventStartLocal,
         timezone: "Europe/Vienna",
         durationMs: 45 * 60 * 1000,
         repeat: "none",
@@ -1487,7 +1511,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
       },
       body: JSON.stringify({
         title: "Night Shift Deluxe",
-        startsAtLocal: "2026-03-17T21:30",
+        startsAtLocal: updateEventStartLocal,
         durationMs: 60 * 60 * 1000,
         repeat: "weekly",
       }),

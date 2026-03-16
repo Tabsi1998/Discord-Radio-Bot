@@ -12,6 +12,7 @@ import { buildCommandsJson } from "../src/commands.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { BotRuntime } from "../src/bot/runtime.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
+import { scheduleRuntimeReconnect } from "../src/bot/runtime-recovery.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import {
@@ -131,6 +132,131 @@ test("worker access limit uses worker slot instead of absolute BOT_N index", () 
     isWithinWorkerPlanLimit({ role: "worker", workerSlot: null, botIndex: 3, maxBots: 2 }),
     false
   );
+});
+
+test("premium access denial restricts runtime without leaving the guild by default", async () => {
+  const state = {
+    shouldReconnect: true,
+    currentStationKey: "station-a",
+    lastChannelId: "voice-1",
+  };
+  let resetVoiceArgs = null;
+  let leaveCalled = 0;
+  const runtime = Object.create(BotRuntime.prototype);
+  runtime.config = { name: "OmniFM 4", requiredTier: "ultimate", id: "bot-4" };
+  runtime.guildState = new Map([["guild-1", state]]);
+  runtime.getGuildAccess = () => ({
+    allowed: false,
+    guildTier: "free",
+    requiredTier: "ultimate",
+    tierAllowed: false,
+    botIndex: 4,
+    workerSlot: 3,
+    maxBots: 2,
+  });
+  runtime.resetVoiceSession = (guildId, passedState, options) => {
+    resetVoiceArgs = { guildId, passedState, options };
+  };
+
+  const allowed = await BotRuntime.prototype.enforceGuildAccessForGuild.call(runtime, {
+    id: "guild-1",
+    name: "Guild One",
+    leave: async () => {
+      leaveCalled += 1;
+    },
+  }, "restore");
+
+  assert.equal(allowed, false);
+  assert.equal(leaveCalled, 0);
+  assert.deepEqual(resetVoiceArgs, {
+    guildId: "guild-1",
+    passedState: state,
+    options: { preservePlaybackTarget: false, clearLastChannel: true },
+  });
+});
+
+test("premium access denial can still leave the guild when explicitly forced", async () => {
+  let resetCount = 0;
+  let leaveCalled = 0;
+  const runtime = Object.create(BotRuntime.prototype);
+  runtime.config = { name: "OmniFM 9", requiredTier: "ultimate", id: "bot-9" };
+  runtime.guildState = new Map();
+  runtime.getGuildAccess = () => ({
+    allowed: false,
+    guildTier: "free",
+    requiredTier: "ultimate",
+    tierAllowed: false,
+    botIndex: 9,
+    workerSlot: 8,
+    maxBots: 2,
+  });
+  runtime.getGuildAccessEnforcementMode = () => "leave";
+  runtime.resetGuildRuntimeState = () => {
+    resetCount += 1;
+  };
+
+  const allowed = await BotRuntime.prototype.enforceGuildAccessForGuild.call(runtime, {
+    id: "guild-2",
+    name: "Guild Two",
+    leave: async () => {
+      leaveCalled += 1;
+    },
+  }, "startup");
+
+  assert.equal(allowed, false);
+  assert.equal(resetCount, 1);
+  assert.equal(leaveCalled, 1);
+});
+
+test("reconnect circuit breaker pauses retries after too many failed attempts", () => {
+  const originalSetTimeout = global.setTimeout;
+  const scheduled = [];
+  global.setTimeout = (fn, delay) => {
+    const timer = { fn, delay, unref() {} };
+    scheduled.push(timer);
+    return timer;
+  };
+
+  try {
+    const state = {
+      shouldReconnect: true,
+      lastChannelId: "voice-1",
+      activeScheduledEventStopAtMs: 0,
+      reconnectAttempts: 30,
+      reconnectTimer: null,
+      reconnectCount: 0,
+      lastReconnectAt: null,
+      connection: null,
+    };
+    const runtime = {
+      config: { name: "OmniFM 6", id: "bot-6" },
+      getState() {
+        return state;
+      },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      stopInGuild() {
+        throw new Error("stopInGuild should not be called");
+      },
+      tryReconnect: async () => {
+        throw new Error("tryReconnect should not run during scheduling");
+      },
+      scheduleReconnect() {
+        throw new Error("scheduleReconnect should not run during scheduling");
+      },
+    };
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "retry" });
+
+    assert.equal(state.reconnectAttempts, 0);
+    assert.equal(state.reconnectCount, 1);
+    assert.equal(scheduled.length, 1);
+    assert.ok(scheduled[0].delay >= 15 * 60 * 1000);
+    assert.equal(state.reconnectTimer, scheduled[0]);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
 });
 
 test("worker manager reuses the worker already streaming in the requested channel", () => {
