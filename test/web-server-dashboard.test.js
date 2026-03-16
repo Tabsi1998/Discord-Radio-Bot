@@ -546,6 +546,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(discordBotListStatusResponse.status, 200);
   assert.equal(discordBotListStatusResponse.payload.configured, true);
   assert.equal(discordBotListStatusResponse.payload.botId, "923456789012345678");
+  assert.equal(discordBotListStatusResponse.payload.listingUrl, "https://discord.bots.gg/bots/923456789012345678");
+  assert.equal(discordBotListStatusResponse.payload.publicApiUrl, "https://discord.bots.gg/api/v1/bots/923456789012345678");
   assert.equal(discordBotListStatusResponse.payload.state.totalVotes, 0);
   assert.deepEqual(discordBotListStatusResponse.payload.state.votes, []);
 

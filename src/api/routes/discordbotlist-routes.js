@@ -1,5 +1,6 @@
 export function createDiscordBotListRoutesHandler(deps) {
   const {
+    fetchDiscordBotListPublicBotSummary,
     getDashboardRequestTranslator,
     getDiscordBotListStatus,
     getLocalizedJsonBodyError,
@@ -31,7 +32,22 @@ export function createDiscordBotListRoutesHandler(deps) {
       }
 
       const voteLimit = Number.parseInt(String(requestUrl.searchParams.get("limit") || "20"), 10);
-      sendJson(res, 200, getDiscordBotListStatus(runtimes, { voteLimit }));
+      const includePublic = String(requestUrl.searchParams.get("live") || "").trim() === "1";
+      const payload = getDiscordBotListStatus(runtimes, { voteLimit });
+      if (includePublic && payload?.botId && typeof fetchDiscordBotListPublicBotSummary === "function") {
+        try {
+          payload.public = await fetchDiscordBotListPublicBotSummary(payload.botId);
+        } catch (err) {
+          payload.public = {
+            ok: false,
+            error: err?.message || String(err),
+            botId: payload.botId,
+            listingUrl: payload.listingUrl || null,
+            publicApiUrl: payload.publicApiUrl || null,
+          };
+        }
+      }
+      sendJson(res, 200, payload);
       return true;
     }
 

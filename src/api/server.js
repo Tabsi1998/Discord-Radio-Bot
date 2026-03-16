@@ -184,6 +184,7 @@ import {
   resetGuildStats,
 } from "../listening-stats-store.js";
 import {
+  fetchDiscordBotListPublicBotSummary,
   getDiscordBotListStatus,
   handleDiscordBotListVoteWebhook,
   syncDiscordBotListCommands,
@@ -528,6 +529,7 @@ const handleDashboardAccessRoute = createDashboardAccessRouteHandler({
 });
 
 const handleDiscordBotListRoutes = createDiscordBotListRoutesHandler({
+  fetchDiscordBotListPublicBotSummary,
   getDashboardRequestTranslator,
   getDiscordBotListStatus,
   getLocalizedJsonBodyError,

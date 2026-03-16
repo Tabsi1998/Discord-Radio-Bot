@@ -7,7 +7,9 @@ import { buildPublicStationCatalog } from "../src/lib/public-stations.js";
 import { buildScopedStationsData, filterStationsByTier } from "../src/stations-store.js";
 import {
   buildDiscordBotListCommandsPayload,
+  buildDiscordBotListPublicUrls,
   collectDiscordBotListStats,
+  fetchDiscordBotListPublicBotSummary,
 } from "../src/services/discordbotlist.js";
 
 test("scheduled events keep custom station references intact", () => {
@@ -176,4 +178,57 @@ test("DiscordBotList commands payload includes slash commands for publish", () =
   assert.ok(names.includes("play"));
   assert.ok(names.includes("event"));
   assert.ok(names.includes("license"));
+});
+
+test("DiscordBotList public URL helper targets the bots.gg listing and API", () => {
+  const urls = buildDiscordBotListPublicUrls("1476192449721274472");
+
+  assert.equal(urls.listingUrl, "https://discord.bots.gg/bots/1476192449721274472");
+  assert.equal(urls.publicApiUrl, "https://discord.bots.gg/api/v1/bots/1476192449721274472");
+});
+
+test("DiscordBotList public summary normalizes the bots.gg API payload", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  global.fetch = async (url) => {
+    assert.equal(url, "https://discord.bots.gg/api/v1/bots/1476192449721274472");
+    return {
+      ok: true,
+      status: 200,
+      async text() {
+        return JSON.stringify({
+          clientId: "1476192449721274472",
+          username: "OmniFM DJ",
+          online: true,
+          status: "online",
+          guildCount: 12,
+          verified: false,
+          verificationLevel: "UNVERIFIED",
+          inGuild: true,
+          uptime: 3600,
+          lastOnlineChange: "2026-03-16T12:34:56.000Z",
+          libraryName: "discord.js",
+          addedDate: "2026-03-16T11:00:00.000Z",
+        });
+      },
+    };
+  };
+
+  const summary = await fetchDiscordBotListPublicBotSummary("1476192449721274472");
+
+  assert.equal(summary.ok, true);
+  assert.equal(summary.botId, "1476192449721274472");
+  assert.equal(summary.username, "OmniFM DJ");
+  assert.equal(summary.online, true);
+  assert.equal(summary.status, "online");
+  assert.equal(summary.guildCount, 12);
+  assert.equal(summary.verified, false);
+  assert.equal(summary.inGuild, true);
+  assert.equal(summary.uptime, 3600);
+  assert.equal(summary.libraryName, "discord.js");
+  assert.equal(summary.listingUrl, "https://discord.bots.gg/bots/1476192449721274472");
+  assert.equal(summary.publicApiUrl, "https://discord.bots.gg/api/v1/bots/1476192449721274472");
 });

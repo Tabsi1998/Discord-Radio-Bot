@@ -380,9 +380,12 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | --- | --- |
 | `DISCORDBOTLIST_ENABLED` | Enables DBL sync features |
 | `DISCORDBOTLIST_TOKEN` | DBL API token |
+| `DISCORDBOTLIST_BOT_ID` | Explicit bot ID for stats sync and public listing checks |
 | `DISCORDBOTLIST_WEBHOOK_SECRET` | Vote webhook secret |
 | `DISCORDBOTLIST_STATS_SCOPE` | `commander` or `aggregate` |
+| `DISCORDBOTLIST_COMMANDS_SYNC_MS` | Periodic command sync interval |
 | `DISCORDBOTLIST_STATS_SYNC_MS` | Periodic stats sync interval |
+| `DISCORDBOTLIST_VOTE_SYNC_MS` | Periodic vote sync interval |
 
 ### Email
 
@@ -454,6 +457,11 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 - `POST /api/discordbotlist/sync`
 - `GET /api/discordbotlist/status`
 - `GET /api/discordbotlist/votes`
+
+Notes:
+- The owner API is documented on `docs.discordbotlist.com`, while the public listing is shown on `https://discord.bots.gg/bots/<botId>`.
+- `GET /api/discordbotlist/status?live=1` includes a live check against the public `discord.bots.gg` API so you can compare internal sync state with the public listing.
+- The published docs currently document stats, commands, and vote webhooks, but not a writable presence endpoint. Treat the public `online` field as informational, not as something your bot can directly force through the documented API.
 
 ## Discord commands
 
@@ -622,9 +630,12 @@ Notes:
 ### DiscordBotList votes or commands are not syncing
 
 - Verify `DISCORDBOTLIST_TOKEN`
+- Verify `DISCORDBOTLIST_BOT_ID`
 - Verify `DISCORDBOTLIST_WEBHOOK_SECRET`
 - Set `PUBLIC_WEB_URL`
 - Use `POST /api/discordbotlist/sync` with the admin token to force a sync
+- Check `GET /api/discordbotlist/status?live=1` and compare it with `https://discord.bots.gg/api/v1/bots/<botId>`
+- If the public listing still shows `guildCount: 0` or `online: false`, also verify the bot page settings on `discord.bots.gg` itself, including the selected library and claimed ownership
 
 ## Notes
 
