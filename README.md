@@ -361,6 +361,9 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | `VOICE_RECONNECT_MAX_MS` | Max voice reconnect backoff |
 | `VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS` | Failed reconnects before retries are paused |
 | `VOICE_RECONNECT_CIRCUIT_BREAKER_MS` | Pause duration after the reconnect circuit opens |
+| `VOICE_TRANSIENT_RECHECK_MS` | Delay before re-checking transient voice-state mismatches |
+| `VOICE_STATE_MISSING_CONFIRMATIONS` | Missing voice-state confirmations required before tearing down an active session |
+| `VOICE_RECONNECT_RESOURCE_CONFIRMATIONS` | Missing guild/channel/permission confirmations required before clearing reconnect targets |
 | `PREMIUM_GUILD_ACCESS_MODE` | `restrict` keeps bots in guilds, `leave` enforces the old auto-leave behavior |
 
 ### Logging

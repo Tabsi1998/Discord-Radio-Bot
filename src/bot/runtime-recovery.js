@@ -29,6 +29,9 @@ function toPositiveInt(rawValue, fallbackValue) {
 
 const VOICE_STATE_RECONCILE_ENABLED = String(process.env.VOICE_STATE_RECONCILE_ENABLED ?? "1") !== "0";
 const VOICE_STATE_RECONCILE_MS = Math.max(15_000, toPositiveInt(process.env.VOICE_STATE_RECONCILE_MS, 30_000));
+const VOICE_TRANSIENT_RECHECK_MS = Math.max(2_000, toPositiveInt(process.env.VOICE_TRANSIENT_RECHECK_MS, 5_000));
+const VOICE_STATE_MISSING_CONFIRMATIONS = Math.max(2, toPositiveInt(process.env.VOICE_STATE_MISSING_CONFIRMATIONS, 2));
+const VOICE_RECONNECT_RESOURCE_CONFIRMATIONS = Math.max(2, toPositiveInt(process.env.VOICE_RECONNECT_RESOURCE_CONFIRMATIONS, 3));
 const VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS = Math.max(
   5,
   toPositiveInt(process.env.VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS, 30)
@@ -43,6 +46,66 @@ function getTierConfig(guildId) {
   return { ...config, tier: config.plan };
 }
 
+function getTransientVoiceIssues(state) {
+  if (!state.transientVoiceIssues || typeof state.transientVoiceIssues !== "object") {
+    state.transientVoiceIssues = {};
+  }
+  return state.transientVoiceIssues;
+}
+
+function clearTransientVoiceIssue(state, code) {
+  if (!state?.transientVoiceIssues || !code) return;
+  delete state.transientVoiceIssues[code];
+}
+
+function clearTransientVoiceIssues(state, codes = []) {
+  if (!state) return;
+  if (!Array.isArray(codes) || codes.length === 0) {
+    state.transientVoiceIssues = {};
+    return;
+  }
+  for (const code of codes) {
+    clearTransientVoiceIssue(state, code);
+  }
+}
+
+function noteTransientVoiceIssue(state, code, detail = "") {
+  const issues = getTransientVoiceIssues(state);
+  const now = Date.now();
+  const current = issues[code] || {
+    count: 0,
+    firstSeenAt: now,
+    lastSeenAt: 0,
+    lastDetail: "",
+  };
+  const next = {
+    count: Number(current.count || 0) + 1,
+    firstSeenAt: current.firstSeenAt || now,
+    lastSeenAt: now,
+    lastDetail: String(detail || ""),
+  };
+  issues[code] = next;
+  return next;
+}
+
+function confirmTransientVoiceIssue(runtime, guildId, state, code, detail, {
+  threshold,
+  recheckReason,
+  logMessage,
+} = {}) {
+  const issue = noteTransientVoiceIssue(state, code, detail);
+  const needed = Math.max(1, Number(threshold || 1) || 1);
+  const confirmed = issue.count >= needed;
+  if (!confirmed) {
+    log(
+      "WARN",
+      `[${runtime.config.name}] ${logMessage} guild=${guildId} (${issue.count}/${needed}) - warte auf Bestaetigung.`
+    );
+    runtime.queueVoiceStateReconcile(guildId, recheckReason || code, VOICE_TRANSIENT_RECHECK_MS);
+  }
+  return { ...issue, confirmed, threshold: needed };
+}
+
 export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
   if (!runtime.client.user) return;
   if (newState.id !== runtime.client.user.id) return;
@@ -53,6 +116,7 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
   const newChannelId = newState.channelId;
 
   if (newChannelId) {
+    clearTransientVoiceIssues(state);
     if (state.lastChannelId !== newChannelId) {
       runtime.markNowPlayingTargetDirty(state, newChannelId);
     }
@@ -98,6 +162,7 @@ export function resetRuntimeVoiceSession(
 ) {
   if (!state) return;
   runtime.clearQueuedVoiceReconcile(guildId);
+  clearTransientVoiceIssues(state);
 
   if (!preservePlaybackTarget && state.currentStationKey) {
     recordStationStop(guildId, { botId: runtime.config.id || "" });
@@ -195,7 +260,19 @@ export async function fetchRuntimeBotVoiceState(runtime, guildId) {
     const voiceState = await guild.voiceStates.fetch("@me", { force: true, cache: true });
     return { guild, voiceState, channelId: voiceState?.channelId || null };
   } catch {
-    return { guild, voiceState: null, channelId: null };
+    const cachedMember = guild.members?.me || null;
+    const cachedChannelId = String(cachedMember?.voice?.channelId || "").trim();
+    if (cachedChannelId) {
+      return { guild, voiceState: cachedMember.voice || null, channelId: cachedChannelId };
+    }
+
+    const fetchedMember = await guild.members?.fetchMe?.().catch(() => null);
+    const memberChannelId = String(fetchedMember?.voice?.channelId || "").trim();
+    return {
+      guild,
+      voiceState: fetchedMember?.voice || null,
+      channelId: memberChannelId || null,
+    };
   }
 }
 
@@ -206,7 +283,7 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
   if (!state.connection && !state.currentStationKey && !state.lastChannelId) return;
 
   const { channelId: actualChannelId } = await runtime.fetchBotVoiceState(guildId);
-  const expectedChannelId = state.connection?.joinConfig?.channelId || state.lastChannelId || null;
+  const expectedChannelId = state.lastChannelId || state.connection?.joinConfig?.channelId || null;
 
   if (actualChannelId && state.lastChannelId !== actualChannelId) {
     runtime.markNowPlayingTargetDirty(state, actualChannelId);
@@ -220,10 +297,25 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
     if (!state.connection && shouldReconnect && state.reconnectTimer) {
       return;
     }
-
+    const issue = confirmTransientVoiceIssue(
+      runtime,
+      guildId,
+      state,
+      "voice-state-missing",
+      `${expectedChannelId || "-"}:${reason}`,
+      {
+        threshold: VOICE_STATE_MISSING_CONFIRMATIONS,
+        recheckReason: `voice-state-confirm-${reason}`,
+        logMessage: `Voice-State abweichend erkannt (expected=${expectedChannelId || "-"}, reason=${reason})`,
+      }
+    );
+    if (!issue.confirmed) {
+      return;
+    }
+    clearTransientVoiceIssue(state, "voice-state-missing");
     log(
       "WARN",
-      `[${runtime.config.name}] Voice-State abweichend erkannt (guild=${guildId}, expected=${expectedChannelId || "-"}, reason=${reason}).`
+      `[${runtime.config.name}] Voice-State abweichung bestaetigt (guild=${guildId}, expected=${expectedChannelId || "-"}, reason=${reason}).`
     );
     runtime.resetVoiceSession(guildId, state, {
       preservePlaybackTarget: shouldReconnect,
@@ -234,20 +326,34 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
     }
     return;
   }
+  clearTransientVoiceIssue(state, "voice-state-missing");
 
   if (expectedChannelId && actualChannelId !== expectedChannelId) {
-    log(
-      "INFO",
-      `[${runtime.config.name}] Voice-Channel-Mismatch korrigiert (guild=${guildId}, expected=${expectedChannelId}, actual=${actualChannelId}, reason=${reason}).`
+    const issue = confirmTransientVoiceIssue(
+      runtime,
+      guildId,
+      state,
+      "voice-channel-mismatch",
+      `${expectedChannelId}:${actualChannelId}:${reason}`,
+      {
+        threshold: VOICE_STATE_MISSING_CONFIRMATIONS,
+        recheckReason: `voice-channel-mismatch-confirm-${reason}`,
+        logMessage: `Voice-Channel-Mismatch erkannt (expected=${expectedChannelId}, actual=${actualChannelId}, reason=${reason})`,
+      }
     );
     runtime.markNowPlayingTargetDirty(state, actualChannelId);
     state.lastChannelId = actualChannelId;
-    if (state.connection?.joinConfig?.channelId && state.connection.joinConfig.channelId !== actualChannelId) {
-      runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: true, clearLastChannel: false });
+    runtime.persistState();
+    if (!issue.confirmed) {
+      return;
+    }
+    clearTransientVoiceIssue(state, "voice-channel-mismatch");
+    if (!state.currentProcess && state.player.state.status === AudioPlayerStatus.Idle && !state.reconnectTimer) {
       runtime.scheduleReconnect(guildId, { resetAttempts: true, reason: "voice-channel-mismatch" });
       return;
     }
-    runtime.persistState();
+  } else {
+    clearTransientVoiceIssue(state, "voice-channel-mismatch");
   }
 
   if (!state.connection && state.currentStationKey && state.lastChannelId) {
@@ -372,26 +478,54 @@ export async function tryRuntimeReconnect(runtime, guildId) {
     return;
   }
 
-  const guild = runtime.client.guilds.cache.get(guildId);
+  const guild = runtime.client.guilds.cache.get(guildId) || await runtime.client.guilds.fetch(guildId).catch(() => null);
   if (!guild) {
+    const issue = noteTransientVoiceIssue(state, "reconnect-guild-missing", guildId);
+    if (issue.count < VOICE_RECONNECT_RESOURCE_CONFIRMATIONS) {
+      log(
+        "WARN",
+        `[${runtime.config.name}] Reconnect kann Guild noch nicht aufloesen guild=${guildId} (${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}) - retry folgt.`
+      );
+      return;
+    }
+    clearTransientVoiceIssue(state, "reconnect-guild-missing");
     runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
     return;
   }
+  clearTransientVoiceIssue(state, "reconnect-guild-missing");
 
-  const channel = await guild.channels.fetch(state.lastChannelId).catch(() => null);
+  const channel = guild.channels.cache.get(state.lastChannelId) || await guild.channels.fetch(state.lastChannelId).catch(() => null);
   if (!channel || !channel.isVoiceBased()) {
-    log("WARN", `[${runtime.config.name}] Reconnect abgebrochen: Voice-Channel fehlt guild=${guildId} channel=${state.lastChannelId || "-"}`);
+    const issue = noteTransientVoiceIssue(state, "reconnect-channel-missing", `${guildId}:${state.lastChannelId || "-"}`);
+    if (issue.count < VOICE_RECONNECT_RESOURCE_CONFIRMATIONS) {
+      log(
+        "WARN",
+        `[${runtime.config.name}] Reconnect abgebrochen: Voice-Channel fehlt guild=${guildId} channel=${state.lastChannelId || "-"} (${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}) - retry folgt.`
+      );
+      return;
+    }
+    clearTransientVoiceIssue(state, "reconnect-channel-missing");
     runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
     return;
   }
+  clearTransientVoiceIssue(state, "reconnect-channel-missing");
 
   const me = await runtime.resolveBotMember(guild);
   const perms = me ? channel.permissionsFor(me) : null;
   if (!me || !perms?.has(PermissionFlagsBits.Connect) || (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak))) {
-    log("WARN", `[${runtime.config.name}] Reconnect abgebrochen: Rechte fehlen guild=${guildId} channel=${channel.id}`);
+    const issue = noteTransientVoiceIssue(state, "reconnect-permissions-missing", `${guildId}:${channel.id}`);
+    if (issue.count < VOICE_RECONNECT_RESOURCE_CONFIRMATIONS) {
+      log(
+        "WARN",
+        `[${runtime.config.name}] Reconnect abgebrochen: Rechte fehlen guild=${guildId} channel=${channel.id} (${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}) - retry folgt.`
+      );
+      return;
+    }
+    clearTransientVoiceIssue(state, "reconnect-permissions-missing");
     runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
     return;
   }
+  clearTransientVoiceIssue(state, "reconnect-permissions-missing");
 
   if (state.connection) {
     try { state.connection.destroy(); } catch {}
@@ -461,6 +595,7 @@ export async function tryRuntimeReconnect(runtime, guildId) {
   }
 
   connection.subscribe(state.player);
+  clearTransientVoiceIssues(state);
   state.reconnectAttempts = 0;
   state.lastReconnectAt = new Date().toISOString();
   runtime.clearReconnectTimer(state);

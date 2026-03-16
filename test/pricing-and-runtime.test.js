@@ -12,7 +12,12 @@ import { buildCommandsJson } from "../src/commands.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { BotRuntime } from "../src/bot/runtime.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
-import { scheduleRuntimeReconnect } from "../src/bot/runtime-recovery.js";
+import {
+  fetchRuntimeBotVoiceState,
+  reconcileRuntimeGuildVoiceState,
+  scheduleRuntimeReconnect,
+  tryRuntimeReconnect,
+} from "../src/bot/runtime-recovery.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import {
@@ -257,6 +262,130 @@ test("reconnect circuit breaker pauses retries after too many failed attempts", 
   } finally {
     global.setTimeout = originalSetTimeout;
   }
+});
+
+test("fetchBotVoiceState falls back to cached member voice when voice-state fetch fails", async () => {
+  const guild = {
+    voiceStates: {
+      fetch: async () => {
+        throw new Error("temporary discord failure");
+      },
+    },
+    members: {
+      me: {
+        voice: {
+          channelId: "voice-1",
+        },
+      },
+      fetchMe: async () => null,
+    },
+  };
+  const runtime = {
+    client: {
+      guilds: {
+        cache: new Map([["guild-1", guild]]),
+        fetch: async () => guild,
+      },
+    },
+  };
+
+  const result = await fetchRuntimeBotVoiceState(runtime, "guild-1");
+  assert.equal(result.guild, guild);
+  assert.equal(result.channelId, "voice-1");
+});
+
+test("voice reconcile waits for confirmation before tearing down an active session", async () => {
+  const queued = [];
+  let resetCount = 0;
+  let reconnectCount = 0;
+  const state = {
+    connection: { joinConfig: { channelId: "voice-1" } },
+    currentStationKey: "station-a",
+    currentProcess: { pid: 1 },
+    lastChannelId: "voice-1",
+    shouldReconnect: true,
+    player: { state: { status: "playing" } },
+    transientVoiceIssues: {},
+  };
+  const runtime = {
+    config: { name: "OmniFM Test" },
+    client: {
+      isReady: () => true,
+    },
+    guildState: new Map([["guild-1", state]]),
+    fetchBotVoiceState: async () => ({ guild: {}, voiceState: null, channelId: null }),
+    markNowPlayingTargetDirty() {},
+    persistState() {},
+    queueVoiceStateReconcile(guildId, reason, delayMs) {
+      queued.push({ guildId, reason, delayMs });
+    },
+    resetVoiceSession() {
+      resetCount += 1;
+    },
+    scheduleReconnect() {
+      reconnectCount += 1;
+    },
+    scheduleStreamRestart() {
+      throw new Error("scheduleStreamRestart should not run");
+    },
+  };
+
+  await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+  assert.equal(resetCount, 0);
+  assert.equal(reconnectCount, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(state.transientVoiceIssues["voice-state-missing"].count, 1);
+
+  await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+  assert.equal(resetCount, 1);
+  assert.equal(reconnectCount, 1);
+});
+
+test("tryReconnect tolerates transient missing channels before clearing playback target", async () => {
+  let resetCount = 0;
+  const state = {
+    shouldReconnect: true,
+    lastChannelId: "voice-1",
+    currentStationKey: "station-a",
+    activeScheduledEventStopAtMs: 0,
+    reconnectAttempts: 0,
+    reconnectTimer: null,
+    transientVoiceIssues: {},
+    connection: null,
+  };
+  const guild = {
+    channels: {
+      cache: new Map(),
+      fetch: async () => null,
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Recover" },
+    getState() {
+      return state;
+    },
+    isScheduledEventStopDue() {
+      return false;
+    },
+    client: {
+      guilds: {
+        cache: new Map([["guild-1", guild]]),
+        fetch: async () => guild,
+      },
+    },
+    resolveBotMember: async () => ({ id: "bot" }),
+    resetVoiceSession() {
+      resetCount += 1;
+    },
+  };
+
+  await tryRuntimeReconnect(runtime, "guild-1");
+  await tryRuntimeReconnect(runtime, "guild-1");
+  assert.equal(resetCount, 0);
+  assert.equal(state.transientVoiceIssues["reconnect-channel-missing"].count, 2);
+
+  await tryRuntimeReconnect(runtime, "guild-1");
+  assert.equal(resetCount, 1);
 });
 
 test("worker manager reuses the worker already streaming in the requested channel", () => {

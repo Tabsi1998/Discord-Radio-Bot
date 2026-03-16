@@ -451,6 +451,7 @@ class BotRuntime {
         lastVoiceStatusErrorAt: 0,
         activeScheduledEventId: null,
         activeScheduledEventStopAtMs: 0,
+        transientVoiceIssues: {},
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
