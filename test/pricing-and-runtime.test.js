@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { ActivityType } from "discord.js";
 
 import {
@@ -43,6 +46,25 @@ import {
   shouldLogRecognitionFailure,
 } from "../src/services/audio-recognition.js";
 import { getDefaultLanguage } from "../src/i18n.js";
+import { getBotState, saveState } from "../src/bot-state.js";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const botStatePath = path.join(repoRoot, "bot-state.json");
+const botStateBackupPath = `${botStatePath}.bak`;
+
+function snapshotOptionalTextFile(filePath) {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : null;
+}
+
+function restoreOptionalTextFile(filePath, snapshot) {
+  if (snapshot === null) {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    return;
+  }
+  fs.writeFileSync(filePath, snapshot, "utf8");
+}
 
 test("seat pricing stays aligned with documented bundle totals", () => {
   assert.deepEqual(seatPricingInEuro("pro"), {
@@ -631,6 +653,218 @@ test("restore keeps saved state and schedules retry when the voice channel is tr
   } finally {
     global.setTimeout = originalSetTimeout;
   }
+});
+
+test("restore clears persisted state when Discord reports the guild as permanently unavailable", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-permanent-guild": {
+      "guild-1": {
+        channelId: "voice-1",
+        stationKey: "station-a",
+        volume: 100,
+      },
+    },
+  });
+
+  const runtime = {
+    config: { name: "OmniFM Restore", id: "bot-permanent-guild" },
+    guildState: new Map(),
+    client: {
+      guilds: {
+        cache: new Map(),
+        fetch: async () => {
+          const err = new Error("Unknown Guild");
+          err.code = 10004;
+          throw err;
+        },
+      },
+    },
+  };
+
+  const result = await restoreRuntimeGuildEntry(runtime, "guild-1", {
+    channelId: "voice-1",
+    stationKey: "station-a",
+    volume: 100,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.permanent, true);
+  assert.equal(result.resource, "guild");
+  assert.deepEqual(getBotState("bot-permanent-guild"), {});
+});
+
+test("restore clears persisted state when Discord reports the voice channel as deleted", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-permanent-channel": {
+      "guild-1": {
+        channelId: "voice-1",
+        stationKey: "station-a",
+        volume: 100,
+      },
+    },
+  });
+
+  const guild = {
+    id: "guild-1",
+    name: "Guild One",
+    channels: {
+      cache: new Map(),
+      fetch: async () => {
+        const err = new Error("Unknown Channel");
+        err.code = 10003;
+        throw err;
+      },
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Restore", id: "bot-permanent-channel" },
+    guildState: new Map(),
+    client: {
+      guilds: {
+        cache: new Map(),
+        fetch: async () => guild,
+      },
+    },
+    enforceGuildAccessForGuild: async () => true,
+  };
+
+  const result = await restoreRuntimeGuildEntry(runtime, "guild-1", {
+    channelId: "voice-1",
+    stationKey: "station-a",
+    volume: 100,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.permanent, true);
+  assert.equal(result.resource, "channel");
+  assert.deepEqual(getBotState("bot-permanent-channel"), {});
+});
+
+test("restore clears persisted state when the saved channel is no longer a voice channel", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-channel-type": {
+      "guild-1": {
+        channelId: "voice-1",
+        stationKey: "station-a",
+        volume: 100,
+      },
+    },
+  });
+
+  const guild = {
+    id: "guild-1",
+    name: "Guild One",
+    channels: {
+      cache: new Map(),
+      fetch: async () => ({
+        id: "voice-1",
+        name: "general",
+        isVoiceBased: () => false,
+      }),
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Restore", id: "bot-channel-type" },
+    guildState: new Map(),
+    client: {
+      guilds: {
+        cache: new Map(),
+        fetch: async () => guild,
+      },
+    },
+    enforceGuildAccessForGuild: async () => true,
+  };
+
+  const result = await restoreRuntimeGuildEntry(runtime, "guild-1", {
+    channelId: "voice-1",
+    stationKey: "station-a",
+    volume: 100,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.permanent, true);
+  assert.equal(result.resource, "channel-type");
+  assert.deepEqual(getBotState("bot-channel-type"), {});
+});
+
+test("restore clears persisted state only when the saved station is permanently missing", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-missing-station": {
+      "guild-1": {
+        channelId: "voice-1",
+        stationKey: "station-a",
+        volume: 100,
+      },
+    },
+  });
+
+  const guild = {
+    id: "guild-1",
+    name: "Guild One",
+    channels: {
+      cache: new Map(),
+      fetch: async () => ({
+        id: "voice-1",
+        name: "Radio",
+        isVoiceBased: () => true,
+      }),
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Restore", id: "bot-missing-station" },
+    guildState: new Map(),
+    client: {
+      guilds: {
+        cache: new Map(),
+        fetch: async () => guild,
+      },
+    },
+    enforceGuildAccessForGuild: async () => true,
+    resolveGuildLanguage: () => "en",
+    resolveStationForGuild: () => ({
+      ok: false,
+      message: "station missing",
+    }),
+  };
+
+  const result = await restoreRuntimeGuildEntry(runtime, "guild-1", {
+    channelId: "voice-1",
+    stationKey: "station-a",
+    volume: 100,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.permanent, true);
+  assert.equal(result.resource, "station");
+  assert.deepEqual(getBotState("bot-missing-station"), {});
 });
 
 test("worker manager reuses the worker already streaming in the requested channel", () => {
