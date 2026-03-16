@@ -17,6 +17,8 @@ import {
   buildDiscordBotListPublicUrls,
   collectDiscordBotListStats,
   fetchDiscordBotListPublicBotSummary,
+  syncDiscordBotListCommands,
+  syncDiscordBotListStats,
 } from "../src/services/discordbotlist.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -190,39 +192,44 @@ test("DiscordBotList commands payload includes slash commands for publish", () =
   assert.ok(names.includes("license"));
 });
 
-test("DiscordBotList public URL helper targets the bots.gg listing and API", () => {
+test("DiscordBotList public URL helper targets the DiscordBotList page and owner API", () => {
+  process.env.DISCORDBOTLIST_SLUG = "omnifm-dj";
   const urls = buildDiscordBotListPublicUrls("1476192449721274472");
 
-  assert.equal(urls.listingUrl, "https://discord.bots.gg/bots/1476192449721274472");
-  assert.equal(urls.publicApiUrl, "https://discord.bots.gg/api/v1/bots/1476192449721274472");
+  assert.equal(urls.listingUrl, "https://discordbotlist.com/bots/omnifm-dj");
+  assert.equal(urls.publicApiUrl, null);
+  assert.equal(urls.ownerApiUrl, "https://discordbotlist.com/api/v1/bots/1476192449721274472");
+  delete process.env.DISCORDBOTLIST_SLUG;
 });
 
-test("DiscordBotList public summary normalizes the bots.gg API payload", async (t) => {
+test("DiscordBotList public summary inspects the DiscordBotList page when a slug is configured", async (t) => {
   const originalFetch = global.fetch;
+  const originalSlug = process.env.DISCORDBOTLIST_SLUG;
   t.after(() => {
     global.fetch = originalFetch;
+    if (originalSlug === undefined) delete process.env.DISCORDBOTLIST_SLUG;
+    else process.env.DISCORDBOTLIST_SLUG = originalSlug;
   });
 
+  process.env.DISCORDBOTLIST_SLUG = "omnifm-dj";
   global.fetch = async (url) => {
-    assert.equal(url, "https://discord.bots.gg/api/v1/bots/1476192449721274472");
+    assert.equal(url, "https://discordbotlist.com/bots/omnifm-dj");
     return {
       ok: true,
       status: 200,
       async text() {
-        return JSON.stringify({
-          clientId: "1476192449721274472",
-          username: "OmniFM DJ",
-          online: true,
-          status: "online",
-          guildCount: 12,
-          verified: false,
-          verificationLevel: "UNVERIFIED",
-          inGuild: true,
-          uptime: 3600,
-          lastOnlineChange: "2026-03-16T12:34:56.000Z",
-          libraryName: "discord.js",
-          addedDate: "2026-03-16T11:00:00.000Z",
-        });
+        return `
+          <html>
+            <head>
+              <title>OmniFM DJ Discord Bot | Discord Bot List</title>
+              <meta property="og:title" content="OmniFM DJ Discord Bot" />
+              <meta property="og:description" content="Reliable 24/7 radio streaming for Discord communities." />
+            </head>
+            <body>
+              42 upvotes in the last month
+            </body>
+          </html>
+        `;
       },
     };
   };
@@ -232,15 +239,139 @@ test("DiscordBotList public summary normalizes the bots.gg API payload", async (
   assert.equal(summary.ok, true);
   assert.equal(summary.botId, "1476192449721274472");
   assert.equal(summary.username, "OmniFM DJ");
-  assert.equal(summary.online, true);
-  assert.equal(summary.status, "online");
-  assert.equal(summary.guildCount, 12);
-  assert.equal(summary.verified, false);
-  assert.equal(summary.inGuild, true);
-  assert.equal(summary.uptime, 3600);
-  assert.equal(summary.libraryName, "discord.js");
-  assert.equal(summary.listingUrl, "https://discord.bots.gg/bots/1476192449721274472");
-  assert.equal(summary.publicApiUrl, "https://discord.bots.gg/api/v1/bots/1476192449721274472");
+  assert.equal(summary.description, "Reliable 24/7 radio streaming for Discord communities.");
+  assert.equal(summary.monthVotes, 42);
+  assert.equal(summary.listingUrl, "https://discordbotlist.com/bots/omnifm-dj");
+  assert.equal(summary.publicApiUrl, null);
+  assert.equal(summary.ownerApiUrl, "https://discordbotlist.com/api/v1/bots/1476192449721274472");
+  assert.equal(summary.source, "public_html");
+});
+
+test("DiscordBotList commands sync uses the documented Bot token auth header", async (t) => {
+  const originalFetch = global.fetch;
+  const originalEnv = {
+    DISCORDBOTLIST_ENABLED: process.env.DISCORDBOTLIST_ENABLED,
+    DISCORDBOTLIST_TOKEN: process.env.DISCORDBOTLIST_TOKEN,
+    DISCORDBOTLIST_BOT_ID: process.env.DISCORDBOTLIST_BOT_ID,
+  };
+
+  t.after(() => {
+    global.fetch = originalFetch;
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  process.env.DISCORDBOTLIST_ENABLED = "1";
+  process.env.DISCORDBOTLIST_TOKEN = "test-discordbotlist-token";
+  process.env.DISCORDBOTLIST_BOT_ID = "1476192449721274472";
+
+  global.fetch = async (url, options = {}) => {
+    assert.equal(url, "https://discordbotlist.com/api/v1/bots/1476192449721274472/commands");
+    assert.equal(options.method, "POST");
+    assert.equal(options.headers.Authorization, "Bot test-discordbotlist-token");
+    assert.equal(options.headers["Content-Type"], "application/json");
+    return {
+      ok: true,
+      status: 200,
+      async text() {
+        return JSON.stringify({ success: true });
+      },
+    };
+  };
+
+  const result = await syncDiscordBotListCommands([
+    {
+      role: "commander",
+      getApplicationId: () => "1476192449721274472",
+      config: { clientId: "1476192449721274472" },
+    },
+  ]);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.commandCount > 0, true);
+});
+
+test("DiscordBotList stats sync includes shard_id when the commander shard is known", async (t) => {
+  const originalFetch = global.fetch;
+  const originalEnv = {
+    DISCORDBOTLIST_ENABLED: process.env.DISCORDBOTLIST_ENABLED,
+    DISCORDBOTLIST_TOKEN: process.env.DISCORDBOTLIST_TOKEN,
+    DISCORDBOTLIST_BOT_ID: process.env.DISCORDBOTLIST_BOT_ID,
+    DISCORDBOTLIST_STATS_SCOPE: process.env.DISCORDBOTLIST_STATS_SCOPE,
+  };
+
+  t.after(() => {
+    global.fetch = originalFetch;
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  process.env.DISCORDBOTLIST_ENABLED = "1";
+  process.env.DISCORDBOTLIST_TOKEN = "test-discordbotlist-token";
+  process.env.DISCORDBOTLIST_BOT_ID = "1476192449721274472";
+  process.env.DISCORDBOTLIST_STATS_SCOPE = "aggregate";
+
+  global.fetch = async (url, options = {}) => {
+    assert.equal(url, "https://discordbotlist.com/api/v1/bots/1476192449721274472/stats");
+    assert.equal(options.method, "POST");
+    assert.equal(options.headers.Authorization, "test-discordbotlist-token");
+    assert.deepEqual(JSON.parse(options.body), {
+      guilds: 2,
+      users: 30,
+      voice_connections: 2,
+      shard_id: 2,
+    });
+    return {
+      ok: true,
+      status: 200,
+      async text() {
+        return JSON.stringify({ success: true });
+      },
+    };
+  };
+
+  const result = await syncDiscordBotListStats([
+    {
+      role: "commander",
+      getApplicationId: () => "1476192449721274472",
+      config: { clientId: "1476192449721274472" },
+      client: {
+        isReady: () => true,
+        guilds: {
+          cache: new Map([
+            ["1", { id: "1", memberCount: 10 }],
+          ]),
+        },
+        shard: {
+          count: 4,
+          ids: [2],
+        },
+      },
+      collectStats: () => ({ servers: 1, users: 10, connections: 1 }),
+    },
+    {
+      role: "worker",
+      client: {
+        isReady: () => true,
+        guilds: {
+          cache: new Map([
+            ["2", { id: "2", memberCount: 20 }],
+          ]),
+        },
+      },
+      collectStats: () => ({ servers: 1, users: 20, connections: 1 }),
+    },
+  ]);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.guilds, 2);
+  assert.equal(result.users, 30);
+  assert.equal(result.voice_connections, 2);
+  assert.equal(result.shard_id, 2);
 });
 
 test("BotsGG aggregate stats deduplicate guilds across runtimes", () => {

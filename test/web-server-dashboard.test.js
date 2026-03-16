@@ -325,6 +325,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     DISCORDBOTLIST_ENABLED: "1",
     DISCORDBOTLIST_TOKEN: "test-discordbotlist-token",
     DISCORDBOTLIST_BOT_ID: "923456789012345678",
+    DISCORDBOTLIST_SLUG: "omnifm-dj",
     DISCORDBOTLIST_WEBHOOK_SECRET: "test-discordbotlist-secret",
     BOTSGG_ENABLED: "1",
     BOTSGG_TOKEN: "test-botsgg-token",
@@ -557,8 +558,10 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(discordBotListStatusResponse.status, 200);
   assert.equal(discordBotListStatusResponse.payload.configured, true);
   assert.equal(discordBotListStatusResponse.payload.botId, "923456789012345678");
-  assert.equal(discordBotListStatusResponse.payload.listingUrl, "https://discord.bots.gg/bots/923456789012345678");
-  assert.equal(discordBotListStatusResponse.payload.publicApiUrl, "https://discord.bots.gg/api/v1/bots/923456789012345678");
+  assert.equal(discordBotListStatusResponse.payload.slug, "omnifm-dj");
+  assert.equal(discordBotListStatusResponse.payload.listingUrl, "https://discordbotlist.com/bots/omnifm-dj");
+  assert.equal(discordBotListStatusResponse.payload.publicApiUrl, null);
+  assert.equal(discordBotListStatusResponse.payload.ownerApiUrl, "https://discordbotlist.com/api/v1/bots/923456789012345678");
   assert.equal(discordBotListStatusResponse.payload.state.totalVotes, 0);
   assert.deepEqual(discordBotListStatusResponse.payload.state.votes, []);
 

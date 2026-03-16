@@ -3,10 +3,6 @@ import { safeTokenEquals } from "../lib/api-helpers.js";
 import { clipText } from "../lib/helpers.js";
 import { log } from "../lib/logging.js";
 import {
-  buildBotsGGPublicUrls,
-  fetchBotsGGPublicBotSummary,
-} from "./botsgg-public.js";
-import {
   getDiscordBotListState,
   mergeDiscordBotListVotes,
   recordDiscordBotListVote,
@@ -31,6 +27,7 @@ function resolveCommanderRuntime(runtimes = []) {
 function resolveDiscordBotListConfig(runtimes = []) {
   const token = String(process.env.DISCORDBOTLIST_TOKEN || "").trim();
   const explicitBotId = String(process.env.DISCORDBOTLIST_BOT_ID || "").trim();
+  const slug = String(process.env.DISCORDBOTLIST_SLUG || "").trim().toLowerCase();
   const webhookSecret = String(process.env.DISCORDBOTLIST_WEBHOOK_SECRET || "").trim();
   const commanderRuntime = resolveCommanderRuntime(runtimes);
   const botId = explicitBotId
@@ -46,6 +43,7 @@ function resolveDiscordBotListConfig(runtimes = []) {
     enabled,
     token,
     botId,
+    slug,
     webhookSecret,
     statsScope,
     commanderRuntime,
@@ -57,7 +55,16 @@ function isDiscordBotListEnabled(runtimes = []) {
 }
 
 function buildDiscordBotListPublicUrls(botId) {
-  return buildBotsGGPublicUrls(botId);
+  const config = resolveDiscordBotListConfig([]);
+  const normalizedBotId = String(botId || config.botId || "").trim();
+  const slug = String(config.slug || "").trim();
+  return {
+    listingUrl: slug ? `https://discordbotlist.com/bots/${slug}` : null,
+    publicApiUrl: null,
+    ownerApiUrl: /^\d{17,22}$/.test(normalizedBotId)
+      ? `${DISCORD_BOT_LIST_API_BASE}/bots/${normalizedBotId}`
+      : DISCORD_BOT_LIST_API_BASE,
+  };
 }
 
 function buildDiscordBotListCommandsPayload() {
@@ -136,10 +143,10 @@ function collectDiscordBotListStats(runtimes = [], scope = null) {
     : collectCommanderStats(runtimes);
 }
 
-async function discordBotListRequest(method, path, { token, body } = {}) {
+async function discordBotListRequest(method, path, { token, body, authMode = "raw" } = {}) {
   const endpoint = `${DISCORD_BOT_LIST_API_BASE}${path}`;
   const headers = {
-    Authorization: token,
+    Authorization: authMode === "bot-prefix" ? `Bot ${token}` : token,
   };
 
   if (body !== undefined) {
@@ -171,7 +178,70 @@ async function discordBotListRequest(method, path, { token, body } = {}) {
 }
 
 async function fetchDiscordBotListPublicBotSummary(botId) {
-  return fetchBotsGGPublicBotSummary(botId);
+  const urls = buildDiscordBotListPublicUrls(botId);
+  if (!urls.listingUrl) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: "missing_listing_slug",
+      botId: String(botId || "").trim() || null,
+      ...urls,
+    };
+  }
+
+  const response = await fetch(urls.listingUrl, {
+    method: "GET",
+    headers: {
+      Accept: "text/html,application/xhtml+xml",
+    },
+  });
+  const rawHtml = await response.text();
+  if (!response.ok) {
+    throw new Error(`GET public bot page failed (${response.status})`);
+  }
+
+  const ogTitle = rawHtml.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] || "";
+  const ogDescription = rawHtml.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1] || "";
+  const title = rawHtml.match(/<title>([^<]+)<\/title>/i)?.[1] || "";
+  const username = clipText(String(ogTitle || title || "").replace(/\s+Discord Bot.*$/i, "").trim(), 120) || null;
+  const description = clipText(String(ogDescription || "").trim(), 240) || null;
+  const monthVotesMatch = rawHtml.match(/([0-9][0-9.,]*)\s+upvotes?\s+in/i);
+  const monthVotes = monthVotesMatch
+    ? Number.parseInt(String(monthVotesMatch[1]).replace(/[^0-9]/g, ""), 10) || 0
+    : null;
+
+  return {
+    ok: true,
+    botId: String(botId || "").trim() || null,
+    username,
+    description,
+    monthVotes,
+    listingUrl: urls.listingUrl,
+    publicApiUrl: null,
+    ownerApiUrl: urls.ownerApiUrl,
+    source: "public_html",
+  };
+}
+
+function resolveDiscordBotListShardState(runtimes = []) {
+  const commanderRuntime = resolveCommanderRuntime(runtimes);
+  const shardManager = commanderRuntime?.client?.shard || null;
+  const shardCount = Math.max(1, Number(shardManager?.count || shardManager?.shardCount || 1) || 1);
+
+  let shardId = null;
+  if (Array.isArray(shardManager?.ids) && shardManager.ids.length === 1) {
+    const candidate = Number(shardManager.ids[0]);
+    if (Number.isInteger(candidate) && candidate >= 0) {
+      shardId = candidate;
+    }
+  } else {
+    const candidate = Number(shardManager?.id);
+    if (Number.isInteger(candidate) && candidate >= 0) {
+      shardId = candidate;
+    }
+  }
+
+  return { shardCount, shardId };
 }
 
 async function syncDiscordBotListCommands(runtimes = []) {
@@ -185,6 +255,7 @@ async function syncDiscordBotListCommands(runtimes = []) {
     const response = await discordBotListRequest("POST", `/bots/${config.botId}/commands`, {
       token: config.token,
       body: commands,
+      authMode: "bot-prefix",
     });
     setDiscordBotListSyncStatus("commands", {
       ok: true,
@@ -212,11 +283,15 @@ async function syncDiscordBotListStats(runtimes = [], { scope = null } = {}) {
   }
 
   const stats = collectDiscordBotListStats(runtimes, scope);
+  const shardState = resolveDiscordBotListShardState(runtimes);
   const payload = {
     guilds: stats.guilds,
     users: stats.users,
     voice_connections: stats.voiceConnections,
   };
+  if (Number.isInteger(shardState.shardId) && shardState.shardId >= 0) {
+    payload.shard_id = shardState.shardId;
+  }
 
   try {
     const response = await discordBotListRequest("POST", `/bots/${config.botId}/stats`, {
@@ -229,11 +304,12 @@ async function syncDiscordBotListStats(runtimes = [], { scope = null } = {}) {
       details: {
         scope: stats.scope,
         ...payload,
+        shardCount: shardState.shardCount,
       },
     });
     log(
       "INFO",
-      `[DiscordBotList] Stats synced: bot=${config.botId} scope=${stats.scope} guilds=${payload.guilds} users=${payload.users} voice=${payload.voice_connections}`
+      `[DiscordBotList] Stats synced: bot=${config.botId} scope=${stats.scope} guilds=${payload.guilds} users=${payload.users} voice=${payload.voice_connections}${payload.shard_id !== undefined ? ` shardId=${payload.shard_id}` : ""}`
     );
     return { ok: true, response, botId: config.botId, ...payload, scope: stats.scope };
   } catch (err) {
@@ -244,6 +320,7 @@ async function syncDiscordBotListStats(runtimes = [], { scope = null } = {}) {
       details: {
         scope: stats.scope,
         ...payload,
+        shardCount: shardState.shardCount,
       },
     });
     throw err;
@@ -350,9 +427,11 @@ function getDiscordBotListStatus(runtimes = [], { voteLimit = 20 } = {}) {
   return {
     configured: config.enabled,
     botId: config.botId || null,
+    slug: config.slug || null,
     statsScope: config.statsScope,
     listingUrl: publicUrls.listingUrl,
     publicApiUrl: publicUrls.publicApiUrl,
+    ownerApiUrl: publicUrls.ownerApiUrl,
     state,
   };
 }

@@ -1724,6 +1724,7 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_dbl_token=$(read_env "DISCORDBOTLIST_TOKEN" "")
   cur_commander_idx=$(read_env "COMMANDER_BOT_INDEX" "1")
   cur_dbl_bot_id=$(read_env "DISCORDBOTLIST_BOT_ID" "$(read_env "BOT_${cur_commander_idx}_CLIENT_ID" "")")
+  cur_dbl_slug=$(read_env "DISCORDBOTLIST_SLUG" "")
   cur_dbl_secret=$(read_env "DISCORDBOTLIST_WEBHOOK_SECRET" "")
   cur_dbl_scope=$(read_env "DISCORDBOTLIST_STATS_SCOPE" "aggregate")
   cur_botsgg_enabled=$(read_env "BOTSGG_ENABLED" "0")
@@ -1857,8 +1858,10 @@ if [[ "$MODE" == "--settings" ]]; then
   fi
   if [[ -n "$cur_dbl_bot_id" ]]; then
     echo -e "  DBL Bot-ID:            ${CYAN}${cur_dbl_bot_id}${NC}"
-    echo -e "  Bots.gg Listing:       ${DIM}https://discord.bots.gg/bots/${cur_dbl_bot_id}${NC}"
-    echo -e "  Bots.gg API:           ${DIM}https://discord.bots.gg/api/v1/bots/${cur_dbl_bot_id}${NC}"
+    if [[ -n "$cur_dbl_slug" ]]; then
+      echo -e "  DBL Listing:           ${DIM}https://discordbotlist.com/bots/${cur_dbl_slug}${NC}"
+    fi
+    echo -e "  DBL Owner API:         ${DIM}https://discordbotlist.com/api/v1/bots/${cur_dbl_bot_id}${NC}"
   else
     echo -e "  DBL Bot-ID:            ${YELLOW}nicht gesetzt${NC}"
   fi
@@ -2026,13 +2029,13 @@ if [[ "$MODE" == "--settings" ]]; then
       echo -e "    ${DIM}https://docs.discordbotlist.com/${NC}"
       echo -e "    ${DIM}https://docs.discordbotlist.com/vote-webhooks${NC}"
       echo -e "    ${DIM}https://docs.discordbotlist.com/bot-statistics${NC}"
-      echo -e "    ${DIM}https://discord.bots.gg/${NC}"
+      echo -e "    ${DIM}https://discordbotlist.com/${NC}"
       if [[ -n "$cur_dbl_bot_id" ]]; then
-        echo -e "    ${DIM}https://discord.bots.gg/bots/${cur_dbl_bot_id}${NC}"
-        echo -e "    ${DIM}https://discord.bots.gg/api/v1/bots/${cur_dbl_bot_id}${NC}"
+        echo -e "    ${DIM}https://discordbotlist.com/api/v1/bots/${cur_dbl_bot_id}${NC}"
       fi
       if prompt_yes_no "DiscordBotList aktivieren?" "$(if [[ "$cur_dbl_enabled" == "0" ]]; then echo n; else echo j; fi)"; then
         new_dbl_bot_id="$(prompt_default "Discord Bot ID (bots.gg / discordbotlist.com)" "$cur_dbl_bot_id")"
+        new_dbl_slug="$(prompt_default "DiscordBotList Slug (optional, z. B. omnifm-dj)" "$cur_dbl_slug")"
         new_dbl_token="$(prompt_default "DiscordBotList Token" "$cur_dbl_token")"
         new_dbl_secret="$(prompt_default "DiscordBotList Webhook Secret" "$cur_dbl_secret")"
         new_dbl_scope="$(prompt_default "Stats Scope (commander/aggregate)" "$cur_dbl_scope")"
@@ -2048,19 +2051,22 @@ if [[ "$MODE" == "--settings" ]]; then
         else
           write_env_line "DISCORDBOTLIST_ENABLED" "1"
           write_env_line "DISCORDBOTLIST_BOT_ID" "$new_dbl_bot_id"
+          write_env_line "DISCORDBOTLIST_SLUG" "$new_dbl_slug"
           write_env_line "DISCORDBOTLIST_TOKEN" "$new_dbl_token"
           write_env_line "DISCORDBOTLIST_WEBHOOK_SECRET" "$new_dbl_secret"
           write_env_line "DISCORDBOTLIST_STATS_SCOPE" "$new_dbl_scope"
           ok "DiscordBotList gespeichert."
-          info "Bots.gg Listing: https://discord.bots.gg/bots/${new_dbl_bot_id}"
-          info "Bots.gg API: https://discord.bots.gg/api/v1/bots/${new_dbl_bot_id}"
+          if [[ -n "$new_dbl_slug" ]]; then
+            info "DiscordBotList Listing: https://discordbotlist.com/bots/${new_dbl_slug}"
+          fi
+          info "DiscordBotList API: https://discordbotlist.com/api/v1/bots/${new_dbl_bot_id}"
           if [[ -n "$cur_public_url" ]]; then
             info "Webhook URL: ${cur_public_url}/api/discordbotlist/vote"
           else
             warn "PUBLIC_WEB_URL ist noch leer. Setze zuerst die Public Web URL fuer den Vote-Webhook."
           fi
-          warn "Der sichtbare Online-Status auf discord.bots.gg ist nicht ueber die dokumentierte Owner-API schreibbar."
-          warn "Pruefe nach dem Deploy die oeffentliche API und triggere bei Bedarf /api/discordbotlist/sync."
+          warn "Ohne Slug kann intern nur die Owner-API, aber kein direkter oeffentlicher Listing-Link angezeigt werden."
+          warn "Pruefe nach dem Deploy /api/discordbotlist/status und triggere bei Bedarf /api/discordbotlist/sync."
         fi
       else
         write_env_line "DISCORDBOTLIST_ENABLED" "0"

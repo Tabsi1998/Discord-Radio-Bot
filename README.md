@@ -388,6 +388,7 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | `DISCORDBOTLIST_ENABLED` | Enables discordbotlist.com sync features |
 | `DISCORDBOTLIST_TOKEN` | discordbotlist.com API token |
 | `DISCORDBOTLIST_BOT_ID` | Explicit bot ID for stats sync and public listing checks |
+| `DISCORDBOTLIST_SLUG` | Optional public listing slug used for the public DiscordBotList page |
 | `DISCORDBOTLIST_WEBHOOK_SECRET` | Vote webhook secret for `POST /api/discordbotlist/vote` |
 | `DISCORDBOTLIST_STATS_SCOPE` | `commander` or `aggregate` |
 | `DISCORDBOTLIST_COMMANDS_SYNC_MS` | Periodic command sync interval |
@@ -494,7 +495,10 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 
 Notes:
 - The owner API is documented on `docs.discordbotlist.com`.
-- `GET /api/discordbotlist/status?live=1` includes a live check against the public `discord.bots.gg` API so you can compare internal sync state with the public listing.
+- OmniFM uses the documented owner API on `https://discordbotlist.com/api/v1`.
+- Command publishing uses the documented `Authorization: Bot <token>` header.
+- Stats include `shard_id` when the commander shard can be resolved.
+- `GET /api/discordbotlist/status?live=1` checks the public DiscordBotList page when `DISCORDBOTLIST_SLUG` is configured.
 - The published docs currently document stats, commands, and vote webhooks, but not a writable presence endpoint. Treat the public `online` field as informational, not as something your bot can directly force through the documented API.
 
 ### Discord Bots (bots.gg)
