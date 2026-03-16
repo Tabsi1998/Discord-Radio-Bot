@@ -1444,6 +1444,7 @@ function collectGuildLiveDetails(runtimes, guildId) {
         listeners: Number(detail.listenerCount || 0) || 0,
         reconnectAttempts: Number(detail.reconnectAttempts || 0) || 0,
         streamErrorCount: Number(detail.streamErrorCount || 0) || 0,
+        recovering: detail?.recovering === true,
         shouldReconnect: detail.shouldReconnect === true,
       });
     }
@@ -1465,12 +1466,13 @@ function collectGuildBotHealthRows(runtimes, guildId) {
     const reconnectAttempts = Number(detail?.reconnectAttempts || 0) || 0;
     const streamErrorCount = Number(detail?.streamErrorCount || 0) || 0;
     const playing = detail?.playing === true;
+    const recovering = detail?.recovering === true;
     const shouldReconnect = detail?.shouldReconnect === true;
 
     let botStatus = "idle";
     if (runtime?.client?.isReady?.() !== true) {
       botStatus = "offline";
-    } else if (shouldReconnect) {
+    } else if (recovering) {
       botStatus = "recovering";
     } else if (playing && (reconnectAttempts > 0 || streamErrorCount > 0)) {
       botStatus = "degraded";
@@ -1488,6 +1490,7 @@ function collectGuildBotHealthRows(runtimes, guildId) {
       listeners: Number(detail?.listenerCount || 0) || 0,
       reconnectAttempts,
       streamErrorCount,
+      recovering,
       shouldReconnect,
       channelId: detail?.channelId || null,
       channelName: detail?.channelName || detail?.channelId || null,
@@ -1518,7 +1521,7 @@ function buildDashboardHealthSummary(serverId, runtimes, {
   const activeVoiceChannels = new Set(
     activeLiveRows.map((row) => String(row?.channelId || row?.channelName || "").trim()).filter(Boolean)
   ).size;
-  const recoveringStreams = activeLiveRows.filter((row) => row?.shouldReconnect === true).length;
+  const recoveringStreams = activeLiveRows.filter((row) => row?.recovering === true).length;
   const degradedStreams = activeLiveRows.filter((row) => {
     const reconnectAttempts = Number(row?.reconnectAttempts || 0) || 0;
     const streamErrors = Number(row?.streamErrorCount || 0) || 0;

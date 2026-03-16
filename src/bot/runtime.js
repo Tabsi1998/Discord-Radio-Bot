@@ -3593,6 +3593,11 @@ class BotRuntime {
         listenerCount: this.getCurrentListenerCount(guildId, state),
         volume: state.volume,
         playing: Boolean(state.connection && state.currentStationKey),
+        recovering: Boolean(
+          state.currentStationKey
+          && state.shouldReconnect === true
+          && (!state.connection || state.reconnectTimer || (Number(state.reconnectAttempts || 0) || 0) > 0)
+        ),
         reconnectAttempts: Number(state.reconnectAttempts || 0) || 0,
         streamErrorCount: Number(state.streamErrorCount || 0) || 0,
         shouldReconnect: state.shouldReconnect === true,

@@ -198,6 +198,7 @@ function createRuntimeStub() {
           channelName: "radio-lounge",
           listenerCount: 4,
           playing: true,
+          recovering: true,
           reconnectAttempts: 2,
           streamErrorCount: 1,
           shouldReconnect: true,
