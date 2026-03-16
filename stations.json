@@ -78,9 +78,9 @@
       "url": "http://streams.bigfm.de/bigfm-reggaevibes-128-mp3",
       "tier": "free"
     },
-    "ambientradio": {
-      "name": "Ambient Radio",
-      "url": "https://streams.ilovemusic.de/iloveradio7.mp3",
+    "chartsradio": {
+      "name": "Charts Radio",
+      "url": "https://streams.ilovemusic.de/iloveradio1.mp3",
       "tier": "free"
     },
     "technoradio": {
@@ -143,9 +143,9 @@
       "url": "http://stream.sunshine-live.de/live/mp3-192/",
       "tier": "pro"
     },
-    "pro_edm_04": {
-      "name": "EDM Hits",
-      "url": "http://streams.bigfm.de/bigfm-nitroxedm-128-aac",
+    "pro_charts_01": {
+      "name": "bigFM Charts",
+      "url": "http://streams.bigfm.de/bigfm-charts-128-mp3",
       "tier": "pro"
     },
     "pro_edm_05": {
