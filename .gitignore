@@ -16,7 +16,12 @@ logs/
 .update-backups/
 memory/
 test_reports/
+.emergent/
 .pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 backend/__pycache__/
 
 # File-store runtime data

@@ -1,5 +1,6 @@
 *.sh text eol=lf
 *.js text eol=lf
+*.mjs text eol=lf
 *.json text eol=lf
 *.html text eol=lf
 *.css text eol=lf
@@ -7,3 +8,5 @@
 *.service text eol=lf
 Dockerfile text eol=lf
 README.md text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf

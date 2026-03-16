@@ -1,0 +1,18 @@
+{
+  "files.exclude": {
+    "**/.emergent": true,
+    "**/.pytest_cache": true,
+    "**/__pycache__": true,
+    "**/node_modules": true,
+    "frontend/build": true,
+    "logs": true
+  },
+  "search.exclude": {
+    "**/.emergent": true,
+    "**/.pytest_cache": true,
+    "**/__pycache__": true,
+    "**/node_modules": true,
+    "frontend/build": true,
+    "logs": true
+  }
+}
