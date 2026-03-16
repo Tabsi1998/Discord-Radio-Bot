@@ -1,16 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { buildCustomStationReference } from "../src/custom-stations.js";
 import { normalizeScheduledEventInput } from "../src/scheduled-events-store.js";
 import { buildPublicStationCatalog } from "../src/lib/public-stations.js";
 import { buildScopedStationsData, filterStationsByTier } from "../src/stations-store.js";
 import {
+  collectBotsGGStats,
+  syncBotsGGStats,
+} from "../src/services/botsgg.js";
+import {
   buildDiscordBotListCommandsPayload,
   buildDiscordBotListPublicUrls,
   collectDiscordBotListStats,
   fetchDiscordBotListPublicBotSummary,
 } from "../src/services/discordbotlist.js";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const botsGGStatePath = path.join(repoRoot, "botsgg.json");
 
 test("scheduled events keep custom station references intact", () => {
   const customStationKey = buildCustomStationReference("nightshift");
@@ -231,4 +241,135 @@ test("DiscordBotList public summary normalizes the bots.gg API payload", async (
   assert.equal(summary.libraryName, "discord.js");
   assert.equal(summary.listingUrl, "https://discord.bots.gg/bots/1476192449721274472");
   assert.equal(summary.publicApiUrl, "https://discord.bots.gg/api/v1/bots/1476192449721274472");
+});
+
+test("BotsGG aggregate stats deduplicate guilds across runtimes", () => {
+  const runtimes = [
+    {
+      role: "commander",
+      client: {
+        isReady: () => true,
+        guilds: {
+          cache: new Map([
+            ["1", { id: "1", memberCount: 10 }],
+            ["2", { id: "2", memberCount: 20 }],
+          ]),
+        },
+      },
+      collectStats: () => ({ servers: 2, users: 30, connections: 1 }),
+    },
+    {
+      role: "worker",
+      client: {
+        isReady: () => true,
+        guilds: {
+          cache: new Map([
+            ["2", { id: "2", memberCount: 20 }],
+            ["3", { id: "3", memberCount: 40 }],
+          ]),
+        },
+      },
+      collectStats: () => ({ servers: 2, users: 60, connections: 2 }),
+    },
+  ];
+
+  const stats = collectBotsGGStats(runtimes, "aggregate");
+
+  assert.equal(stats.scope, "aggregate");
+  assert.equal(stats.guildCount, 3);
+  assert.equal(stats.userCount, 70);
+});
+
+test("BotsGG stats sync posts documented guildCount payload", async (t) => {
+  const originalFetch = global.fetch;
+  const originalEnv = {
+    BOTSGG_ENABLED: process.env.BOTSGG_ENABLED,
+    BOTSGG_TOKEN: process.env.BOTSGG_TOKEN,
+    BOTSGG_BOT_ID: process.env.BOTSGG_BOT_ID,
+    BOTSGG_STATS_SCOPE: process.env.BOTSGG_STATS_SCOPE,
+  };
+  const hadStateFile = fs.existsSync(botsGGStatePath);
+  const originalState = hadStateFile ? fs.readFileSync(botsGGStatePath, "utf8") : null;
+
+  t.after(() => {
+    global.fetch = originalFetch;
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    if (hadStateFile) {
+      fs.writeFileSync(botsGGStatePath, originalState, "utf8");
+    } else if (fs.existsSync(botsGGStatePath)) {
+      fs.unlinkSync(botsGGStatePath);
+    }
+  });
+
+  process.env.BOTSGG_ENABLED = "1";
+  process.env.BOTSGG_TOKEN = "test-botsgg-token";
+  process.env.BOTSGG_BOT_ID = "1476192449721274472";
+  process.env.BOTSGG_STATS_SCOPE = "aggregate";
+
+  const runtimes = [
+    {
+      role: "commander",
+      getApplicationId: () => "1476192449721274472",
+      config: { clientId: "1476192449721274472" },
+      client: {
+        isReady: () => true,
+        guilds: {
+          cache: new Map([
+            ["1", { id: "1", memberCount: 10 }],
+          ]),
+        },
+        shard: {
+          count: 3,
+          ids: [1],
+        },
+      },
+      collectStats: () => ({ servers: 1, users: 10, connections: 1 }),
+    },
+    {
+      role: "worker",
+      client: {
+        isReady: () => true,
+        guilds: {
+          cache: new Map([
+            ["2", { id: "2", memberCount: 20 }],
+          ]),
+        },
+      },
+      collectStats: () => ({ servers: 1, users: 20, connections: 1 }),
+    },
+  ];
+
+  global.fetch = async (url, options = {}) => {
+    assert.equal(url, "https://discord.bots.gg/api/v1/bots/1476192449721274472/stats");
+    assert.equal(options.method, "POST");
+    assert.equal(options.headers.Authorization, "test-botsgg-token");
+    assert.equal(options.headers["Content-Type"], "application/json");
+    assert.deepEqual(JSON.parse(options.body), {
+      guildCount: 2,
+      shardCount: 3,
+      shardId: 1,
+    });
+    return {
+      ok: true,
+      status: 200,
+      async text() {
+        return JSON.stringify({
+          guildCount: 2,
+          shardCount: 3,
+        });
+      },
+    };
+  };
+
+  const result = await syncBotsGGStats(runtimes);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.guildCount, 2);
+  assert.equal(result.userCount, 30);
+  assert.equal(result.shardCount, 3);
+  assert.equal(result.shardId, 1);
+  assert.equal(fs.existsSync(botsGGStatePath), true);
 });

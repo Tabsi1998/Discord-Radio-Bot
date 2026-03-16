@@ -378,14 +378,25 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 
 | Variable | Purpose |
 | --- | --- |
-| `DISCORDBOTLIST_ENABLED` | Enables DBL sync features |
-| `DISCORDBOTLIST_TOKEN` | DBL API token |
+| `DISCORDBOTLIST_ENABLED` | Enables discordbotlist.com sync features |
+| `DISCORDBOTLIST_TOKEN` | discordbotlist.com API token |
 | `DISCORDBOTLIST_BOT_ID` | Explicit bot ID for stats sync and public listing checks |
-| `DISCORDBOTLIST_WEBHOOK_SECRET` | Vote webhook secret |
+| `DISCORDBOTLIST_WEBHOOK_SECRET` | Vote webhook secret for `POST /api/discordbotlist/vote` |
 | `DISCORDBOTLIST_STATS_SCOPE` | `commander` or `aggregate` |
 | `DISCORDBOTLIST_COMMANDS_SYNC_MS` | Periodic command sync interval |
 | `DISCORDBOTLIST_STATS_SYNC_MS` | Periodic stats sync interval |
 | `DISCORDBOTLIST_VOTE_SYNC_MS` | Periodic vote sync interval |
+
+### Discord Bots (bots.gg)
+
+| Variable | Purpose |
+| --- | --- |
+| `BOTSGG_ENABLED` | Enables the dedicated `discord.bots.gg` stats sync |
+| `BOTSGG_TOKEN` | `discord.bots.gg` owner API token |
+| `BOTSGG_BOT_ID` | Explicit bot ID for the stats endpoint |
+| `BOTSGG_STATS_SCOPE` | `commander` or `aggregate` |
+| `BOTSGG_STARTUP_DELAY_MS` | Initial delay before the first stats post after boot |
+| `BOTSGG_STATS_SYNC_MS` | Periodic stats sync interval |
 
 ### Email
 
@@ -459,9 +470,20 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 - `GET /api/discordbotlist/votes`
 
 Notes:
-- The owner API is documented on `docs.discordbotlist.com`, while the public listing is shown on `https://discord.bots.gg/bots/<botId>`.
+- The owner API is documented on `docs.discordbotlist.com`.
 - `GET /api/discordbotlist/status?live=1` includes a live check against the public `discord.bots.gg` API so you can compare internal sync state with the public listing.
 - The published docs currently document stats, commands, and vote webhooks, but not a writable presence endpoint. Treat the public `online` field as informational, not as something your bot can directly force through the documented API.
+
+### Discord Bots (bots.gg)
+
+- `POST /api/botsgg/sync`
+- `GET /api/botsgg/status`
+
+Notes:
+- The documented owner stats endpoint is `POST https://discord.bots.gg/api/v1/bots/<botId>/stats`.
+- OmniFM posts `guildCount` and shard metadata there through the dedicated `BOTSGG_*` configuration.
+- `GET /api/botsgg/status?live=1` includes the public listing snapshot from `https://discord.bots.gg/api/v1/bots/<botId>`.
+- The public `online` and `status` fields are not directly writable through the documented stats endpoint.
 
 ## Discord commands
 
@@ -636,6 +658,16 @@ Notes:
 - Use `POST /api/discordbotlist/sync` with the admin token to force a sync
 - Check `GET /api/discordbotlist/status?live=1` and compare it with `https://discord.bots.gg/api/v1/bots/<botId>`
 - If the public listing still shows `guildCount: 0` or `online: false`, also verify the bot page settings on `discord.bots.gg` itself, including the selected library and claimed ownership
+
+### bots.gg guild count is not updating
+
+- Verify `BOTSGG_ENABLED=1`
+- Verify `BOTSGG_TOKEN`
+- Verify `BOTSGG_BOT_ID`
+- Use `POST /api/botsgg/sync` with the admin token to force a stats post
+- Check `GET /api/botsgg/status?live=1`
+- Confirm the listing is claimed correctly on `discord.bots.gg`
+- Do not expect the documented stats endpoint to directly force the public `online` field
 
 ## Notes
 

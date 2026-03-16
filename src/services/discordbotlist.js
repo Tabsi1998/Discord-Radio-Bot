@@ -3,6 +3,10 @@ import { safeTokenEquals } from "../lib/api-helpers.js";
 import { clipText } from "../lib/helpers.js";
 import { log } from "../lib/logging.js";
 import {
+  buildBotsGGPublicUrls,
+  fetchBotsGGPublicBotSummary,
+} from "./botsgg-public.js";
+import {
   getDiscordBotListState,
   mergeDiscordBotListVotes,
   recordDiscordBotListVote,
@@ -10,8 +14,6 @@ import {
 } from "../discordbotlist-store.js";
 
 const DISCORD_BOT_LIST_API_BASE = "https://discordbotlist.com/api/v1";
-const DISCORD_BOT_LIST_PUBLIC_SITE_BASE = "https://discord.bots.gg";
-const DISCORD_BOT_LIST_PUBLIC_API_BASE = "https://discord.bots.gg/api/v1";
 
 function parseEnvInt(name, fallback, min = 0) {
   const parsed = Number.parseInt(String(process.env[name] ?? ""), 10);
@@ -54,18 +56,7 @@ function isDiscordBotListEnabled(runtimes = []) {
 }
 
 function buildDiscordBotListPublicUrls(botId) {
-  const normalizedBotId = String(botId || "").trim();
-  if (!/^\d{17,22}$/.test(normalizedBotId)) {
-    return {
-      listingUrl: null,
-      publicApiUrl: null,
-    };
-  }
-
-  return {
-    listingUrl: `${DISCORD_BOT_LIST_PUBLIC_SITE_BASE}/bots/${normalizedBotId}`,
-    publicApiUrl: `${DISCORD_BOT_LIST_PUBLIC_API_BASE}/bots/${normalizedBotId}`,
-  };
+  return buildBotsGGPublicUrls(botId);
 }
 
 function buildDiscordBotListCommandsPayload() {
@@ -150,56 +141,7 @@ async function discordBotListRequest(method, path, { token, body } = {}) {
 }
 
 async function fetchDiscordBotListPublicBotSummary(botId) {
-  const normalizedBotId = String(botId || "").trim();
-  const urls = buildDiscordBotListPublicUrls(normalizedBotId);
-  if (!urls.publicApiUrl) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: "missing_bot_id",
-      botId: null,
-      ...urls,
-    };
-  }
-
-  const response = await fetch(urls.publicApiUrl, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-    },
-  });
-
-  const rawText = await response.text();
-  let parsed = null;
-  if (rawText.trim()) {
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      parsed = { raw: rawText };
-    }
-  }
-
-  if (!response.ok) {
-    const message = parsed?.error || parsed?.message || clipText(rawText, 240) || `HTTP ${response.status}`;
-    throw new Error(`GET public bot summary failed (${response.status}): ${message}`);
-  }
-
-  return {
-    ok: true,
-    botId: String(parsed?.clientId || parsed?.userId || normalizedBotId).trim() || normalizedBotId,
-    username: clipText(String(parsed?.username || ""), 120) || null,
-    online: parsed?.online === true,
-    status: clipText(String(parsed?.status || ""), 60) || null,
-    guildCount: Number(parsed?.guildCount || 0) || 0,
-    verified: parsed?.verified === true,
-    verificationLevel: clipText(String(parsed?.verificationLevel || ""), 60) || null,
-    inGuild: parsed?.inGuild === true,
-    uptime: Math.max(0, Number(parsed?.uptime || 0) || 0),
-    lastOnlineChange: clipText(String(parsed?.lastOnlineChange || ""), 80) || null,
-    libraryName: clipText(String(parsed?.libraryName || ""), 80) || null,
-    addedDate: clipText(String(parsed?.addedDate || ""), 80) || null,
-    ...urls,
-  };
+  return fetchBotsGGPublicBotSummary(botId);
 }
 
 async function syncDiscordBotListCommands(runtimes = []) {

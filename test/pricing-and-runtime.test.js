@@ -14,6 +14,7 @@ import { BotRuntime } from "../src/bot/runtime.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import {
   fetchRuntimeBotVoiceState,
+  handleRuntimeBotVoiceStateUpdate,
   reconcileRuntimeGuildVoiceState,
   restoreRuntimeGuildEntry,
   scheduleRuntimeReconnect,
@@ -483,6 +484,54 @@ test("voice reconcile syncs the remembered channel when active connection and vo
   assert.equal(dirtyCount, 1);
   assert.equal(persistCount, 1);
   assert.equal(state.transientVoiceIssues["voice-channel-mismatch"], undefined);
+});
+
+test("voice state update without auto reconnect resets the voice session exactly once", () => {
+  const state = {
+    shouldReconnect: false,
+    currentStationKey: "station-a",
+    lastChannelId: "voice-1",
+  };
+  let resetCalls = 0;
+  const runtime = {
+    config: { name: "OmniFM Test" },
+    client: {
+      user: { id: "bot-1" },
+    },
+    getState() {
+      return state;
+    },
+    resetVoiceSession(guildId, passedState, options) {
+      resetCalls += 1;
+      assert.equal(guildId, "guild-1");
+      assert.equal(passedState, state);
+      assert.deepEqual(options, {
+        preservePlaybackTarget: false,
+        clearLastChannel: true,
+      });
+    },
+    scheduleReconnect() {
+      throw new Error("scheduleReconnect should not run");
+    },
+    markNowPlayingTargetDirty() {},
+    clearReconnectTimer() {},
+    persistState() {},
+    queueVoiceStateReconcile() {},
+  };
+
+  handleRuntimeBotVoiceStateUpdate(
+    runtime,
+    {
+      channelId: "voice-1",
+    },
+    {
+      id: "bot-1",
+      guild: { id: "guild-1" },
+      channelId: null,
+    }
+  );
+
+  assert.equal(resetCalls, 1);
 });
 
 test("restore keeps saved state and schedules retry when the guild is transiently unavailable", async () => {

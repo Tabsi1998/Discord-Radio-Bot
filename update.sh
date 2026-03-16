@@ -463,6 +463,8 @@ show_admin_runtime_summary() {
   stripe="$(read_env "STRIPE_SECRET_KEY" "$(read_env "STRIPE_API_KEY" "")")"
   dbl_token="$(read_env "DISCORDBOTLIST_TOKEN" "")"
   dbl_enabled="$(read_env "DISCORDBOTLIST_ENABLED" "1")"
+  botsgg_token="$(read_env "BOTSGG_TOKEN" "")"
+  botsgg_enabled="$(read_env "BOTSGG_ENABLED" "0")"
 
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
     container_status="${GREEN}laeuft${NC}"
@@ -486,6 +488,13 @@ show_admin_runtime_summary() {
   else
     dbl_status="${RED}fehlt${NC}"
   fi
+  if [[ "$botsgg_enabled" == "0" ]]; then
+    botsgg_status="${YELLOW}deaktiviert${NC}"
+  elif [[ -n "$botsgg_token" ]]; then
+    botsgg_status="${GREEN}ok${NC}"
+  else
+    botsgg_status="${RED}fehlt${NC}"
+  fi
 
   echo ""
   echo -e "  ${BOLD}Admin-Cockpit${NC}"
@@ -502,7 +511,7 @@ show_admin_runtime_summary() {
     echo -e "    Public URL:          ${YELLOW}nicht gesetzt${NC}"
   fi
   echo -e "    Dashboard OAuth:     ${dash_status}"
-  echo -e "    Stripe / DBL:        $(if [[ -n "$stripe" ]]; then echo -e "${GREEN}ok${NC}"; else echo -e "${RED}fehlt${NC}"; fi) / ${dbl_status}"
+  echo -e "    Stripe / DBL / BGG:  $(if [[ -n "$stripe" ]]; then echo -e "${GREEN}ok${NC}"; else echo -e "${RED}fehlt${NC}"; fi) / ${dbl_status} / ${botsgg_status}"
   echo -e "    Admin API Token:     $(if [[ -n "$admin_token" ]]; then echo -e "${GREEN}gesetzt${NC}"; else echo -e "${YELLOW}nicht gesetzt${NC}"; fi)"
   echo -e "    Logs:                ${CYAN}${log_mb}MB${NC}, ${CYAN}${log_files}${NC} Dateien, ${CYAN}${log_days}${NC} Tage"
   echo -e "    Docker Cleanup:      $(if [[ "$auto_prune" == "0" ]]; then echo -e "${YELLOW}aus${NC}"; else echo -e "${GREEN}an${NC}"; fi) (${DIM}${prune_until}${NC})"
@@ -1703,6 +1712,13 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_dbl_bot_id=$(read_env "DISCORDBOTLIST_BOT_ID" "$(read_env "BOT_${cur_commander_idx}_CLIENT_ID" "")")
   cur_dbl_secret=$(read_env "DISCORDBOTLIST_WEBHOOK_SECRET" "")
   cur_dbl_scope=$(read_env "DISCORDBOTLIST_STATS_SCOPE" "aggregate")
+  cur_botsgg_enabled=$(read_env "BOTSGG_ENABLED" "0")
+  cur_botsgg_token=$(read_env "BOTSGG_TOKEN" "")
+  cur_botsgg_bot_id=$(read_env "BOTSGG_BOT_ID" "$(read_env "BOT_${cur_commander_idx}_CLIENT_ID" "")")
+  cur_botsgg_scope=$(read_env "BOTSGG_STATS_SCOPE" "aggregate")
+  cur_botsgg_startup_delay=$(read_env "BOTSGG_STARTUP_DELAY_MS" "15000")
+  cur_botsgg_stats_sync_ms=$(read_env "BOTSGG_STATS_SYNC_MS" "1800000")
+  cur_botsgg_stats_sync_minutes=$(format_ms_to_minutes "$cur_botsgg_stats_sync_ms")
   cur_recognition_enabled=$(read_env "NOW_PLAYING_RECOGNITION_ENABLED" "0")
   cur_acoustid_key=$(read_env "ACOUSTID_API_KEY" "")
   cur_recognition_sample=$(read_env "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18")
@@ -1820,6 +1836,21 @@ if [[ "$MODE" == "--settings" ]]; then
   if [[ -n "$cur_public_url" ]]; then
     echo -e "  DBL Webhook:           ${DIM}${cur_public_url}/api/discordbotlist/vote${NC}"
   fi
+  if [[ "$cur_botsgg_enabled" == "0" ]]; then
+    echo -e "  Discord Bots (BGG):    ${YELLOW}deaktiviert${NC}"
+  elif [[ -n "$cur_botsgg_token" ]]; then
+    echo -e "  Discord Bots (BGG):    ${GREEN}konfiguriert${NC} (${cur_botsgg_scope})"
+  else
+    echo -e "  Discord Bots (BGG):    ${RED}nicht konfiguriert${NC}"
+  fi
+  if [[ -n "$cur_botsgg_bot_id" ]]; then
+    echo -e "  BGG Bot-ID:            ${CYAN}${cur_botsgg_bot_id}${NC}"
+    echo -e "  BGG Listing:           ${DIM}https://discord.bots.gg/bots/${cur_botsgg_bot_id}${NC}"
+    echo -e "  BGG API:               ${DIM}https://discord.bots.gg/api/v1/bots/${cur_botsgg_bot_id}${NC}"
+    echo -e "  BGG Sync:              ${DIM}startup=${cur_botsgg_startup_delay}ms, interval=$(format_interval_label "$cur_botsgg_stats_sync_ms")${NC}"
+  else
+    echo -e "  BGG Bot-ID:            ${YELLOW}nicht gesetzt${NC}"
+  fi
   if [[ "$cur_recognition_enabled" == "1" && -n "$cur_acoustid_key" ]]; then
     echo -e "  Track-Erkennung:       ${GREEN}aktiv${NC} (${cur_recognition_sample}s Sample, min. ${cur_recognition_min}s Audio, ${cur_recognition_timeout}ms Timeout)"
   elif [[ "$cur_recognition_enabled" == "1" ]]; then
@@ -1874,6 +1905,7 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${GREEN}12${NC}) Fertig -> einmal neu starten"
   echo -e "    ${DIM}13${NC}) Fertig ohne Neustart"
   echo -e "    ${CYAN}14${NC}) Doctor Check (ohne Aenderung)"
+  echo -e "    ${MAGENTA}15${NC}) Discord Bots (bots.gg) konfigurieren"
   echo ""
   if [[ "$MODE_ARG" == "dashboard" && "${_DASHBOARD_SETTINGS_OPENED:-0}" != "1" ]]; then
     _DASHBOARD_SETTINGS_OPENED=1
@@ -1884,7 +1916,7 @@ if [[ "$MODE" == "--settings" ]]; then
     SET_CHOICE="10"
     info "Direktmodus: Slash-Commands & Sync"
   else
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-14]${NC}: ")" SET_CHOICE
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-15]${NC}: ")" SET_CHOICE
   fi
 
   case "${SET_CHOICE:-}" in
@@ -2277,8 +2309,61 @@ if [[ "$MODE" == "--settings" ]]; then
       run_system_doctor || true
       continue
       ;;
+    15)
+      echo ""
+      info "Discord Bots (bots.gg) Doku:"
+      echo -e "    ${DIM}https://discord.bots.gg/api/docs${NC}"
+      echo -e "    ${DIM}https://discord.bots.gg/${NC}"
+      if [[ -n "$cur_botsgg_bot_id" ]]; then
+        echo -e "    ${DIM}https://discord.bots.gg/bots/${cur_botsgg_bot_id}${NC}"
+        echo -e "    ${DIM}https://discord.bots.gg/api/v1/bots/${cur_botsgg_bot_id}${NC}"
+      fi
+      info "Dokumentierter Stats-Endpoint: POST /api/v1/bots/:id/stats mit guildCount, optional shardCount und shardId."
+      warn "Der sichtbare Online-Status auf discord.bots.gg ist oeffentlich lesbar, aber nicht ueber den dokumentierten Stats-Endpoint schreibbar."
+      if prompt_yes_no "Discord Bots (bots.gg) Stats-Sync aktivieren?" "$(if [[ "$cur_botsgg_enabled" == "0" ]]; then echo n; else echo j; fi)"; then
+        new_botsgg_bot_id="$(prompt_default "Discord Bot ID (bots.gg)" "$cur_botsgg_bot_id")"
+        new_botsgg_token="$(prompt_default "bots.gg API Token" "$cur_botsgg_token")"
+        new_botsgg_scope="$(prompt_default "Stats Scope (commander/aggregate)" "$cur_botsgg_scope")"
+        new_botsgg_startup_delay="$(prompt_default "Startup Delay in ms" "$cur_botsgg_startup_delay")"
+        new_botsgg_stats_sync_minutes="$(prompt_default "Stats Sync Intervall in Minuten (0 = aus)" "$cur_botsgg_stats_sync_minutes")"
+        if [[ "$new_botsgg_scope" != "commander" && "$new_botsgg_scope" != "aggregate" ]]; then
+          new_botsgg_scope="aggregate"
+        fi
+        if [[ -z "$new_botsgg_bot_id" || ! "$new_botsgg_bot_id" =~ ^[0-9]{17,22}$ ]]; then
+          fail "Eine gueltige Discord Bot ID ist erforderlich."
+          warn "Aenderung verworfen. Script laeuft weiter."
+        elif [[ -z "$new_botsgg_token" ]]; then
+          fail "Ein bots.gg API Token ist erforderlich."
+          warn "Aenderung verworfen. Script laeuft weiter."
+        else
+          if [[ ! "$new_botsgg_startup_delay" =~ ^[0-9]+$ ]]; then
+            warn "Ungueltiger Startup Delay. Verwende 15000."
+            new_botsgg_startup_delay="15000"
+          fi
+          if [[ ! "$new_botsgg_stats_sync_minutes" =~ ^[0-9]+$ ]]; then
+            warn "Ungueltiges Sync-Intervall. Verwende ${cur_botsgg_stats_sync_minutes}."
+            new_botsgg_stats_sync_minutes="$cur_botsgg_stats_sync_minutes"
+          fi
+          write_env_line "BOTSGG_ENABLED" "1"
+          write_env_line "BOTSGG_BOT_ID" "$new_botsgg_bot_id"
+          write_env_line "BOTSGG_TOKEN" "$new_botsgg_token"
+          write_env_line "BOTSGG_STATS_SCOPE" "$new_botsgg_scope"
+          write_env_line "BOTSGG_STARTUP_DELAY_MS" "$new_botsgg_startup_delay"
+          write_env_line "BOTSGG_STATS_SYNC_MS" "$(format_minutes_to_ms "$new_botsgg_stats_sync_minutes")"
+          ok "Discord Bots (bots.gg) gespeichert."
+          info "Listing: https://discord.bots.gg/bots/${new_botsgg_bot_id}"
+          info "Public API: https://discord.bots.gg/api/v1/bots/${new_botsgg_bot_id}"
+          info "Admin Status API: ${cur_public_url:-http://localhost:${cur_port}}/api/botsgg/status?live=1"
+          info "Manueller Stats-Sync: POST ${cur_public_url:-http://localhost:${cur_port}}/api/botsgg/sync"
+        fi
+      else
+        write_env_line "BOTSGG_ENABLED" "0"
+        ok "Discord Bots (bots.gg) deaktiviert."
+      fi
+      mark_settings_dirty
+      ;;
     *)
-      warn "Ungueltige Auswahl. Bitte 1-14 waehlen."
+      warn "Ungueltige Auswahl. Bitte 1-15 waehlen."
       continue
       ;;
   esac

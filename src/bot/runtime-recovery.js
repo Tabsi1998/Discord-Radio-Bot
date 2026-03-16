@@ -271,7 +271,6 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
     "INFO",
     `[${runtime.config.name}] Voice left (Guild ${guildId}, Channel ${oldChannelId}). No reconnect.`
   );
-  runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
 }
 
 export function resetRuntimeVoiceSession(

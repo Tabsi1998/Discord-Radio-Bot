@@ -32,6 +32,11 @@ import {
   buildExpiryEmail,
 } from "./email.js";
 import {
+  getBotsGGIntervals,
+  isBotsGGEnabled,
+  syncBotsGGStats,
+} from "./services/botsgg.js";
+import {
   getDiscordBotListIntervals,
   isDiscordBotListEnabled,
   syncDiscordBotListCommands,
@@ -241,6 +246,39 @@ if (discordBotListEnabled) {
   }
 } else {
   log("INFO", "[DiscordBotList] Sync deaktiviert oder nicht konfiguriert.");
+}
+
+// ---- Discord Bots (bots.gg) Sync ----
+const botsGGEnabled = isBotsGGEnabled(runtimes);
+if (botsGGEnabled) {
+  const botsGGIntervals = getBotsGGIntervals();
+  let botsGGStatsSyncRunning = false;
+
+  const runBotsGGStatsSync = async (source = "periodic") => {
+    if (botsGGStatsSyncRunning) return;
+    botsGGStatsSyncRunning = true;
+    try {
+      await syncBotsGGStats(runtimes);
+    } catch (err) {
+      log("ERROR", `[BotsGG] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      botsGGStatsSyncRunning = false;
+    }
+  };
+
+  const startupDelayMs = botsGGIntervals.startupDelayMs;
+  log("INFO", `[BotsGG] Stats sync aktiviert (startupDelay=${startupDelayMs}ms).`);
+  setTimeout(() => {
+    runBotsGGStatsSync("startup");
+  }, startupDelayMs);
+
+  if (botsGGIntervals.statsSyncMs > 0) {
+    setInterval(() => {
+      runBotsGGStatsSync("periodic");
+    }, botsGGIntervals.statsSyncMs);
+  }
+} else {
+  log("INFO", "[BotsGG] Stats sync deaktiviert oder nicht konfiguriert.");
 }
 
 // ---- Periodic Tasks ----

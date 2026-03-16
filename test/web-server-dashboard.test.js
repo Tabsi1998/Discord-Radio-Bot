@@ -302,6 +302,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "coupons.json.bak"),
     path.join(repoRoot, "custom-stations.json"),
     path.join(repoRoot, "custom-stations.json.bak"),
+    path.join(repoRoot, "botsgg.json"),
     path.join(repoRoot, "discordbotlist.json"),
     path.join(repoRoot, "scheduled-events.json"),
   ];
@@ -323,6 +324,10 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     DISCORDBOTLIST_TOKEN: "test-discordbotlist-token",
     DISCORDBOTLIST_BOT_ID: "923456789012345678",
     DISCORDBOTLIST_WEBHOOK_SECRET: "test-discordbotlist-secret",
+    BOTSGG_ENABLED: "1",
+    BOTSGG_TOKEN: "test-botsgg-token",
+    BOTSGG_BOT_ID: "923456789012345678",
+    BOTSGG_STATS_SCOPE: "aggregate",
     DISCORD_CLIENT_ID: undefined,
     DISCORD_CLIENT_SECRET: undefined,
     DISCORD_REDIRECT_URI: undefined,
@@ -550,6 +555,28 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(discordBotListStatusResponse.payload.publicApiUrl, "https://discord.bots.gg/api/v1/bots/923456789012345678");
   assert.equal(discordBotListStatusResponse.payload.state.totalVotes, 0);
   assert.deepEqual(discordBotListStatusResponse.payload.state.votes, []);
+
+  const botsGGUnauthorizedResponse = await requestJson(
+    baseUrl,
+    "/api/botsgg/status?lang=de"
+  );
+  assert.equal(botsGGUnauthorizedResponse.status, 401);
+  assert.match(botsGGUnauthorizedResponse.payload.error, /API-Admin-Token erforderlich/i);
+
+  const botsGGStatusResponse = await requestJson(
+    baseUrl,
+    "/api/botsgg/status",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(botsGGStatusResponse.status, 200);
+  assert.equal(botsGGStatusResponse.payload.configured, true);
+  assert.equal(botsGGStatusResponse.payload.botId, "923456789012345678");
+  assert.equal(botsGGStatusResponse.payload.statsScope, "aggregate");
+  assert.equal(botsGGStatusResponse.payload.listingUrl, "https://discord.bots.gg/bots/923456789012345678");
+  assert.equal(botsGGStatusResponse.payload.publicApiUrl, "https://discord.bots.gg/api/v1/bots/923456789012345678");
+  assert.equal(typeof botsGGStatusResponse.payload.state, "object");
 
   const discordBotListVoteResponse = await requestJson(
     baseUrl,

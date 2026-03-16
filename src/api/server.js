@@ -21,6 +21,7 @@ import { createDashboardSettingsRouteHandler } from "./routes/dashboard-settings
 import { createDashboardStationsRouteHandler } from "./routes/dashboard-stations.js";
 import { createDashboardStatsRouteHandler } from "./routes/dashboard-stats.js";
 import { createDashboardTelemetryRouteHandler } from "./routes/dashboard-telemetry.js";
+import { createBotsGGRoutesHandler } from "./routes/botsgg-routes.js";
 import { createDiscordBotListRoutesHandler } from "./routes/discordbotlist-routes.js";
 import { createPremiumBillingRoutesHandler } from "./routes/premium-billing-routes.js";
 import { createPremiumOffersRoutesHandler } from "./routes/premium-offers-routes.js";
@@ -183,6 +184,11 @@ import {
   getActiveSessionsForGuild,
   resetGuildStats,
 } from "../listening-stats-store.js";
+import {
+  fetchBotsGGPublicBotSummary,
+  getBotsGGStatus,
+  syncBotsGGStats,
+} from "../services/botsgg.js";
 import {
   fetchDiscordBotListPublicBotSummary,
   getDiscordBotListStatus,
@@ -542,6 +548,17 @@ const handleDiscordBotListRoutes = createDiscordBotListRoutesHandler({
   syncDiscordBotListCommands,
   syncDiscordBotListStats,
   syncDiscordBotListVotes,
+});
+
+const handleBotsGGRoutes = createBotsGGRoutesHandler({
+  fetchBotsGGPublicBotSummary,
+  getBotsGGStatus,
+  getDashboardRequestTranslator,
+  isAdminApiRequest,
+  languagePick,
+  methodNotAllowed,
+  sendJson,
+  syncBotsGGStats,
 });
 
 const handlePremiumReadRoutes = createPremiumReadRoutesHandler({
@@ -2734,6 +2751,10 @@ function startWebServer(runtimes) {
     }
 
     if (await handleDiscordBotListRoutes({ req, res, requestUrl, readJsonBody, runtimes })) {
+      return;
+    }
+
+    if (await handleBotsGGRoutes({ req, res, requestUrl, runtimes })) {
       return;
     }
 
