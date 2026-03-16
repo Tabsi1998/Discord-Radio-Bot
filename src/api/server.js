@@ -23,6 +23,8 @@ import { createDashboardStatsRouteHandler } from "./routes/dashboard-stats.js";
 import { createDashboardTelemetryRouteHandler } from "./routes/dashboard-telemetry.js";
 import { createBotsGGRoutesHandler } from "./routes/botsgg-routes.js";
 import { createDiscordBotListRoutesHandler } from "./routes/discordbotlist-routes.js";
+import { createTopGGRoutesHandler } from "./routes/topgg-routes.js";
+import { createVoteEventsRoutesHandler } from "./routes/vote-events-routes.js";
 import { createPremiumBillingRoutesHandler } from "./routes/premium-billing-routes.js";
 import { createPremiumOffersRoutesHandler } from "./routes/premium-offers-routes.js";
 import { createPremiumReadRoutesHandler } from "./routes/premium-read-routes.js";
@@ -197,6 +199,17 @@ import {
   syncDiscordBotListStats,
   syncDiscordBotListVotes,
 } from "../services/discordbotlist.js";
+import {
+  fetchTopGGProjectSummary,
+  fetchTopGGVoteStatus,
+  getTopGGStatus,
+  handleTopGGWebhook,
+  syncTopGGCommands,
+  syncTopGGProject,
+  syncTopGGStats,
+  syncTopGGVotes,
+} from "../services/topgg.js";
+import { getVoteEventsState } from "../vote-events-store.js";
 
 const appStartTime = Date.now();
 const webhookEventsInFlight = new Set();
@@ -559,6 +572,33 @@ const handleBotsGGRoutes = createBotsGGRoutesHandler({
   methodNotAllowed,
   sendJson,
   syncBotsGGStats,
+});
+
+const handleTopGGRoutes = createTopGGRoutesHandler({
+  fetchTopGGProjectSummary,
+  fetchTopGGVoteStatus,
+  getDashboardRequestTranslator,
+  getLocalizedJsonBodyError,
+  getTopGGStatus,
+  handleTopGGWebhook,
+  isAdminApiRequest,
+  languagePick,
+  log,
+  methodNotAllowed,
+  sendJson,
+  syncTopGGCommands,
+  syncTopGGProject,
+  syncTopGGStats,
+  syncTopGGVotes,
+});
+
+const handleVoteEventsRoutes = createVoteEventsRoutesHandler({
+  getDashboardRequestTranslator,
+  getVoteEventsState,
+  isAdminApiRequest,
+  languagePick,
+  methodNotAllowed,
+  sendJson,
 });
 
 const handlePremiumReadRoutes = createPremiumReadRoutesHandler({
@@ -991,6 +1031,10 @@ function buildPublicPrivacyNotice() {
   const hasSmtp = Boolean(String(process.env.SMTP_HOST || "").trim());
   const hasDiscordBotList = String(process.env.DISCORDBOTLIST_ENABLED || "1").trim() !== "0"
     && Boolean(String(process.env.DISCORDBOTLIST_TOKEN || "").trim());
+  const hasBotsGG = String(process.env.BOTSGG_ENABLED || "0").trim() !== "0"
+    && Boolean(String(process.env.BOTSGG_TOKEN || "").trim());
+  const hasTopGG = String(process.env.TOPGG_ENABLED || "0").trim() !== "0"
+    && Boolean(String(process.env.TOPGG_TOKEN || "").trim());
   const hasRecognition = String(process.env.NOW_PLAYING_RECOGNITION_ENABLED || "0").trim() === "1"
     && Boolean(String(process.env.ACOUSTID_API_KEY || "").trim());
 
@@ -1046,6 +1090,8 @@ function buildPublicPrivacyNotice() {
       stripeEnabled: hasStripe,
       smtpEnabled: hasSmtp,
       discordBotListEnabled: hasDiscordBotList,
+      botsGGEnabled: hasBotsGG,
+      topGGEnabled: hasTopGG,
       recognitionEnabled: hasRecognition,
       stationPreviewEnabled: true,
       localeStorageKey: "omnifm.web.locale",
@@ -2756,6 +2802,14 @@ function startWebServer(runtimes) {
     }
 
     if (await handleBotsGGRoutes({ req, res, requestUrl, runtimes })) {
+      return;
+    }
+
+    if (await handleTopGGRoutes({ req, res, requestUrl, readJsonBody, readRawBody, runtimes })) {
+      return;
+    }
+
+    if (await handleVoteEventsRoutes({ req, res, requestUrl })) {
       return;
     }
 

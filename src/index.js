@@ -43,6 +43,14 @@ import {
   syncDiscordBotListStats,
   syncDiscordBotListVotes,
 } from "./services/discordbotlist.js";
+import {
+  getTopGGIntervals,
+  isTopGGEnabled,
+  syncTopGGCommands,
+  syncTopGGProject,
+  syncTopGGStats,
+  syncTopGGVotes,
+} from "./services/topgg.js";
 
 const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
 
@@ -279,6 +287,99 @@ if (botsGGEnabled) {
   }
 } else {
   log("INFO", "[BotsGG] Stats sync deaktiviert oder nicht konfiguriert.");
+}
+
+// ---- Top.gg Sync ----
+const topGGEnabled = isTopGGEnabled(runtimes);
+if (topGGEnabled) {
+  const topGGIntervals = getTopGGIntervals();
+  let topGGProjectSyncRunning = false;
+  let topGGCommandsSyncRunning = false;
+  let topGGStatsSyncRunning = false;
+  let topGGVotesSyncRunning = false;
+
+  const runTopGGProjectSync = async (source = "periodic") => {
+    if (topGGProjectSyncRunning) return;
+    topGGProjectSyncRunning = true;
+    try {
+      await syncTopGGProject(runtimes);
+    } catch (err) {
+      log("ERROR", `[TopGG] Project sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      topGGProjectSyncRunning = false;
+    }
+  };
+
+  const runTopGGCommandsSync = async (source = "periodic") => {
+    if (topGGCommandsSyncRunning) return;
+    topGGCommandsSyncRunning = true;
+    try {
+      await syncTopGGCommands(runtimes);
+    } catch (err) {
+      log("ERROR", `[TopGG] Command sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      topGGCommandsSyncRunning = false;
+    }
+  };
+
+  const runTopGGStatsSync = async (source = "periodic") => {
+    if (topGGStatsSyncRunning) return;
+    topGGStatsSyncRunning = true;
+    try {
+      await syncTopGGStats(runtimes);
+    } catch (err) {
+      log("ERROR", `[TopGG] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      topGGStatsSyncRunning = false;
+    }
+  };
+
+  const runTopGGVotesSync = async (source = "periodic") => {
+    if (topGGVotesSyncRunning) return;
+    topGGVotesSyncRunning = true;
+    try {
+      await syncTopGGVotes(runtimes);
+    } catch (err) {
+      log("ERROR", `[TopGG] Vote sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      topGGVotesSyncRunning = false;
+    }
+  };
+
+  const startupDelayMs = topGGIntervals.startupDelayMs;
+  log("INFO", `[TopGG] Sync aktiviert (startupDelay=${startupDelayMs}ms).`);
+  setTimeout(() => {
+    runTopGGProjectSync("startup");
+    runTopGGCommandsSync("startup");
+    runTopGGStatsSync("startup");
+    runTopGGVotesSync("startup");
+  }, startupDelayMs);
+
+  if (topGGIntervals.projectSyncMs > 0) {
+    setInterval(() => {
+      runTopGGProjectSync("periodic");
+    }, topGGIntervals.projectSyncMs);
+  }
+
+  if (topGGIntervals.commandsSyncMs > 0) {
+    setInterval(() => {
+      runTopGGCommandsSync("periodic");
+    }, topGGIntervals.commandsSyncMs);
+  }
+
+  if (topGGIntervals.statsSyncMs > 0) {
+    setInterval(() => {
+      runTopGGStatsSync("periodic");
+    }, topGGIntervals.statsSyncMs);
+  }
+
+  if (topGGIntervals.voteSyncMs > 0) {
+    setInterval(() => {
+      runTopGGVotesSync("periodic");
+    }, topGGIntervals.voteSyncMs);
+  }
+} else {
+  log("INFO", "[TopGG] Sync deaktiviert oder nicht konfiguriert.");
 }
 
 // ---- Periodic Tasks ----

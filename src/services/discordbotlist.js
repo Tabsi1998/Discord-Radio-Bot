@@ -12,6 +12,7 @@ import {
   recordDiscordBotListVote,
   setDiscordBotListSyncStatus,
 } from "../discordbotlist-store.js";
+import { mergeVoteEvents, recordVoteEvent } from "../vote-events-store.js";
 
 const DISCORD_BOT_LIST_API_BASE = "https://discordbotlist.com/api/v1";
 
@@ -61,6 +62,35 @@ function buildDiscordBotListPublicUrls(botId) {
 
 function buildDiscordBotListCommandsPayload() {
   return buildCommandsJson();
+}
+
+function normalizeDiscordBotListVoteEvent(rawVote, { source = "webhook", botId = null } = {}) {
+  if (!rawVote || typeof rawVote !== "object") return null;
+
+  const userId = String(rawVote.id || rawVote.user_id || rawVote.userId || "").trim();
+  if (!/^\d{17,22}$/.test(userId)) return null;
+
+  const discriminator = String(rawVote.discriminator || "").trim();
+  const usernameBase = String(rawVote.username || "").trim() || userId;
+  const username = discriminator && discriminator !== "0"
+    ? `${usernameBase}#${discriminator}`
+    : usernameBase;
+
+  return {
+    provider: "discordbotlist",
+    voteId: null,
+    projectId: null,
+    botId: String(botId || "").trim() || null,
+    userId,
+    providerUserId: userId,
+    username: username.slice(0, 120),
+    avatarUrl: String(rawVote.avatar || "").trim() || null,
+    source,
+    weight: 1,
+    votedAt: rawVote.timestamp || rawVote.votedAt || new Date().toISOString(),
+    expiresAt: null,
+    receivedAt: rawVote.receivedAt || new Date().toISOString(),
+  };
 }
 
 function collectAggregateStats(runtimes = []) {
@@ -235,6 +265,11 @@ async function syncDiscordBotListVotes(runtimes = []) {
       source: "api",
       total: response?.total,
     });
+    mergeVoteEvents(
+      entries
+        .map((entry) => normalizeDiscordBotListVoteEvent(entry, { source: "api", botId: config.botId }))
+        .filter(Boolean)
+    );
     setDiscordBotListSyncStatus("votes", {
       ok: true,
       botId: config.botId,
@@ -280,6 +315,10 @@ function handleDiscordBotListVoteWebhook(headers = {}, rawBody = {}) {
   const recorded = recordDiscordBotListVote(rawBody, { source: "webhook" });
   if (!recorded.ok) {
     return { ok: false, status: 400, error: "Ungueltiger Vote-Payload." };
+  }
+  const normalizedVote = normalizeDiscordBotListVoteEvent(rawBody, { source: "webhook", botId: config.botId });
+  if (normalizedVote) {
+    recordVoteEvent(normalizedVote);
   }
 
   setDiscordBotListSyncStatus("votes", {

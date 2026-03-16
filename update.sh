@@ -443,7 +443,8 @@ show_admin_runtime_summary() {
   local bot_count commander_idx web_port public_url admin_token
   local command_mode command_periodic cleanup_global cleanup_guild cleanup_worker
   local log_mb log_files log_days auto_prune prune_until
-  local stripe dbl_token dbl_enabled dbl_status dash_status mongo_status container_status
+  local stripe dbl_token dbl_enabled dbl_status botsgg_token botsgg_enabled botsgg_status
+  local topgg_token topgg_enabled topgg_status dash_status mongo_status container_status
 
   bot_count="$(count_bots)"
   commander_idx="$(read_env "COMMANDER_BOT_INDEX" "1")"
@@ -465,6 +466,8 @@ show_admin_runtime_summary() {
   dbl_enabled="$(read_env "DISCORDBOTLIST_ENABLED" "1")"
   botsgg_token="$(read_env "BOTSGG_TOKEN" "")"
   botsgg_enabled="$(read_env "BOTSGG_ENABLED" "0")"
+  topgg_token="$(read_env "TOPGG_TOKEN" "")"
+  topgg_enabled="$(read_env "TOPGG_ENABLED" "0")"
 
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
     container_status="${GREEN}laeuft${NC}"
@@ -495,6 +498,13 @@ show_admin_runtime_summary() {
   else
     botsgg_status="${RED}fehlt${NC}"
   fi
+  if [[ "$topgg_enabled" == "0" ]]; then
+    topgg_status="${YELLOW}deaktiviert${NC}"
+  elif [[ -n "$topgg_token" ]]; then
+    topgg_status="${GREEN}ok${NC}"
+  else
+    topgg_status="${RED}fehlt${NC}"
+  fi
 
   echo ""
   echo -e "  ${BOLD}Admin-Cockpit${NC}"
@@ -511,7 +521,7 @@ show_admin_runtime_summary() {
     echo -e "    Public URL:          ${YELLOW}nicht gesetzt${NC}"
   fi
   echo -e "    Dashboard OAuth:     ${dash_status}"
-  echo -e "    Stripe / DBL / BGG:  $(if [[ -n "$stripe" ]]; then echo -e "${GREEN}ok${NC}"; else echo -e "${RED}fehlt${NC}"; fi) / ${dbl_status} / ${botsgg_status}"
+  echo -e "    Stripe / DBL / BGG / TopGG:  $(if [[ -n "$stripe" ]]; then echo -e "${GREEN}ok${NC}"; else echo -e "${RED}fehlt${NC}"; fi) / ${dbl_status} / ${botsgg_status} / ${topgg_status}"
   echo -e "    Admin API Token:     $(if [[ -n "$admin_token" ]]; then echo -e "${GREEN}gesetzt${NC}"; else echo -e "${YELLOW}nicht gesetzt${NC}"; fi)"
   echo -e "    Logs:                ${CYAN}${log_mb}MB${NC}, ${CYAN}${log_files}${NC} Dateien, ${CYAN}${log_days}${NC} Tage"
   echo -e "    Docker Cleanup:      $(if [[ "$auto_prune" == "0" ]]; then echo -e "${YELLOW}aus${NC}"; else echo -e "${GREEN}an${NC}"; fi) (${DIM}${prune_until}${NC})"
@@ -741,6 +751,10 @@ ensure_all_json_files() {
   ensure_json_file "scheduled-events.json" '{"version":1,"events":[]}'
   ensure_json_file "coupons.json" '{"offers":{},"redemptions":{}}'
   ensure_json_file "dashboard.json" '{"version":1,"events":{},"perms":{},"telemetry":{},"authSessions":{},"oauthStates":{}}'
+  ensure_json_file "discordbotlist.json" '{"version":1,"totalVotes":0,"votes":[],"lastWebhookVoteAt":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null}'
+  ensure_json_file "botsgg.json" '{"version":1,"lastStatsSync":null}'
+  ensure_json_file "topgg.json" '{"version":1,"project":null,"lastProjectSync":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null,"lastWebhookVoteAt":null,"lastWebhookTestAt":null}'
+  ensure_json_file "vote-events.json" '{"version":1,"totalVotes":0,"votes":[],"providers":{"discordbotlist":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null},"topgg":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null}}}'
   # stations.json nur erstellen wenn komplett fehlend
   if [[ -d "stations.json" ]]; then
     rm -rf "stations.json" 2>/dev/null || true
@@ -768,7 +782,7 @@ prune_update_backups() {
   fi
 
   local prefix
-  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json" "command-permissions.json" "guild-languages.json" "song-history.json" "scheduled-events.json" "coupons.json" "dashboard.json"; do
+  for prefix in ".env" "premium.json" "bot-state.json" "custom-stations.json" "command-permissions.json" "guild-languages.json" "song-history.json" "scheduled-events.json" "coupons.json" "dashboard.json" "discordbotlist.json" "botsgg.json" "topgg.json" "vote-events.json"; do
     mapfile -t files < <(ls -1t ".update-backups/${prefix}."* 2>/dev/null || true)
     if (( ${#files[@]} <= keep )); then
       continue
@@ -932,7 +946,7 @@ run_system_doctor() {
   # 4) JSON Files
   ensure_all_json_files
   local json_file
-  for json_file in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json stations.json; do
+  for json_file in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json discordbotlist.json botsgg.json topgg.json vote-events.json stations.json; do
     if [[ ! -f "$json_file" ]]; then
       doctor_fail "Datei fehlt: ${json_file}"
       continue
@@ -1719,6 +1733,21 @@ if [[ "$MODE" == "--settings" ]]; then
   cur_botsgg_startup_delay=$(read_env "BOTSGG_STARTUP_DELAY_MS" "15000")
   cur_botsgg_stats_sync_ms=$(read_env "BOTSGG_STATS_SYNC_MS" "1800000")
   cur_botsgg_stats_sync_minutes=$(format_ms_to_minutes "$cur_botsgg_stats_sync_ms")
+  cur_topgg_enabled=$(read_env "TOPGG_ENABLED" "0")
+  cur_topgg_token=$(read_env "TOPGG_TOKEN" "")
+  cur_topgg_bot_id=$(read_env "TOPGG_BOT_ID" "$(read_env "BOT_${cur_commander_idx}_CLIENT_ID" "")")
+  cur_topgg_secret=$(read_env "TOPGG_WEBHOOK_SECRET" "")
+  cur_topgg_scope=$(read_env "TOPGG_STATS_SCOPE" "aggregate")
+  cur_topgg_startup_delay=$(read_env "TOPGG_STARTUP_DELAY_MS" "15000")
+  cur_topgg_project_sync_ms=$(read_env "TOPGG_PROJECT_SYNC_MS" "21600000")
+  cur_topgg_commands_sync_ms=$(read_env "TOPGG_COMMANDS_SYNC_MS" "21600000")
+  cur_topgg_stats_sync_ms=$(read_env "TOPGG_STATS_SYNC_MS" "1800000")
+  cur_topgg_vote_sync_ms=$(read_env "TOPGG_VOTE_SYNC_MS" "1800000")
+  cur_topgg_vote_start_days=$(read_env "TOPGG_VOTE_SYNC_START_DAYS" "30")
+  cur_topgg_project_sync_minutes=$(format_ms_to_minutes "$cur_topgg_project_sync_ms")
+  cur_topgg_commands_sync_minutes=$(format_ms_to_minutes "$cur_topgg_commands_sync_ms")
+  cur_topgg_stats_sync_minutes=$(format_ms_to_minutes "$cur_topgg_stats_sync_ms")
+  cur_topgg_vote_sync_minutes=$(format_ms_to_minutes "$cur_topgg_vote_sync_ms")
   cur_recognition_enabled=$(read_env "NOW_PLAYING_RECOGNITION_ENABLED" "0")
   cur_acoustid_key=$(read_env "ACOUSTID_API_KEY" "")
   cur_recognition_sample=$(read_env "NOW_PLAYING_RECOGNITION_SAMPLE_SECONDS" "18")
@@ -1851,6 +1880,24 @@ if [[ "$MODE" == "--settings" ]]; then
   else
     echo -e "  BGG Bot-ID:            ${YELLOW}nicht gesetzt${NC}"
   fi
+  if [[ "$cur_topgg_enabled" == "0" ]]; then
+    echo -e "  Top.gg:                ${YELLOW}deaktiviert${NC}"
+  elif [[ -n "$cur_topgg_token" ]]; then
+    echo -e "  Top.gg:                ${GREEN}konfiguriert${NC} (${cur_topgg_scope})"
+  else
+    echo -e "  Top.gg:                ${RED}nicht konfiguriert${NC}"
+  fi
+  if [[ -n "$cur_topgg_bot_id" ]]; then
+    echo -e "  Top.gg Bot-ID:         ${CYAN}${cur_topgg_bot_id}${NC}"
+    echo -e "  Top.gg Listing:        ${DIM}https://top.gg/bot/${cur_topgg_bot_id}${NC}"
+    echo -e "  Top.gg Stats API:      ${DIM}https://top.gg/api/bots/${cur_topgg_bot_id}/stats${NC}"
+    if [[ -n "$cur_public_url" ]]; then
+      echo -e "  Top.gg Webhook:        ${DIM}${cur_public_url}/api/topgg/webhook${NC}"
+    fi
+    echo -e "  Top.gg Sync:           ${DIM}startup=${cur_topgg_startup_delay}ms, project=$(format_interval_label "$cur_topgg_project_sync_ms"), commands=$(format_interval_label "$cur_topgg_commands_sync_ms"), stats=$(format_interval_label "$cur_topgg_stats_sync_ms"), votes=$(format_interval_label "$cur_topgg_vote_sync_ms")${NC}"
+  else
+    echo -e "  Top.gg Bot-ID:         ${YELLOW}nicht gesetzt${NC}"
+  fi
   if [[ "$cur_recognition_enabled" == "1" && -n "$cur_acoustid_key" ]]; then
     echo -e "  Track-Erkennung:       ${GREEN}aktiv${NC} (${cur_recognition_sample}s Sample, min. ${cur_recognition_min}s Audio, ${cur_recognition_timeout}ms Timeout)"
   elif [[ "$cur_recognition_enabled" == "1" ]]; then
@@ -1906,6 +1953,7 @@ if [[ "$MODE" == "--settings" ]]; then
   echo -e "    ${DIM}13${NC}) Fertig ohne Neustart"
   echo -e "    ${CYAN}14${NC}) Doctor Check (ohne Aenderung)"
   echo -e "    ${MAGENTA}15${NC}) Discord Bots (bots.gg) konfigurieren"
+  echo -e "    ${GREEN}16${NC}) Top.gg konfigurieren"
   echo ""
   if [[ "$MODE_ARG" == "dashboard" && "${_DASHBOARD_SETTINGS_OPENED:-0}" != "1" ]]; then
     _DASHBOARD_SETTINGS_OPENED=1
@@ -1916,7 +1964,7 @@ if [[ "$MODE" == "--settings" ]]; then
     SET_CHOICE="10"
     info "Direktmodus: Slash-Commands & Sync"
   else
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-15]${NC}: ")" SET_CHOICE
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [1-16]${NC}: ")" SET_CHOICE
   fi
 
   case "${SET_CHOICE:-}" in
@@ -2362,8 +2410,96 @@ if [[ "$MODE" == "--settings" ]]; then
       fi
       mark_settings_dirty
       ;;
+    16)
+      echo ""
+      info "Top.gg Doku:"
+      echo -e "    ${DIM}https://docs.top.gg/docs/API/v1/@introduction/${NC}"
+      echo -e "    ${DIM}https://docs.top.gg/docs/API/v1/projects/${NC}"
+      echo -e "    ${DIM}https://docs.top.gg/docs/Resources/webhooks/${NC}"
+      echo -e "    ${DIM}https://docs.top.gg/docs/API/v0/bot/${NC}"
+      if [[ -n "$cur_topgg_bot_id" ]]; then
+        echo -e "    ${DIM}https://top.gg/bot/${cur_topgg_bot_id}${NC}"
+        echo -e "    ${DIM}https://top.gg/api/bots/${cur_topgg_bot_id}/stats${NC}"
+      fi
+      info "OmniFM nutzt Top.gg getrennt fuer Project-Status, Command-Sync, Stats, Vote-Sync und Vote-Webhooks."
+      warn "Stats laufen ueber den dokumentierten Bot-Stats-Endpoint, Votes und Commands ueber die Projects-v1-API."
+      if prompt_yes_no "Top.gg aktivieren?" "$(if [[ "$cur_topgg_enabled" == "0" ]]; then echo n; else echo j; fi)"; then
+        new_topgg_bot_id="$(prompt_default "Discord Bot ID (Top.gg)" "$cur_topgg_bot_id")"
+        new_topgg_token="$(prompt_default "Top.gg API Token" "$cur_topgg_token")"
+        new_topgg_secret="$(prompt_default "Top.gg Webhook Secret (optional, fuer Live-Votes)" "$cur_topgg_secret")"
+        new_topgg_scope="$(prompt_default "Stats Scope (commander/aggregate)" "$cur_topgg_scope")"
+        new_topgg_startup_delay="$(prompt_default "Startup Delay in ms" "$cur_topgg_startup_delay")"
+        new_topgg_project_sync_minutes="$(prompt_default "Project Sync Intervall in Minuten (0 = aus)" "$cur_topgg_project_sync_minutes")"
+        new_topgg_commands_sync_minutes="$(prompt_default "Command Sync Intervall in Minuten (0 = aus)" "$cur_topgg_commands_sync_minutes")"
+        new_topgg_stats_sync_minutes="$(prompt_default "Stats Sync Intervall in Minuten (0 = aus)" "$cur_topgg_stats_sync_minutes")"
+        new_topgg_vote_sync_minutes="$(prompt_default "Vote Sync Intervall in Minuten (0 = aus)" "$cur_topgg_vote_sync_minutes")"
+        new_topgg_vote_start_days="$(prompt_default "Vote Sync Rueckblick in Tagen beim ersten Lauf" "$cur_topgg_vote_start_days")"
+        if [[ "$new_topgg_scope" != "commander" && "$new_topgg_scope" != "aggregate" ]]; then
+          new_topgg_scope="aggregate"
+        fi
+        if [[ -z "$new_topgg_bot_id" || ! "$new_topgg_bot_id" =~ ^[0-9]{17,22}$ ]]; then
+          fail "Eine gueltige Discord Bot ID ist erforderlich."
+          warn "Aenderung verworfen. Script laeuft weiter."
+        elif [[ -z "$new_topgg_token" ]]; then
+          fail "Ein Top.gg API Token ist erforderlich."
+          warn "Aenderung verworfen. Script laeuft weiter."
+        else
+          if [[ ! "$new_topgg_startup_delay" =~ ^[0-9]+$ ]]; then
+            warn "Ungueltiger Startup Delay. Verwende 15000."
+            new_topgg_startup_delay="15000"
+          fi
+          if [[ ! "$new_topgg_project_sync_minutes" =~ ^[0-9]+$ ]]; then
+            warn "Ungueltiges Project-Sync-Intervall. Verwende ${cur_topgg_project_sync_minutes}."
+            new_topgg_project_sync_minutes="$cur_topgg_project_sync_minutes"
+          fi
+          if [[ ! "$new_topgg_commands_sync_minutes" =~ ^[0-9]+$ ]]; then
+            warn "Ungueltiges Command-Sync-Intervall. Verwende ${cur_topgg_commands_sync_minutes}."
+            new_topgg_commands_sync_minutes="$cur_topgg_commands_sync_minutes"
+          fi
+          if [[ ! "$new_topgg_stats_sync_minutes" =~ ^[0-9]+$ ]]; then
+            warn "Ungueltiges Stats-Sync-Intervall. Verwende ${cur_topgg_stats_sync_minutes}."
+            new_topgg_stats_sync_minutes="$cur_topgg_stats_sync_minutes"
+          fi
+          if [[ ! "$new_topgg_vote_sync_minutes" =~ ^[0-9]+$ ]]; then
+            warn "Ungueltiges Vote-Sync-Intervall. Verwende ${cur_topgg_vote_sync_minutes}."
+            new_topgg_vote_sync_minutes="$cur_topgg_vote_sync_minutes"
+          fi
+          if [[ ! "$new_topgg_vote_start_days" =~ ^[0-9]+$ ]] || (( new_topgg_vote_start_days < 1 )); then
+            warn "Ungueltiger Rueckblick. Verwende 30 Tage."
+            new_topgg_vote_start_days="30"
+          fi
+          write_env_line "TOPGG_ENABLED" "1"
+          write_env_line "TOPGG_BOT_ID" "$new_topgg_bot_id"
+          write_env_line "TOPGG_TOKEN" "$new_topgg_token"
+          write_env_line "TOPGG_WEBHOOK_SECRET" "$new_topgg_secret"
+          write_env_line "TOPGG_STATS_SCOPE" "$new_topgg_scope"
+          write_env_line "TOPGG_STARTUP_DELAY_MS" "$new_topgg_startup_delay"
+          write_env_line "TOPGG_PROJECT_SYNC_MS" "$(format_minutes_to_ms "$new_topgg_project_sync_minutes")"
+          write_env_line "TOPGG_COMMANDS_SYNC_MS" "$(format_minutes_to_ms "$new_topgg_commands_sync_minutes")"
+          write_env_line "TOPGG_STATS_SYNC_MS" "$(format_minutes_to_ms "$new_topgg_stats_sync_minutes")"
+          write_env_line "TOPGG_VOTE_SYNC_MS" "$(format_minutes_to_ms "$new_topgg_vote_sync_minutes")"
+          write_env_line "TOPGG_VOTE_SYNC_START_DAYS" "$new_topgg_vote_start_days"
+          ok "Top.gg gespeichert."
+          info "Listing: https://top.gg/bot/${new_topgg_bot_id}"
+          info "Project API: https://top.gg/api/v1/projects/@me"
+          info "Admin Status API: ${cur_public_url:-http://localhost:${cur_port}}/api/topgg/status?live=1"
+          info "Manueller Sync: POST ${cur_public_url:-http://localhost:${cur_port}}/api/topgg/sync"
+          if [[ -n "$new_topgg_secret" && -n "$cur_public_url" ]]; then
+            info "Webhook URL: ${cur_public_url}/api/topgg/webhook"
+          elif [[ -z "$new_topgg_secret" ]]; then
+            warn "Webhook Secret ist leer. Live-Vote-Webhooks bleiben deaktiviert, Polling ueber die API funktioniert trotzdem."
+          else
+            warn "PUBLIC_WEB_URL ist leer. Setze sie fuer den Top.gg Webhook."
+          fi
+        fi
+      else
+        write_env_line "TOPGG_ENABLED" "0"
+        ok "Top.gg deaktiviert."
+      fi
+      mark_settings_dirty
+      ;;
     *)
-      warn "Ungueltige Auswahl. Bitte 1-15 waehlen."
+      warn "Ungueltige Auswahl. Bitte 1-16 waehlen."
       continue
       ;;
   esac
@@ -2766,7 +2902,7 @@ update_stamp="$(date +%Y%m%d%H%M%S)"
 licenses_before_update="$(count_license_entries premium.json)"
 
 # WICHTIG: Premium-Daten IMMER sichern vor Update!
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json discordbotlist.json botsgg.json topgg.json vote-events.json; do
   if [[ -f "$pf" ]]; then
     cp "$pf" ".update-backups/${pf}.${update_stamp}" 2>/dev/null || true
   fi
@@ -2793,11 +2929,15 @@ git clean -fd \
   -e scheduled-events.json \
   -e coupons.json \
   -e dashboard.json \
+  -e discordbotlist.json \
+  -e botsgg.json \
+  -e topgg.json \
+  -e vote-events.json \
   -e docker-compose.override.yml 2>/dev/null || true
 
 # Laufzeitdaten immer aus dem VOR-Update Snapshot wiederherstellen,
 # damit git reset keine produktiven JSON-Daten ueberschreibt.
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json discordbotlist.json botsgg.json topgg.json vote-events.json; do
   snapshot=".update-backups/${pf}.${update_stamp}"
   if [[ -s "$snapshot" ]]; then
     if ! cmp -s "$snapshot" "$pf" 2>/dev/null; then
@@ -2808,7 +2948,7 @@ for pf in premium.json bot-state.json custom-stations.json command-permissions.j
 done
 
 # Sicherheitscheck: Premium-Daten duerfen NICHT leer sein nach Update
-for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json; do
+for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json discordbotlist.json botsgg.json topgg.json vote-events.json; do
   if [[ -f "$pf" ]] && [[ ! -s "$pf" ]]; then
     latest_backup=$(ls -t ".update-backups/${pf}."* 2>/dev/null | head -1)
     if [[ -n "$latest_backup" ]] && [[ -s "$latest_backup" ]]; then

@@ -393,6 +393,8 @@ function PrivacySection({ legal, privacy }) {
               stripeEnabled: features.stripeEnabled,
               smtpEnabled: features.smtpEnabled,
               discordBotListEnabled: features.discordBotListEnabled,
+              botsGGEnabled: features.botsGGEnabled,
+              topGGEnabled: features.topGGEnabled,
               recognitionEnabled: features.recognitionEnabled,
             })}
           />

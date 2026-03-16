@@ -2,7 +2,7 @@
 
 Node.js (`src/api/server.js`) is the canonical production backend. The Python implementation in `backend/server.py` remains in the repository only as a legacy/reference path and is feature-frozen.
 
-OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium licensing, scheduled events, live now-playing embeds, server statistics, DiscordBotList sync, and optional audio fingerprint fallback for weak station metadata.
+OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium licensing, scheduled events, live now-playing embeds, server statistics, DiscordBotList sync, Top.gg sync, discord.bots.gg stats sync, and optional audio fingerprint fallback for weak station metadata.
 
 ## What it does
 
@@ -15,6 +15,9 @@ OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium 
 - Publishes cleaner now-playing embeds with cover art and search buttons
 - Falls back to audio fingerprint recognition when stations provide bad or missing metadata
 - Syncs bot stats, commands, and vote webhooks with DiscordBotList
+- Syncs Top.gg project details, commands, stats, votes, and vote webhooks separately
+- Syncs discord.bots.gg stats separately from the other bot-list providers
+- Stores normalized vote events across providers as groundwork for future shared vote rewards
 - Serves bilingual imprint, privacy, and terms pages for the website footer
 
 ## Requirements
@@ -26,6 +29,8 @@ OmniFM is a 24/7 Discord radio bot stack with commander/worker routing, Premium 
   - Stripe keys for Premium checkout
   - SMTP credentials for license and invoice mail
   - DiscordBotList token and webhook secret
+  - Top.gg token and optional webhook secret
+  - discord.bots.gg token
   - AcoustID API key for audio fingerprint fallback
 
 ## Quick start
@@ -46,6 +51,8 @@ The interactive scripts now also cover:
 
 - Stripe API keys
 - DiscordBotList token, webhook secret, and stats scope
+- Top.gg token, bot ID, webhook secret, and sync intervals
+- discord.bots.gg token, bot ID, and stats scope
 - SMTP credentials
 - AcoustID recognition settings
 - Default language fallback via `DEFAULT_LANGUAGE` (`en` recommended)
@@ -398,6 +405,22 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | `BOTSGG_STARTUP_DELAY_MS` | Initial delay before the first stats post after boot |
 | `BOTSGG_STATS_SYNC_MS` | Periodic stats sync interval |
 
+### Top.gg
+
+| Variable | Purpose |
+| --- | --- |
+| `TOPGG_ENABLED` | Enables the dedicated Top.gg sync features |
+| `TOPGG_TOKEN` | Top.gg API token |
+| `TOPGG_BOT_ID` | Explicit bot ID for Top.gg stats and listing URLs |
+| `TOPGG_WEBHOOK_SECRET` | Shared secret for `POST /api/topgg/webhook` |
+| `TOPGG_STATS_SCOPE` | `commander` or `aggregate` |
+| `TOPGG_STARTUP_DELAY_MS` | Initial delay before the first sync after boot |
+| `TOPGG_PROJECT_SYNC_MS` | Periodic project metadata sync interval |
+| `TOPGG_COMMANDS_SYNC_MS` | Periodic Top.gg command sync interval |
+| `TOPGG_STATS_SYNC_MS` | Periodic Top.gg stats sync interval |
+| `TOPGG_VOTE_SYNC_MS` | Periodic Top.gg vote sync interval |
+| `TOPGG_VOTE_SYNC_START_DAYS` | Initial API vote backfill window in days |
+
 ### Email
 
 | Variable | Purpose |
@@ -485,6 +508,29 @@ Notes:
 - `GET /api/botsgg/status?live=1` includes the public listing snapshot from `https://discord.bots.gg/api/v1/bots/<botId>`.
 - The public `online` and `status` fields are not directly writable through the documented stats endpoint.
 
+### Top.gg
+
+- `POST /api/topgg/webhook`
+- `POST /api/topgg/sync`
+- `GET /api/topgg/status`
+- `GET /api/topgg/votes`
+- `GET /api/topgg/vote-status?userId=...`
+
+Notes:
+- OmniFM treats Top.gg as a dedicated third provider and does not mix it with `discordbotlist.com` or `discord.bots.gg`.
+- Commands and vote APIs use `https://top.gg/api/v1/projects/@me...`.
+- Stats use the documented bot stats endpoint `POST https://top.gg/api/bots/<botId>/stats`.
+- Webhooks support both the classic shared-secret authorization style and the newer `x-topgg-signature` HMAC signature format.
+
+### Shared vote events
+
+- `discordbotlist.com` and `top.gg` votes are normalized into a shared internal vote-event store.
+- `discord.bots.gg` is currently used only for stats and listing diagnostics because the documented API does not expose vote webhooks or vote polling endpoints.
+- This shared vote-event layer is intended for future cross-provider reward handling without coupling rewards to a single listing site.
+- Admin API:
+  - `GET /api/vote-events/status`
+  - optional filters: `provider=discordbotlist|topgg`, `userId=<discordUserId>`, `limit=<n>`
+
 ## Discord commands
 
 ### General
@@ -532,6 +578,9 @@ These JSON files are used in file-store mode and are preserved by `update.sh`:
 - `scheduled-events.json`
 - `coupons.json`
 - `discordbotlist.json`
+- `botsgg.json`
+- `topgg.json`
+- `vote-events.json`
 
 ## Editing the project
 
@@ -668,6 +717,20 @@ Notes:
 - Check `GET /api/botsgg/status?live=1`
 - Confirm the listing is claimed correctly on `discord.bots.gg`
 - Do not expect the documented stats endpoint to directly force the public `online` field
+
+### Top.gg votes, commands, or stats are not syncing
+
+- Verify `TOPGG_ENABLED=1`
+- Verify `TOPGG_TOKEN`
+- Verify `TOPGG_BOT_ID`
+- If webhooks should work, verify `TOPGG_WEBHOOK_SECRET`
+- Set `PUBLIC_WEB_URL`
+- Use `POST /api/topgg/sync` with the admin token to force project, commands, stats, and votes
+- Check `GET /api/topgg/status?live=1`
+- Check `GET /api/topgg/votes`
+- Check `GET /api/vote-events/status`
+- For a single user, check `GET /api/topgg/vote-status?userId=<discordUserId>&source=discord`
+- If live webhooks still fail, verify that Top.gg is configured to send either the legacy secret or the signed webhook requests to `POST /api/topgg/webhook`
 
 ## Notes
 

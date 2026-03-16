@@ -36,6 +36,10 @@ services:
       - ./listening-stats.json:/app/listening-stats.json
       - ./scheduled-events.json:/app/scheduled-events.json
       - ./coupons.json:/app/coupons.json
+      - ./discordbotlist.json:/app/discordbotlist.json
+      - ./botsgg.json:/app/botsgg.json
+      - ./topgg.json:/app/topgg.json
+      - ./vote-events.json:/app/vote-events.json
       - ./logs:/app/logs
     restart: unless-stopped
     depends_on:

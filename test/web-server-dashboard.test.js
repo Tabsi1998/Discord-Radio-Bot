@@ -304,6 +304,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "custom-stations.json.bak"),
     path.join(repoRoot, "botsgg.json"),
     path.join(repoRoot, "discordbotlist.json"),
+    path.join(repoRoot, "topgg.json"),
+    path.join(repoRoot, "vote-events.json"),
     path.join(repoRoot, "scheduled-events.json"),
   ];
   const snapshots = new Map();
@@ -328,6 +330,10 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     BOTSGG_TOKEN: "test-botsgg-token",
     BOTSGG_BOT_ID: "923456789012345678",
     BOTSGG_STATS_SCOPE: "aggregate",
+    TOPGG_ENABLED: "1",
+    TOPGG_TOKEN: "test-topgg-token",
+    TOPGG_BOT_ID: "923456789012345678",
+    TOPGG_WEBHOOK_SECRET: "test-topgg-secret",
     DISCORD_CLIENT_ID: undefined,
     DISCORD_CLIENT_SECRET: undefined,
     DISCORD_REDIRECT_URI: undefined,
@@ -578,6 +584,30 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(botsGGStatusResponse.payload.publicApiUrl, "https://discord.bots.gg/api/v1/bots/923456789012345678");
   assert.equal(typeof botsGGStatusResponse.payload.state, "object");
 
+  const topGGUnauthorizedResponse = await requestJson(
+    baseUrl,
+    "/api/topgg/status?lang=de"
+  );
+  assert.equal(topGGUnauthorizedResponse.status, 401);
+  assert.match(topGGUnauthorizedResponse.payload.error, /API-Admin-Token erforderlich/i);
+
+  const topGGStatusResponse = await requestJson(
+    baseUrl,
+    "/api/topgg/status",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(topGGStatusResponse.status, 200);
+  assert.equal(topGGStatusResponse.payload.configured, true);
+  assert.equal(topGGStatusResponse.payload.botId, "923456789012345678");
+  assert.equal(topGGStatusResponse.payload.statsScope, "aggregate");
+  assert.equal(topGGStatusResponse.payload.listingUrl, "https://top.gg/bot/923456789012345678");
+  assert.equal(topGGStatusResponse.payload.projectApiUrl, "https://top.gg/api/v1/projects/@me");
+  assert.equal(topGGStatusResponse.payload.votesApiUrl, "https://top.gg/api/v1/projects/@me/votes");
+  assert.equal(topGGStatusResponse.payload.state.totalVotes, 0);
+  assert.deepEqual(topGGStatusResponse.payload.state.votes, []);
+
   const discordBotListVoteResponse = await requestJson(
     baseUrl,
     "/api/discordbotlist/vote",
@@ -601,6 +631,28 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(discordBotListVoteResponse.payload.added, true);
   assert.equal(discordBotListVoteResponse.payload.totalVotes, 1);
 
+  const topGGVoteResponse = await requestJson(
+    baseUrl,
+    "/api/topgg/webhook",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "test-topgg-secret",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        bot: "923456789012345678",
+        user: "723456789012345678",
+        type: "upvote",
+        query: {},
+      }),
+    }
+  );
+  assert.equal(topGGVoteResponse.status, 200);
+  assert.equal(topGGVoteResponse.payload.success, true);
+  assert.equal(topGGVoteResponse.payload.added, true);
+  assert.equal(topGGVoteResponse.payload.totalVotes, 1);
+
   const discordBotListVotesResponse = await requestJson(
     baseUrl,
     "/api/discordbotlist/votes?limit=10",
@@ -613,6 +665,56 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(discordBotListVotesResponse.payload.votes.length, 1);
   assert.equal(discordBotListVotesResponse.payload.votes[0].userId, "623456789012345678");
   assert.equal(discordBotListVotesResponse.payload.votes[0].username, "VoteUser#0420");
+
+  const topGGVotesResponse = await requestJson(
+    baseUrl,
+    "/api/topgg/votes?limit=10",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(topGGVotesResponse.status, 200);
+  assert.equal(topGGVotesResponse.payload.totalVotes, 1);
+  assert.equal(topGGVotesResponse.payload.votes.length, 1);
+  assert.equal(topGGVotesResponse.payload.votes[0].provider, "topgg");
+  assert.equal(topGGVotesResponse.payload.votes[0].userId, "723456789012345678");
+
+  const voteEventsUnauthorizedResponse = await requestJson(
+    baseUrl,
+    "/api/vote-events/status?provider=topgg"
+  );
+  assert.equal(voteEventsUnauthorizedResponse.status, 401);
+  assert.match(voteEventsUnauthorizedResponse.payload.error, /API admin token required/i);
+
+  const voteEventsStatusResponse = await requestJson(
+    baseUrl,
+    "/api/vote-events/status?limit=10",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(voteEventsStatusResponse.status, 200);
+  assert.equal(voteEventsStatusResponse.payload.totalVotes, 2);
+  assert.equal(voteEventsStatusResponse.payload.votes.length, 2);
+  assert.equal(voteEventsStatusResponse.payload.rewardReadiness.unifiedStore, true);
+  assert.equal(voteEventsStatusResponse.payload.rewardReadiness.rewardEngineReady, true);
+  assert.deepEqual(voteEventsStatusResponse.payload.rewardReadiness.supportedVoteProviders, ["discordbotlist", "topgg"]);
+  assert.deepEqual(voteEventsStatusResponse.payload.rewardReadiness.unsupportedVoteProviders, ["botsgg"]);
+
+  const topGGVoteEventsResponse = await requestJson(
+    baseUrl,
+    "/api/vote-events/status?provider=topgg&userId=723456789012345678&limit=10",
+    {
+      headers: { "x-admin-token": "test-admin-token" },
+    }
+  );
+  assert.equal(topGGVoteEventsResponse.status, 200);
+  assert.equal(topGGVoteEventsResponse.payload.provider, "topgg");
+  assert.equal(topGGVoteEventsResponse.payload.userId, "723456789012345678");
+  assert.equal(topGGVoteEventsResponse.payload.totalVotes, 1);
+  assert.equal(topGGVoteEventsResponse.payload.votes.length, 1);
+  assert.equal(topGGVoteEventsResponse.payload.votes[0].provider, "topgg");
+  assert.equal(topGGVoteEventsResponse.payload.votes[0].userId, "723456789012345678");
 
   const discordBotListSyncUnauthorizedResponse = await requestJson(
     baseUrl,

@@ -536,6 +536,9 @@ else
   ok "DiscordBotList bereits konfiguriert."
 fi
 
+info "Top.gg und discord.bots.gg koennen spaeter getrennt ueber ./update.sh --settings eingerichtet werden."
+info "Gemeinsame Vote-Rewards sind intern bereits ueber vote-events.json vorbereitet."
+
 echo ""
 
 # ====================================
@@ -582,7 +585,7 @@ echo "────────────────────────�
 info "Baue und starte Container..."
 # Sicherstellen dass gemountete JSON-Dateien VOR Docker-Start existieren
 # Docker bind-mount erstellt sonst ein VERZEICHNIS statt einer Datei!
-for jf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json; do
+for jf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json discordbotlist.json botsgg.json topgg.json vote-events.json; do
   if [[ -d "$jf" ]]; then rm -rf "$jf" 2>/dev/null || true; fi
 done
 [[ -f premium.json ]]         || echo '{"licenses":{}}' > premium.json
@@ -595,6 +598,10 @@ done
 [[ -f scheduled-events.json ]] || echo '{"version":1,"events":[]}' > scheduled-events.json
 [[ -f coupons.json ]] || echo '{"offers":{},"redemptions":{}}' > coupons.json
 [[ -f dashboard.json ]] || echo '{"version":1,"events":{},"perms":{},"telemetry":{},"authSessions":{},"oauthStates":{}}' > dashboard.json
+[[ -f discordbotlist.json ]] || echo '{"version":1,"totalVotes":0,"votes":[],"lastWebhookVoteAt":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null}' > discordbotlist.json
+[[ -f botsgg.json ]] || echo '{"version":1,"lastStatsSync":null}' > botsgg.json
+[[ -f topgg.json ]] || echo '{"version":1,"project":null,"lastProjectSync":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null,"lastWebhookVoteAt":null,"lastWebhookTestAt":null}' > topgg.json
+[[ -f vote-events.json ]] || echo '{"version":1,"totalVotes":0,"votes":[],"providers":{"discordbotlist":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null},"topgg":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null}}}' > vote-events.json
 
 compose_up_with_build || exit 1
 
