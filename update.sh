@@ -816,9 +816,7 @@ json_file_can_use_container_validation() {
 }
 
 json_file_can_be_validated() {
-  local fp="$1"
-  json_validation_available_local && return 0
-  json_file_can_use_container_validation "$fp"
+  json_validation_available_local
 }
 
 json_file_is_valid() {
@@ -857,10 +855,23 @@ PY
   if command -v powershell.exe >/dev/null 2>&1; then
     powershell.exe -NoProfile -Command "\$raw = Get-Content -Raw -LiteralPath \$args[0]; \$null = \$raw | ConvertFrom-Json" "$fp" >/dev/null 2>&1 && return 0
   fi
-  if json_file_can_use_container_validation "$fp"; then
-    docker compose exec -T omnifm node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "/app/${fp}" >/dev/null 2>&1 && return 0
-  fi
   return 1
+}
+
+json_file_is_valid_in_omnifm() {
+  local fp="$1"
+  json_file_can_use_container_validation "$fp" || return 1
+  docker compose exec -T omnifm node -e "const fs=require('fs'); const p=process.argv[1]; if(!fs.statSync(p).isFile()) process.exit(2); JSON.parse(fs.readFileSync(p, 'utf8'));" "/app/${fp}" >/dev/null 2>&1
+}
+
+runtime_json_default_content() {
+  case "$1" in
+    discordbotlist.json) printf '%s' '{"version":1,"totalVotes":0,"votes":[],"lastWebhookVoteAt":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null}' ;;
+    botsgg.json) printf '%s' '{"version":1,"lastStatsSync":null}' ;;
+    topgg.json) printf '%s' '{"version":1,"project":null,"lastProjectSync":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null,"lastWebhookVoteAt":null,"lastWebhookTestAt":null}' ;;
+    vote-events.json) printf '%s' '{"version":1,"totalVotes":0,"votes":[],"providers":{"discordbotlist":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null},"topgg":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null}}}' ;;
+    *) printf '%s' '{}' ;;
+  esac
 }
 
 repair_json_file() {
@@ -919,15 +930,25 @@ ensure_all_json_files() {
 }
 
 repair_runtime_json_mount_dirs() {
-  local json_file had_dir=0 was_running=0
+  local json_file host_repair_needed=0 restart_needed=0 was_running=0 default_content=""
 
   for json_file in discordbotlist.json botsgg.json topgg.json vote-events.json; do
-    if [[ -d "$json_file" ]]; then
-      had_dir=1
-      break
+    if [[ -d "$json_file" || ! -f "$json_file" ]]; then
+      host_repair_needed=1
+      restart_needed=1
+      continue
+    fi
+    if json_validation_available_local && ! json_file_is_valid "$json_file"; then
+      host_repair_needed=1
+      restart_needed=1
+      continue
+    fi
+    if json_file_can_use_container_validation "$json_file" && ! json_file_is_valid_in_omnifm "$json_file"; then
+      restart_needed=1
     fi
   done
-  (( had_dir )) || return 0
+
+  (( host_repair_needed || restart_needed )) || return 0
 
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q '^omnifm$'; then
     was_running=1
@@ -935,14 +956,28 @@ repair_runtime_json_mount_dirs() {
     docker compose stop -t 15 omnifm >/dev/null 2>&1 || warn "omnifm konnte fuer JSON-Reparatur nicht gestoppt werden."
   fi
 
-  ensure_json_file "discordbotlist.json" '{"version":1,"totalVotes":0,"votes":[],"lastWebhookVoteAt":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null}'
-  ensure_json_file "botsgg.json" '{"version":1,"lastStatsSync":null}'
-  ensure_json_file "topgg.json" '{"version":1,"project":null,"lastProjectSync":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null,"lastWebhookVoteAt":null,"lastWebhookTestAt":null}'
-  ensure_json_file "vote-events.json" '{"version":1,"totalVotes":0,"votes":[],"providers":{"discordbotlist":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null},"topgg":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null}}}'
+  if (( host_repair_needed )); then
+    for json_file in discordbotlist.json botsgg.json topgg.json vote-events.json; do
+      default_content="$(runtime_json_default_content "$json_file")"
+      if [[ -d "$json_file" ]]; then
+        info "Korrigiere $json_file (war Verzeichnis statt Datei)..."
+        rm -rf "$json_file" 2>/dev/null || true
+      fi
+      if [[ ! -f "$json_file" ]]; then
+        write_json_file "$json_file" "$default_content"
+      elif json_validation_available_local && ! json_file_is_valid "$json_file"; then
+        repair_json_file "$json_file" "$default_content"
+      fi
+      if [[ ! -f "$json_file" ]]; then
+        write_json_file "$json_file" "$default_content"
+      fi
+    done
+  fi
 
   if (( was_running )); then
     info "Starte omnifm nach JSON-Bind-Mount-Reparatur wieder..."
     docker compose start omnifm >/dev/null 2>&1 || warn "omnifm konnte nach JSON-Reparatur nicht gestartet werden."
+    sleep 2
   fi
 }
 
@@ -1138,8 +1173,28 @@ run_system_doctor() {
       fi
       continue
     fi
-    if ! json_file_can_be_validated "$json_file"; then
-      doctor_warn "JSON-Syntax nicht geprueft: ${json_file} (kein lokaler Parser, omnifm nicht aktiv)"
+    if [[ "$json_file" =~ ^(discordbotlist|botsgg|topgg|vote-events)\.json$ ]]; then
+      if json_validation_available_local && ! json_file_is_valid "$json_file"; then
+        doctor_fail "JSON fehlerhaft auf Host: ${json_file}"
+        continue
+      fi
+      if json_file_can_use_container_validation "$json_file"; then
+        if json_file_is_valid_in_omnifm "$json_file"; then
+          doctor_ok "JSON ok: ${json_file}"
+        else
+          doctor_fail "JSON/Bind-Mount im Container fehlerhaft: ${json_file}"
+        fi
+        continue
+      fi
+      if json_validation_available_local; then
+        doctor_ok "JSON ok: ${json_file}"
+      else
+        doctor_warn "JSON-Syntax nicht geprueft: ${json_file} (kein lokaler Parser, omnifm nicht aktiv)"
+      fi
+      continue
+    fi
+    if ! json_validation_available_local; then
+      doctor_warn "JSON-Syntax nicht geprueft: ${json_file} (kein lokaler Parser)"
       continue
     fi
     if json_file_is_valid "$json_file"; then
