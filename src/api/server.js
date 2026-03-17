@@ -139,6 +139,7 @@ import {
 } from "../premium-store.js";
 import {
   resolveCheckoutOfferForRequest,
+  activateOfferGrant,
   activatePaidStripeSession,
   activateProTrial,
 } from "../services/payment.js";
@@ -296,6 +297,7 @@ function buildDashboardLicensePayload(guildInfo) {
       : null,
     promotions: {
       couponCodesSupported: true,
+      directGrantCodesSupported: true,
       proTrialEnabled: isProTrialEnabled(),
       proTrialMonths: PRO_TRIAL_MONTHS,
       trialOnlyForNewCustomers: true,
@@ -439,6 +441,7 @@ function buildDashboardExportsWebhookResponse(rawConfig) {
 const handleDashboardLicenseRoute = createDashboardLicenseRouteHandler({
   BRAND,
   TIERS,
+  activateOfferGrant,
   buildDashboardLicensePayload,
   calculatePrice,
   getDashboardSession,
@@ -632,6 +635,7 @@ const handlePremiumBillingRoutes = createPremiumBillingRoutesHandler({
   BRAND,
   SEAT_OPTIONS,
   TIERS,
+  activateOfferGrant,
   activatePaidStripeSession,
   activateProTrial,
   calculatePrice,

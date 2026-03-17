@@ -137,9 +137,24 @@ function DashboardCheckoutModal({
   const currentPrice = prices?.[tier]?.[months] || 0;
   const previewPricing = previewData?.pricing || null;
   const previewOffer = previewData?.discount?.applied || null;
-  const summaryBaseAmountCents = Math.max(0, Number(previewPricing?.baseAmountCents || currentPrice) || 0);
-  const summaryDiscountCents = Math.max(0, Number(previewPricing?.discountCents || 0) || 0);
-  const summaryFinalAmountCents = Math.max(0, Number(previewPricing?.finalAmountCents || currentPrice) || 0);
+  const summaryBaseAmountCents = Math.max(
+    0,
+    Number.isFinite(Number(previewPricing?.baseAmountCents))
+      ? Number(previewPricing.baseAmountCents)
+      : currentPrice
+  );
+  const summaryDiscountCents = Math.max(
+    0,
+    Number.isFinite(Number(previewPricing?.discountCents))
+      ? Number(previewPricing.discountCents)
+      : 0
+  );
+  const summaryFinalAmountCents = Math.max(
+    0,
+    Number.isFinite(Number(previewPricing?.finalAmountCents))
+      ? Number(previewPricing.finalAmountCents)
+      : currentPrice
+  );
 
   const handlePreview = async () => {
     if (!normalizedCouponCode) {
@@ -352,12 +367,21 @@ function DashboardCheckoutModal({
               <strong>
                 {t('Code aktiv:', 'Code active:')} {previewOffer.code}
               </strong>
-              <span>
-                {t(
-                  `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} Rabatt werden für diesen Checkout angewendet.`,
-                  `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} discount will be applied to this checkout.`
-                )}
-              </span>
+              {previewOffer.fulfillmentMode === 'direct_grant' ? (
+                <span>
+                  {t(
+                    `Dieser Code aktiviert ${String(previewOffer.grantPlan || tier).toUpperCase()} direkt fuer ${previewOffer.grantMonths || months} Monat${Number(previewOffer.grantMonths || months) > 1 ? 'e' : ''} ohne Stripe.`,
+                    `This code activates ${String(previewOffer.grantPlan || tier).toUpperCase()} directly for ${previewOffer.grantMonths || months} month${Number(previewOffer.grantMonths || months) > 1 ? 's' : ''} without Stripe.`
+                  )}
+                </span>
+              ) : (
+                <span>
+                  {t(
+                    `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} Rabatt werden für diesen Checkout angewendet.`,
+                    `${formatSubscriptionPriceCents(summaryDiscountCents, locale)} discount will be applied to this checkout.`
+                  )}
+                </span>
+              )}
               {previewOffer.ownerLabel ? (
                 <span style={{ color: '#A7F3D0' }}>
                   {t(`Partner: ${previewOffer.ownerLabel}`, `Partner: ${previewOffer.ownerLabel}`)}
@@ -421,7 +445,11 @@ function DashboardCheckoutModal({
             }}
           >
             {loading ? <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={15} />}
-            {loading ? t('Stripe wird geöffnet...', 'Opening Stripe...') : t('Weiter zu Stripe', 'Continue to Stripe')}
+            {loading
+              ? t('Stripe wird geöffnet...', 'Opening Stripe...')
+              : previewOffer?.fulfillmentMode === 'direct_grant'
+                ? t('Code direkt einlösen', 'Redeem code directly')
+                : t('Weiter zu Stripe', 'Continue to Stripe')}
           </button>
           <button
             onClick={onClose}
@@ -448,6 +476,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [checkoutNotice, setCheckoutNotice] = useState('');
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
@@ -474,6 +503,7 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
     setEmailDraft('');
     setEmailEditing(false);
     setEmailSaving(false);
+    setCheckoutNotice('');
   }, [selectedGuildId, data?.license?.emailMasked]);
 
   const lic = data?.license || null;
@@ -554,13 +584,19 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
         window.location.href = result.url;
         return;
       }
+      if (result?.activated) {
+        setCheckoutOpen(false);
+        setCheckoutNotice(result.message || t('Code erfolgreich eingelöst.', 'Code redeemed successfully.'));
+        await load();
+        return;
+      }
       setCheckoutError(t('Stripe-URL fehlt in der Antwort.', 'Stripe URL is missing in the response.'));
     } catch (err) {
       setCheckoutError(err.message || t('Checkout konnte nicht gestartet werden.', 'Could not start checkout.'));
     } finally {
       setCheckoutLoading(false);
     }
-  }, [apiRequest, locale, selectedGuildId, t]);
+  }, [apiRequest, load, locale, selectedGuildId, t]);
 
   const previewCheckout = useCallback(async ({ months, tier, email, couponCode }) => {
     if (!selectedGuildId) return null;
@@ -615,6 +651,12 @@ export default function DashboardSubscription({ apiRequest, selectedGuildId, t, 
       {error ? (
         <div style={{ border: '1px solid rgba(252,165,165,0.25)', background: 'rgba(127,29,29,0.12)', padding: '10px 12px', color: '#FCA5A5', fontSize: 13 }}>
           {error}
+        </div>
+      ) : null}
+
+      {checkoutNotice ? (
+        <div style={{ border: '1px solid rgba(16,185,129,0.25)', background: 'rgba(6,78,59,0.16)', padding: '10px 12px', color: '#D1FAE5', fontSize: 13 }}>
+          {checkoutNotice}
         </div>
       ) : null}
 

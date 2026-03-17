@@ -2,6 +2,7 @@ export function createDashboardLicenseRouteHandler(deps) {
   const {
     BRAND,
     TIERS,
+    activateOfferGrant,
     buildDashboardLicensePayload,
     calculatePrice,
     getDashboardSession,
@@ -28,7 +29,7 @@ export function createDashboardLicenseRouteHandler(deps) {
   } = deps;
 
   return async function handleDashboardLicenseRoute(context) {
-    const { req, res, requestUrl, readJsonBody } = context;
+    const { req, res, requestUrl, readJsonBody, runtimes } = context;
 
     if (requestUrl.pathname === "/api/dashboard/license") {
       const { language } = getDashboardRequestTranslatorCompat(resolveDashboardRequestLanguage, req, requestUrl);
@@ -230,8 +231,18 @@ export function createDashboardLicenseRouteHandler(deps) {
           success: true,
           pricing: {
             baseAmountCents: basePriceInCents,
-            discountCents: Math.max(0, Number(offerPreview?.discountCents || 0) || 0),
-            finalAmountCents: Math.max(0, Number(offerPreview?.finalAmountCents || basePriceInCents) || 0),
+            discountCents: Math.max(
+              0,
+              Number.isFinite(Number(offerPreview?.discountCents))
+                ? Number(offerPreview.discountCents)
+                : 0
+            ),
+            finalAmountCents: Math.max(
+              0,
+              Number.isFinite(Number(offerPreview?.finalAmountCents))
+                ? Number(offerPreview.finalAmountCents)
+                : basePriceInCents
+            ),
           },
           discount: offerPreview,
           renewal: {
@@ -383,11 +394,64 @@ export function createDashboardLicenseRouteHandler(deps) {
         }
 
         const offerPreview = offerResolution.preview;
-        const discountCents = Math.max(0, Number(offerPreview?.discountCents || 0) || 0);
-        const priceInCents = Math.max(0, Number(offerPreview?.finalAmountCents || basePriceInCents) || 0);
+        const discountCents = Math.max(
+          0,
+          Number.isFinite(Number(offerPreview?.discountCents))
+            ? Number(offerPreview.discountCents)
+            : 0
+        );
+        const priceInCents = Math.max(
+          0,
+          Number.isFinite(Number(offerPreview?.finalAmountCents))
+            ? Number(offerPreview.finalAmountCents)
+            : basePriceInCents
+        );
         const appliedOfferCode = sanitizeOfferCode(offerPreview?.applied?.code);
         const appliedOfferKind = String(offerPreview?.applied?.kind || "").trim().toLowerCase();
         const resolvedReferralCode = sanitizeOfferCode(offerPreview?.attributionReferralCode || "");
+        const requiresStripe = offerPreview?.requiresStripe !== false;
+        if (!requiresStripe) {
+          const grantResult = await activateOfferGrant({
+            preview: offerPreview,
+            email: licenseEmail,
+            language: checkoutLanguage,
+            runtimes,
+            source: "dashboard:checkout",
+          });
+          if (!grantResult.success) {
+            sendJson(res, grantResult.status || 400, {
+              error: grantResult.message,
+              discount: offerPreview,
+            });
+            return true;
+          }
+          sendJson(res, 200, {
+            success: true,
+            activated: true,
+            directGrant: true,
+            message: grantResult.message,
+            licenseKey: grantResult.licenseKey,
+            expiresAt: grantResult.expiresAt,
+            tier: grantResult.tier,
+            seats: grantResult.seats,
+            months: grantResult.months,
+            pricing: {
+              baseAmountCents: grantResult.baseAmountCents,
+              discountCents: grantResult.discountCents,
+              finalAmountCents: 0,
+            },
+            discount: offerPreview,
+            renewal: {
+              currentPlan,
+              targetPlan: grantResult.tier,
+              seats: grantResult.seats,
+              months: grantResult.months,
+              emailMasked: licenseEmail.replace(/^(.{2}).*(@.*)$/, "$1***$2"),
+            },
+          });
+          return true;
+        }
+
         if (priceInCents <= 0) {
           sendJson(res, 400, {
             error: t("Preis ist nach Rabatt ungÃ¼ltig.", "Price is invalid after discount."),

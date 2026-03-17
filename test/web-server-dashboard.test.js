@@ -15,6 +15,7 @@ import {
   markSessionProcessed,
   reserveTrialClaim,
   finalizeTrialClaim,
+  listLicensesByContactEmail,
 } from "../src/premium-store.js";
 import { upsertOffer, markOfferRedemption } from "../src/coupon-store.js";
 import {
@@ -417,6 +418,26 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     ownerLabel: "Spring Promo",
     createdBy: "test-suite",
   });
+  upsertOffer({
+    code: "FREEPRO1",
+    kind: "coupon",
+    fulfillmentMode: "direct_grant",
+    active: true,
+    grantPlan: "pro",
+    grantSeats: 1,
+    grantMonths: 1,
+    createdBy: "test-suite",
+  });
+  upsertOffer({
+    code: "RENEWGIFT",
+    kind: "coupon",
+    fulfillmentMode: "direct_grant",
+    active: true,
+    grantPlan: "pro",
+    grantSeats: 2,
+    grantMonths: 1,
+    createdBy: "test-suite",
+  });
 
   try {
     await connectDb();
@@ -817,6 +838,57 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(premiumOfferPreviewResponse.payload.pricing.baseAmountCents, 1917);
   assert.equal(premiumOfferPreviewResponse.payload.pricing.finalAmountCents, 1438);
 
+  const premiumGrantPreviewResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offer/preview",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OmniFM-Language": "en",
+      },
+      body: JSON.stringify({
+        tier: "pro",
+        email: "gift@example.com",
+        months: 12,
+        seats: 1,
+        couponCode: "FREEPRO1",
+      }),
+    }
+  );
+  assert.equal(premiumGrantPreviewResponse.status, 200);
+  assert.equal(premiumGrantPreviewResponse.payload.success, true);
+  assert.equal(premiumGrantPreviewResponse.payload.discount.applied.code, "FREEPRO1");
+  assert.equal(premiumGrantPreviewResponse.payload.discount.applied.fulfillmentMode, "direct_grant");
+  assert.equal(premiumGrantPreviewResponse.payload.discount.applied.grantPlan, "pro");
+  assert.equal(premiumGrantPreviewResponse.payload.discount.applied.grantMonths, 1);
+  assert.equal(premiumGrantPreviewResponse.payload.pricing.finalAmountCents, 0);
+
+  const premiumGrantCheckoutResponse = await requestJson(
+    baseUrl,
+    "/api/premium/checkout",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OmniFM-Language": "en",
+      },
+      body: JSON.stringify({
+        tier: "pro",
+        email: "gift@example.com",
+        months: 12,
+        seats: 1,
+        couponCode: "FREEPRO1",
+      }),
+    }
+  );
+  assert.equal(premiumGrantCheckoutResponse.status, 200);
+  assert.equal(premiumGrantCheckoutResponse.payload.activated, true);
+  assert.equal(premiumGrantCheckoutResponse.payload.directGrant, true);
+  assert.equal(premiumGrantCheckoutResponse.payload.licenseKey.startsWith("lic_"), true);
+  assert.equal(premiumGrantCheckoutResponse.payload.pricing.finalAmountCents, 0);
+  assert.equal(listLicensesByContactEmail("gift@example.com")[0]?.plan, "pro");
+
   const premiumCheckoutUnavailableResponse = await requestJson(
     baseUrl,
     "/api/premium/checkout",
@@ -881,6 +953,31 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(premiumCreateOfferResponse.payload.offer.code, "FLASH10");
   assert.equal(premiumCreateOfferResponse.payload.offer.percentOff, 10);
 
+  const premiumCreateGrantOfferResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offers",
+    {
+      method: "POST",
+      headers: {
+        "x-admin-token": "test-admin-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        code: "FREEULT1",
+        kind: "coupon",
+        fulfillmentMode: "direct_grant",
+        grantPlan: "ultimate",
+        grantSeats: 1,
+        grantMonths: 1,
+        createdBy: "test-suite",
+      }),
+    }
+  );
+  assert.equal(premiumCreateGrantOfferResponse.status, 200);
+  assert.equal(premiumCreateGrantOfferResponse.payload.success, true);
+  assert.equal(premiumCreateGrantOfferResponse.payload.offer.fulfillmentMode, "direct_grant");
+  assert.equal(premiumCreateGrantOfferResponse.payload.offer.grantPlan, "ultimate");
+
   const premiumOfferLookupResponse = await requestJson(
     baseUrl,
     "/api/premium/offer?code=flash10"
@@ -888,6 +985,14 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(premiumOfferLookupResponse.status, 200);
   assert.equal(premiumOfferLookupResponse.payload.offer.code, "FLASH10");
   assert.equal(premiumOfferLookupResponse.payload.offer.percentOff, 10);
+
+  const premiumGrantOfferLookupResponse = await requestJson(
+    baseUrl,
+    "/api/premium/offer?code=freeult1"
+  );
+  assert.equal(premiumGrantOfferLookupResponse.status, 200);
+  assert.equal(premiumGrantOfferLookupResponse.payload.offer.fulfillmentMode, "direct_grant");
+  assert.equal(premiumGrantOfferLookupResponse.payload.offer.grantPlan, "ultimate");
 
   const premiumDeactivateOfferResponse = await requestJson(
     baseUrl,
@@ -1137,6 +1242,51 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(offerPreviewResponse.payload.discount.applied.ownerLabel, "Spring Promo");
   assert.equal(offerPreviewResponse.payload.renewal.targetPlan, "ultimate");
   assert.equal(offerPreviewResponse.payload.renewal.seats, 2);
+
+  const directGrantOfferPreviewResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license/offer-preview?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        tier: "pro",
+        months: 12,
+        couponCode: "RENEWGIFT",
+        language: "en",
+      }),
+    }
+  );
+  assert.equal(directGrantOfferPreviewResponse.status, 200);
+  assert.equal(directGrantOfferPreviewResponse.payload.success, true);
+  assert.equal(directGrantOfferPreviewResponse.payload.discount.applied.fulfillmentMode, "direct_grant");
+  assert.equal(directGrantOfferPreviewResponse.payload.discount.applied.grantMonths, 1);
+  assert.equal(directGrantOfferPreviewResponse.payload.pricing.finalAmountCents, 0);
+
+  const directGrantCheckoutResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license/checkout?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        tier: "pro",
+        months: 12,
+        couponCode: "RENEWGIFT",
+        language: "en",
+      }),
+    }
+  );
+  assert.equal(directGrantCheckoutResponse.status, 200);
+  assert.equal(directGrantCheckoutResponse.payload.activated, true);
+  assert.equal(directGrantCheckoutResponse.payload.directGrant, true);
+  assert.equal(directGrantCheckoutResponse.payload.pricing.finalAmountCents, 0);
 
   const invalidOfferPreviewResponse = await requestJson(
     baseUrl,

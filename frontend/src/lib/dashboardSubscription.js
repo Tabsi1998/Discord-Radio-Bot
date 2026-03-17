@@ -199,6 +199,17 @@ export function buildSubscriptionPromotionNotes(data, t) {
     });
   }
 
+  if (promotions.directGrantCodesSupported) {
+    notes.push({
+      key: 'grant-codes',
+      label: t('Gratis-Lizenzcodes', 'Free license codes'),
+      detail: t(
+        'Spezielle Codes koennen eine Gratis-Lizenz direkt aktivieren, ohne dass Stripe geoeffnet wird.',
+        'Special codes can activate a free license directly without opening Stripe.'
+      ),
+    });
+  }
+
   if (promotions.proTrialEnabled && !license) {
     notes.push({
       key: 'trial',

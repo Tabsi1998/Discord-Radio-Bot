@@ -467,6 +467,13 @@ export function isSessionProcessed(sessionId) {
   return !!data.processedSessions[String(sessionId)];
 }
 
+export function getProcessedSession(sessionId) {
+  const data = load();
+  const entry = data.processedSessions[String(sessionId)];
+  if (!entry || typeof entry !== "object") return null;
+  return { sessionId: String(sessionId), ...entry };
+}
+
 export function markSessionProcessed(sessionId, meta = {}) {
   const data = load();
   data.processedSessions[String(sessionId)] = { ...meta, processedAt: new Date().toISOString() };

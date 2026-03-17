@@ -3,6 +3,7 @@ export function createPremiumBillingRoutesHandler(deps) {
     BRAND,
     SEAT_OPTIONS,
     TIERS,
+    activateOfferGrant,
     activatePaidStripeSession,
     activateProTrial,
     calculatePrice,
@@ -185,17 +186,6 @@ export function createPremiumBillingRoutesHandler(deps) {
           return true;
         }
 
-        const stripeKey = getStripeSecretKey();
-        if (!stripeKey) {
-          sendJson(res, 503, {
-            error: t(
-              "Stripe nicht konfiguriert. Nutze: ./update.sh --stripe",
-              "Stripe is not configured. Use: ./update.sh --stripe"
-            ),
-          });
-          return true;
-        }
-
         const basePriceInCents = calculatePrice(tier, durationMonths, seats);
         if (basePriceInCents <= 0) {
           sendJson(res, 400, {
@@ -229,13 +219,62 @@ export function createPremiumBillingRoutesHandler(deps) {
         }
 
         const offerPreview = offerResolution.preview;
-        const priceInCents = Math.max(0, Number(offerPreview?.finalAmountCents || basePriceInCents));
+        const priceInCents = Math.max(
+          0,
+          Number.isFinite(Number(offerPreview?.finalAmountCents))
+            ? Number(offerPreview.finalAmountCents)
+            : basePriceInCents
+        );
         const discountCents = Math.max(0, Number(offerPreview?.discountCents || 0));
         const appliedOfferCode = sanitizeOfferCode(offerPreview?.applied?.code);
         const appliedOfferKind = String(offerPreview?.applied?.kind || "").trim().toLowerCase();
         const referralCode = sanitizeOfferCode(offerPreview?.attributionReferralCode || "");
+        const requiresStripe = offerPreview?.requiresStripe !== false;
+        if (!requiresStripe) {
+          const grantResult = await activateOfferGrant({
+            preview: offerPreview,
+            email: String(email).trim().toLowerCase(),
+            language,
+            runtimes,
+            source: "api:checkout",
+          });
+          if (!grantResult.success) {
+            sendJson(res, grantResult.status || 400, { error: grantResult.message, discount: offerPreview });
+            return true;
+          }
+          sendJson(res, 200, {
+            success: true,
+            activated: true,
+            directGrant: true,
+            message: grantResult.message,
+            licenseKey: grantResult.licenseKey,
+            expiresAt: grantResult.expiresAt,
+            tier: grantResult.tier,
+            seats: grantResult.seats,
+            months: grantResult.months,
+            pricing: {
+              baseAmountCents: grantResult.baseAmountCents,
+              discountCents: grantResult.discountCents,
+              finalAmountCents: 0,
+            },
+            discount: offerPreview,
+          });
+          return true;
+        }
+
         if (priceInCents <= 0) {
           sendJson(res, 400, { error: t("Preis ist nach Rabatt ungueltig.", "Price is invalid after discount.") });
+          return true;
+        }
+
+        const stripeKey = getStripeSecretKey();
+        if (!stripeKey) {
+          sendJson(res, 503, {
+            error: t(
+              "Stripe nicht konfiguriert. Nutze: ./update.sh --stripe",
+              "Stripe is not configured. Use: ./update.sh --stripe"
+            ),
+          });
           return true;
         }
 
@@ -397,8 +436,12 @@ export function createPremiumBillingRoutesHandler(deps) {
           discount: resolved.preview,
           pricing: {
             baseAmountCents,
-            discountCents: resolved.preview?.discountCents || 0,
-            finalAmountCents: resolved.preview?.finalAmountCents || baseAmountCents,
+            discountCents: Number.isFinite(Number(resolved.preview?.discountCents))
+              ? Number(resolved.preview.discountCents)
+              : 0,
+            finalAmountCents: Number.isFinite(Number(resolved.preview?.finalAmountCents))
+              ? Number(resolved.preview.finalAmountCents)
+              : baseAmountCents,
           },
         });
       } catch (err) {

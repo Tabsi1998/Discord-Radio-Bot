@@ -52,6 +52,7 @@ const ask = (q) => rl.question(`  \x1b[36m?\x1b[0m ${q}: `);
 const ok = (m) => console.log(`  \x1b[32m[OK]\x1b[0m ${m}`);
 const info = (m) => console.log(`  \x1b[36m[INFO]\x1b[0m ${m}`);
 const fail = (m) => console.log(`  \x1b[31m[FAIL]\x1b[0m ${m}`);
+const warn = (m) => console.log(`  \x1b[33m[WARN]\x1b[0m ${m}`);
 const centsToEur = (c) => (c / 100).toFixed(2).replace(".", ",") + " EUR";
 const SUPPORT_URL = "https://discord.gg/UeRkfGS43R";
 
@@ -301,15 +302,17 @@ function printOffersTable(offers) {
   }
 
   console.log("");
-  console.log("  Code                 Typ       Status    Rabatt                  Regeln");
-  console.log("  " + "-".repeat(90));
+  console.log("  Code                 Typ       Status    Nutzen                  Regeln");
+  console.log("  " + "-".repeat(100));
   for (const offer of offers) {
     const code = String(offer.code || "-").padEnd(20);
     const kind = String(offer.kind || "coupon").padEnd(8);
     const status = offer.active ? "aktiv" : "inaktiv";
-    const discount = Number(offer.percentOff || 0) > 0
-      ? `${offer.percentOff}%`
-      : `${centsToEur(Number(offer.amountOffCents || 0))} fix`;
+    const benefit = offer.fulfillmentMode === "direct_grant"
+      ? `Gratis ${String(offer.grantPlan || "-").toUpperCase()} ${offer.grantMonths || "-"}mo / ${offer.grantSeats || "-"} Seat`
+      : (Number(offer.percentOff || 0) > 0
+        ? `${offer.percentOff}%`
+        : `${centsToEur(Number(offer.amountOffCents || 0))} fix`);
     const restrictions = [];
     if (Array.isArray(offer.allowedTiers) && offer.allowedTiers.length) restrictions.push(`tier=${offer.allowedTiers.join("/")}`);
     if (Array.isArray(offer.allowedSeats) && offer.allowedSeats.length) restrictions.push(`seats=${offer.allowedSeats.join("/")}`);
@@ -317,7 +320,7 @@ function printOffersTable(offers) {
     if (Number.isFinite(Number(offer.maxRedemptions)) && Number(offer.maxRedemptions) > 0) restrictions.push(`max=${offer.maxRedemptions}`);
     const stats = offer.redemptions?.total ? `used=${offer.redemptions.total}` : "used=0";
     restrictions.push(stats);
-    console.log(`  ${code}${kind}${status.padEnd(10)}${discount.padEnd(24)}${restrictions.join(" | ")}`);
+    console.log(`  ${code}${kind}${status.padEnd(10)}${benefit.padEnd(24)}${restrictions.join(" | ")}`);
   }
   console.log("");
 }
@@ -369,6 +372,55 @@ async function askOfferDiscount(existing, labelPrefix = "") {
   };
 }
 
+async function askOfferBenefitConfig(existing, labelPrefix = "") {
+  const prefix = labelPrefix ? `${labelPrefix} ` : "";
+  const modeRaw = (await askWithDefault(
+    `${prefix}Einloeselogik (discount/direct_grant)`,
+    existing?.fulfillmentMode || "discount"
+  )).toLowerCase();
+  const fulfillmentMode = modeRaw === "direct_grant" ? "direct_grant" : "discount";
+
+  if (fulfillmentMode === "direct_grant") {
+    const grantPlan = (await askWithDefault(
+      `${prefix}Gratis-Plan (pro/ultimate)`,
+      existing?.grantPlan || "pro"
+    )).toLowerCase();
+    if (grantPlan !== "pro" && grantPlan !== "ultimate") return null;
+
+    const grantSeats = parseInt(await askWithDefault(
+      `${prefix}Gratis-Seats (1/2/3/5)`,
+      existing?.grantSeats ? String(existing.grantSeats) : "1"
+    ), 10);
+    if (![1, 2, 3, 5].includes(grantSeats)) return null;
+
+    const grantMonths = parseInt(await askWithDefault(
+      `${prefix}Gratis-Monate`,
+      existing?.grantMonths ? String(existing.grantMonths) : "1"
+    ), 10);
+    if (!Number.isFinite(grantMonths) || grantMonths <= 0) return null;
+
+    return {
+      fulfillmentMode,
+      percentOff: 0,
+      amountOffCents: 0,
+      grantPlan,
+      grantSeats,
+      grantMonths,
+    };
+  }
+
+  const discount = await askOfferDiscount(existing, labelPrefix);
+  if (!discount) return null;
+  return {
+    fulfillmentMode,
+    percentOff: discount.percentOff,
+    amountOffCents: discount.amountOffCents,
+    grantPlan: null,
+    grantSeats: null,
+    grantMonths: null,
+  };
+}
+
 function parseAllowedSeatsInput(raw) {
   return parseCsvValues(raw)
     .map((entry) => parseInt(entry, 10))
@@ -377,12 +429,14 @@ function parseAllowedSeatsInput(raw) {
 
 async function quickTierOfferSetup() {
   console.log("");
-  info("Schnellsetup: getrennte Codes fuer PRO und ULTIMATE mit eigenen Rabatten.");
+  info("Schnellsetup: getrennte Codes fuer PRO und ULTIMATE mit Rabatt oder Gratis-Lizenz.");
   info("Jeder Code wird automatisch auf sein Tier begrenzt (allowedTiers).");
   console.log("");
 
   const kindRaw = (await askWithDefault("Typ (coupon/referral)", "coupon")).toLowerCase();
   const kind = kindRaw === "referral" ? "referral" : "coupon";
+  const fulfillmentModeRaw = (await askWithDefault("Einloeselogik (discount/direct_grant)", "discount")).toLowerCase();
+  const fulfillmentMode = fulfillmentModeRaw === "direct_grant" ? "direct_grant" : "discount";
   const ownerLabel = await askWithDefault("Owner Label (optional)", "");
   const note = await askWithDefault("Notiz (optional)", "");
   const activeAnswer = (await askWithDefault("Aktiv? (j/n)", "j")).toLowerCase();
@@ -397,6 +451,21 @@ async function quickTierOfferSetup() {
   const maxPerEmail = maxPerEmailRaw ? Math.max(1, parseInt(maxPerEmailRaw, 10) || 0) : null;
   const startsAt = await askWithDefault("Startzeit ISO (leer=sofort)", "");
   const expiresAt = await askWithDefault("Ablaufzeit ISO (leer=kein Ablauf)", "");
+  const sharedGrantSeats = fulfillmentMode === "direct_grant"
+    ? parseInt(await askWithDefault("Gratis-Seats fuer beide Codes (1/2/3/5)", "1"), 10)
+    : null;
+  const sharedGrantMonths = fulfillmentMode === "direct_grant"
+    ? parseInt(await askWithDefault("Gratis-Monate fuer beide Codes", "1"), 10)
+    : null;
+
+  if (fulfillmentMode === "direct_grant" && ![1, 2, 3, 5].includes(sharedGrantSeats)) {
+    fail("Gratis-Seats muessen 1, 2, 3 oder 5 sein.");
+    return;
+  }
+  if (fulfillmentMode === "direct_grant" && (!Number.isFinite(sharedGrantMonths) || sharedGrantMonths <= 0)) {
+    fail("Gratis-Monate muessen groesser als 0 sein.");
+    return;
+  }
 
   const tiers = [
     { tier: "pro", label: "PRO", codeDefault: "PRO10" },
@@ -414,9 +483,18 @@ async function quickTierOfferSetup() {
     }
 
     const existing = findOfferByCode(code);
-    const discount = await askOfferDiscount(existing, `${entry.label}:`);
-    if (!discount) {
-      fail(`${entry.label}: kein gueltiger Rabatt angegeben, uebersprungen.`);
+    const benefitConfig = fulfillmentMode === "direct_grant"
+      ? {
+        fulfillmentMode,
+        percentOff: 0,
+        amountOffCents: 0,
+        grantPlan: entry.tier,
+        grantSeats: sharedGrantSeats,
+        grantMonths: sharedGrantMonths,
+      }
+      : await askOfferBenefitConfig(existing, `${entry.label}:`);
+    if (!benefitConfig) {
+      fail(`${entry.label}: ungueltige Rabatt-/Gratis-Konfiguration, uebersprungen.`);
       continue;
     }
 
@@ -425,10 +503,14 @@ async function quickTierOfferSetup() {
         code,
         kind,
         active,
-        percentOff: discount.percentOff,
-        amountOffCents: discount.amountOffCents,
+        fulfillmentMode: benefitConfig.fulfillmentMode,
+        percentOff: benefitConfig.percentOff,
+        amountOffCents: benefitConfig.amountOffCents,
+        grantPlan: benefitConfig.grantPlan,
+        grantSeats: benefitConfig.grantSeats,
+        grantMonths: benefitConfig.grantMonths,
         allowedTiers: [entry.tier],
-        allowedSeats,
+        allowedSeats: allowedSeats.length ? allowedSeats : (benefitConfig.grantSeats ? [benefitConfig.grantSeats] : []),
         minMonths,
         maxRedemptions,
         maxPerEmail,
@@ -439,7 +521,7 @@ async function quickTierOfferSetup() {
         updatedBy: "premium-cli-quick",
         createdBy: existing?.createdBy || "premium-cli-quick",
       }, { partial: false });
-      ok(`${entry.label}: Code ${saved.code} gespeichert (${saved.kind}, tier=${entry.tier}).`);
+      ok(`${entry.label}: Code ${saved.code} gespeichert (${saved.kind}, ${saved.fulfillmentMode}).`);
       savedCount += 1;
     } catch (err) {
       fail(`${entry.label}: Speichern fehlgeschlagen: ${err?.message || err}`);
@@ -458,8 +540,8 @@ async function manageOffersMenu() {
   while (true) {
     console.log("  Coupon/Referral Verwaltung:");
     console.log("    1) Codes anzeigen");
-    console.log("    2) Schnellsetup PRO + ULTIMATE Codes");
-    console.log("    3) Code anlegen/aktualisieren (erweitert)");
+    console.log("    2) Schnellsetup PRO + ULTIMATE Codes (Rabatt oder Gratis)");
+    console.log("    3) Code anlegen/aktualisieren (erweitert inkl. Gratis-Lizenz)");
     console.log("    4) Code aktiv/inaktiv setzen");
     console.log("    5) Code loeschen");
     console.log("    6) Letzte Redemptions anzeigen");
@@ -489,9 +571,9 @@ async function manageOffersMenu() {
 
       const kindRaw = (await askWithDefault("Typ (coupon/referral)", existing?.kind || "coupon")).toLowerCase();
       const kind = kindRaw === "referral" ? "referral" : "coupon";
-      const discount = await askOfferDiscount(existing);
-      if (!discount) {
-        fail("Mindestens Prozent- oder Fix-Rabatt muss > 0 sein.");
+      const benefitConfig = await askOfferBenefitConfig(existing);
+      if (!benefitConfig) {
+        fail("Rabatt-/Gratis-Konfiguration ist ungueltig.");
         continue;
       }
 
@@ -517,8 +599,12 @@ async function manageOffersMenu() {
           code,
           kind,
           active,
-          percentOff: discount.percentOff,
-          amountOffCents: discount.amountOffCents,
+          fulfillmentMode: benefitConfig.fulfillmentMode,
+          percentOff: benefitConfig.percentOff,
+          amountOffCents: benefitConfig.amountOffCents,
+          grantPlan: benefitConfig.grantPlan,
+          grantSeats: benefitConfig.grantSeats,
+          grantMonths: benefitConfig.grantMonths,
           allowedTiers: tiers,
           allowedSeats: seats,
           minMonths,

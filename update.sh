@@ -544,7 +544,7 @@ run_status_menu() {
     echo -e "    ${GREEN}9${NC}) Container starten / rebuild"
     echo -e "    ${CYAN}10${NC}) Slash-Commands jetzt deployen"
     echo -e "    ${YELLOW}11${NC}) Premium verwalten"
-    echo -e "    ${MAGENTA}12${NC}) Codes / Offers verwalten"
+    echo -e "    ${MAGENTA}12${NC}) Codes / Offers / Gratis-Lizenzen verwalten"
     echo -e "    ${GREEN}13${NC}) E-Mail (SMTP) konfigurieren"
     echo -e "    ${MAGENTA}14${NC}) Einstellungen oeffnen"
     echo -e "    ${CYAN}15${NC}) Bots verwalten"
@@ -1267,12 +1267,12 @@ run_premium_wizard_now() {
 
 run_offers_wizard_now() {
   echo ""
-  info "Codes / Offers Verwaltung wird gestartet..."
+  info "Codes / Offers / Gratis-Lizenzen Verwaltung wird gestartet..."
   if run_omnifm_exec node src/premium-cli.js offers; then
-    ok "Codes / Offers Verwaltung beendet."
+    ok "Codes / Offers / Gratis-Lizenzen Verwaltung beendet."
     return 0
   fi
-  fail "Codes / Offers Verwaltung fehlgeschlagen."
+  fail "Codes / Offers / Gratis-Lizenzen Verwaltung fehlgeschlagen."
   return 1
 }
 
@@ -1363,7 +1363,7 @@ if [[ -z "$MODE" ]]; then
     echo -e "    ${DIM}6${NC})  Einstellungen     - Port, Domain und mehr"
     echo -e "    ${DIM}7${NC})  Status & Logs     - Admin-Cockpit fuer Status, Health und Logs"
     echo -e "    ${DIM}8${NC})  Speicher cleanup  - Logs/Backups/Docker-Cache aufraeumen"
-    echo -e "    ${BOLD}9${NC})  Codes verwalten  - Coupon/Referral (Pro/Ultimate Setup)"
+    echo -e "    ${BOLD}9${NC})  Codes verwalten  - Coupon/Referral/Gratis-Lizenz"
     echo -e "    ${CYAN}0${NC})  Doctor Check     - System, OAuth, JSON, Runtime pruefen"
     echo -e "    ${MAGENTA}c${NC})  Slash Commands  - Registrierung & Sync konfigurieren"
     echo -e "    ${MAGENTA}d${NC})  Dashboard OAuth - Pro-Dashboard Login/SSO konfigurieren"
@@ -2548,7 +2548,7 @@ if [[ "$MODE" == "--premium" ]]; then
 fi
 
 # ============================================================
-# MODE: Coupon/Referral Codes verwalten (via Docker)
+# MODE: Coupon/Referral/Gratis-Lizenz Codes verwalten (via Docker)
 # ============================================================
 if [[ "$MODE" == "--offers" ]]; then
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then

@@ -221,6 +221,11 @@ function CheckoutModal(props) {
         setError(payload?.error || copy.premium.checkoutFailed);
         return;
       }
+      if (payload?.activated) {
+        setNoticeColor('#39FF14');
+        setNotice(payload?.message || copy.premium.trialActivatedDefault);
+        return;
+      }
       if (payload?.url) {
         window.location.href = payload.url;
         return;

@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE_FILE = path.resolve(__dirname, "..", "coupons.json");
 const BACKUP_FILE = `${STORE_FILE}.bak`;
 const OFFER_KINDS = new Set(["coupon", "referral"]);
+const OFFER_FULFILLMENT_MODES = new Set(["discount", "direct_grant"]);
 const VALID_TIERS = new Set(["pro", "ultimate"]);
 const VALID_SEATS = new Set([1, 2, 3, 5]);
 const MAX_REDEMPTIONS = 50_000;
@@ -46,6 +47,18 @@ function normalizeIsoDate(rawValue) {
   return new Date(ms).toISOString();
 }
 
+function normalizeTierValue(rawValue, fallback = null) {
+  const value = String(rawValue || "").trim().toLowerCase();
+  if (!value) return fallback;
+  return VALID_TIERS.has(value) ? value : fallback;
+}
+
+function normalizeSeatValue(rawValue, fallback = null) {
+  const value = Number.parseInt(String(rawValue), 10);
+  if (!Number.isFinite(value) || !VALID_SEATS.has(value)) return fallback;
+  return value;
+}
+
 function normalizeOffer(rawOffer, existing = null) {
   const source = rawOffer && typeof rawOffer === "object" ? rawOffer : {};
   const fallbackCode = normalizeCode(existing?.code);
@@ -54,6 +67,15 @@ function normalizeOffer(rawOffer, existing = null) {
 
   const kindRaw = String(source.kind || existing?.kind || "coupon").trim().toLowerCase();
   const kind = OFFER_KINDS.has(kindRaw) ? kindRaw : "coupon";
+  const fulfillmentModeRaw = String(
+    source.fulfillmentMode
+      ?? source.fulfillment_mode
+      ?? existing?.fulfillmentMode
+      ?? "discount"
+  ).trim().toLowerCase();
+  const fulfillmentMode = OFFER_FULFILLMENT_MODES.has(fulfillmentModeRaw)
+    ? fulfillmentModeRaw
+    : "discount";
 
   const hasPercentInput = source.percentOff !== undefined || source.percent_off !== undefined;
   const hasAmountInput = source.amountOffCents !== undefined || source.amount_off_cents !== undefined;
@@ -70,10 +92,6 @@ function normalizeOffer(rawOffer, existing = null) {
   const amountOffCents = Number.isFinite(amountCandidate) && amountCandidate > 0
     ? Math.min(2_000_000, Math.round(amountCandidate))
     : 0;
-
-  if (percentOff <= 0 && amountOffCents <= 0) {
-    throw new Error("Offer needs either percentOff or amountOffCents.");
-  }
 
   const allowedTiersRaw = Array.isArray(source.allowedTiers)
     ? source.allowedTiers
@@ -115,8 +133,30 @@ function normalizeOffer(rawOffer, existing = null) {
   );
   const startsAt = normalizeIsoDate(source.startsAt ?? source.starts_at ?? existing?.startsAt);
   const expiresAt = normalizeIsoDate(source.expiresAt ?? source.expires_at ?? existing?.expiresAt);
+  const grantPlan = normalizeTierValue(
+    source.grantPlan ?? source.grant_plan ?? existing?.grantPlan,
+    null
+  );
+  const grantSeats = normalizeSeatValue(
+    source.grantSeats ?? source.grant_seats ?? existing?.grantSeats,
+    null
+  );
+  const grantMonths = normalizePositiveInt(
+    source.grantMonths ?? source.grant_months ?? existing?.grantMonths,
+    null
+  );
   if (startsAt && expiresAt && Date.parse(startsAt) > Date.parse(expiresAt)) {
     throw new Error("startsAt must be before expiresAt.");
+  }
+
+  if (fulfillmentMode === "discount") {
+    if (percentOff <= 0 && amountOffCents <= 0) {
+      throw new Error("Offer needs either percentOff or amountOffCents.");
+    }
+  } else {
+    if (!grantPlan || !grantSeats || !grantMonths) {
+      throw new Error("Direct grant offers require grantPlan, grantSeats, and grantMonths.");
+    }
   }
 
   const nowIso = new Date().toISOString();
@@ -127,17 +167,28 @@ function normalizeOffer(rawOffer, existing = null) {
     ? (existing?.active ?? true)
     : Boolean(source.active);
 
+  const normalizedAllowedTiers = fulfillmentMode === "direct_grant" && allowedTiers.length === 0 && grantPlan
+    ? [grantPlan]
+    : allowedTiers;
+  const normalizedAllowedSeats = fulfillmentMode === "direct_grant" && allowedSeats.length === 0 && grantSeats
+    ? [grantSeats]
+    : allowedSeats;
+
   return {
     code,
     kind,
     active,
-    percentOff,
-    amountOffCents,
+    fulfillmentMode,
+    percentOff: fulfillmentMode === "discount" ? percentOff : 0,
+    amountOffCents: fulfillmentMode === "discount" ? amountOffCents : 0,
+    grantPlan,
+    grantSeats,
+    grantMonths,
     maxRedemptions,
     maxPerEmail,
     minMonths,
-    allowedTiers,
-    allowedSeats,
+    allowedTiers: normalizedAllowedTiers,
+    allowedSeats: normalizedAllowedSeats,
     startsAt,
     expiresAt,
     ownerLabel: clipText(source.ownerLabel ?? source.owner_label ?? existing?.ownerLabel ?? "", 160) || null,
@@ -165,12 +216,18 @@ function normalizeRedemption(rawRedemption, sessionId) {
     kind: OFFER_KINDS.has(String(rawRedemption.kind || "").toLowerCase())
       ? String(rawRedemption.kind).toLowerCase()
       : null,
+    fulfillmentMode: OFFER_FULFILLMENT_MODES.has(String(rawRedemption.fulfillmentMode || "").toLowerCase())
+      ? String(rawRedemption.fulfillmentMode).toLowerCase()
+      : "discount",
     referralCode: normalizeCode(rawRedemption.referralCode),
     tier: VALID_TIERS.has(String(rawRedemption.tier || "").toLowerCase())
       ? String(rawRedemption.tier).toLowerCase()
       : null,
     seats: VALID_SEATS.has(Number(rawRedemption.seats)) ? Number(rawRedemption.seats) : null,
     months: normalizePositiveInt(rawRedemption.months, null),
+    grantPlan: normalizeTierValue(rawRedemption.grantPlan, null),
+    grantSeats: normalizeSeatValue(rawRedemption.grantSeats, null),
+    grantMonths: normalizePositiveInt(rawRedemption.grantMonths, null),
     baseAmountCents: Math.max(0, Number.parseInt(String(rawRedemption.baseAmountCents || 0), 10) || 0),
     discountCents: Math.max(0, Number.parseInt(String(rawRedemption.discountCents || 0), 10) || 0),
     finalAmountCents: Math.max(0, Number.parseInt(String(rawRedemption.finalAmountCents || 0), 10) || 0),
@@ -279,8 +336,12 @@ function sanitizeOfferPublic(offer) {
     code: offer.code,
     kind: offer.kind,
     active: Boolean(offer.active),
+    fulfillmentMode: offer.fulfillmentMode || "discount",
     percentOff: Number(offer.percentOff || 0),
     amountOffCents: Number(offer.amountOffCents || 0),
+    grantPlan: offer.grantPlan || null,
+    grantSeats: Number.isFinite(Number(offer.grantSeats)) ? Number(offer.grantSeats) : null,
+    grantMonths: Number.isFinite(Number(offer.grantMonths)) ? Number(offer.grantMonths) : null,
     maxRedemptions: Number.isFinite(Number(offer.maxRedemptions)) ? Number(offer.maxRedemptions) : null,
     maxPerEmail: Number.isFinite(Number(offer.maxPerEmail)) ? Number(offer.maxPerEmail) : null,
     minMonths: Number.isFinite(Number(offer.minMonths)) ? Number(offer.minMonths) : null,
@@ -357,6 +418,23 @@ function evaluateSingleOffer(store, rawCode, context = {}, expectedKind = null) 
     if (perEmailCount >= offer.maxPerEmail) {
       return { ok: false, reason: "offer_email_limit_reached", code, offer };
     }
+  }
+
+  if (offer.fulfillmentMode === "direct_grant") {
+    return {
+      ok: true,
+      code,
+      offer,
+      fulfillmentMode: "direct_grant",
+      discountCents: 0,
+      percentOff: 0,
+      amountOffCents: 0,
+      grant: {
+        plan: offer.grantPlan,
+        seats: offer.grantSeats,
+        months: offer.grantMonths,
+      },
+    };
   }
 
   const baseAmountCents = Math.max(0, Number.parseInt(String(context.baseAmountCents || 0), 10) || 0);
@@ -491,21 +569,32 @@ export function previewCheckoutOffer(context = {}) {
   }
 
   let discountCents = applied?.discountCents || 0;
-  discountCents = capDiscountForStripeMinimum(baseAmountCents, discountCents);
+  if (applied?.fulfillmentMode === "direct_grant") {
+    discountCents = baseAmountCents;
+  } else {
+    discountCents = capDiscountForStripeMinimum(baseAmountCents, discountCents);
+  }
 
-  const finalAmountCents = Math.max(0, baseAmountCents - discountCents);
+  const finalAmountCents = applied?.fulfillmentMode === "direct_grant"
+    ? 0
+    : Math.max(0, baseAmountCents - discountCents);
   const attributionReferralCode = referralResult.ok ? referralResult.code : null;
 
   return {
     baseAmountCents,
     finalAmountCents,
     discountCents,
+    requiresStripe: !(applied?.fulfillmentMode === "direct_grant"),
     applied: applied
       ? {
         code: applied.code,
         kind: applied.kind,
+        fulfillmentMode: applied.fulfillmentMode || "discount",
         percentOff: applied.percentOff || 0,
         amountOffCents: applied.amountOffCents || 0,
+        grantPlan: applied.grant?.plan || applied.offer?.grantPlan || null,
+        grantSeats: applied.grant?.seats || applied.offer?.grantSeats || null,
+        grantMonths: applied.grant?.months || applied.offer?.grantMonths || null,
         ownerLabel: applied.offer?.ownerLabel || null,
       }
       : null,
@@ -561,4 +650,3 @@ export function listRecentRedemptions(limit = 100) {
 export function normalizeOfferCode(rawCode) {
   return normalizeCode(rawCode);
 }
-
