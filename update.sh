@@ -104,6 +104,12 @@ prompt_optional() {
   printf "%s" "$(echo "$val" | xargs)"
 }
 
+press_enter_to_continue() {
+  [[ -t 0 ]] || return 0
+  echo ""
+  read -rp "$(echo -e "  ${DIM}Enter fuer weiter...${NC} ")" _
+}
+
 extract_origin() {
   local raw trimmed
   raw="${1:-}"
@@ -377,6 +383,25 @@ show_recent_container_logs() {
   docker compose logs --tail="$tail_lines" omnifm 2>/dev/null || warn "Keine Container-Logs verfuegbar."
 }
 
+show_live_container_logs() {
+  local tail_lines="${1:-80}"
+  local refresh_seconds="${2:-2}"
+  local key=""
+  while true; do
+    clear 2>/dev/null || printf '\033c'
+    echo -e "  ${BOLD}Live Docker-Logs (omnifm)${NC}"
+    echo -e "  ${DIM}Aktualisierung alle ${refresh_seconds}s | q = zurueck | Enter = sofort neu laden${NC}"
+    echo ""
+    docker compose logs --tail="$tail_lines" omnifm 2>/dev/null || warn "Keine Container-Logs verfuegbar."
+    echo ""
+    IFS= read -rsn1 -t "$refresh_seconds" key || true
+    case "${key:-}" in
+      q|Q) echo ""; return 0 ;;
+      *) ;;
+    esac
+  done
+}
+
 show_recent_local_logs() {
   local tail_lines="${1:-30}"
   local target=""
@@ -395,6 +420,38 @@ show_recent_local_logs() {
   echo -e "    Quelle: ${DIM}${target}${NC}"
   echo ""
   tail -n "$tail_lines" "$target" 2>/dev/null || warn "Log-Datei konnte nicht gelesen werden."
+}
+
+show_live_local_logs() {
+  local tail_lines="${1:-80}"
+  local refresh_seconds="${2:-2}"
+  local target=""
+  local key=""
+  while true; do
+    if [[ -f "logs/bot.log" ]]; then
+      target="logs/bot.log"
+    else
+      target="$(ls -1t logs/bot-*.log 2>/dev/null | head -1 || true)"
+    fi
+
+    clear 2>/dev/null || printf '\033c'
+    echo -e "  ${BOLD}Live lokale Rotations-Logs${NC}"
+    echo -e "  ${DIM}Aktualisierung alle ${refresh_seconds}s | q = zurueck | Enter = sofort neu laden${NC}"
+    if [[ -z "$target" ]]; then
+      echo ""
+      warn "Keine lokale Log-Datei gefunden."
+    else
+      echo -e "    Quelle: ${DIM}${target}${NC}"
+      echo ""
+      tail -n "$tail_lines" "$target" 2>/dev/null || warn "Log-Datei konnte nicht gelesen werden."
+    fi
+    echo ""
+    IFS= read -rsn1 -t "$refresh_seconds" key || true
+    case "${key:-}" in
+      q|Q) echo ""; return 0 ;;
+      *) ;;
+    esac
+  done
 }
 
 show_mongodb_runtime_status() {
@@ -535,59 +592,64 @@ run_status_menu() {
     echo -e "  ${BOLD}Status & Logs${NC}"
     echo -e "    ${GREEN}1${NC}) Container-Status anzeigen"
     echo -e "    ${CYAN}2${NC}) API Health Detail anzeigen"
-    echo -e "    ${YELLOW}3${NC}) Docker-Logs (omnifm)"
-    echo -e "    ${MAGENTA}4${NC}) Lokale Rotations-Logs"
-    echo -e "    ${GREEN}5${NC}) MongoDB Status"
-    echo -e "    ${CYAN}6${NC}) Speicher-Uebersicht"
-    echo -e "    ${YELLOW}7${NC}) Doctor Check"
-    echo -e "    ${RED}8${NC}) Cleanup jetzt ausfuehren"
-    echo -e "    ${GREEN}9${NC}) Container starten / rebuild"
-    echo -e "    ${CYAN}10${NC}) Slash-Commands jetzt deployen"
-    echo -e "    ${YELLOW}11${NC}) Premium verwalten"
-    echo -e "    ${MAGENTA}12${NC}) Codes / Offers / Gratis-Lizenzen verwalten"
-    echo -e "    ${GREEN}13${NC}) E-Mail (SMTP) konfigurieren"
-    echo -e "    ${MAGENTA}14${NC}) Einstellungen oeffnen"
-    echo -e "    ${CYAN}15${NC}) Bots verwalten"
+    echo -e "    ${YELLOW}3${NC}) Docker-Logs (letzte Zeilen)"
+    echo -e "    ${YELLOW}4${NC}) Docker-Logs live"
+    echo -e "    ${MAGENTA}5${NC}) Lokale Rotations-Logs (letzte Zeilen)"
+    echo -e "    ${MAGENTA}6${NC}) Lokale Rotations-Logs live"
+    echo -e "    ${GREEN}7${NC}) MongoDB Status"
+    echo -e "    ${CYAN}8${NC}) Speicher-Uebersicht"
+    echo -e "    ${YELLOW}9${NC}) Doctor Check"
+    echo -e "    ${RED}10${NC}) Cleanup jetzt ausfuehren"
+    echo -e "    ${GREEN}11${NC}) Container starten / rebuild"
+    echo -e "    ${CYAN}12${NC}) Slash-Commands jetzt deployen"
+    echo -e "    ${YELLOW}13${NC}) Premium verwalten"
+    echo -e "    ${MAGENTA}14${NC}) Codes / Offers / Gratis-Lizenzen verwalten"
+    echo -e "    ${GREEN}15${NC}) E-Mail (SMTP) konfigurieren"
+    echo -e "    ${MAGENTA}16${NC}) Einstellungen oeffnen"
+    echo -e "    ${CYAN}17${NC}) Bots verwalten"
     echo -e "    ${DIM}0${NC}) Zurueck / Beenden"
     echo ""
-    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [0-15]${NC}: ")" status_choice
+    read -rp "$(echo -e "  ${CYAN}?${NC} ${BOLD}Auswahl [0-17]${NC}: ")" status_choice
     case "${status_choice:-}" in
-      1) show_container_status_table ;;
-      2) show_admin_health_detail ;;
-      3) show_recent_container_logs 40 ;;
-      4) show_recent_local_logs 40 ;;
-      5) show_mongodb_runtime_status ;;
-      6) show_storage_overview ;;
-      7) run_system_doctor || true ;;
-      8)
+      1) show_container_status_table; press_enter_to_continue ;;
+      2) show_admin_health_detail; press_enter_to_continue ;;
+      3) show_recent_container_logs 40; press_enter_to_continue ;;
+      4) show_live_container_logs 120 2 ;;
+      5) show_recent_local_logs 40; press_enter_to_continue ;;
+      6) show_live_local_logs 120 2 ;;
+      7) show_mongodb_runtime_status; press_enter_to_continue ;;
+      8) show_storage_overview; press_enter_to_continue ;;
+      9) run_system_doctor || true; press_enter_to_continue ;;
+      10)
         prune_update_backups
         cleanup_rotated_logs
         if [[ "$(read_env "AUTO_DOCKER_PRUNE" "1")" != "0" ]]; then
           cleanup_docker_cache
         fi
         show_storage_overview
+        press_enter_to_continue
         ;;
-      9) rebuild_container_now ;;
-      10) run_command_deploy_now ;;
-      11) run_premium_wizard_now ;;
-      12) run_offers_wizard_now ;;
-      13)
+      11) rebuild_container_now; press_enter_to_continue ;;
+      12) run_command_deploy_now; press_enter_to_continue ;;
+      13) run_premium_wizard_now; press_enter_to_continue ;;
+      14) run_offers_wizard_now; press_enter_to_continue ;;
+      15)
         MODE="--email"
         MODE_ARG=""
         return 0
         ;;
-      14)
+      16)
         MODE="--settings"
         MODE_ARG=""
         return 0
         ;;
-      15)
+      17)
         MODE="--bots"
         MODE_ARG=""
         return 0
         ;;
       0|q|Q|exit|quit) exit 0 ;;
-      *) warn "Ungueltige Auswahl. Bitte 0-15 waehlen." ;;
+      *) warn "Ungueltige Auswahl. Bitte 0-17 waehlen." ;;
     esac
     echo ""
   done
@@ -691,26 +753,114 @@ ensure_json_file() {
   if [[ -d "$fp" ]]; then
     info "Korrigiere $fp (war Verzeichnis statt Datei)..."
     rm -rf "$fp" 2>/dev/null || true
+    if [[ -d "$fp" ]]; then
+      warn "Konnte ${fp} nicht von Verzeichnis auf Datei umstellen."
+      return 1
+    fi
   fi
+  mkdir -p "$(dirname "$fp")" 2>/dev/null || true
   if [[ ! -f "$fp" ]]; then
-    echo "$content" > "$fp"
-    return
+    write_json_file "$fp" "$content"
+    if ! json_file_can_be_validated "$fp" || json_file_is_valid "$fp"; then
+      return
+    fi
   fi
-  if ! json_file_is_valid "$fp"; then
+  if json_file_can_be_validated "$fp" && ! json_file_is_valid "$fp"; then
     repair_json_file "$fp" "$content"
   fi
+  if json_file_can_be_validated "$fp" && ! json_file_is_valid "$fp"; then
+    write_json_file "$fp" "$content"
+  fi
+  if [[ -d "$fp" ]] || [[ ! -f "$fp" ]]; then
+    warn "JSON-Datei konnte nicht sauber erstellt werden: ${fp}"
+    return 1
+  fi
+}
+
+write_json_file() {
+  local fp="$1" content="${2:-{}}" dir tmp_file
+  dir="$(dirname "$fp")"
+  tmp_file="${fp}.tmp.$$"
+
+  mkdir -p "$dir" 2>/dev/null || true
+  if ! printf "%s\n" "$content" > "$tmp_file"; then
+    rm -f "$tmp_file" 2>/dev/null || true
+    return 1
+  fi
+  mv -f "$tmp_file" "$fp"
+}
+
+json_validation_available_local() {
+  if command -v py >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1 && [[ "$(command -v python3)" != *"/WindowsApps/"* ]]; then
+    return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v powershell.exe >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+json_file_can_use_container_validation() {
+  local fp="$1"
+  [[ "$fp" =~ ^[A-Za-z0-9._-]+\.json$ ]] || return 1
+  docker compose ps --services --filter status=running 2>/dev/null | grep -q '^omnifm$'
+}
+
+json_file_can_be_validated() {
+  local fp="$1"
+  json_validation_available_local && return 0
+  json_file_can_use_container_validation "$fp"
 }
 
 json_file_is_valid() {
   local fp="$1"
   [[ -f "$fp" ]] || return 1
-  python3 - "$fp" <<'PY' >/dev/null 2>&1
+  if command -v py >/dev/null 2>&1; then
+    py -3 - "$fp" <<'PY' >/dev/null 2>&1 && return 0
 import json
 import sys
 
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     json.load(handle)
 PY
+  fi
+  if command -v python >/dev/null 2>&1; then
+    python - "$fp" <<'PY' >/dev/null 2>&1 && return 0
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    json.load(handle)
+PY
+  fi
+  if command -v python3 >/dev/null 2>&1 && [[ "$(command -v python3)" != *"/WindowsApps/"* ]]; then
+    python3 - "$fp" <<'PY' >/dev/null 2>&1 && return 0
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    json.load(handle)
+PY
+  fi
+  if command -v node >/dev/null 2>&1; then
+    node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$fp" >/dev/null 2>&1 && return 0
+  fi
+  if command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -NoProfile -Command "\$raw = Get-Content -Raw -LiteralPath \$args[0]; \$null = \$raw | ConvertFrom-Json" "$fp" >/dev/null 2>&1 && return 0
+  fi
+  if json_file_can_use_container_validation "$fp"; then
+    docker compose exec -T omnifm node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "/app/${fp}" >/dev/null 2>&1 && return 0
+  fi
+  return 1
 }
 
 repair_json_file() {
@@ -725,18 +875,22 @@ repair_json_file() {
   backup_file="${fp}.bak"
   if [[ -s "$backup_file" ]] && json_file_is_valid "$backup_file"; then
     cp "$backup_file" "$fp"
-    warn "JSON repariert aus Backup: ${fp}"
-    return
+    if json_file_is_valid "$fp"; then
+      warn "JSON repariert aus Backup: ${fp}"
+      return
+    fi
   fi
 
   latest_backup="$(ls -t ".update-backups/${fp}."* 2>/dev/null | head -1 || true)"
   if [[ -n "$latest_backup" ]] && [[ -s "$latest_backup" ]] && json_file_is_valid "$latest_backup"; then
     cp "$latest_backup" "$fp"
-    warn "JSON repariert aus Update-Backup: ${fp}"
-    return
+    if json_file_is_valid "$fp"; then
+      warn "JSON repariert aus Update-Backup: ${fp}"
+      return
+    fi
   fi
 
-  echo "$content" > "$fp"
+  write_json_file "$fp" "$content"
   warn "JSON zurueckgesetzt: ${fp} (kein gueltiges Backup gefunden)"
 }
 
@@ -761,6 +915,34 @@ ensure_all_json_files() {
   fi
   if [[ ! -f "stations.json" ]]; then
     echo '{"defaultStationKey":null,"stations":{},"qualityPreset":"custom"}' > stations.json
+  fi
+}
+
+repair_runtime_json_mount_dirs() {
+  local json_file had_dir=0 was_running=0
+
+  for json_file in discordbotlist.json botsgg.json topgg.json vote-events.json; do
+    if [[ -d "$json_file" ]]; then
+      had_dir=1
+      break
+    fi
+  done
+  (( had_dir )) || return 0
+
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q '^omnifm$'; then
+    was_running=1
+    info "Stoppe omnifm kurz, um JSON-Bind-Mounts zu korrigieren..."
+    docker compose stop -t 15 omnifm >/dev/null 2>&1 || warn "omnifm konnte fuer JSON-Reparatur nicht gestoppt werden."
+  fi
+
+  ensure_json_file "discordbotlist.json" '{"version":1,"totalVotes":0,"votes":[],"lastWebhookVoteAt":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null}'
+  ensure_json_file "botsgg.json" '{"version":1,"lastStatsSync":null}'
+  ensure_json_file "topgg.json" '{"version":1,"project":null,"lastProjectSync":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null,"lastWebhookVoteAt":null,"lastWebhookTestAt":null}'
+  ensure_json_file "vote-events.json" '{"version":1,"totalVotes":0,"votes":[],"providers":{"discordbotlist":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null},"topgg":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null}}}'
+
+  if (( was_running )); then
+    info "Starte omnifm nach JSON-Bind-Mount-Reparatur wieder..."
+    docker compose start omnifm >/dev/null 2>&1 || warn "omnifm konnte nach JSON-Reparatur nicht gestartet werden."
   fi
 }
 
@@ -944,11 +1126,20 @@ run_system_doctor() {
   fi
 
   # 4) JSON Files
+  repair_runtime_json_mount_dirs
   ensure_all_json_files
   local json_file
   for json_file in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json discordbotlist.json botsgg.json topgg.json vote-events.json stations.json; do
     if [[ ! -f "$json_file" ]]; then
-      doctor_fail "Datei fehlt: ${json_file}"
+      if [[ -d "$json_file" ]]; then
+        doctor_fail "Pfad ist noch ein Verzeichnis: ${json_file}"
+      else
+        doctor_fail "Datei fehlt: ${json_file}"
+      fi
+      continue
+    fi
+    if ! json_file_can_be_validated "$json_file"; then
+      doctor_warn "JSON-Syntax nicht geprueft: ${json_file} (kein lokaler Parser, omnifm nicht aktiv)"
       continue
     fi
     if json_file_is_valid "$json_file"; then
@@ -1421,6 +1612,14 @@ fi
 # MODE: Status & Logs
 # ============================================================
 if [[ "$MODE" == "--status" ]]; then
+  if [[ "${MODE_ARG:-}" == "live" ]]; then
+    show_live_container_logs 120 2
+    exit 0
+  fi
+  if [[ "${MODE_ARG:-}" == "local-live" ]]; then
+    show_live_local_logs 120 2
+    exit 0
+  fi
   if [[ "${MODE_ARG:-}" == "quick" || ! -t 0 ]]; then
     show_admin_runtime_summary
     show_container_status_table
@@ -3038,6 +3237,8 @@ echo -e "    Dashboard OAuth:  ${GREEN}./update.sh --dashboard-settings${NC}"
 echo -e "    Doctor Check:     ${GREEN}./update.sh --doctor${NC}"
 echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
 echo -e "    Status Quick:     ${GREEN}./update.sh --status quick${NC}"
+echo -e "    Live Docker-Log:  ${GREEN}./update.sh --status live${NC}"
+echo -e "    Live Local-Log:   ${GREEN}./update.sh --status local-live${NC}"
 echo -e "    Speicher cleanup: ${GREEN}./update.sh --cleanup${NC}"
 echo -e "    Recognition-Test:${GREEN} ./update.sh --recognition-test <URL>${NC}"
 echo -e "    Dieses Menue:     ${GREEN}./update.sh${NC}"
