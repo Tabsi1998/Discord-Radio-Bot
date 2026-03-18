@@ -380,6 +380,7 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | `LOG_MAX_MB` | Max size of `logs/bot.log` and `logs/error.log` before rotation |
 | `LOG_MAX_FILES` | Max rotated log files retained per log type |
 | `LOG_MAX_DAYS` | Max age of rotated log files |
+| `LOGS_DIR` | Optional override for the log directory, useful for tests and local isolation |
 
 ### DiscordBotList
 

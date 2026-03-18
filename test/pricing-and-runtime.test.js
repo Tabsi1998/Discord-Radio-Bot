@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { ActivityType } from "discord.js";
 
 import {
@@ -23,6 +23,7 @@ import {
   scheduleRuntimeReconnect,
   tryRuntimeReconnect,
 } from "../src/bot/runtime-recovery.js";
+import { armRuntimePlaybackRecovery } from "../src/bot/runtime-streams.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import {
@@ -64,6 +65,30 @@ function restoreOptionalTextFile(filePath, snapshot) {
     return;
   }
   fs.writeFileSync(filePath, snapshot, "utf8");
+}
+
+function setEnv(overrides) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(overrides)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined || value === null) {
+      delete process.env[key];
+    } else {
+      process.env[key] = String(value);
+    }
+  }
+  return () => {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
+
+async function importFreshLoggingModule() {
+  const moduleUrl = pathToFileURL(path.join(repoRoot, "src/lib/logging.js"));
+  moduleUrl.searchParams.set("cacheBust", `${Date.now()}-${Math.random()}`);
+  return import(moduleUrl.href);
 }
 
 test("seat pricing stays aligned with documented bundle totals", () => {
@@ -128,6 +153,46 @@ test("ffmpeg decode spam is suppressed in default logging mode", () => {
   }
 });
 
+test("logging isolates test runs into logs/test by default", async () => {
+  const restoreEnv = setEnv({
+    NODE_TEST_CONTEXT: "child",
+    LOGS_DIR: undefined,
+  });
+
+  try {
+    const logging = await importFreshLoggingModule();
+    assert.equal(
+      path.normalize(logging.logsDir),
+      path.normalize(path.join(repoRoot, "logs", "test"))
+    );
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("logging respects LOGS_DIR override for file output", async () => {
+  const tempLogsDir = path.join(repoRoot, "logs", "unit-override");
+  const restoreEnv = setEnv({
+    LOGS_DIR: tempLogsDir,
+    NODE_TEST_CONTEXT: undefined,
+  });
+
+  try {
+    fs.rmSync(tempLogsDir, { recursive: true, force: true });
+    const logging = await importFreshLoggingModule();
+    assert.equal(path.normalize(logging.logsDir), path.normalize(tempLogsDir));
+
+    logging.log("INFO", "isolated log target");
+    await logging.getLogWriteQueue();
+
+    const written = fs.readFileSync(path.join(tempLogsDir, "bot.log"), "utf8");
+    assert.match(written, /isolated log target/);
+  } finally {
+    fs.rmSync(tempLogsDir, { recursive: true, force: true });
+    restoreEnv();
+  }
+});
+
 test("recognition no-match logging is throttled with a longer cooldown", () => {
   const originalNow = Date.now;
   const baseNow = 1_700_000_000_000;
@@ -150,6 +215,112 @@ test("recognition no-match logging is throttled with a longer cooldown", () => {
   } finally {
     Date.now = originalNow;
   }
+});
+
+test("invite and workers components ack before rebuilding slow payloads", async () => {
+  const inviteCalls = [];
+  const workersCalls = [];
+  const runtime = {
+    role: "commander",
+    workerManager: {},
+    createInteractionTranslator() {
+      return {
+        language: "en",
+        t: (de, en) => en,
+      };
+    },
+    buildInviteMenuPayload: async (_interaction, options = {}) => {
+      inviteCalls.push(`build:${options.selectedWorkerSlot ?? "open"}`);
+      return { content: `invite payload ${options.selectedWorkerSlot ?? "open"}` };
+    },
+    buildWorkersStatusPayload: async (_interaction, options = {}) => {
+      workersCalls.push(`build:${options.page ?? "open"}`);
+      return { content: `workers payload ${options.page ?? "open"}` };
+    },
+  };
+
+  const inviteOpenInteraction = {
+    guildId: "guild-1",
+    customId: "omnifm:invite:open",
+    isStringSelectMenu: () => false,
+    deferUpdate: async () => {
+      inviteCalls.push("defer");
+    },
+    editReply: async (payload) => {
+      inviteCalls.push(`edit:${payload.content}`);
+    },
+    reply: async () => {
+      inviteCalls.push("reply");
+    },
+  };
+
+  const inviteSelectInteraction = {
+    guildId: "guild-1",
+    customId: "omnifm:invite:select",
+    values: ["4"],
+    isStringSelectMenu: () => true,
+    deferUpdate: async () => {
+      inviteCalls.push("defer");
+    },
+    editReply: async (payload) => {
+      inviteCalls.push(`edit:${payload.content}`);
+    },
+    reply: async () => {
+      inviteCalls.push("reply");
+    },
+  };
+
+  const workersOpenInteraction = {
+    guildId: "guild-1",
+    customId: "omnifm:workers:open",
+    isStringSelectMenu: () => false,
+    deferUpdate: async () => {
+      workersCalls.push("defer");
+    },
+    editReply: async (payload) => {
+      workersCalls.push(`edit:${payload.content}`);
+    },
+    reply: async () => {
+      workersCalls.push("reply");
+    },
+  };
+
+  const workersPageInteraction = {
+    guildId: "guild-1",
+    customId: "omnifm:workers:page:3",
+    isStringSelectMenu: () => false,
+    deferUpdate: async () => {
+      workersCalls.push("defer");
+    },
+    editReply: async (payload) => {
+      workersCalls.push(`edit:${payload.content}`);
+    },
+    reply: async () => {
+      workersCalls.push("reply");
+    },
+  };
+
+  await BotRuntime.prototype.handleInviteComponentInteraction.call(runtime, inviteOpenInteraction);
+  await BotRuntime.prototype.handleInviteComponentInteraction.call(runtime, inviteSelectInteraction);
+  await BotRuntime.prototype.handleWorkersComponentInteraction.call(runtime, workersOpenInteraction);
+  await BotRuntime.prototype.handleWorkersComponentInteraction.call(runtime, workersPageInteraction);
+
+  assert.deepEqual(inviteCalls, [
+    "defer",
+    "build:open",
+    "edit:invite payload open",
+    "defer",
+    "build:4",
+    "edit:invite payload 4",
+  ]);
+  assert.deepEqual(workersCalls, [
+    "defer",
+    "build:open",
+    "edit:workers payload open",
+    "defer",
+    "build:3",
+    "edit:workers payload 3",
+  ]);
 });
 
 test("worker access limit uses worker slot instead of absolute BOT_N index", () => {
@@ -288,6 +459,52 @@ test("reconnect circuit breaker pauses retries after too many failed attempts", 
   }
 });
 
+test("scheduleReconnect skips when a connect or reconnect is already in flight", () => {
+  const originalSetTimeout = global.setTimeout;
+  let scheduled = 0;
+  global.setTimeout = () => {
+    scheduled += 1;
+    return { unref() {} };
+  };
+
+  try {
+    const state = {
+      shouldReconnect: true,
+      lastChannelId: "voice-1",
+      activeScheduledEventStopAtMs: 0,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      reconnectCount: 0,
+      lastReconnectAt: null,
+      connection: null,
+      reconnectInFlight: true,
+      voiceConnectInFlight: false,
+    };
+    const runtime = {
+      config: { name: "OmniFM 6", id: "bot-6" },
+      getState() {
+        return state;
+      },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      stopInGuild() {
+        throw new Error("stopInGuild should not be called");
+      },
+    };
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "retry" });
+    assert.equal(scheduled, 0);
+
+    state.reconnectInFlight = false;
+    state.voiceConnectInFlight = true;
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "retry" });
+    assert.equal(scheduled, 0);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
+});
+
 test("fetchBotVoiceState falls back to cached member voice when voice-state fetch fails", async () => {
   const guild = {
     voiceStates: {
@@ -363,6 +580,202 @@ test("voice reconcile waits for confirmation before tearing down an active sessi
   await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
   assert.equal(resetCount, 1);
   assert.equal(reconnectCount, 1);
+});
+
+test("voiceStateUpdate does not tear down an auto-reconnect session on first missing channel event", () => {
+  const queued = [];
+  let resetCount = 0;
+  const state = {
+    shouldReconnect: true,
+    currentStationKey: "station-a",
+    lastChannelId: "voice-1",
+    transientVoiceIssues: {},
+    voiceConnectInFlight: false,
+    reconnectInFlight: false,
+    reconnectTimer: null,
+    voiceDisconnectObservedAt: 0,
+  };
+  const runtime = {
+    client: {
+      user: { id: "bot-1" },
+    },
+    config: { name: "OmniFM Test" },
+    getState() {
+      return state;
+    },
+    queueVoiceStateReconcile(guildId, reason, delayMs) {
+      queued.push({ guildId, reason, delayMs });
+    },
+    resetVoiceSession() {
+      resetCount += 1;
+    },
+  };
+
+  handleRuntimeBotVoiceStateUpdate(
+    runtime,
+    { channelId: "voice-1" },
+    { id: "bot-1", guild: { id: "guild-1" }, channelId: null }
+  );
+
+  assert.equal(resetCount, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].guildId, "guild-1");
+  assert.equal(queued[0].reason, "voice-state-update-missing");
+  assert.equal(state.transientVoiceIssues["voice-state-update-missing"].count, 1);
+  assert.ok(state.voiceDisconnectObservedAt > 0);
+});
+
+test("armPlaybackRecovery keeps the worker connected and schedules a stream retry", () => {
+  let scheduledRestart = null;
+  let scheduledReconnect = 0;
+  let persistCount = 0;
+  let presenceCount = 0;
+  const state = {
+    connection: { joinConfig: { channelId: "voice-1" } },
+    currentStationKey: null,
+    currentStationName: null,
+    currentMeta: { title: "Old" },
+    nowPlayingSignature: "sig-1",
+    shouldReconnect: false,
+    lastChannelId: "voice-1",
+    currentProcess: null,
+  };
+  const runtime = {
+    config: { name: "OmniFM Test" },
+    clearCurrentProcess() {},
+    clearNowPlayingTimer() {},
+    updatePresence() {
+      presenceCount += 1;
+    },
+    persistState() {
+      persistCount += 1;
+    },
+    scheduleStreamRestart(guildId, passedState, delayMs, reason) {
+      scheduledRestart = { guildId, passedState, delayMs, reason };
+    },
+    scheduleReconnect() {
+      scheduledReconnect += 1;
+    },
+  };
+
+  const recovery = armRuntimePlaybackRecovery(
+    runtime,
+    "guild-1",
+    state,
+    { stations: { rock: { name: "Rock Radio" } } },
+    "rock",
+    new Error("Stream konnte nicht geladen werden: 503"),
+    { reason: "play-start-failed" }
+  );
+
+  assert.equal(recovery.scheduled, true);
+  assert.equal(state.shouldReconnect, true);
+  assert.equal(state.currentStationKey, "rock");
+  assert.equal(state.currentStationName, "Rock Radio");
+  assert.equal(state.currentMeta, null);
+  assert.equal(state.nowPlayingSignature, null);
+  assert.equal(persistCount, 1);
+  assert.equal(presenceCount, 1);
+  assert.equal(scheduledReconnect, 0);
+  assert.equal(scheduledRestart.guildId, "guild-1");
+  assert.equal(scheduledRestart.passedState, state);
+  assert.equal(scheduledRestart.reason, "play-start-failed");
+});
+
+test("playInGuild returns recovering instead of leaving when initial stream start fails", async () => {
+  let resetCount = 0;
+  let recoveryCalls = 0;
+  const state = {
+    volume: 100,
+    shouldReconnect: false,
+    lastChannelId: null,
+    currentStationKey: null,
+    currentStationName: null,
+  };
+  const runtime = Object.create(BotRuntime.prototype);
+  runtime.config = { name: "OmniFM 2" };
+  runtime.client = {
+    guilds: {
+      cache: new Map([["guild-1", { id: "guild-1" }]]),
+    },
+  };
+  runtime.getState = () => state;
+  runtime.clearScheduledEventPlayback = () => {};
+  runtime.markScheduledEventPlayback = () => {};
+  runtime.ensureVoiceConnectionForChannel = async () => ({ channel: { type: "voice" } });
+  runtime.playStation = async () => {
+    throw new Error("Stream konnte nicht geladen werden: 503");
+  };
+  runtime.armPlaybackRecovery = () => {
+    recoveryCalls += 1;
+    return { scheduled: true, message: "retry active" };
+  };
+  runtime.resetVoiceSession = () => {
+    resetCount += 1;
+  };
+
+  const result = await BotRuntime.prototype.playInGuild.call(
+    runtime,
+    "guild-1",
+    "voice-1",
+    "rock",
+    { stations: { rock: { name: "Rock Radio" } } },
+    100
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.recovering, true);
+  assert.equal(recoveryCalls, 1);
+  assert.equal(resetCount, 0);
+  assert.equal(state.shouldReconnect, true);
+  assert.equal(state.lastChannelId, "voice-1");
+});
+
+test("voice reconcile waits while a connect or reconnect is already in flight", async () => {
+  const queued = [];
+  let resetCount = 0;
+  let reconnectCount = 0;
+  const state = {
+    connection: { joinConfig: { channelId: "voice-1" } },
+    currentStationKey: "station-a",
+    currentProcess: { pid: 1 },
+    lastChannelId: "voice-1",
+    shouldReconnect: true,
+    player: { state: { status: "playing" } },
+    transientVoiceIssues: {},
+    voiceConnectInFlight: true,
+    reconnectInFlight: false,
+    reconnectTimer: null,
+  };
+  const runtime = {
+    config: { name: "OmniFM Test" },
+    client: {
+      isReady: () => true,
+    },
+    guildState: new Map([["guild-1", state]]),
+    fetchBotVoiceState: async () => ({ guild: {}, voiceState: null, channelId: null }),
+    markNowPlayingTargetDirty() {},
+    persistState() {},
+    queueVoiceStateReconcile(guildId, reason, delayMs) {
+      queued.push({ guildId, reason, delayMs });
+    },
+    resetVoiceSession() {
+      resetCount += 1;
+    },
+    scheduleReconnect() {
+      reconnectCount += 1;
+    },
+    scheduleStreamRestart() {
+      throw new Error("scheduleStreamRestart should not run");
+    },
+  };
+
+  await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+
+  assert.equal(resetCount, 0);
+  assert.equal(reconnectCount, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].reason, "voice-op-inflight-timer");
 });
 
 test("tryReconnect tolerates transient missing channels before clearing playback target", async () => {

@@ -35,7 +35,23 @@ try {
 } catch {
   frontendBuildStamp = null;
 }
-const logsDir = path.join(rootDir, "logs");
+function isTestRun() {
+  return String(process.env.NODE_TEST_CONTEXT || "").toLowerCase() === "child"
+    || process.argv.some((arg) => /\.test\.[cm]?js$/i.test(String(arg || "")));
+}
+
+function resolveLogsDir() {
+  const explicit = String(process.env.LOGS_DIR || "").trim();
+  if (explicit) {
+    return path.isAbsolute(explicit) ? explicit : path.resolve(rootDir, explicit);
+  }
+  if (isTestRun()) {
+    return path.join(rootDir, "logs", "test");
+  }
+  return path.join(rootDir, "logs");
+}
+
+const logsDir = resolveLogsDir();
 const logFile = path.join(logsDir, "bot.log");
 const errorLogFile = path.join(logsDir, "error.log");
 const maxLogSizeBytes = Number(process.env.LOG_MAX_MB || "5") * 1024 * 1024;

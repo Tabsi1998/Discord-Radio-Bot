@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { log } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -11,14 +12,14 @@ function readStateFile(filePath) {
   try {
     if (!fs.existsSync(filePath)) return null;
     if (fs.statSync(filePath).isDirectory()) {
-      console.warn(`[bot-state] ${filePath} ist ein Verzeichnis (Docker-Mount Problem). Nutze leeren State.`);
+      log("WARN", `[bot-state] ${filePath} ist ein Verzeichnis (Docker-Mount Problem). Nutze leeren State.`);
       return null;
     }
     const raw = fs.readFileSync(filePath, "utf8");
     if (!raw || raw.trim().length === 0) return {};
     return JSON.parse(raw);
   } catch (err) {
-    console.error(`[bot-state] Fehler beim Laden von ${filePath}: ${err.message}`);
+    log("ERROR", `[bot-state] Fehler beim Laden von ${filePath}: ${err?.message || err}`);
     return null;
   }
 }
@@ -34,8 +35,8 @@ function saveState(state) {
     // Docker-Mount: Wenn es ein Verzeichnis ist, NICHT versuchen zu loeschen
     // (schlaegt fehl mit "Device or resource busy")
     if (fs.existsSync(STATE_FILE) && fs.statSync(STATE_FILE).isDirectory()) {
-      console.warn(`[bot-state] ${STATE_FILE} ist ein Verzeichnis - State wird nur im Speicher gehalten.`);
-      console.warn(`[bot-state] Fix: echo '{}' > ./bot-state.json && docker compose up -d`);
+      log("WARN", `[bot-state] ${STATE_FILE} ist ein Verzeichnis - State wird nur im Speicher gehalten.`);
+      log("WARN", `[bot-state] Fix: echo '{}' > ./bot-state.json && docker compose up -d`);
       return;
     }
 
@@ -54,7 +55,7 @@ function saveState(state) {
       fs.writeFileSync(STATE_FILE, payload, "utf8");
     }
   } catch (err) {
-    console.error(`[bot-state] Fehler beim Speichern: ${err.message}`);
+    log("ERROR", `[bot-state] Fehler beim Speichern: ${err?.message || err}`);
   } finally {
     try {
       if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);

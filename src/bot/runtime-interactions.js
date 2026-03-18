@@ -312,8 +312,9 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     // Accepts both current option name (`worker`) and legacy name (`bot`).
     const workerIndex = runtime.getIntegerOptionFlexible(interaction, ["worker", "bot"]);
     if (!Number.isInteger(workerIndex)) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const payload = await runtime.buildInviteMenuPayload(interaction);
-      await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+      await interaction.editReply(payload);
       return;
     }
 
@@ -1430,12 +1431,16 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const tierConfig = getTierConfig(guildId);
       const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
       await interaction.editReply(t(
-        reusingExistingWorker
-          ? `${result.workerName} wechselt auf: ${selectedStation?.name || key}${tierLabel}`
-          : `${result.workerName} startet: ${selectedStation?.name || key}${tierLabel}`,
-        reusingExistingWorker
-          ? `${result.workerName} switching to: ${selectedStation?.name || key}${tierLabel}`
-          : `${result.workerName} starting: ${selectedStation?.name || key}${tierLabel}`
+        result.recovering
+          ? `${result.workerName} bleibt verbunden. Quelle aktuell instabil, Retry aktiv: ${selectedStation?.name || key}${tierLabel}`
+          : reusingExistingWorker
+            ? `${result.workerName} wechselt auf: ${selectedStation?.name || key}${tierLabel}`
+            : `${result.workerName} startet: ${selectedStation?.name || key}${tierLabel}`,
+        result.recovering
+          ? `${result.workerName} stays connected. Source is unstable, retry active: ${selectedStation?.name || key}${tierLabel}`
+          : reusingExistingWorker
+            ? `${result.workerName} switching to: ${selectedStation?.name || key}${tierLabel}`
+            : `${result.workerName} starting: ${selectedStation?.name || key}${tierLabel}`
       ));
       return;
     }
@@ -1479,6 +1484,22 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         }
       }
 
+      const recovery = runtime.armPlaybackRecovery(
+        guildId,
+        state,
+        playStations,
+        key,
+        err,
+        { reason: "local-play-start-failed" }
+      );
+      if (recovery.scheduled) {
+        await interaction.editReply(t(
+          `Verbunden. Quelle aktuell instabil, Retry aktiv: ${selectedStation?.name || key}`,
+          `Connected. Source is unstable, retry active: ${selectedStation?.name || key}`
+        ));
+        return;
+      }
+
       state.shouldReconnect = false;
       runtime.syncVoiceChannelStatus(guildId, "").catch(() => null);
       runtime.clearNowPlayingTimer(state);
@@ -1497,5 +1518,3 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }
   }
 }
-
-

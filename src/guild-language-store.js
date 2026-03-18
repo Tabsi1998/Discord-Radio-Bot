@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getDefaultLanguage, normalizeLanguage } from "./i18n.js";
+import { log } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE_FILE = path.resolve(__dirname, "..", "guild-languages.json");
@@ -45,7 +46,7 @@ function readState(filePath) {
     if (!raw) return emptyState();
     return normalizeState(JSON.parse(raw));
   } catch (err) {
-    console.error(`[guild-languages] Load error (${filePath}): ${err.message}`);
+    log("ERROR", `[guild-languages] Load error (${filePath}): ${err?.message || err}`);
     return null;
   }
 }
@@ -61,9 +62,9 @@ function loadState() {
     try {
       const payload = `${JSON.stringify(backup, null, 2)}\n`;
       fs.writeFileSync(STORE_FILE, payload, "utf8");
-      console.log(`[guild-languages] Auto-repaired ${STORE_FILE} from backup.`);
+      log("WARN", `[guild-languages] Auto-repaired ${STORE_FILE} from backup.`);
     } catch (repairErr) {
-      console.error(`[guild-languages] Auto-repair failed: ${repairErr.message}`);
+      log("ERROR", `[guild-languages] Auto-repair failed: ${repairErr?.message || repairErr}`);
     }
     return backup;
   }
@@ -72,7 +73,7 @@ function loadState() {
   const fresh = emptyState();
   try {
     fs.writeFileSync(STORE_FILE, `${JSON.stringify(fresh, null, 2)}\n`, "utf8");
-    console.log(`[guild-languages] Initialized fresh ${STORE_FILE}.`);
+    log("INFO", `[guild-languages] Initialized fresh ${STORE_FILE}.`);
   } catch {
     // ignore - will work in-memory
   }

@@ -6,10 +6,17 @@ import {
 } from "@discordjs/voice";
 
 import { log } from "../lib/logging.js";
-import { clipText } from "../lib/helpers.js";
+import { clipText, waitMs } from "../lib/helpers.js";
 import { networkRecoveryCoordinator } from "../core/network-recovery.js";
 import { BRAND } from "../config/plans.js";
 import { recordConnectionEvent } from "../listening-stats-store.js";
+
+async function waitForVoiceConnectToSettle(state, timeoutMs = 30_000) {
+  const startedAt = Date.now();
+  while (state?.voiceConnectInFlight && (Date.now() - startedAt) < timeoutMs) {
+    await waitMs(150);
+  }
+}
 
 export async function resolveRuntimeGuildVoiceChannel(runtime, guildId, channelId) {
   const guild = runtime.client.guilds.cache.get(guildId) || await runtime.client.guilds.fetch(guildId).catch(() => null);
@@ -90,6 +97,23 @@ export async function ensureRuntimeStageChannelReady(
 }
 
 export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, channelId, state) {
+  if (!state) {
+    state = runtime.getState(guildId);
+  }
+  if (state.voiceConnectInFlight) {
+    await waitForVoiceConnectToSettle(state);
+    const settledChannelId = String(state.connection?.joinConfig?.channelId || "").trim();
+    if (state.connection && settledChannelId === String(channelId || "").trim()) {
+      const { guild, channel } = await runtime.resolveGuildVoiceChannel(guildId, channelId);
+      return { connection: state.connection, guild, channel };
+    }
+  }
+  if (state.voiceConnectInFlight) {
+    throw new Error("Voice-Verbindung wird bereits aufgebaut.");
+  }
+
+  state.voiceConnectInFlight = true;
+  try {
   const { guild, channel } = await runtime.resolveGuildVoiceChannel(guildId, channelId);
   if (!guild) throw new Error("Guild nicht gefunden.");
   if (!channel) throw new Error("Voice- oder Stage-Channel nicht gefunden.");
@@ -115,6 +139,7 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
     const currentChannelId = state.connection.joinConfig?.channelId;
     if (currentChannelId === channel.id) {
       state.shouldReconnect = true;
+      state.voiceDisconnectObservedAt = 0;
       if (channel.type === ChannelType.GuildStageVoice) {
         await runtime.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
       }
@@ -160,12 +185,6 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
     const newStatus = String(newState?.status || "");
     if (!newStatus || oldStatus === newStatus) return;
     log("INFO", `[${botName}] VoiceState: ${oldStatus} -> ${newStatus} guild=${guildId}`);
-    if (
-      newStatus === VoiceConnectionStatus.Connecting &&
-      (oldStatus === VoiceConnectionStatus.Ready || oldStatus === VoiceConnectionStatus.Signalling)
-    ) {
-      try { connection.configureNetworking(); } catch {}
-    }
   });
   connection.on("debug", (msg) => {
     if (msg.includes("error") || msg.includes("Error") || msg.includes("timeout") || msg.includes("close") || msg.includes("destroy")) {
@@ -197,10 +216,19 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
     throw new Error("Voice-Verbindung ist nicht stabil genug.");
   }
 
+  if (!state.shouldReconnect && !state.currentStationKey) {
+    if (state.connection === connection) {
+      state.connection = null;
+    }
+    try { connection.destroy(); } catch {}
+    throw new Error("Voice-Verbindung wurde waehrend des Aufbaus abgebrochen.");
+  }
+
   connection.subscribe(state.player);
   state.reconnectAttempts = 0;
   state.lastReconnectAt = new Date().toISOString();
   state.shouldReconnect = true;
+  state.voiceDisconnectObservedAt = 0;
   runtime.clearReconnectTimer(state);
   runtime.attachConnectionHandlers(guildId, connection);
   networkRecoveryCoordinator.noteSuccess(`${runtime.config.name} voice-ready guild=${guildId}`);
@@ -218,4 +246,7 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
   runtime.queueVoiceStateReconcile(guildId, "voice-ensure", 1200);
 
   return { connection, guild, channel };
+  } finally {
+    state.voiceConnectInFlight = false;
+  }
 }

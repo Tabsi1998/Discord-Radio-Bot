@@ -5,7 +5,9 @@ import {
 } from 'recharts';
 import {
   buildConnectionTimelineRows,
+  buildConnectionEventEntryId,
   buildSessionQualitySummary,
+  buildSessionHistoryEntryId,
   buildSessionTimelineRows,
   buildVoiceChannelUsageRows,
   formatDashboardDuration,
@@ -96,7 +98,7 @@ export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = 
   }));
 
   // Session history
-  const sessionHistory = (detail.sessionHistory || []).slice(0, 15);
+  const sessionHistory = Array.isArray(detail.sessionHistory) ? detail.sessionHistory : [];
   const sessionTimelineData = buildSessionTimelineRows(sessionHistory, formatDate);
   const sessionQuality = buildSessionQualitySummary(sessionHistory, t);
   const setupStatus = basic.setupStatus || null;
@@ -297,7 +299,7 @@ export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = 
               </thead>
               <tbody>
                 {sessionHistory.map((s, i) => (
-                  <tr key={i} data-testid={`session-row-${i}`} style={{ borderBottom: '1px solid #0F0F1A' }}>
+                  <tr key={s.id || buildSessionHistoryEntryId(s)} data-testid={`session-row-${i}`} style={{ borderBottom: '1px solid #0F0F1A' }}>
                     <td style={{ padding: '8px 6px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {s.stationName || s.stationKey || '-'}
                     </td>
@@ -420,7 +422,7 @@ export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = 
         {(connHealth.events || []).length > 0 && (
           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
             {connHealth.events.slice(0, 20).map((ev, i) => (
-              <div key={i} data-testid={`conn-event-${i}`} style={{
+              <div key={ev.id || buildConnectionEventEntryId(ev)} data-testid={`conn-event-${i}`} style={{
                 padding: '6px 8px', borderBottom: '1px solid #0F0F1A', fontSize: 12, display: 'flex', gap: 10,
               }}>
                 <span style={{

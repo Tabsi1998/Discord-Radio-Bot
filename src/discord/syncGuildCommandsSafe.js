@@ -108,6 +108,10 @@ function resolveSyncDelayMs(syncSource) {
   return 0;
 }
 
+function shouldEmitVerboseSyncLogs(syncSource) {
+  return String(syncSource || "").toLowerCase() !== "periodic";
+}
+
 async function ensureClientReady(client) {
   if (client?.isReady?.()) return;
   await once(client, "clientReady");
@@ -283,6 +287,7 @@ export async function syncGuildCommandsSafe({
   const label = botLabel || "Bot";
   const syncSource = source || "sync";
   const isJoinSync = String(syncSource).toLowerCase() === "join";
+  const verboseSyncLogs = shouldEmitVerboseSyncLogs(syncSource);
   const joinTransport = String(process.env.GUILD_COMMAND_SYNC_JOIN_TRANSPORT || "fetch").trim().toLowerCase();
   const fetchAvailable = typeof fetch === "function";
   const useFetchForJoin = isJoinSync
@@ -372,12 +377,14 @@ export async function syncGuildCommandsSafe({
     const cacheCount = cacheGuildIds.length;
     const applicationId = resolveApplicationId(client);
 
-    emit(logFn, "INFO", `[${label}] Ready -> Guilds fetched: ${fetchedCount}`);
-    emit(
-      logFn,
-      "INFO",
-      `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} discoveredGuildCount=${discoveredGuildCount} requestedGuildCount=${requestedGuildIds.length} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${targetGuildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} transport=${useFetchForJoin ? "fetch" : "rest"} syncDelayMs=${syncDelayMs} requestTimeoutMs=${requestTimeoutMs} retryDelayMs=${retryDelayMs} attempt=${attempt}/${maxTries}`
-    );
+    if (verboseSyncLogs) {
+      emit(logFn, "INFO", `[${label}] Guild discovery complete: fetched=${fetchedCount} source=${syncSource}`);
+      emit(
+        logFn,
+        "INFO",
+        `[${label}] Command Sync debug: botId=${client.user?.id || "n/a"} applicationId=${applicationId || "n/a"} guildCount=${guildCount} discoveredGuildCount=${discoveredGuildCount} requestedGuildCount=${requestedGuildIds.length} fetchedGuildCount=${fetchedCount} cacheGuildCount=${cacheCount} guildIds=${targetGuildIds.join(",") || "-"} commandsCount=${payload.length} source=${syncSource} transport=${useFetchForJoin ? "fetch" : "rest"} syncDelayMs=${syncDelayMs} requestTimeoutMs=${requestTimeoutMs} retryDelayMs=${retryDelayMs} attempt=${attempt}/${maxTries}`
+      );
+    }
 
     if (!applicationId) {
       emit(
@@ -408,8 +415,10 @@ export async function syncGuildCommandsSafe({
       return { ok: 0, failed: guildCount, attempts: attempt, skipped: true, reason };
     }
 
-    if (syncDelayMs > 0) {
+    if (verboseSyncLogs && syncDelayMs > 0) {
       emit(logFn, "INFO", `[${label}] Sync delay before command sync: ${syncDelayMs}ms (source=${syncSource})`);
+      await waitMs(syncDelayMs);
+    } else if (syncDelayMs > 0) {
       await waitMs(syncDelayMs);
     }
 
@@ -420,7 +429,9 @@ export async function syncGuildCommandsSafe({
 
       try {
         for (const guildId of targetGuildIds) {
-          emit(logFn, "INFO", `[${label}] Syncing guild ${guildId}...`);
+          if (verboseSyncLogs) {
+            emit(logFn, "INFO", `[${label}] Syncing guild ${guildId}...`);
+          }
           try {
             const route = routes.applicationGuildCommands(applicationId, guildId);
             if (useFetchForJoin) {
@@ -441,7 +452,9 @@ export async function syncGuildCommandsSafe({
               });
             }
             ok += 1;
-            emit(logFn, "INFO", `[${label}] Guild ${guildId} success`);
+            if (verboseSyncLogs) {
+              emit(logFn, "INFO", `[${label}] Guild ${guildId} success`);
+            }
           } catch (err) {
             failed += 1;
             const rateLimitMeta = getRateLimitMeta(err);

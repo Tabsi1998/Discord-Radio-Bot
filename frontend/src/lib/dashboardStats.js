@@ -58,6 +58,28 @@ function buildVoiceChannelUsageRows(voiceChannels = {}, voiceChannelNames = {}) 
     });
 }
 
+function buildSessionHistoryEntryId(session = {}) {
+  return JSON.stringify([
+    String(session?.startedAt || ""),
+    String(session?.stationKey || ""),
+    String(session?.channelId || ""),
+    Math.max(0, Number(session?.durationMs || 0) || 0),
+    Math.max(0, Number(session?.humanListeningMs || 0) || 0),
+    Math.max(0, Number(session?.peakListeners || 0) || 0),
+    Math.max(0, Number(session?.avgListeners || 0) || 0),
+  ]);
+}
+
+function buildConnectionEventEntryId(event = {}) {
+  return JSON.stringify([
+    String(event?.timestamp || ""),
+    String(event?.botId || ""),
+    String(event?.eventType || ""),
+    String(event?.channelId || ""),
+    String(event?.details || ""),
+  ]);
+}
+
 function normalizeDashboardHealth(source = {}) {
   const input = source && typeof source === "object" ? source : {};
   const managedBots = Math.max(0, Number(input.managedBots || 0) || 0);
@@ -234,7 +256,7 @@ function buildConnectionTimelineRows(connectionHealth = {}, formatDate = null) {
 
 function buildSessionTimelineRows(sessionHistory = [], formatDate = null) {
   return (Array.isArray(sessionHistory) ? sessionHistory : [])
-    .slice(0, 12)
+    .slice(0, 20)
     .sort((a, b) => String(a?.startedAt || "").localeCompare(String(b?.startedAt || "")))
     .map((session, index) => {
       const stationName = String(session?.stationName || session?.stationKey || "Session");
@@ -246,7 +268,7 @@ function buildSessionTimelineRows(sessionHistory = [], formatDate = null) {
         : `#${index + 1}`;
 
       return {
-        id: `${startedAt || "session"}-${index}`,
+        id: session?.id || buildSessionHistoryEntryId(session),
         label,
         stationName,
         runtimeHours: Math.round(((Number(session?.durationMs || 0) || 0) / 3_600_000) * 10) / 10,
@@ -293,7 +315,9 @@ export {
   buildDashboardHealthAlerts,
   buildDashboardHealthStatus,
   buildConnectionTimelineRows,
+  buildConnectionEventEntryId,
   buildSessionQualitySummary,
+  buildSessionHistoryEntryId,
   formatDashboardDuration,
   buildReliabilitySummary,
   buildSessionTimelineRows,

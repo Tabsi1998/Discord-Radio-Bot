@@ -389,6 +389,28 @@ function buildDashboardLicenseActivity(license) {
   };
 }
 
+function buildDashboardSessionHistoryEntryId(session = {}) {
+  return JSON.stringify([
+    String(session?.startedAt || ""),
+    String(session?.stationKey || ""),
+    String(session?.channelId || ""),
+    Math.max(0, Number(session?.durationMs || 0) || 0),
+    Math.max(0, Number(session?.humanListeningMs || 0) || 0),
+    Math.max(0, Number(session?.peakListeners || 0) || 0),
+    Math.max(0, Number(session?.avgListeners || 0) || 0),
+  ]);
+}
+
+function buildDashboardConnectionEventEntryId(event = {}) {
+  return JSON.stringify([
+    String(event?.timestamp || ""),
+    String(event?.botId || ""),
+    String(event?.eventType || ""),
+    String(event?.channelId || ""),
+    String(event?.details || ""),
+  ]);
+}
+
 function extractMailbox(rawValue) {
   const text = String(rawValue || "").trim();
   if (!text) return "";
@@ -2080,7 +2102,7 @@ async function buildDashboardDetailStatsPayload(guild, runtimes, days = 30) {
   const safeDays = Math.min(90, Math.max(1, Number.parseInt(String(days || "30"), 10) || 30));
   const [dailyStats, sessionHistory, connectionHealth, listenerTimeline, activeSessions] = await Promise.all([
     getGuildDailyStats(guild.id, safeDays),
-    getGuildSessionHistory(guild.id, 20),
+    getGuildSessionHistory(guild.id, 50),
     getGuildConnectionHealth(guild.id, safeDays),
     getGuildListenerTimeline(guild.id, 24),
     Promise.resolve(getActiveSessionsForGuild(guild.id)),
@@ -2116,6 +2138,15 @@ async function buildDashboardDetailStatsPayload(guild, runtimes, days = 30) {
     .filter((row) => row.issueScore > 0)
     .sort((a, b) => b.issueScore - a.issueScore || b.listeners - a.listeners || a.stationName.localeCompare(b.stationName))
     .slice(0, 12);
+  const connectionHealthWithIds = {
+    ...connectionHealth,
+    events: Array.isArray(connectionHealth?.events)
+      ? connectionHealth.events.map((event) => ({
+        ...event,
+        id: event?.id || buildDashboardConnectionEventEntryId(event),
+      }))
+      : [],
+  };
 
   return {
     serverId: guild.id,
@@ -2140,6 +2171,7 @@ async function buildDashboardDetailStatsPayload(guild, runtimes, days = 30) {
     },
     dailyStats,
     sessionHistory: sessionHistory.map((s) => ({
+      id: buildDashboardSessionHistoryEntryId(s),
       stationKey: s.stationKey,
       stationName: s.stationName,
       channelId: s.channelId,
@@ -2150,7 +2182,7 @@ async function buildDashboardDetailStatsPayload(guild, runtimes, days = 30) {
       peakListeners: s.peakListeners,
       avgListeners: s.avgListeners,
     })),
-    connectionHealth,
+    connectionHealth: connectionHealthWithIds,
     connectionWindowDays: safeDays,
     listenerTimeline,
     unstableStreams,

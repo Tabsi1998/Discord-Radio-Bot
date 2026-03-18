@@ -94,7 +94,7 @@ export function createDashboardStatsRouteHandler(deps) {
           resetGuildStats(guildId);
         }
       } catch (err) {
-        console.error(`[stats-reset] Error for guild ${guildId}: ${err.message}`);
+        log("ERROR", `[stats-reset] Error for guild ${guildId}: ${err?.message || err}`);
         sendJson(res, 500, {
           error: languagePick(
             language,

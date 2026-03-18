@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildCustomStationReference, parseCustomStationReference } from "./custom-stations.js";
+import { log } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVENTS_FILE = path.resolve(__dirname, "..", "scheduled-events.json");
@@ -40,7 +41,7 @@ function logLoadErrorOnce(message) {
   }
   lastLoadErrorSignature = signature;
   lastLoadErrorAt = now;
-  console.error(`[scheduled-events] Load error: ${signature}`);
+  log("ERROR", `[scheduled-events] Load error: ${signature}`);
 }
 
 function extractFirstJsonDocument(raw) {
@@ -150,7 +151,7 @@ function recoverCorruptFile(raw, reason) {
   }
 
   const backupHint = backupPath ? ` Backup: ${backupPath}` : "";
-  console.warn(`[scheduled-events] Datei war ungueltig und wurde auf leeren State zurueckgesetzt.${backupHint}`);
+  log("WARN", `[scheduled-events] Datei war ungueltig und wurde auf leeren State zurueckgesetzt.${backupHint}`);
 }
 
 function sanitizeId(raw) {
@@ -305,7 +306,7 @@ function loadRawState() {
   try {
     if (!fs.existsSync(EVENTS_FILE)) return emptyState();
     if (fs.statSync(EVENTS_FILE).isDirectory()) {
-      console.warn(`[scheduled-events] ${EVENTS_FILE} ist ein Verzeichnis - nutze leeren State.`);
+      log("WARN", `[scheduled-events] ${EVENTS_FILE} ist ein Verzeichnis - nutze leeren State.`);
       return emptyState();
     }
     const raw = fs.readFileSync(EVENTS_FILE, "utf8");
@@ -313,7 +314,7 @@ function loadRawState() {
     const parsed = tryParseState(raw);
     if (parsed.recovered) {
       saveRawState(parsed.state);
-      console.warn(`[scheduled-events] Ungueltiges JSON erkannt und automatisch repariert (${parsed.reason || "unknown"}).`);
+      log("WARN", `[scheduled-events] Ungueltiges JSON erkannt und automatisch repariert (${parsed.reason || "unknown"}).`);
     }
     return parsed.state;
   } catch (err) {
@@ -351,7 +352,7 @@ function saveRawState(state) {
       }
     }
   } catch (err) {
-    console.error(`[scheduled-events] Save error: ${err?.message || err}`);
+    log("ERROR", `[scheduled-events] Save error: ${err?.message || err}`);
   } finally {
     try {
       if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);

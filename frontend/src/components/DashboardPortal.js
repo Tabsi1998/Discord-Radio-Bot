@@ -58,6 +58,16 @@ function buildEmptyEventForm() {
   return { ...EMPTY_EVENT_FORM };
 }
 
+function areDashboardValuesEqual(current, next) {
+  if (Object.is(current, next)) return true;
+  if (current == null || next == null) return false;
+  try {
+    return JSON.stringify(current) === JSON.stringify(next);
+  } catch {
+    return false;
+  }
+}
+
 function sortDashboardEvents(rows) {
   return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
     const aMs = Date.parse(a?.startsAt || '') || 0;
@@ -316,14 +326,21 @@ export default function DashboardPortal() {
         })),
       ]);
 
-      setStats({ tier: statsPayload.tier || selectedGuild?.tier || 'free', basic: statsPayload.basic || null, advanced: statsPayload.advanced || null });
-      setDetailStats(detailPayload);
-      setInviteLinks(inviteLinksPayload && Array.isArray(inviteLinksPayload.bots)
+      const nextStats = { tier: statsPayload.tier || selectedGuild?.tier || 'free', basic: statsPayload.basic || null, advanced: statsPayload.advanced || null };
+      const nextDetailStats = detailPayload;
+      const nextInviteLinks = inviteLinksPayload && Array.isArray(inviteLinksPayload.bots)
         ? inviteLinksPayload
-        : { serverId: selectedGuildId, serverTier: selectedGuild?.tier || 'free', bots: [] });
-      setEvents(sortDashboardEvents(Array.isArray(eventsPayload?.events) ? eventsPayload.events : []));
-      setAvailableRoles(Array.isArray(rolesPayload?.roles) ? rolesPayload.roles : []);
-      setPermsDraft(buildPermissionsDraftFromPayload(permsPayload));
+        : { serverId: selectedGuildId, serverTier: selectedGuild?.tier || 'free', bots: [] };
+      const nextEvents = sortDashboardEvents(Array.isArray(eventsPayload?.events) ? eventsPayload.events : []);
+      const nextRoles = Array.isArray(rolesPayload?.roles) ? rolesPayload.roles : [];
+      const nextPermsDraft = buildPermissionsDraftFromPayload(permsPayload);
+
+      setStats((current) => (areDashboardValuesEqual(current, nextStats) ? current : nextStats));
+      setDetailStats((current) => (areDashboardValuesEqual(current, nextDetailStats) ? current : nextDetailStats));
+      setInviteLinks((current) => (areDashboardValuesEqual(current, nextInviteLinks) ? current : nextInviteLinks));
+      setEvents((current) => (areDashboardValuesEqual(current, nextEvents) ? current : nextEvents));
+      setAvailableRoles((current) => (areDashboardValuesEqual(current, nextRoles) ? current : nextRoles));
+      setPermsDraft((current) => (areDashboardValuesEqual(current, nextPermsDraft) ? current : nextPermsDraft));
     } catch (err) {
       setError(err.message || t('Dashboard-Daten konnten nicht geladen werden.', 'Dashboard data could not be loaded.'));
     } finally {

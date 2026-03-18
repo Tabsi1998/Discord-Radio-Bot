@@ -48,6 +48,7 @@ import {
   clipText,
   clampVolume,
   applyJitter,
+  buildTranscodeProfile,
   isWithinWorkerPlanLimit,
   splitTextForDiscord,
   sanitizeUrlForLog,
@@ -244,6 +245,7 @@ import {
   armRuntimeStreamStabilityReset,
   trackRuntimeProcessLifecycle,
   scheduleRuntimeStreamRestart,
+  armRuntimePlaybackRecovery,
   handleRuntimeStreamEnd,
   playRuntimeStation,
   restartRuntimeCurrentStation,
@@ -452,6 +454,9 @@ class BotRuntime {
         activeScheduledEventId: null,
         activeScheduledEventStopAtMs: 0,
         transientVoiceIssues: {},
+        voiceConnectInFlight: false,
+        reconnectInFlight: false,
+        voiceDisconnectObservedAt: 0,
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
@@ -2008,6 +2013,10 @@ class BotRuntime {
     return scheduleRuntimeStreamRestart(this, guildId, state, delayMs, reason);
   }
 
+  armPlaybackRecovery(guildId, state, stations, key, err, options = {}) {
+    return armRuntimePlaybackRecovery(this, guildId, state, stations, key, err, options);
+  }
+
   handleStreamEnd(guildId, state, reason) {
     return handleRuntimeStreamEnd(this, guildId, state, reason);
   }
@@ -2611,17 +2620,19 @@ class BotRuntime {
     }
 
     if (interaction.customId === INVITE_COMPONENT_ID_REFRESH || interaction.customId === INVITE_COMPONENT_ID_OPEN) {
+      await interaction.deferUpdate();
       const payload = await this.buildInviteMenuPayload(interaction);
-      await interaction.update(payload);
+      await interaction.editReply(payload);
       return true;
     }
 
     if (interaction.customId === INVITE_COMPONENT_ID_SELECT && interaction.isStringSelectMenu()) {
+      await interaction.deferUpdate();
       const selectedSlot = Number.parseInt(String(interaction.values?.[0] || ""), 10);
       const payload = await this.buildInviteMenuPayload(interaction, {
         selectedWorkerSlot: Number.isFinite(selectedSlot) ? selectedSlot : null,
       });
-      await interaction.update(payload);
+      await interaction.editReply(payload);
       return true;
     }
 
@@ -2661,8 +2672,9 @@ class BotRuntime {
     }
 
     if (interaction.customId === WORKERS_COMPONENT_ID_REFRESH || interaction.customId === WORKERS_COMPONENT_ID_OPEN) {
+      await interaction.deferUpdate();
       const payload = await this.buildWorkersStatusPayload(interaction);
-      await interaction.update(payload);
+      await interaction.editReply(payload);
       return true;
     }
 
@@ -2676,8 +2688,9 @@ class BotRuntime {
         });
         return true;
       }
+      await interaction.deferUpdate();
       const payload = await this.buildWorkersStatusPayload(interaction, { page: nextPage });
-      await interaction.update(payload);
+      await interaction.editReply(payload);
       return true;
     }
 
@@ -3436,6 +3449,29 @@ class BotRuntime {
           state.connection = null;
         }
         this.scheduleReconnect(guildId, { resetAttempts: true, reason: "play-voice-timeout" });
+        return {
+          ok: true,
+          workerName: this.config.name,
+          recovering: true,
+          error: err?.message || String(err),
+        };
+      }
+
+      const recovery = this.armPlaybackRecovery(
+        guildId,
+        state,
+        stationsData,
+        stationKey,
+        err,
+        { reason: "play-start-failed" }
+      );
+      if (recovery.scheduled) {
+        return {
+          ok: true,
+          workerName: this.config.name,
+          recovering: true,
+          error: recovery.message,
+        };
       } else {
         this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
       }

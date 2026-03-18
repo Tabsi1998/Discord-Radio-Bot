@@ -296,6 +296,89 @@ read_env() {
   printf "%s" "${val:-$default}"
 }
 
+get_logs_dir() {
+  local logs_dir
+  logs_dir="$(echo "$(read_env "LOGS_DIR" "logs")" | xargs)"
+  [[ -z "$logs_dir" ]] && logs_dir="logs"
+
+  if [[ "$logs_dir" == /* || "$logs_dir" =~ ^[A-Za-z]:[\\/].* ]]; then
+    printf "%s" "$logs_dir"
+    return
+  fi
+
+  printf "%s" "${APP_DIR}/${logs_dir#./}"
+}
+
+collect_log_files() {
+  local prefix="$1"
+  local include_current="${2:-1}"
+  local rotated_limit="${3:-4}"
+  local logs_dir current_file
+  local -a rotated=()
+
+  logs_dir="$(get_logs_dir)"
+  current_file="${logs_dir}/${prefix}.log"
+
+  if [[ "$include_current" == "1" && -f "$current_file" ]]; then
+    printf "%s\n" "$current_file"
+  fi
+
+  if [[ "$rotated_limit" =~ ^[0-9]+$ ]] && (( rotated_limit > 0 )); then
+    mapfile -t rotated < <(ls -1t "$logs_dir"/"${prefix}"-*.log 2>/dev/null | head -n "$rotated_limit" || true)
+    if (( ${#rotated[@]} > 0 )); then
+      printf "%s\n" "${rotated[@]}"
+    fi
+  fi
+}
+
+collect_live_log_files() {
+  local prefix="$1"
+  local logs_dir current_file
+  logs_dir="$(get_logs_dir)"
+  current_file="${logs_dir}/${prefix}.log"
+
+  if [[ -f "$current_file" ]]; then
+    printf "%s\n" "$current_file"
+    return
+  fi
+
+  ls -1t "$logs_dir"/"${prefix}"-*.log 2>/dev/null | head -n 1 || true
+}
+
+render_log_timeline() {
+  local title="$1"
+  local tail_lines="$2"
+  shift 2
+  local -a sources=("$@")
+  local tmp source
+
+  echo -e "  ${BOLD}${title}:${NC}"
+  if (( ${#sources[@]} == 0 )); then
+    warn "Keine passenden Log-Dateien gefunden."
+    echo ""
+    return
+  fi
+
+  tmp="$(mktemp /tmp/omnifm-log-timeline-XXXXXX)"
+  for source in "${sources[@]}"; do
+    [[ -f "$source" ]] || continue
+    tail -n "$tail_lines" "$source" 2>/dev/null | awk -v source="$(basename "$source")" '{ print $0 " [source=" source "]" }' >> "$tmp"
+  done
+
+  if [[ ! -s "$tmp" ]]; then
+    warn "Log-Dateien konnten nicht gelesen werden."
+    rm -f "$tmp"
+    echo ""
+    return
+  fi
+
+  echo -e "    Quellen: ${DIM}$(printf "%s " "${sources[@]}" | sed 's/[[:space:]]*$//')${NC}"
+  echo ""
+  sort "$tmp"
+  rm -f "$tmp"
+  echo ""
+}
+
 normalize_command_registration_mode() {
   local normalized
   normalized="$(printf "%s" "${1:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
@@ -404,46 +487,49 @@ show_live_container_logs() {
 
 show_recent_local_logs() {
   local tail_lines="${1:-30}"
-  local target=""
-  if [[ -f "logs/bot.log" ]]; then
-    target="logs/bot.log"
-  else
-    target="$(ls -1t logs/bot-*.log 2>/dev/null | head -1 || true)"
-  fi
+  local logs_dir
+  local -a bot_sources=()
+  local -a error_sources=()
+
+  logs_dir="$(get_logs_dir)"
+  mapfile -t bot_sources < <(collect_log_files "bot" 1 4)
+  mapfile -t error_sources < <(collect_log_files "error" 1 4)
 
   echo ""
-  echo -e "  ${BOLD}Lokale Rotations-Logs:${NC}"
-  if [[ -z "$target" ]]; then
-    warn "Keine lokale Log-Datei gefunden."
+  echo -e "  ${BOLD}Lokale File-Logs:${NC}"
+  echo -e "    Pfad: ${DIM}${logs_dir}${NC}"
+  if (( ${#bot_sources[@]} == 0 && ${#error_sources[@]} == 0 )); then
+    warn "Keine lokalen Log-Dateien gefunden."
     return
   fi
-  echo -e "    Quelle: ${DIM}${target}${NC}"
   echo ""
-  tail -n "$tail_lines" "$target" 2>/dev/null || warn "Log-Datei konnte nicht gelesen werden."
+  render_log_timeline "Aktivitaet (bot.log + Rotation)" "$tail_lines" "${bot_sources[@]}"
+  render_log_timeline "Fehler (error.log + Rotation)" "$tail_lines" "${error_sources[@]}"
 }
 
 show_live_local_logs() {
   local tail_lines="${1:-80}"
   local refresh_seconds="${2:-2}"
-  local target=""
+  local logs_dir=""
   local key=""
+  local -a bot_sources=()
+  local -a error_sources=()
   while true; do
-    if [[ -f "logs/bot.log" ]]; then
-      target="logs/bot.log"
-    else
-      target="$(ls -1t logs/bot-*.log 2>/dev/null | head -1 || true)"
-    fi
+    logs_dir="$(get_logs_dir)"
+    mapfile -t bot_sources < <(collect_live_log_files "bot")
+    mapfile -t error_sources < <(collect_live_log_files "error")
 
     clear 2>/dev/null || printf '\033c'
-    echo -e "  ${BOLD}Live lokale Rotations-Logs${NC}"
+    echo -e "  ${BOLD}Live lokale File-Logs${NC}"
     echo -e "  ${DIM}Aktualisierung alle ${refresh_seconds}s | q = zurueck | Enter = sofort neu laden${NC}"
-    if [[ -z "$target" ]]; then
+    echo -e "  ${DIM}Pfad: ${logs_dir}${NC}"
+    if (( ${#bot_sources[@]} == 0 && ${#error_sources[@]} == 0 )); then
       echo ""
-      warn "Keine lokale Log-Datei gefunden."
+      warn "Keine lokalen Log-Dateien gefunden."
     else
-      echo -e "    Quelle: ${DIM}${target}${NC}"
       echo ""
-      tail -n "$tail_lines" "$target" 2>/dev/null || warn "Log-Datei konnte nicht gelesen werden."
+      render_log_timeline "Aktivitaet (bot.log Snapshot)" "$tail_lines" "${bot_sources[@]}"
+      render_log_timeline "Fehler (error.log Snapshot)" "$tail_lines" "${error_sources[@]}"
     fi
     echo ""
     IFS= read -rsn1 -t "$refresh_seconds" key || true
@@ -499,7 +585,7 @@ show_admin_health_detail() {
 show_admin_runtime_summary() {
   local bot_count commander_idx web_port public_url admin_token
   local command_mode command_periodic cleanup_global cleanup_guild cleanup_worker
-  local log_mb log_files log_days auto_prune prune_until
+  local log_mb log_files log_days auto_prune prune_until logs_dir
   local stripe dbl_token dbl_enabled dbl_status botsgg_token botsgg_enabled botsgg_status
   local topgg_token topgg_enabled topgg_status dash_status mongo_status container_status
 
@@ -516,6 +602,7 @@ show_admin_runtime_summary() {
   log_mb="$(read_env "LOG_MAX_MB" "5")"
   log_files="$(read_env "LOG_MAX_FILES" "30")"
   log_days="$(read_env "LOG_MAX_DAYS" "14")"
+  logs_dir="$(get_logs_dir)"
   auto_prune="$(read_env "AUTO_DOCKER_PRUNE" "1")"
   prune_until="$(read_env "DOCKER_BUILDER_PRUNE_UNTIL" "168h")"
   stripe="$(read_env "STRIPE_SECRET_KEY" "$(read_env "STRIPE_API_KEY" "")")"
@@ -581,6 +668,7 @@ show_admin_runtime_summary() {
   echo -e "    Stripe / DBL / BGG / TopGG:  $(if [[ -n "$stripe" ]]; then echo -e "${GREEN}ok${NC}"; else echo -e "${RED}fehlt${NC}"; fi) / ${dbl_status} / ${botsgg_status} / ${topgg_status}"
   echo -e "    Admin API Token:     $(if [[ -n "$admin_token" ]]; then echo -e "${GREEN}gesetzt${NC}"; else echo -e "${YELLOW}nicht gesetzt${NC}"; fi)"
   echo -e "    Logs:                ${CYAN}${log_mb}MB${NC}, ${CYAN}${log_files}${NC} Dateien, ${CYAN}${log_days}${NC} Tage"
+  echo -e "    Log-Pfad:            ${DIM}${logs_dir}${NC}"
   echo -e "    Docker Cleanup:      $(if [[ "$auto_prune" == "0" ]]; then echo -e "${YELLOW}aus${NC}"; else echo -e "${GREEN}an${NC}"; fi) (${DIM}${prune_until}${NC})"
 }
 
@@ -594,8 +682,8 @@ run_status_menu() {
     echo -e "    ${CYAN}2${NC}) API Health Detail anzeigen"
     echo -e "    ${YELLOW}3${NC}) Docker-Logs (letzte Zeilen)"
     echo -e "    ${YELLOW}4${NC}) Docker-Logs live"
-    echo -e "    ${MAGENTA}5${NC}) Lokale Rotations-Logs (letzte Zeilen)"
-    echo -e "    ${MAGENTA}6${NC}) Lokale Rotations-Logs live"
+    echo -e "    ${MAGENTA}5${NC}) Lokale File-Logs (Bot + Error)"
+    echo -e "    ${MAGENTA}6${NC}) Lokale File-Logs live"
     echo -e "    ${GREEN}7${NC}) MongoDB Status"
     echo -e "    ${CYAN}8${NC}) Speicher-Uebersicht"
     echo -e "    ${YELLOW}9${NC}) Doctor Check"
@@ -1012,9 +1100,11 @@ prune_update_backups() {
 }
 
 cleanup_rotated_logs() {
-  local keep days
+  local keep days logs_dir prefix
+  local -a files=()
   keep="$(read_env "LOG_MAX_FILES" "30")"
   days="$(read_env "LOG_MAX_DAYS" "14")"
+  logs_dir="$(get_logs_dir)"
 
   if [[ ! "$keep" =~ ^[0-9]+$ ]] || (( keep < 1 )); then
     keep=30
@@ -1023,17 +1113,19 @@ cleanup_rotated_logs() {
     days=14
   fi
 
-  mkdir -p logs
+  mkdir -p "$logs_dir"
 
-  mapfile -t files < <(ls -1t logs/bot-*.log 2>/dev/null || true)
-  if (( ${#files[@]} > keep )); then
-    local i
-    for (( i=keep; i<${#files[@]}; i++ )); do
-      rm -f "${files[$i]}" 2>/dev/null || true
-    done
-  fi
+  for prefix in bot error; do
+    mapfile -t files < <(ls -1t "$logs_dir"/"${prefix}"-*.log 2>/dev/null || true)
+    if (( ${#files[@]} > keep )); then
+      local i
+      for (( i=keep; i<${#files[@]}; i++ )); do
+        rm -f "${files[$i]}" 2>/dev/null || true
+      done
+    fi
 
-  find logs -maxdepth 1 -type f -name "bot-*.log" -mtime +"$days" -delete 2>/dev/null || true
+    find "$logs_dir" -maxdepth 1 -type f -name "${prefix}-*.log" -mtime +"$days" -delete 2>/dev/null || true
+  done
 }
 
 cleanup_docker_cache() {
@@ -1054,10 +1146,11 @@ show_storage_overview() {
   fi
 
   if command -v du >/dev/null 2>&1; then
-    local logs_size backups_size
-    logs_size="$(du -sh logs 2>/dev/null | awk '{print $1}')"
+    local logs_size backups_size logs_dir
+    logs_dir="$(get_logs_dir)"
+    logs_size="$(du -sh "$logs_dir" 2>/dev/null | awk '{print $1}')"
     backups_size="$(du -sh .update-backups 2>/dev/null | awk '{print $1}')"
-    echo -e "    logs/:           ${CYAN}${logs_size:-0}${NC}"
+    echo -e "    Logs (${logs_dir}): ${CYAN}${logs_size:-0}${NC}"
     echo -e "    .update-backups: ${CYAN}${backups_size:-0}${NC}"
   fi
 
@@ -1679,6 +1772,7 @@ if [[ "$MODE" == "--status" ]]; then
     show_admin_runtime_summary
     show_container_status_table
     show_recent_container_logs 20
+    show_recent_local_logs 20
     show_mongodb_runtime_status
     show_storage_overview
     echo ""
@@ -2561,7 +2655,7 @@ if [[ "$MODE" == "--settings" ]]; then
     11)
       echo ""
       info "Betrieb, Logs & Admin-Token"
-      new_log_max_mb="$(prompt_default "Maximale bot.log Groesse in MB" "$cur_log_max_mb")"
+      new_log_max_mb="$(prompt_default "Maximale Log-Dateigroesse in MB" "$cur_log_max_mb")"
       if [[ ! "$new_log_max_mb" =~ ^[0-9]+$ ]] || (( new_log_max_mb < 1 )); then
         warn "Ungueltiger Wert fuer LOG_MAX_MB. Verwende 5."
         new_log_max_mb="5"

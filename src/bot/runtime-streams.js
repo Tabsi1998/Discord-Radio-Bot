@@ -242,6 +242,53 @@ export function handleRuntimeStreamEnd(runtime, guildId, state, reason) {
   runtime.scheduleStreamRestart(guildId, state, delay, reasonLabel);
 }
 
+export function armRuntimePlaybackRecovery(
+  runtime,
+  guildId,
+  state,
+  stations,
+  key,
+  err,
+  { reason = "play-start-failed" } = {}
+) {
+  const stationName = stations?.stations?.[key]?.name || state.currentStationName || key;
+  const errorMessage = err?.message || String(err || "unknown");
+
+  state.lastStreamErrorAt = new Date().toISOString();
+  state.shouldReconnect = true;
+  state.currentStationKey = key;
+  state.currentStationName = stationName;
+  state.currentMeta = null;
+  state.nowPlayingSignature = null;
+  runtime.clearCurrentProcess(state);
+  runtime.clearNowPlayingTimer(state);
+  runtime.updatePresence();
+  runtime.persistState();
+
+  const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+  const delay = Math.max(1_000, networkCooldownMs || STREAM_RESTART_BASE_MS);
+
+  if (state.connection) {
+    log(
+      "WARN",
+      `[${runtime.config.name}] Stream-Start fehlgeschlagen guild=${guildId} station=${key}: ${errorMessage}. Voice bleibt verbunden, Retry in ${Math.round(delay)}ms (reason=${reason}).`
+    );
+    runtime.scheduleStreamRestart(guildId, state, delay, reason);
+    return { scheduled: true, delayMs: delay, message: errorMessage, stationName };
+  }
+
+  if (state.lastChannelId) {
+    log(
+      "WARN",
+      `[${runtime.config.name}] Stream-Start fehlgeschlagen guild=${guildId} station=${key}: ${errorMessage}. Voice fehlt, Reconnect wird geplant (reason=${reason}).`
+    );
+    runtime.scheduleReconnect(guildId, { resetAttempts: true, reason });
+    return { scheduled: true, delayMs: delay, message: errorMessage, stationName };
+  }
+
+  return { scheduled: false, delayMs: 0, message: errorMessage, stationName };
+}
+
 export async function playRuntimeStation(runtime, state, stations, key, guildId) {
   const station = stations.stations[key];
   if (!station) throw new Error("Station nicht gefunden.");
