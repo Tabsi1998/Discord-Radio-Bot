@@ -3,6 +3,7 @@ import path from "node:path";
 import net from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { fileURLToPath } from "node:url";
+import { log } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json");
@@ -21,7 +22,7 @@ function normalizeWhitespace(value) {
 function readStationsFile(filePath) {
   if (!fs.existsSync(filePath)) return null;
   if (fs.statSync(filePath).isDirectory()) {
-    console.warn(`[custom-stations] ${filePath} ist ein Verzeichnis - ueberspringe.`);
+    log("WARN", `[custom-stations] ${filePath} ist ein Verzeichnis - ueberspringe.`);
     return null;
   }
   const raw = fs.readFileSync(filePath, "utf8");
@@ -36,7 +37,7 @@ function load() {
       const data = readStationsFile(filePath);
       if (data) {
         if (filePath === CUSTOM_BACKUP_FILE) {
-          console.warn("[custom-stations] Verwende Backup-Datei custom-stations.json.bak");
+          log("WARN", "[custom-stations] Verwende Backup-Datei custom-stations.json.bak");
         }
         // Migrate legacy array-per-guild format to canonical object-per-guild format
         let migrated = false;
@@ -62,15 +63,15 @@ function load() {
         if (migrated) {
           try {
             save(data);
-            console.info("[custom-stations] Migration: legacy array format konvertiert und gespeichert.");
+            log("INFO", "[custom-stations] Migration: legacy array format konvertiert und gespeichert.");
           } catch (err) {
-            console.error(`[custom-stations] Migration Save failed: ${err?.message || err}`);
+            log("ERROR", `[custom-stations] Migration Save failed: ${err?.message || err}`);
           }
         }
         return data;
       }
     } catch (err) {
-      console.error(`[custom-stations] Load error (${filePath}): ${err.message}`);
+      log("ERROR", `[custom-stations] Load error (${filePath}): ${err.message}`);
     }
   }
   return {};
@@ -80,7 +81,7 @@ function save(data) {
   const tmpFile = `${CUSTOM_FILE}.tmp-${process.pid}-${Date.now()}`;
   try {
     if (fs.existsSync(CUSTOM_FILE) && fs.statSync(CUSTOM_FILE).isDirectory()) {
-      console.warn(`[custom-stations] ${CUSTOM_FILE} ist ein Verzeichnis - Speichern uebersprungen.`);
+      log("WARN", `[custom-stations] ${CUSTOM_FILE} ist ein Verzeichnis - Speichern uebersprungen.`);
       return;
     }
 
@@ -88,7 +89,7 @@ function save(data) {
       try {
         fs.copyFileSync(CUSTOM_FILE, CUSTOM_BACKUP_FILE);
       } catch (copyErr) {
-        console.error(`[custom-stations] Backup warnung: ${copyErr.message}`);
+        log("ERROR", `[custom-stations] Backup warnung: ${copyErr.message}`);
       }
     }
 
@@ -99,13 +100,13 @@ function save(data) {
       const code = String(renameErr?.code || "");
       if (["EBUSY", "EPERM", "EACCES", "EXDEV"].includes(code)) {
         fs.writeFileSync(CUSTOM_FILE, JSON.stringify(data, null, 2) + "\n", "utf8");
-        console.warn(`[custom-stations] Atomic rename nicht moeglich (${code}), nutze direkten Write-Fallback.`);
+        log("WARN", `[custom-stations] Atomic rename nicht moeglich (${code}), nutze direkten Write-Fallback.`);
       } else {
         throw renameErr;
       }
     }
   } catch (err) {
-    console.error(`[custom-stations] Save error: ${err.message}`);
+    log("ERROR", `[custom-stations] Save error: ${err.message}`);
   } finally {
     try {
       if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);

@@ -7,6 +7,7 @@ import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { getServerPlan, planAtLeast, requireFeature } from "../core/entitlements.js";
+import { log } from "../lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, "..", "..", "data");
@@ -129,7 +130,7 @@ function saveCustomData(data) {
 
     fs.writeFileSync(customFile, JSON.stringify(normalized, null, 2) + "\n", "utf-8");
   } catch (err) {
-    console.error(`[OmniFM] Custom stations save error: ${err.message}`);
+    log("ERROR", `[OmniFM] Custom stations save error: ${err.message}`);
   }
 }
 

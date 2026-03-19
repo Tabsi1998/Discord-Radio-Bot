@@ -3,6 +3,37 @@
 // ============================================================
 import { TIERS } from "../lib/helpers.js";
 
+function hasReservedPlaybackState(state) {
+  return Boolean(
+    state?.currentStationKey
+    && (
+      state?.connection
+      || state?.currentProcess
+      || state?.voiceConnectInFlight
+      || state?.reconnectInFlight
+      || state?.reconnectTimer
+      || (state?.shouldReconnect && state?.lastChannelId)
+    )
+  );
+}
+
+function isRecoveringPlaybackState(state) {
+  return Boolean(
+    state?.currentStationKey
+    && state?.shouldReconnect
+    && (
+      !state?.connection
+      || state?.reconnectTimer
+      || state?.reconnectInFlight
+      || state?.voiceConnectInFlight
+    )
+  );
+}
+
+function getOwnedChannelId(state) {
+  return String(state?.connection?.joinConfig?.channelId || state?.lastChannelId || "").trim();
+}
+
 class WorkerManager {
   /**
    * @param {BotRuntime[]} workers - Worker bot instances
@@ -82,7 +113,7 @@ class WorkerManager {
       if (!w.client?.isReady()) return false;
       if (!w.client.guilds.cache.has(guildId)) return false;
       const state = w.guildState.get(guildId);
-      if (state?.currentStationKey && state?.connection) return false;
+      if (hasReservedPlaybackState(state)) return false;
       return true;
     });
   }
@@ -126,7 +157,7 @@ class WorkerManager {
   getStreamingWorkers(guildId) {
     return this.workers.filter((w) => {
       const state = w.guildState.get(guildId);
-      return state?.currentStationKey && state?.connection;
+      return hasReservedPlaybackState(state);
     });
   }
 
@@ -138,8 +169,8 @@ class WorkerManager {
     if (!normalizedChannelId) return null;
     return this.workers.find((worker) => {
       const state = worker.guildState.get(guildId);
-      if (!state?.currentStationKey || !state?.connection) return false;
-      const activeChannelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
+      if (!hasReservedPlaybackState(state)) return false;
+      const activeChannelId = getOwnedChannelId(state);
       return activeChannelId === normalizedChannelId;
     }) || null;
   }
@@ -158,6 +189,10 @@ class WorkerManager {
       const workerSlot = this.getWorkerSlot(worker);
       if (!workerSlot || workerSlot > maxIndex) continue;
       if (!worker.client?.isReady()) continue;
+      const state = worker.guildState.get(normalizedGuildId);
+      if (hasReservedPlaybackState(state) && getOwnedChannelId(state) === normalizedChannelId) {
+        return worker;
+      }
 
       const guild = worker.client.guilds.cache.get(normalizedGuildId)
         || await worker.client.guilds.fetch(normalizedGuildId).catch(() => null);
@@ -195,7 +230,7 @@ class WorkerManager {
       const guilds = [];
       if (w.client?.isReady()) {
         for (const [guildId, state] of w.guildState.entries()) {
-          if (state?.currentStationKey && state?.connection) {
+          if (hasReservedPlaybackState(state)) {
             const guild = w.client.guilds.cache.get(guildId);
             guilds.push({
               guildId,
@@ -203,6 +238,7 @@ class WorkerManager {
               stationKey: state.currentStationKey || null,
               stationName: state.currentStationName || null,
               channelId: state.lastChannelId || null,
+              recovering: isRecoveringPlaybackState(state),
             });
           }
         }

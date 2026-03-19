@@ -638,6 +638,33 @@ async function shutdown(signal) {
   process.exit(0);
 }
 
+function formatProcessError(reason) {
+  if (reason instanceof Error) {
+    return reason.stack || reason.message || String(reason);
+  }
+  if (reason && typeof reason === "object") {
+    const stack = reason.stack || reason.message;
+    if (stack) return String(stack);
+  }
+  return String(reason);
+}
+
+process.on("unhandledRejection", (reason) => {
+  log("ERROR", `[Process] Unhandled rejection: ${formatProcessError(reason)}`);
+});
+
+process.on("uncaughtException", (err) => {
+  log("ERROR", `[Process] Uncaught exception: ${formatProcessError(err)}`);
+  shutdown("uncaughtException").catch(async () => {
+    try {
+      await getLogWriteQueue();
+    } catch {
+      // ignore
+    }
+    process.exit(1);
+  });
+});
+
 process.on("SIGINT", () => {
   shutdown("SIGINT").catch(() => process.exit(1));
 });

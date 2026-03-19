@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLANS } from "./config/plans.js";
 import { getDefaultLanguage, normalizeLanguage } from "./i18n.js";
+import { log } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const premiumFile = path.resolve(__dirname, "..", "premium.json");
@@ -103,7 +104,7 @@ function save(data) {
       fs.writeFileSync(premiumFile, payload, "utf-8");
     }
   } catch (err) {
-    console.error(`[OmniFM] License save error: ${err.message}`);
+    log("ERROR", `[OmniFM] License save error: ${err.message}`);
   } finally {
     try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch {}
   }

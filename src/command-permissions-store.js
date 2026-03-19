@@ -6,6 +6,7 @@ import {
   isPermissionManagedCommand,
   normalizePermissionCommandName,
 } from "./config/command-permissions.js";
+import { log } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE_FILE = path.resolve(__dirname, "..", "command-permissions.json");
@@ -94,7 +95,7 @@ function readFileSafe(filePath) {
     if (!raw.trim()) return emptyStore();
     return JSON.parse(raw);
   } catch (err) {
-    console.error(`[command-permissions] Load error (${filePath}): ${err.message}`);
+    log("ERROR", `[command-permissions] Load error (${filePath}): ${err.message}`);
     return null;
   }
 }
@@ -128,7 +129,7 @@ function save(data) {
       fs.writeFileSync(STORE_FILE, payload, "utf8");
     }
   } catch (err) {
-    console.error(`[command-permissions] Save error: ${err.message}`);
+    log("ERROR", `[command-permissions] Save error: ${err.message}`);
   } finally {
     try {
       if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);

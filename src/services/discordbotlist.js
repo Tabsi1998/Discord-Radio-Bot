@@ -143,6 +143,37 @@ function collectDiscordBotListStats(runtimes = [], scope = null) {
     : collectCommanderStats(runtimes);
 }
 
+function sanitizeDiscordBotListErrorSnippet(rawText) {
+  const raw = String(rawText || "").trim();
+  if (!raw) return "";
+  const withoutMarkup = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clipText(withoutMarkup || raw, 200);
+}
+
+function buildDiscordBotListHttpError(method, path, response, parsed, rawText) {
+  const status = Number(response?.status || 0) || 0;
+  const contentType = String(response?.headers?.get?.("content-type") || "").trim().toLowerCase();
+  let detail = String(parsed?.error || parsed?.message || "").trim();
+  if (!detail) {
+    detail = sanitizeDiscordBotListErrorSnippet(rawText);
+  }
+  if (!detail && contentType.includes("text/html")) {
+    detail = "HTML error page returned";
+  }
+  if (!detail && status >= 500) {
+    detail = "upstream service temporarily unavailable";
+  }
+  if (!detail) {
+    detail = `HTTP ${status}`;
+  }
+  return new Error(`${method} ${path} failed (${status}): ${detail}`);
+}
+
 async function discordBotListRequest(method, path, { token, body, authMode = "raw" } = {}) {
   const endpoint = `${DISCORD_BOT_LIST_API_BASE}${path}`;
   const headers = {
@@ -170,8 +201,7 @@ async function discordBotListRequest(method, path, { token, body, authMode = "ra
   }
 
   if (!response.ok) {
-    const message = parsed?.error || parsed?.message || clipText(rawText, 240) || `HTTP ${response.status}`;
-    throw new Error(`${method} ${path} failed (${response.status}): ${message}`);
+    throw buildDiscordBotListHttpError(method, path, response, parsed, rawText);
   }
 
   return parsed || { success: true };

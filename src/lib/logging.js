@@ -131,7 +131,14 @@ async function pruneRotatedLogsIfNeeded(rotatedPrefix) {
   }
 }
 
-function queueLogWrite(line, { includeErrorLog = false } = {}) {
+function normalizeLogLines(ts, level, message) {
+  const rawLines = String(message ?? "").replace(/\r\n/g, "\n").split("\n");
+  const lines = rawLines.length > 0 ? rawLines : [""];
+  return lines.map((line) => `[${ts}] [${level}] ${line}`);
+}
+
+function queueLogWrite(lines, { includeErrorLog = false } = {}) {
+  const payload = `${lines.join("\n")}\n`;
   logWriteQueue = logWriteQueue
     .then(async () => {
       await ensureLogsDir();
@@ -141,9 +148,9 @@ function queueLogWrite(line, { includeErrorLog = false } = {}) {
         // eslint-disable-next-line no-await-in-loop
         await pruneRotatedLogsIfNeeded(target.rotatedPrefix);
       }
-      await fs.promises.appendFile(logFile, `${line}\n`, "utf8");
+      await fs.promises.appendFile(logFile, payload, "utf8");
       if (includeErrorLog) {
-        await fs.promises.appendFile(errorLogFile, `${line}\n`, "utf8");
+        await fs.promises.appendFile(errorLogFile, payload, "utf8");
       }
     })
     .catch(() => {
@@ -153,14 +160,16 @@ function queueLogWrite(line, { includeErrorLog = false } = {}) {
 
 function log(level, message) {
   const ts = new Date().toISOString();
-  const line = `[${ts}] [${level}] ${message}`;
-  if (level === "ERROR") {
-    console.error(line);
-  } else {
-    console.log(line);
+  const lines = normalizeLogLines(ts, level, message);
+  for (const line of lines) {
+    if (level === "ERROR") {
+      console.error(line);
+    } else {
+      console.log(line);
+    }
   }
 
-  queueLogWrite(line, { includeErrorLog: level === "ERROR" });
+  queueLogWrite(lines, { includeErrorLog: level === "ERROR" });
 }
 
 function shouldLogFfmpegStderrLine(line) {

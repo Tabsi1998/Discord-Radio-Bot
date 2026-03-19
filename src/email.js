@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import fs from "node:fs";
 import { getDefaultLanguage, getLocaleForLanguage, normalizeLanguage } from "./i18n.js";
+import { log } from "./lib/logging.js";
 
 function resolveTlsMode(port, rawMode) {
   const mode = String(rawMode || "auto").trim().toLowerCase();
@@ -58,7 +59,7 @@ function createTransporter() {
     try {
       options.tls.ca = fs.readFileSync(cfg.tlsCaPath, "utf8");
     } catch (err) {
-      console.error(`[email] CA file konnte nicht gelesen werden (${cfg.tlsCaPath}): ${err.message}`);
+      log("ERROR", `[email] CA file konnte nicht gelesen werden (${cfg.tlsCaPath}): ${err.message}`);
     }
   }
 
@@ -83,7 +84,7 @@ async function sendMail(to, subject, html) {
     });
     return { success: true };
   } catch (err) {
-    console.error(`[email] Send failed: ${err.message}`);
+    log("ERROR", `[email] Send failed: ${err.message}`);
     return { error: err.message };
   }
 }

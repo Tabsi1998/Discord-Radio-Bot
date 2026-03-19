@@ -193,6 +193,30 @@ test("logging respects LOGS_DIR override for file output", async () => {
   }
 });
 
+test("logging prefixes every line of a multiline error in error.log", async () => {
+  const tempLogsDir = path.join(repoRoot, "logs", "unit-multiline");
+  const restoreEnv = setEnv({
+    LOGS_DIR: tempLogsDir,
+    NODE_TEST_CONTEXT: undefined,
+  });
+
+  try {
+    fs.rmSync(tempLogsDir, { recursive: true, force: true });
+    const logging = await importFreshLoggingModule();
+
+    logging.log("ERROR", "first line\n    at fakeStack");
+    await logging.getLogWriteQueue();
+
+    const written = fs.readFileSync(path.join(tempLogsDir, "error.log"), "utf8").trim().split(/\r?\n/);
+    assert.equal(written.length, 2);
+    assert.match(written[0], /\[ERROR\] first line$/);
+    assert.match(written[1], /\[ERROR\]\s+at fakeStack$/);
+  } finally {
+    fs.rmSync(tempLogsDir, { recursive: true, force: true });
+    restoreEnv();
+  }
+});
+
 test("recognition no-match logging is throttled with a longer cooldown", () => {
   const originalNow = Date.now;
   const baseNow = 1_700_000_000_000;
@@ -1306,6 +1330,77 @@ test("worker manager reuses the worker already streaming in the requested channe
   assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-1"), workerA);
   assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-2"), workerB);
   assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-9"), null);
+});
+
+test("worker manager keeps reconnecting workers reserved for their remembered voice channel", async () => {
+  const reconnectingWorker = {
+    config: { index: 2 },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "station-a",
+        connection: null,
+        currentProcess: null,
+        lastChannelId: "voice-7",
+        shouldReconnect: true,
+        reconnectTimer: { unref() {} },
+        reconnectInFlight: false,
+        voiceConnectInFlight: false,
+      }],
+    ]),
+    client: {
+      isReady: () => true,
+      guilds: {
+        cache: new Map([
+          ["guild-1", {
+            members: {
+              me: {
+                voice: {
+                  channelId: null,
+                },
+              },
+              fetchMe: async () => ({
+                voice: {
+                  channelId: null,
+                },
+              }),
+            },
+          }],
+        ]),
+        fetch: async () => null,
+      },
+    },
+  };
+  const freeWorker = {
+    config: { index: 3 },
+    guildState: new Map(),
+    client: {
+      isReady: () => true,
+      guilds: {
+        cache: new Map([
+          ["guild-1", {
+            members: {
+              me: {
+                voice: {
+                  channelId: null,
+                },
+              },
+              fetchMe: async () => ({
+                voice: {
+                  channelId: null,
+                },
+              }),
+            },
+          }],
+        ]),
+        fetch: async () => null,
+      },
+    },
+  };
+
+  const manager = new WorkerManager([reconnectingWorker, freeWorker]);
+  assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-7"), reconnectingWorker);
+  assert.equal(await manager.findConnectedWorkerByChannel("guild-1", "voice-7", "pro"), reconnectingWorker);
+  assert.equal(manager.findFreeWorker("guild-1", "pro"), freeWorker);
 });
 
 test("public bot status omits guild details while dashboard status keeps them", () => {
