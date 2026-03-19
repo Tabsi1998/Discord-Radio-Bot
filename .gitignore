@@ -54,6 +54,7 @@ vote-events.json
 vote-events.json.bak
 
 # Local-only helper artifacts
+.vscode/
 design_guidelines.json
 backend_test.py
 .gitconfig

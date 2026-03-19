@@ -392,6 +392,7 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
     state.nowPlayingSignature = null;
     runtime.clearScheduledEventPlayback(state);
     runtime.updatePresence();
+    runtime.persistState();
     return;
   }
 

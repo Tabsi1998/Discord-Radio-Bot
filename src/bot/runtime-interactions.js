@@ -1450,6 +1450,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
     const selectedStation = playStations.stations[key];
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    runtime.clearRestoreRetry(guildId);
     const { connection, error: connectError } = await runtime.connectToVoice(interaction, requestedChannel, { silent: true });
     if (!connection) {
       await interaction.editReply(connectError || t("Konnte keine Voice-Verbindung herstellen.", "Could not establish a voice connection."));

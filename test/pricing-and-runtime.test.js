@@ -20,6 +20,7 @@ import {
   handleRuntimeBotVoiceStateUpdate,
   reconcileRuntimeGuildVoiceState,
   restoreRuntimeGuildEntry,
+  restoreRuntimeState,
   scheduleRuntimeReconnect,
   tryRuntimeReconnect,
 } from "../src/bot/runtime-recovery.js";
@@ -47,7 +48,7 @@ import {
   shouldLogRecognitionFailure,
 } from "../src/services/audio-recognition.js";
 import { getDefaultLanguage } from "../src/i18n.js";
-import { getBotState, saveState } from "../src/bot-state.js";
+import { getBotState, saveBotState, saveState } from "../src/bot-state.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const botStatePath = path.join(repoRoot, "bot-state.json");
@@ -478,6 +479,53 @@ test("reconnect circuit breaker pauses retries after too many failed attempts", 
     assert.equal(scheduled.length, 1);
     assert.ok(scheduled[0].delay >= 15 * 60 * 1000);
     assert.equal(state.reconnectTimer, scheduled[0]);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
+});
+
+test("scheduleReconnect persists a recoverable playback target for restart restore", () => {
+  const originalSetTimeout = global.setTimeout;
+  const scheduled = [];
+  global.setTimeout = (fn, delay) => {
+    const timer = { fn, delay, unref() {} };
+    scheduled.push(timer);
+    return timer;
+  };
+
+  try {
+    let persistCount = 0;
+    const state = {
+      shouldReconnect: true,
+      currentStationKey: "station-a",
+      lastChannelId: "voice-1",
+      activeScheduledEventStopAtMs: 0,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      reconnectCount: 0,
+      lastReconnectAt: null,
+      connection: null,
+    };
+    const runtime = {
+      config: { name: "OmniFM 6", id: "bot-6" },
+      getState() {
+        return state;
+      },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      stopInGuild() {
+        throw new Error("stopInGuild should not be called");
+      },
+      persistState() {
+        persistCount += 1;
+      },
+    };
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "retry" });
+
+    assert.equal(scheduled.length, 1);
+    assert.equal(persistCount, 1);
   } finally {
     global.setTimeout = originalSetTimeout;
   }
@@ -1092,6 +1140,100 @@ test("restore keeps saved state and schedules retry when the voice channel is tr
   }
 });
 
+test("restore rejoins the saved channel and restarts the same station", async () => {
+  const originalSetTimeout = global.setTimeout;
+  global.setTimeout = (fn, _delay) => {
+    fn();
+    return { unref() {} };
+  };
+
+  try {
+    const channel = {
+      id: "voice-1",
+      name: "Radio",
+      isVoiceBased: () => true,
+    };
+    const guild = {
+      id: "guild-1",
+      name: "Guild One",
+      channels: {
+        cache: new Map([["voice-1", channel]]),
+        fetch: async () => channel,
+      },
+    };
+    const state = {
+      volume: 50,
+      shouldReconnect: false,
+      lastChannelId: null,
+      currentStationKey: null,
+      currentStationName: null,
+      connection: null,
+    };
+    const calls = [];
+    const runtime = {
+      config: { name: "OmniFM Restore", id: "bot-restore-success" },
+      guildState: new Map(),
+      client: {
+        guilds: {
+          cache: new Map([["guild-1", guild]]),
+          fetch: async () => guild,
+        },
+      },
+      getState(passedGuildId) {
+        this.guildState.set(passedGuildId, state);
+        return state;
+      },
+      enforceGuildAccessForGuild: async () => true,
+      resolveGuildLanguage: () => "en",
+      resolveStationForGuild: (_guildId, stationKey) => ({
+        ok: true,
+        key: stationKey,
+        station: { name: "Rock Radio" },
+        stations: { stations: { [stationKey]: { name: "Rock Radio", url: "https://example.com/stream" } } },
+      }),
+      markScheduledEventPlayback(passedState, eventId, stopAtMs) {
+        passedState.activeScheduledEventId = eventId;
+        passedState.activeScheduledEventStopAtMs = stopAtMs;
+      },
+      persistState() {
+        calls.push("persist");
+      },
+      ensureVoiceConnectionForChannel: async (passedGuildId, passedChannelId, passedState) => {
+        calls.push(`ensure:${passedGuildId}:${passedChannelId}`);
+        passedState.connection = { joinConfig: { channelId: passedChannelId } };
+      },
+      playStation: async (passedState, _stations, stationKey, passedGuildId) => {
+        calls.push(`play:${passedGuildId}:${stationKey}`);
+        passedState.currentStationKey = stationKey;
+      },
+    };
+
+    const result = await restoreRuntimeGuildEntry(runtime, "guild-1", {
+      channelId: "voice-1",
+      stationKey: "station-a",
+      volume: 77,
+      scheduledEventId: "event-1",
+      scheduledEventStopAtMs: 12345,
+    });
+
+    assert.deepEqual(result, { ok: true });
+    assert.equal(state.volume, 77);
+    assert.equal(state.shouldReconnect, true);
+    assert.equal(state.lastChannelId, "voice-1");
+    assert.equal(state.currentStationKey, "station-a");
+    assert.equal(state.currentStationName, "Rock Radio");
+    assert.equal(state.activeScheduledEventId, "event-1");
+    assert.equal(state.activeScheduledEventStopAtMs, 12345);
+    assert.deepEqual(calls, [
+      "persist",
+      "ensure:guild-1:voice-1",
+      "play:guild-1:station-a",
+    ]);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
+});
+
 test("restore clears persisted state when Discord reports the guild as permanently unavailable", async (t) => {
   const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
   const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
@@ -1304,6 +1446,135 @@ test("restore clears persisted state only when the saved station is permanently 
   assert.deepEqual(getBotState("bot-missing-station"), {});
 });
 
+test("persistState stores reconnectable guilds even without a live voice connection", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({});
+
+  const runtime = {
+    config: { name: "OmniFM Persist", id: "bot-persist-reconnect" },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "station-a",
+        currentStationName: "Station A",
+        lastChannelId: "voice-7",
+        connection: null,
+        volume: 77,
+        activeScheduledEventId: null,
+        activeScheduledEventStopAtMs: 0,
+      }],
+    ]),
+    lastPersistLoggedPersistableCount: null,
+    lastPersistLoggedActiveCount: null,
+  };
+
+  BotRuntime.prototype.persistState.call(runtime);
+
+  const saved = getBotState("bot-persist-reconnect");
+  assert.equal(saved["guild-1"]?.channelId, "voice-7");
+  assert.equal(saved["guild-1"]?.stationKey, "station-a");
+  assert.equal(saved["guild-1"]?.stationName, "Station A");
+  assert.equal(saved["guild-1"]?.volume, 77);
+});
+
+test("restoreState reconnects the saved radio in the same voice channel", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-restore-cycle": {
+      "guild-1": {
+        channelId: "voice-9",
+        stationKey: "station-a",
+        volume: 64,
+      },
+    },
+  });
+
+  const calls = [];
+  const guild = {
+    id: "guild-1",
+    name: "Guild One",
+    channels: {
+      cache: new Map([
+        ["voice-9", {
+          id: "voice-9",
+          name: "Radio",
+          isVoiceBased: () => true,
+        }],
+      ]),
+      fetch: async () => null,
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Restore", id: "bot-restore-cycle" },
+    guildState: new Map(),
+    pendingRestoreTimers: new Map(),
+    restoreRetryCounts: new Map(),
+    client: {
+      guilds: {
+        cache: new Map([
+          ["guild-1", guild],
+        ]),
+        fetch: async () => guild,
+      },
+    },
+    getState(guildId) {
+      if (!this.guildState.has(guildId)) {
+        this.guildState.set(guildId, {});
+      }
+      return this.guildState.get(guildId);
+    },
+    enforceGuildAccessForGuild: async () => true,
+    resolveGuildLanguage: () => "en",
+    resolveStationForGuild: () => ({
+      ok: true,
+      key: "station-a",
+      station: { name: "Station A" },
+      stations: {
+        stations: {
+          "station-a": { name: "Station A" },
+        },
+      },
+    }),
+    markScheduledEventPlayback() {},
+    ensureVoiceConnectionForChannel: async (guildId, channelId, state) => {
+      calls.push({ type: "connect", guildId, channelId });
+      state.connection = { joinConfig: { channelId } };
+      return {
+        guild,
+        channel: guild.channels.cache.get(channelId),
+      };
+    },
+    playStation: async (state, stations, key, guildId) => {
+      calls.push({ type: "play", guildId, key, stationName: stations?.stations?.[key]?.name || null });
+      state.currentStationKey = key;
+      state.currentStationName = stations?.stations?.[key]?.name || key;
+    },
+  };
+
+  await restoreRuntimeState(runtime, {});
+
+  assert.deepEqual(calls, [
+    { type: "connect", guildId: "guild-1", channelId: "voice-9" },
+    { type: "play", guildId: "guild-1", key: "station-a", stationName: "Station A" },
+  ]);
+  const restoredState = runtime.guildState.get("guild-1");
+  assert.equal(restoredState.lastChannelId, "voice-9");
+  assert.equal(restoredState.currentStationKey, "station-a");
+  assert.equal(restoredState.currentStationName, "Station A");
+  assert.equal(restoredState.volume, 64);
+});
+
 test("worker manager reuses the worker already streaming in the requested channel", () => {
   const workerA = {
     config: { index: 2 },
@@ -1401,6 +1672,37 @@ test("worker manager keeps reconnecting workers reserved for their remembered vo
   assert.equal(manager.findStreamingWorkerByChannel("guild-1", "voice-7"), reconnectingWorker);
   assert.equal(await manager.findConnectedWorkerByChannel("guild-1", "voice-7", "pro"), reconnectingWorker);
   assert.equal(manager.findFreeWorker("guild-1", "pro"), freeWorker);
+});
+
+test("saveBotState keeps reconnectable targets even without an active voice connection", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({});
+  saveBotState("bot-reconnectable", new Map([
+    ["guild-1", {
+      currentStationKey: "station-a",
+      currentStationName: "Station A",
+      lastChannelId: "voice-1",
+      connection: null,
+      volume: 88,
+      activeScheduledEventId: null,
+      activeScheduledEventStopAtMs: 0,
+    }],
+  ]));
+
+  const saved = getBotState("bot-reconnectable");
+  assert.equal(saved["guild-1"]?.channelId, "voice-1");
+  assert.equal(saved["guild-1"]?.stationKey, "station-a");
+  assert.equal(saved["guild-1"]?.stationName, "Station A");
+  assert.equal(saved["guild-1"]?.volume, 88);
+  assert.equal(saved["guild-1"]?.scheduledEventId, null);
+  assert.equal(saved["guild-1"]?.scheduledEventStopAtMs, 0);
+  assert.match(String(saved["guild-1"]?.savedAt || ""), /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test("public bot status omits guild details while dashboard status keeps them", () => {
@@ -1650,6 +1952,7 @@ test("programmatic stop routes through resetVoiceSession so listening sessions a
   const fakeState = { shouldReconnect: true };
   const fakeRuntime = {
     guildState: new Map([["guild-1", fakeState]]),
+    clearRestoreRetry() {},
     resetVoiceSession(guildId, state, options) {
       resetArgs = { guildId, state, options };
     },

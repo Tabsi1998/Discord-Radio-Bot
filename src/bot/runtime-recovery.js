@@ -51,6 +51,21 @@ function getTierConfig(guildId) {
   return { ...config, tier: config.plan };
 }
 
+function hasRecoverableRuntimeState(state) {
+  return Boolean(
+    state?.currentStationKey
+    && state?.lastChannelId
+    && (
+      state?.connection
+      || state?.currentProcess
+      || state?.reconnectTimer
+      || state?.reconnectInFlight
+      || state?.voiceConnectInFlight
+      || state?.shouldReconnect
+    )
+  );
+}
+
 function getTransientVoiceIssues(state) {
   if (!state.transientVoiceIssues || typeof state.transientVoiceIssues !== "object") {
     state.transientVoiceIssues = {};
@@ -120,7 +135,7 @@ function getRuntimeRestoreRetryCounts(runtime) {
   return runtime.restoreRetryCounts;
 }
 
-function clearRuntimeRestoreRetry(runtime, guildId) {
+export function clearRuntimeRestoreRetry(runtime, guildId) {
   const key = String(guildId || "").trim();
   if (!key) return;
   const timers = getRuntimeRestoreTimers(runtime);
@@ -188,6 +203,10 @@ function scheduleRuntimeRestoreRetry(runtime, guildId, data, stations, reason = 
     timers.delete(key);
     restoreRuntimeGuildEntry(runtime, key, data, stations, { source: "restore-retry", reason }).catch((err) => {
       log("ERROR", `[${runtime.config.name}] Restore-Retry fehlgeschlagen fuer Guild ${key}: ${err?.message || err}`);
+      const state = runtime.guildState?.get?.(key);
+      if (state?.shouldReconnect && state?.currentStationKey && state?.lastChannelId) {
+        runtime.scheduleReconnect?.(key, { reason: "restore-retry-error" });
+      }
     });
   }, delay);
   if (typeof timer?.unref === "function") {
@@ -292,6 +311,9 @@ export function resetRuntimeVoiceSession(
   { preservePlaybackTarget = false, clearLastChannel = false } = {}
 ) {
   if (!state) return;
+  if (!preservePlaybackTarget) {
+    clearRuntimeRestoreRetry(runtime, guildId);
+  }
   runtime.clearQueuedVoiceReconcile(guildId);
   clearTransientVoiceIssues(state);
 
@@ -856,6 +878,7 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
 
   state.reconnectCount += 1;
   state.lastReconnectAt = new Date().toISOString();
+  runtime.persistState?.();
 }
 
 export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations, { source = "restore" } = {}) {
@@ -864,7 +887,7 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
   if (
     existingState?.currentStationKey === data.stationKey
     && existingState?.lastChannelId === data.channelId
-    && (existingState.connection || existingState.currentProcess || existingState.reconnectTimer)
+    && hasRecoverableRuntimeState(existingState)
   ) {
     clearRuntimeRestoreRetry(runtime, guildId);
     return { ok: true, skipped: true, reason: "already-active" };
@@ -936,6 +959,7 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
     data.scheduledEventId || null,
     data.scheduledEventStopAtMs || 0
   );
+  runtime.persistState?.();
 
   try {
     await runtime.ensureVoiceConnectionForChannel(guildId, channel.id, state);

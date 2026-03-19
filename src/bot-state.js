@@ -8,6 +8,10 @@ const rootDir = path.resolve(__dirname, "..");
 const STATE_FILE = path.join(rootDir, "bot-state.json");
 const STATE_BACKUP_FILE = `${STATE_FILE}.bak`;
 
+function isPersistableGuildState(state) {
+  return Boolean(state?.currentStationKey && state?.lastChannelId);
+}
+
 function readStateFile(filePath) {
   try {
     if (!fs.existsSync(filePath)) return null;
@@ -70,7 +74,7 @@ function saveBotState(botId, guildStates) {
   const botData = {};
 
   for (const [guildId, state] of guildStates.entries()) {
-    if (!state.currentStationKey || !state.lastChannelId) continue;
+    if (!isPersistableGuildState(state)) continue;
     const scheduledEventStopAtMs = Number.parseInt(String(state.activeScheduledEventStopAtMs || 0), 10);
     botData[guildId] = {
       channelId: state.lastChannelId,
@@ -110,4 +114,4 @@ function clearBotGuild(botId, guildId) {
   }
 }
 
-export { saveBotState, getBotState, clearBotGuild, loadState, saveState };
+export { saveBotState, getBotState, clearBotGuild, isPersistableGuildState, loadState, saveState };

@@ -101,7 +101,7 @@ import {
   normalizeTrackSearchText,
 } from "../services/now-playing.js";
 import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier, buildScopedStationsData } from "../stations-store.js";
-import { saveBotState, clearBotGuild } from "../bot-state.js";
+import { saveBotState, clearBotGuild, isPersistableGuildState } from "../bot-state.js";
 import {
   addCustomStation,
   removeCustomStation,
@@ -258,6 +258,7 @@ import {
 import {
   handleRuntimeBotVoiceStateUpdate,
   resetRuntimeVoiceSession,
+  clearRuntimeRestoreRetry,
   clearQueuedRuntimeVoiceReconcile,
   queueRuntimeVoiceStateReconcile,
   confirmRuntimeBotVoiceChannel,
@@ -2180,6 +2181,10 @@ class BotRuntime {
     return resetRuntimeVoiceSession(this, guildId, state, { preservePlaybackTarget, clearLastChannel });
   }
 
+  clearRestoreRetry(guildId) {
+    return clearRuntimeRestoreRetry(this, guildId);
+  }
+
   clearQueuedVoiceReconcile(guildId) {
     return clearQueuedRuntimeVoiceReconcile(this, guildId);
   }
@@ -3409,6 +3414,7 @@ class BotRuntime {
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
 
+      this.clearRestoreRetry(guildId);
       state.volume = volume;
       state.shouldReconnect = true;
       state.lastChannelId = channelId;
@@ -3487,6 +3493,7 @@ class BotRuntime {
     const state = this.guildState.get(guildId);
     if (!state) return { ok: false, error: "Kein State für diesen Server." };
 
+    this.clearRestoreRetry(guildId);
     state.shouldReconnect = false;
     this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
 
@@ -3657,17 +3664,31 @@ class BotRuntime {
 
   // === State Persistence: Speichert aktuellen Zustand fuer Auto-Reconnect nach Restart ===
   persistState({ forceLog = false } = {}) {
+    const persistableCount = [...this.guildState.entries()].filter(
+      ([_, s]) => isPersistableGuildState(s)
+    ).length;
     const activeCount = [...this.guildState.entries()].filter(
-      ([_, s]) => s.currentStationKey && s.lastChannelId && s.connection
+      ([_, s]) => isPersistableGuildState(s) && s.connection
     ).length;
     saveBotState(this.config.id, this.guildState);
+    const previousPersistableCount = Number.isFinite(this.lastPersistLoggedPersistableCount)
+      ? this.lastPersistLoggedPersistableCount
+      : null;
     const previousActiveCount = Number.isFinite(this.lastPersistLoggedActiveCount)
       ? this.lastPersistLoggedActiveCount
       : null;
-    const shouldLog = forceLog || previousActiveCount === null || previousActiveCount !== activeCount;
+    const shouldLog =
+      forceLog
+      || previousPersistableCount === null
+      || previousPersistableCount !== persistableCount
+      || previousActiveCount !== activeCount;
+    this.lastPersistLoggedPersistableCount = persistableCount;
     this.lastPersistLoggedActiveCount = activeCount;
-    if (shouldLog && (activeCount > 0 || (previousActiveCount || 0) > 0)) {
-      log("INFO", `[${this.config.name}] State gespeichert (${activeCount} aktive Verbindung(en)).`);
+    if (shouldLog && (persistableCount > 0 || (previousPersistableCount || 0) > 0)) {
+      log(
+        "INFO",
+        `[${this.config.name}] State gespeichert (${persistableCount} Wiederherstellungsziel(e), ${activeCount} aktive Verbindung(en)).`
+      );
     }
   }
 
