@@ -23,6 +23,10 @@ function expectIncludes(text, needle, label) {
   assert.equal(text.includes(needle), true, label ?? `Expected to find ${needle}`);
 }
 
+function expectMatches(text, pattern, label) {
+  assert.match(text, pattern, label);
+}
+
 test("github automation files and docs stay in sync", async () => {
   const requiredFiles = [
     ".github/workflows/ci.yml",
@@ -45,7 +49,7 @@ test("github automation files and docs stay in sync", async () => {
   expectIncludes(ci, "concurrency:", "ci concurrency missing");
   expectIncludes(ci, "workflow_dispatch:", "ci workflow_dispatch missing");
   expectIncludes(ci, "node-version: [22, 24]", "ci matrix missing Node 22/24");
-  expectIncludes(ci, "actions/upload-artifact@v6", "ci artifact upload missing");
+  expectMatches(ci, /actions\/upload-artifact@v\d+/, "ci artifact upload missing");
   expectIncludes(ci, "mongo-smoke:", "ci mongo smoke job missing");
   expectIncludes(ci, "frontend-build:", "ci frontend job missing");
   expectIncludes(ci, "docker-build:", "ci docker job missing");
@@ -54,6 +58,7 @@ test("github automation files and docs stay in sync", async () => {
   expectIncludes(nightly, "schedule:", "nightly schedule missing");
   expectIncludes(nightly, "workflow_dispatch:", "nightly dispatch missing");
   expectIncludes(nightly, "node-version: [22, 24]", "nightly matrix missing Node 22/24");
+  expectMatches(nightly, /actions\/upload-artifact@v\d+/, "nightly artifact upload missing");
   expectIncludes(nightly, "recovery-focus:", "nightly recovery job missing");
 
   const codeql = await readText(".github/workflows/codeql.yml");
