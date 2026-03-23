@@ -133,6 +133,7 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
   state.lastChannelId = channel.id;
   if (previousChannelId && previousChannelId !== channel.id) {
     runtime.markNowPlayingTargetDirty(state, channel.id);
+    runtime.invalidateVoiceStatus?.(state);
   }
 
   if (state.connection) {

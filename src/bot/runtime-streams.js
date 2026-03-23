@@ -65,6 +65,16 @@ function resolveStreamRestartReason({
   return String(reason || "restart");
 }
 
+function getStreamRestartErrorMessage(err) {
+  return String(err?.message || err || "unknown").trim() || "unknown";
+}
+
+function isRecoverableStreamRestartError(err) {
+  const text = getStreamRestartErrorMessage(err).toLowerCase();
+  if (isLikelyNetworkFailureLine(text)) return true;
+  return /stream konnte nicht geladen werden:\s*(408|425|429|5\d\d)\b/i.test(text);
+}
+
 export function clearRuntimeCurrentProcess(runtime, state) {
   if (state.currentProcess) {
     try {
@@ -409,8 +419,13 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
     await runtime.playStation(state, resolvedStation.stations, resolvedStation.key, guildId);
     log("INFO", `[${runtime.config.name}] Stream restarted: ${resolvedStation.key}`);
   } catch (err) {
+    const errorMessage = getStreamRestartErrorMessage(err);
+    const recoverableRestartError = isRecoverableStreamRestartError(errorMessage);
     state.lastStreamErrorAt = new Date().toISOString();
-    log("ERROR", `[${runtime.config.name}] Auto-restart error for ${key}: ${err.message}`);
+    if (recoverableRestartError) {
+      networkRecoveryCoordinator.noteFailure(`${runtime.config.name} auto-restart`, `guild=${guildId} station=${key}: ${errorMessage}`);
+    }
+    log(recoverableRestartError ? "WARN" : "ERROR", `[${runtime.config.name}] Auto-restart error for ${key}: ${errorMessage}`);
 
     const isCustomStation = runtime.normalizeStationReference(key).isCustom;
     const automaticFallbackKey = !isCustomStation ? getFallbackKey(resolvedStation.stations, resolvedStation.key) : null;
@@ -447,12 +462,44 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
         log("INFO", `[${runtime.config.name}] Failover to ${fallbackStation.key} after restart failure`);
         return;
       } catch (fallbackErr) {
-        log("ERROR", `[${runtime.config.name}] Failover candidate ${fallbackCandidate} failed: ${fallbackErr.message}`);
+        const fallbackMessage = getStreamRestartErrorMessage(fallbackErr);
+        const recoverableFallbackError = isRecoverableStreamRestartError(fallbackMessage);
+        if (recoverableFallbackError) {
+          networkRecoveryCoordinator.noteFailure(
+            `${runtime.config.name} failover-restart`,
+            `guild=${guildId} station=${fallbackCandidate}: ${fallbackMessage}`
+          );
+        }
+        log(
+          recoverableFallbackError ? "WARN" : "ERROR",
+          `[${runtime.config.name}] Failover candidate ${fallbackCandidate} failed: ${fallbackMessage}`
+        );
       }
     }
 
     if (fallbackCandidates.length > 0) {
-      log("ERROR", `[${runtime.config.name}] Exhausted failover chain after restart failure`);
+      log(recoverableRestartError ? "WARN" : "ERROR", `[${runtime.config.name}] Exhausted failover chain after restart failure`);
+    }
+
+    const retryDelay = Math.max(STREAM_RESTART_BASE_MS, networkRecoveryCoordinator.getRecoveryDelayMs());
+    if (state.connection) {
+      log(
+        "INFO",
+        `[${runtime.config.name}] Stream-Retry nach Restart-Fehler fuer ${resolvedStation.key} in ${Math.round(retryDelay)}ms`
+      );
+      runtime.scheduleStreamRestart(guildId, state, retryDelay, "restart-error");
+      return;
+    }
+
+    if (state.lastChannelId) {
+      log(
+        "INFO",
+        `[${runtime.config.name}] Voice-Reconnect nach Restart-Fehler fuer guild=${guildId} wird geplant.`
+      );
+      runtime.scheduleReconnect?.(guildId, {
+        resetAttempts: recoverableRestartError,
+        reason: "restart-error",
+      });
     }
   }
 }

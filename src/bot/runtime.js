@@ -296,6 +296,7 @@ const VOICE_CHANNEL_STATUS_TEMPLATE =
   String(process.env.VOICE_CHANNEL_STATUS_TEMPLATE || "\uD83D\uDD0A | 24/7 {station}").trim()
   || "\uD83D\uDD0A | 24/7 {station}";
 const VOICE_CHANNEL_STATUS_MAX_LENGTH = Math.max(1, Math.min(100, toPositiveInt(process.env.VOICE_CHANNEL_STATUS_MAX_LENGTH, 80)));
+const VOICE_CHANNEL_STATUS_REFRESH_MS = Math.max(60_000, toPositiveInt(process.env.VOICE_CHANNEL_STATUS_REFRESH_MS, 15 * 60_000));
 const ONBOARDING_MESSAGE_ENABLED = String(process.env.ONBOARDING_MESSAGE_ENABLED ?? "1") !== "0";
 const LISTENER_STATS_POLL_MS = Math.max(15_000, toPositiveInt(process.env.LISTENER_STATS_POLL_MS, 30_000));
 const PREMIUM_GUILD_ACCESS_MODE = String(process.env.PREMIUM_GUILD_ACCESS_MODE || "restrict").trim().toLowerCase() === "leave"
@@ -451,6 +452,9 @@ class BotRuntime {
         nowPlayingSignature: null,
         nowPlayingLastErrorAt: 0,
         voiceStatusText: "",
+        voiceStatusChannelId: "",
+        voiceStatusNeedsSync: false,
+        lastVoiceStatusSyncAt: 0,
         lastVoiceStatusErrorAt: 0,
         activeScheduledEventId: null,
         activeScheduledEventStopAtMs: 0,
@@ -509,6 +513,9 @@ class BotRuntime {
     if (!guildId) return;
     this.clearQueuedVoiceReconcile(guildId);
     const state = this.guildState.get(guildId);
+    if (state) {
+      this.invalidateVoiceStatus(state, { clearText: true });
+    }
     this.syncVoiceChannelStatus(guildId, "").catch(() => null);
     if (state) {
       state.shouldReconnect = false;
@@ -2101,23 +2108,48 @@ class BotRuntime {
     return clipText(raw, VOICE_CHANNEL_STATUS_MAX_LENGTH);
   }
 
-  async syncVoiceChannelStatus(guildId, stationName = "") {
+  invalidateVoiceStatus(state, { clearText = false } = {}) {
+    if (!state) return;
+    state.voiceStatusNeedsSync = true;
+    state.voiceStatusChannelId = "";
+    state.lastVoiceStatusSyncAt = 0;
+    state.lastVoiceStatusErrorAt = 0;
+    if (clearText) {
+      state.voiceStatusText = "";
+    }
+  }
+
+  shouldRefreshVoiceStatus(state, desired, channelId, { force = false } = {}) {
+    if (!state) return false;
+    if (force) return true;
+    if (state.voiceStatusNeedsSync) return true;
+    if (String(state.voiceStatusChannelId || "") !== String(channelId || "").trim()) return true;
+    if (String(state.voiceStatusText || "") !== String(desired || "")) return true;
+    if (!desired) return false;
+    const lastSyncAt = Number(state.lastVoiceStatusSyncAt || 0);
+    return !lastSyncAt || (Date.now() - lastSyncAt) >= VOICE_CHANNEL_STATUS_REFRESH_MS;
+  }
+
+  async syncVoiceChannelStatus(guildId, stationName = "", { force = false } = {}) {
     if (!VOICE_CHANNEL_STATUS_ENABLED) return;
     const state = this.guildState.get(guildId);
     if (!state) return;
 
     const channelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
     if (!/^\d{17,22}$/.test(channelId)) return;
+    const desired = stationName ? this.renderVoiceStatusText(stationName) : "";
+    if (!this.shouldRefreshVoiceStatus(state, desired, channelId, { force })) return;
     const guild = this.client.guilds.cache.get(guildId) || null;
     const channel = (guild?.channels?.cache?.get(channelId))
       || await guild?.channels?.fetch?.(channelId).catch(() => null)
       || null;
     if (!channel || channel.type !== ChannelType.GuildVoice) {
       state.voiceStatusText = "";
+      state.voiceStatusChannelId = "";
+      state.voiceStatusNeedsSync = false;
+      state.lastVoiceStatusSyncAt = 0;
       return;
     }
-    const desired = stationName ? this.renderVoiceStatusText(stationName) : "";
-    if (desired === String(state.voiceStatusText || "")) return;
 
     try {
       const route = `/channels/${channelId}/voice-status`;
@@ -2131,9 +2163,13 @@ class BotRuntime {
         }
       }
       state.voiceStatusText = desired;
+      state.voiceStatusChannelId = desired ? channelId : "";
+      state.voiceStatusNeedsSync = false;
+      state.lastVoiceStatusSyncAt = Date.now();
       state.lastVoiceStatusErrorAt = 0;
     } catch (err) {
       const now = Date.now();
+      state.voiceStatusNeedsSync = true;
       if (!state.lastVoiceStatusErrorAt || now - state.lastVoiceStatusErrorAt > 60_000) {
         log("WARN", `[${this.config.name}] Voice-Status konnte nicht gesetzt werden (guild=${guildId}): ${err?.message || err}`);
       }
@@ -3707,6 +3743,7 @@ class BotRuntime {
     const sessionStopPromises = [];
 
     for (const [guildId, state] of this.guildState.entries()) {
+      this.invalidateVoiceStatus(state, { clearText: true });
       this.syncVoiceChannelStatus(guildId, "").catch(() => null);
       // End all active listening sessions on shutdown
       if (state.currentStationKey) {

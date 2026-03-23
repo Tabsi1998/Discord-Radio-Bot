@@ -1502,6 +1502,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       }
 
       state.shouldReconnect = false;
+      runtime.invalidateVoiceStatus?.(state, { clearText: true });
       runtime.syncVoiceChannelStatus(guildId, "").catch(() => null);
       runtime.clearNowPlayingTimer(state);
       state.player.stop();

@@ -285,14 +285,28 @@ function isLikelyNetworkFailureLine(line) {
   const text = String(line || "").trim().toLowerCase();
   if (!text) return false;
 
-  if (text.includes("failed to resolve hostname")) return true;
-  if (text.includes("temporary failure in name resolution")) return true;
-  if (text.includes("name or service not known")) return true;
-  if (text.includes("network is unreachable")) return true;
-  if (text.includes("no route to host")) return true;
-  if (text.includes("could not resolve host")) return true;
+  const patterns = [
+    "failed to resolve hostname",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "network is unreachable",
+    "no route to host",
+    "could not resolve host",
+    "host konnte nicht aufgelöst werden",
+    "host konnte nicht aufgeloest werden",
+    "getaddrinfo",
+    "enotfound",
+    "eai_again",
+    "econnreset",
+    "connection reset",
+    "socket closed",
+    "cannot perform ip discovery",
+    "unexpected server response: 522",
+    "timed out",
+    "timeout",
+  ];
 
-  return false;
+  return patterns.some((pattern) => text.includes(pattern));
 }
 
 // ---- Bitrate ----

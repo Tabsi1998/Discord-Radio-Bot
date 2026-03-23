@@ -9,6 +9,7 @@ import {
 import { log } from "../lib/logging.js";
 import {
   applyJitter,
+  isLikelyNetworkFailureLine,
   waitMs,
   VOICE_RECONNECT_MAX_MS,
   VOICE_RECONNECT_EXP_STEPS,
@@ -64,6 +65,19 @@ function hasRecoverableRuntimeState(state) {
       || state?.shouldReconnect
     )
   );
+}
+
+function getRuntimeErrorMessage(err) {
+  return String(err?.message || err || "unknown").trim() || "unknown";
+}
+
+function isRecoverableVoiceConnectionError(err) {
+  return isLikelyNetworkFailureLine(getRuntimeErrorMessage(err));
+}
+
+function shouldLogRecurringTransientIssue(issue) {
+  const count = Number(issue?.count || 0);
+  return count === 1 || (count % 5) === 0;
 }
 
 function getTransientVoiceIssues(state) {
@@ -259,6 +273,7 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
     state.voiceDisconnectObservedAt = 0;
     if (state.lastChannelId !== newChannelId) {
       runtime.markNowPlayingTargetDirty(state, newChannelId);
+      runtime.invalidateVoiceStatus?.(state);
     }
     state.lastChannelId = newChannelId;
     if (state.reconnectTimer) {
@@ -266,6 +281,9 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
       state.reconnectAttempts = 0;
     }
     runtime.persistState();
+    if (state.currentStationKey) {
+      runtime.syncVoiceChannelStatus(guildId, state.currentStationName || state.currentStationKey).catch(() => null);
+    }
     runtime.queueVoiceStateReconcile(guildId, "voice-state-update", 1500);
     return;
   }
@@ -275,6 +293,7 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
   const shouldAutoReconnect = Boolean(state.shouldReconnect && state.currentStationKey && state.lastChannelId);
 
   if (shouldAutoReconnect) {
+    runtime.invalidateVoiceStatus?.(state);
     state.voiceDisconnectObservedAt = state.voiceDisconnectObservedAt || Date.now();
     const issue = noteTransientVoiceIssue(
       state,
@@ -316,6 +335,7 @@ export function resetRuntimeVoiceSession(
   }
   runtime.clearQueuedVoiceReconcile(guildId);
   clearTransientVoiceIssues(state);
+  runtime.invalidateVoiceStatus?.(state, { clearText: true });
 
   if (!preservePlaybackTarget && state.currentStationKey) {
     recordStationStop(guildId, { botId: runtime.config.id || "" });
@@ -534,6 +554,9 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
   if (state.currentStationKey && state.player.state.status === AudioPlayerStatus.Idle && !state.streamRestartTimer && !state.reconnectTimer) {
     runtime.scheduleStreamRestart(guildId, state, 750, `voice-health-${reason}`);
   }
+  if (state.currentStationKey) {
+    runtime.syncVoiceChannelStatus(guildId, state.currentStationName || state.currentStationKey).catch(() => null);
+  }
 }
 
 export async function tickRuntimeVoiceStateHealth(runtime) {
@@ -576,6 +599,7 @@ export function attachRuntimeConnectionHandlers(runtime, guildId, connection) {
   const markDisconnected = () => {
     if (state.connection === connection) {
       state.connection = null;
+      runtime.invalidateVoiceStatus?.(state);
     }
   };
 
@@ -613,16 +637,21 @@ export function attachRuntimeConnectionHandlers(runtime, guildId, connection) {
   });
 
   connection.on("error", (err) => {
-    log("ERROR", `[${runtime.config.name}] VoiceConnection error: ${err?.message || err}`);
+    const errorMessage = getRuntimeErrorMessage(err);
+    const recoverableNetworkError = isRecoverableVoiceConnectionError(errorMessage);
+    if (recoverableNetworkError) {
+      networkRecoveryCoordinator.noteFailure(`${runtime.config.name} voice-error`, `guild=${guildId}: ${errorMessage}`);
+    }
+    log(recoverableNetworkError ? "WARN" : "ERROR", `[${runtime.config.name}] VoiceConnection error: ${errorMessage}`);
     recordConnectionEvent(guildId, {
       botId: runtime.config.id || "",
       eventType: "error",
       channelId: state.lastChannelId || "",
-      details: String(err?.message || err).slice(0, 200),
+      details: errorMessage.slice(0, 200),
     });
     markDisconnected();
     if (!state.shouldReconnect) return;
-    runtime.scheduleReconnect(guildId, { reason: "voice-error" });
+    runtime.scheduleReconnect(guildId, { reason: recoverableNetworkError ? "voice-network-error" : "voice-error" });
   });
 }
 
@@ -646,33 +675,61 @@ export async function tryRuntimeReconnect(runtime, guildId) {
       return;
     }
 
-    const guild = runtime.client.guilds.cache.get(guildId) || await runtime.client.guilds.fetch(guildId).catch(() => null);
+    const { guild, error: guildError } = await fetchRestoreGuild(runtime, guildId);
     if (!guild) {
-      const issue = noteTransientVoiceIssue(state, "reconnect-guild-missing", guildId);
-      if (issue.count < VOICE_RECONNECT_RESOURCE_CONFIRMATIONS) {
-        log(
-          "WARN",
-          `[${runtime.config.name}] Reconnect kann Guild noch nicht aufloesen guild=${guildId} (${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}) - retry folgt.`
-        );
+      if (isPermanentRestoreResourceError(guildError, "guild")) {
+        clearTransientVoiceIssue(state, "reconnect-guild-missing");
+        log("INFO", `[${runtime.config.name}] Reconnect-Ziel Guild ${guildId} ist nicht mehr verfuegbar. Verwerfe Playback-Target.`);
+        runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
         return;
       }
-      clearTransientVoiceIssue(state, "reconnect-guild-missing");
-      runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+      const issue = noteTransientVoiceIssue(
+        state,
+        "reconnect-guild-missing",
+        `${guildId}:${getRuntimeErrorMessage(guildError)}`
+      );
+      if (shouldLogRecurringTransientIssue(issue)) {
+        log(
+          "WARN",
+          `[${runtime.config.name}] Reconnect kann Guild noch nicht aufloesen guild=${guildId} ` +
+          `(${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}, detail=${getRuntimeErrorMessage(guildError)}) - retry folgt.`
+        );
+      }
       return;
     }
     clearTransientVoiceIssue(state, "reconnect-guild-missing");
 
-    const channel = guild.channels.cache.get(state.lastChannelId) || await guild.channels.fetch(state.lastChannelId).catch(() => null);
-    if (!channel || !channel.isVoiceBased()) {
-      const issue = noteTransientVoiceIssue(state, "reconnect-channel-missing", `${guildId}:${state.lastChannelId || "-"}`);
-      if (issue.count < VOICE_RECONNECT_RESOURCE_CONFIRMATIONS) {
+    const { channel, error: channelError } = await fetchRestoreChannel(guild, state.lastChannelId);
+    if (!channel) {
+      if (isPermanentRestoreResourceError(channelError, "channel")) {
+        clearTransientVoiceIssue(state, "reconnect-channel-missing");
         log(
-          "WARN",
-          `[${runtime.config.name}] Reconnect abgebrochen: Voice-Channel fehlt guild=${guildId} channel=${state.lastChannelId || "-"} (${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}) - retry folgt.`
+          "INFO",
+          `[${runtime.config.name}] Reconnect-Ziel Channel ${state.lastChannelId || "-"} in guild=${guildId} existiert nicht mehr. Verwerfe Playback-Target.`
         );
+        runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
         return;
       }
+      const issue = noteTransientVoiceIssue(
+        state,
+        "reconnect-channel-missing",
+        `${guildId}:${state.lastChannelId || "-"}:${getRuntimeErrorMessage(channelError)}`
+      );
+      if (shouldLogRecurringTransientIssue(issue)) {
+        log(
+          "WARN",
+          `[${runtime.config.name}] Reconnect abgebrochen: Voice-Channel fehlt guild=${guildId} channel=${state.lastChannelId || "-"} ` +
+          `(${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}, detail=${getRuntimeErrorMessage(channelError)}) - retry folgt.`
+        );
+      }
+      return;
+    }
+    if (!channel.isVoiceBased()) {
       clearTransientVoiceIssue(state, "reconnect-channel-missing");
+      log(
+        "INFO",
+        `[${runtime.config.name}] Reconnect-Ziel Channel ${state.lastChannelId || "-"} in guild=${guildId} ist kein Voice-/Stage-Channel mehr. Verwerfe Playback-Target.`
+      );
       runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
       return;
     }
@@ -681,16 +738,22 @@ export async function tryRuntimeReconnect(runtime, guildId) {
     const me = await runtime.resolveBotMember(guild);
     const perms = me ? channel.permissionsFor(me) : null;
     if (!me || !perms?.has(PermissionFlagsBits.Connect) || (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak))) {
-      const issue = noteTransientVoiceIssue(state, "reconnect-permissions-missing", `${guildId}:${channel.id}`);
-      if (issue.count < VOICE_RECONNECT_RESOURCE_CONFIRMATIONS) {
+      const missingBits = [];
+      if (!me) missingBits.push("member-unresolved");
+      if (!perms?.has(PermissionFlagsBits.Connect)) missingBits.push("connect");
+      if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) missingBits.push("speak");
+      const issue = noteTransientVoiceIssue(
+        state,
+        "reconnect-permissions-missing",
+        `${guildId}:${channel.id}:${missingBits.join(",") || "unknown"}`
+      );
+      if (shouldLogRecurringTransientIssue(issue)) {
         log(
           "WARN",
-          `[${runtime.config.name}] Reconnect abgebrochen: Rechte fehlen guild=${guildId} channel=${channel.id} (${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}) - retry folgt.`
+          `[${runtime.config.name}] Reconnect abgebrochen: Rechte/Bot-Member fehlen guild=${guildId} channel=${channel.id} ` +
+          `(${issue.count}/${VOICE_RECONNECT_RESOURCE_CONFIRMATIONS}, detail=${missingBits.join(",") || "unknown"}) - retry folgt.`
         );
-        return;
       }
-      clearTransientVoiceIssue(state, "reconnect-permissions-missing");
-      runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
       return;
     }
     clearTransientVoiceIssue(state, "reconnect-permissions-missing");
@@ -767,6 +830,8 @@ export async function tryRuntimeReconnect(runtime, guildId) {
     connection.subscribe(state.player);
     clearTransientVoiceIssues(state);
     state.reconnectAttempts = 0;
+    state.reconnectCircuitTripCount = 0;
+    state.reconnectCircuitOpenUntil = 0;
     state.lastReconnectAt = new Date().toISOString();
     state.voiceDisconnectObservedAt = 0;
     runtime.clearReconnectTimer(state);
@@ -824,6 +889,8 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   }
   if (options.resetAttempts) {
     state.reconnectAttempts = 0;
+    state.reconnectCircuitTripCount = 0;
+    state.reconnectCircuitOpenUntil = 0;
   }
   if (state.reconnectTimer || state.reconnectInFlight || state.voiceConnectInFlight) return;
 
@@ -843,13 +910,20 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
 
   const reason = String(options.reason || "auto");
   if (attempt > VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS) {
+    const circuitTripCount = Number(state.reconnectCircuitTripCount || 0) + 1;
+    const circuitMultiplier = Math.min(4, Math.pow(2, Math.max(0, circuitTripCount - 1)));
     state.reconnectAttempts = 0;
-    delay = Math.max(delay, VOICE_RECONNECT_CIRCUIT_BREAKER_MS);
-    logLevel = "ERROR";
+    state.reconnectCircuitTripCount = circuitTripCount;
+    delay = Math.max(delay, VOICE_RECONNECT_CIRCUIT_BREAKER_MS * circuitMultiplier);
+    state.reconnectCircuitOpenUntil = Date.now() + delay;
+    logLevel = "WARN";
     logMessage =
       `[${runtime.config.name}] Reconnect-Circuit aktiv fuer guild=${guildId}: ` +
-      `${attempt - 1} Fehlversuche erreicht. Pausiere weitere Retries fuer ${Math.round(delay)}ms (reason=${reason}).`;
-    eventDetails = `attempt>${VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS} reason=${reason} circuit=open`;
+      `${attempt - 1} Fehlversuche erreicht. Pausiere weitere Retries fuer ${Math.round(delay)}ms ` +
+      `(reason=${reason}, trip=${circuitTripCount}).`;
+    eventDetails =
+      `attempt>${VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS} reason=${reason} ` +
+      `circuit=open trip=${circuitTripCount}`;
   } else {
     state.reconnectAttempts = attempt;
     delay = applyJitter(delay, 0.2);

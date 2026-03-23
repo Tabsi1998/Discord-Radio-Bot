@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { ActivityType } from "discord.js";
+import { ActivityType, ChannelType } from "discord.js";
 
 import {
   calculatePrice,
@@ -16,6 +16,7 @@ import { WorkerManager } from "../src/bot/worker-manager.js";
 import { BotRuntime } from "../src/bot/runtime.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import {
+  attachRuntimeConnectionHandlers,
   fetchRuntimeBotVoiceState,
   handleRuntimeBotVoiceStateUpdate,
   reconcileRuntimeGuildVoiceState,
@@ -25,6 +26,7 @@ import {
   tryRuntimeReconnect,
 } from "../src/bot/runtime-recovery.js";
 import { armRuntimePlaybackRecovery } from "../src/bot/runtime-streams.js";
+import { restartRuntimeCurrentStation } from "../src/bot/runtime-streams.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import {
@@ -484,6 +486,51 @@ test("reconnect circuit breaker pauses retries after too many failed attempts", 
   }
 });
 
+test("recoverable voice connection errors stay on reconnect flow", () => {
+  const originalNoteFailure = networkRecoveryCoordinator.noteFailure;
+  const notedFailures = [];
+  networkRecoveryCoordinator.noteFailure = (source, detail) => {
+    notedFailures.push({ source, detail });
+  };
+
+  try {
+    const handlers = new Map();
+    const connection = {
+      on(event, handler) {
+        handlers.set(String(event), handler);
+      },
+    };
+    const scheduled = [];
+    const state = {
+      connection,
+      shouldReconnect: true,
+      currentStationKey: "station-a",
+      lastChannelId: "voice-1",
+    };
+    const runtime = {
+      config: { name: "OmniFM 6", id: "bot-6" },
+      getState() {
+        return state;
+      },
+      scheduleReconnect(guildId, options = {}) {
+        scheduled.push({ guildId, options });
+      },
+    };
+
+    attachRuntimeConnectionHandlers(runtime, "guild-1", connection);
+    handlers.get("error")(new Error("Unexpected server response: 522"));
+
+    assert.equal(state.connection, null);
+    assert.deepEqual(scheduled, [{
+      guildId: "guild-1",
+      options: { reason: "voice-network-error" },
+    }]);
+    assert.equal(notedFailures.length, 1);
+  } finally {
+    networkRecoveryCoordinator.noteFailure = originalNoteFailure;
+  }
+});
+
 test("scheduleReconnect persists a recoverable playback target for restart restore", () => {
   const originalSetTimeout = global.setTimeout;
   const scheduled = [];
@@ -529,6 +576,47 @@ test("scheduleReconnect persists a recoverable playback target for restart resto
   } finally {
     global.setTimeout = originalSetTimeout;
   }
+});
+
+test("syncVoiceChannelStatus reapplies the status after reconnect invalidation", async () => {
+  let putCalls = 0;
+  const runtime = Object.create(BotRuntime.prototype);
+  runtime.config = { name: "OmniFM Status" };
+  runtime.client = {
+    guilds: {
+      cache: new Map([["guild-1", {
+        channels: {
+          cache: new Map([["123456789012345678", {
+            id: "123456789012345678",
+            type: ChannelType.GuildVoice,
+          }]]),
+          fetch: async () => null,
+        },
+      }]]),
+    },
+  };
+  runtime.rest = {
+    put: async () => {
+      putCalls += 1;
+    },
+    delete: async () => {},
+  };
+  const state = {
+    connection: { joinConfig: { channelId: "123456789012345678" } },
+    lastChannelId: "123456789012345678",
+    voiceStatusText: BotRuntime.prototype.renderVoiceStatusText.call(runtime, "Station A"),
+    voiceStatusChannelId: "123456789012345678",
+    voiceStatusNeedsSync: true,
+    lastVoiceStatusSyncAt: Date.now(),
+    lastVoiceStatusErrorAt: 0,
+  };
+  runtime.guildState = new Map([["guild-1", state]]);
+
+  await BotRuntime.prototype.syncVoiceChannelStatus.call(runtime, "guild-1", "Station A");
+
+  assert.equal(putCalls, 1);
+  assert.equal(state.voiceStatusNeedsSync, false);
+  assert.equal(state.voiceStatusChannelId, "123456789012345678");
 });
 
 test("scheduleReconnect skips when a connect or reconnect is already in flight", () => {
@@ -850,6 +938,46 @@ test("voice reconcile waits while a connect or reconnect is already in flight", 
   assert.equal(queued[0].reason, "voice-op-inflight-timer");
 });
 
+test("voice reconcile refreshes voice channel status for active playback", async () => {
+  let syncCount = 0;
+  const state = {
+    connection: { joinConfig: { channelId: "voice-1" } },
+    currentStationKey: "station-a",
+    currentStationName: "Station A",
+    currentProcess: { pid: 1 },
+    lastChannelId: "voice-1",
+    shouldReconnect: true,
+    player: { state: { status: "playing" } },
+    transientVoiceIssues: {},
+    voiceConnectInFlight: false,
+    reconnectInFlight: false,
+    reconnectTimer: null,
+    streamRestartTimer: null,
+  };
+  const runtime = {
+    config: { name: "OmniFM Test" },
+    client: {
+      isReady: () => true,
+    },
+    guildState: new Map([["guild-1", state]]),
+    fetchBotVoiceState: async () => ({ guild: {}, voiceState: {}, channelId: "voice-1" }),
+    syncVoiceChannelStatus() {
+      syncCount += 1;
+      return Promise.resolve();
+    },
+    scheduleReconnect() {
+      throw new Error("scheduleReconnect should not run");
+    },
+    scheduleStreamRestart() {
+      throw new Error("scheduleStreamRestart should not run");
+    },
+  };
+
+  await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+
+  assert.equal(syncCount, 1);
+});
+
 test("tryReconnect tolerates transient missing channels before clearing playback target", async () => {
   let resetCount = 0;
   const state = {
@@ -894,7 +1022,105 @@ test("tryReconnect tolerates transient missing channels before clearing playback
   assert.equal(state.transientVoiceIssues["reconnect-channel-missing"].count, 2);
 
   await tryRuntimeReconnect(runtime, "guild-1");
+  assert.equal(resetCount, 0);
+  assert.equal(state.transientVoiceIssues["reconnect-channel-missing"].count, 3);
+});
+
+test("tryReconnect clears playback target when Discord confirms a deleted reconnect channel", async () => {
+  let resetCount = 0;
+  const state = {
+    shouldReconnect: true,
+    lastChannelId: "voice-1",
+    currentStationKey: "station-a",
+    activeScheduledEventStopAtMs: 0,
+    reconnectAttempts: 0,
+    reconnectTimer: null,
+    transientVoiceIssues: {},
+    connection: null,
+  };
+  const guild = {
+    channels: {
+      cache: new Map(),
+      fetch: async () => {
+        const err = new Error("Unknown Channel");
+        err.code = 10003;
+        throw err;
+      },
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Recover" },
+    getState() {
+      return state;
+    },
+    isScheduledEventStopDue() {
+      return false;
+    },
+    client: {
+      guilds: {
+        cache: new Map([["guild-1", guild]]),
+        fetch: async () => guild,
+      },
+    },
+    resolveBotMember: async () => ({ id: "bot" }),
+    resetVoiceSession() {
+      resetCount += 1;
+    },
+  };
+
+  await tryRuntimeReconnect(runtime, "guild-1");
   assert.equal(resetCount, 1);
+});
+
+test("tryReconnect keeps playback target while bot member or permissions are transiently unavailable", async () => {
+  let resetCount = 0;
+  const state = {
+    shouldReconnect: true,
+    lastChannelId: "voice-1",
+    currentStationKey: "station-a",
+    activeScheduledEventStopAtMs: 0,
+    reconnectAttempts: 0,
+    reconnectTimer: null,
+    transientVoiceIssues: {},
+    connection: null,
+  };
+  const guild = {
+    channels: {
+      cache: new Map([["voice-1", {
+        id: "voice-1",
+        isVoiceBased: () => true,
+        type: 2,
+        permissionsFor: () => ({ has: () => false }),
+      }]]),
+      fetch: async () => null,
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Recover" },
+    getState() {
+      return state;
+    },
+    isScheduledEventStopDue() {
+      return false;
+    },
+    client: {
+      guilds: {
+        cache: new Map([["guild-1", guild]]),
+        fetch: async () => guild,
+      },
+    },
+    resolveBotMember: async () => ({ id: "bot" }),
+    resetVoiceSession() {
+      resetCount += 1;
+    },
+  };
+
+  await tryRuntimeReconnect(runtime, "guild-1");
+  await tryRuntimeReconnect(runtime, "guild-1");
+  await tryRuntimeReconnect(runtime, "guild-1");
+
+  assert.equal(resetCount, 0);
+  assert.equal(state.transientVoiceIssues["reconnect-permissions-missing"].count, 3);
 });
 
 test("voice reconcile keeps the reconnect target until a channel mismatch is confirmed", async () => {
@@ -1573,6 +1799,71 @@ test("restoreState reconnects the saved radio in the same voice channel", async 
   assert.equal(restoredState.currentStationKey, "station-a");
   assert.equal(restoredState.currentStationName, "Station A");
   assert.equal(restoredState.volume, 64);
+});
+
+test("restartCurrentStation retries after transient restart failures", async () => {
+  const originalNoteFailure = networkRecoveryCoordinator.noteFailure;
+  const originalGetRecoveryDelayMs = networkRecoveryCoordinator.getRecoveryDelayMs;
+  const notedFailures = [];
+  networkRecoveryCoordinator.noteFailure = (source, detail) => {
+    notedFailures.push({ source, detail });
+  };
+  networkRecoveryCoordinator.getRecoveryDelayMs = () => 12_345;
+
+  try {
+    let scheduled = null;
+    const state = {
+      shouldReconnect: true,
+      currentStationKey: "station-a",
+      currentStationName: "Station A",
+      connection: { joinConfig: { channelId: "voice-1" } },
+      lastChannelId: "voice-1",
+      activeScheduledEventStopAtMs: 0,
+    };
+    const runtime = {
+      config: { name: "OmniFM Test" },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      getResolvedCurrentStation() {
+        return {
+          key: "station-a",
+          station: { name: "Station A" },
+          stations: {
+            stations: {
+              "station-a": { name: "Station A" },
+            },
+          },
+        };
+      },
+      clearCurrentProcess() {},
+      playStation() {
+        throw new Error("Host konnte nicht aufgelöst werden.");
+      },
+      normalizeStationReference() {
+        return { isCustom: false };
+      },
+      resolveStationForGuild() {
+        return null;
+      },
+      scheduleStreamRestart(guildId, passedState, delayMs, reason) {
+        scheduled = { guildId, passedState, delayMs, reason };
+      },
+    };
+
+    await restartRuntimeCurrentStation(runtime, state, "guild-1");
+
+    assert.equal(notedFailures.length, 1);
+    assert.deepEqual(scheduled, {
+      guildId: "guild-1",
+      passedState: state,
+      delayMs: 12_345,
+      reason: "restart-error",
+    });
+  } finally {
+    networkRecoveryCoordinator.noteFailure = originalNoteFailure;
+    networkRecoveryCoordinator.getRecoveryDelayMs = originalGetRecoveryDelayMs;
+  }
 });
 
 test("worker manager reuses the worker already streaming in the requested channel", () => {
