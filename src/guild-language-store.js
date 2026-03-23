@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getDefaultLanguage, normalizeLanguage } from "./i18n.js";
-import { log } from "./lib/logging.js";
+import { log, logStoreLoadError } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE_FILE = path.resolve(__dirname, "..", "guild-languages.json");
@@ -46,7 +46,7 @@ function readState(filePath) {
     if (!raw) return emptyState();
     return normalizeState(JSON.parse(raw));
   } catch (err) {
-    log("ERROR", `[guild-languages] Load error (${filePath}): ${err?.message || err}`);
+    logStoreLoadError("guild-languages", filePath, err);
     return null;
   }
 }

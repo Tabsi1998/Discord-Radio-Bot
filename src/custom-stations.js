@@ -3,7 +3,7 @@ import path from "node:path";
 import net from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { fileURLToPath } from "node:url";
-import { log } from "./lib/logging.js";
+import { log, logStoreLoadError } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CUSTOM_FILE = path.resolve(__dirname, "..", "custom-stations.json");
@@ -71,7 +71,7 @@ function load() {
         return data;
       }
     } catch (err) {
-      log("ERROR", `[custom-stations] Load error (${filePath}): ${err.message}`);
+      logStoreLoadError("custom-stations", filePath, err);
     }
   }
   return {};

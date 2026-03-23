@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getDb } from "./lib/db.js";
-import { log } from "./lib/logging.js";
+import { log, logStoreLoadError } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const stationsPath = path.resolve(__dirname, "..", "stations.json");
@@ -71,7 +71,10 @@ function loadStationsFromFile() {
     if (fs.statSync(stationsPath).isDirectory()) return emptyStationsData();
     const raw = fs.readFileSync(stationsPath, "utf8");
     return normalizeStationsData(JSON.parse(raw));
-  } catch { return emptyStationsData(); }
+  } catch (err) {
+    logStoreLoadError("stations", stationsPath, err);
+    return emptyStationsData();
+  }
 }
 
 export function loadStations() {

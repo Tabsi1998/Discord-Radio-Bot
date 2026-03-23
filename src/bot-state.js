@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { log } from "./lib/logging.js";
+import { log, logStoreLoadError } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -23,7 +23,7 @@ function readStateFile(filePath) {
     if (!raw || raw.trim().length === 0) return {};
     return JSON.parse(raw);
   } catch (err) {
-    log("ERROR", `[bot-state] Fehler beim Laden von ${filePath}: ${err?.message || err}`);
+    logStoreLoadError("bot-state", filePath, err);
     return null;
   }
 }

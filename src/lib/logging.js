@@ -65,10 +65,15 @@ const maxRotatedLogDays = Math.max(
   1,
   Number.parseInt(String(process.env.LOG_MAX_DAYS || "14"), 10) || 14
 );
+const repeatedLogCooldownMs = Math.max(
+  1_000,
+  Number.parseInt(String(process.env.LOG_REPEAT_COOLDOWN_MS || "300000"), 10) || 300000
+);
 
 let logWriteQueue = Promise.resolve();
 const lastLogRotateCheckAt = new Map();
 const lastLogPruneCheckAt = new Map();
+const repeatedLogState = new Map();
 const logTargets = [
   { filePath: logFile, rotatedPrefix: "bot" },
   { filePath: errorLogFile, rotatedPrefix: "error" },
@@ -172,6 +177,35 @@ function log(level, message) {
   queueLogWrite(lines, { includeErrorLog: level === "ERROR" });
 }
 
+function logWithCooldown(level, key, message, cooldownMs = repeatedLogCooldownMs) {
+  const normalizedMessage = String(message ?? "");
+  const normalizedKey = String(key || "").trim();
+  if (!normalizedKey || cooldownMs <= 0) {
+    log(level, normalizedMessage);
+    return true;
+  }
+
+  const now = Date.now();
+  const previous = repeatedLogState.get(normalizedKey);
+  if (previous && previous.message === normalizedMessage && (now - previous.loggedAt) < cooldownMs) {
+    return false;
+  }
+
+  repeatedLogState.set(normalizedKey, {
+    message: normalizedMessage,
+    loggedAt: now,
+  });
+  log(level, normalizedMessage);
+  return true;
+}
+
+function logStoreLoadError(storeKey, filePath, err, cooldownMs = repeatedLogCooldownMs) {
+  const label = String(storeKey || "store").trim() || "store";
+  const resolvedPath = String(filePath || "").trim();
+  const message = `[${label}] Load error (${resolvedPath}): ${err?.message || err}`;
+  return logWithCooldown("ERROR", `store-load:${label}:${resolvedPath}`, message, cooldownMs);
+}
+
 function shouldLogFfmpegStderrLine(line) {
   const text = String(line || "").trim();
   if (!text) return false;
@@ -205,10 +239,17 @@ function getLogWriteQueue() {
   return logWriteQueue;
 }
 
+function resetLogCooldownStateForTests() {
+  repeatedLogState.clear();
+}
+
 export {
   log,
+  logWithCooldown,
+  logStoreLoadError,
   shouldLogFfmpegStderrLine,
   getLogWriteQueue,
+  resetLogCooldownStateForTests,
   rootDir,
   webDir,
   webRootSource,

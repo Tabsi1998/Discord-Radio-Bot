@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLANS } from "./config/plans.js";
 import { getDefaultLanguage, normalizeLanguage } from "./i18n.js";
-import { log } from "./lib/logging.js";
+import { log, logStoreLoadError } from "./lib/logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const premiumFile = path.resolve(__dirname, "..", "premium.json");
@@ -37,7 +37,10 @@ function readFileSafe(filePath) {
     const raw = fs.readFileSync(filePath, "utf-8").trim();
     if (!raw) return emptyStore();
     return JSON.parse(raw);
-  } catch { return null; }
+  } catch (err) {
+    logStoreLoadError("premium", filePath, err);
+    return null;
+  }
 }
 
 function load() {
