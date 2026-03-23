@@ -29,6 +29,13 @@ updates:
       day: monday
       time: "05:30"
     open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "react"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "react-dom"
+        update-types:
+          - "version-update:semver-major"
     labels:
       - dependencies
       - frontend

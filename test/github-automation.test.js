@@ -84,6 +84,9 @@ test("github automation files and docs stay in sync", async () => {
   const dependabot = await readText(".github/dependabot.yml");
   expectIncludes(dependabot, "package-ecosystem: github-actions", "dependabot actions config missing");
   expectIncludes(dependabot, "directory: /frontend", "dependabot frontend config missing");
+  expectIncludes(dependabot, "dependency-name: \"react\"", "dependabot React major ignore missing");
+  expectIncludes(dependabot, "dependency-name: \"react-dom\"", "dependabot ReactDOM major ignore missing");
+  expectIncludes(dependabot, "version-update:semver-major", "dependabot major-version ignore policy missing");
 
   const codeowners = await readText(".github/CODEOWNERS");
   expectIncludes(codeowners, "* @Tabsi1998", "CODEOWNERS default owner missing");

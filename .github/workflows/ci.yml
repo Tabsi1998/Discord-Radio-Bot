@@ -167,16 +167,14 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
-
-      - name: Build frontend
+      - name: Install and build frontend
         shell: bash
         run: |
           set -o pipefail
           mkdir -p ../test_reports/ci
-          npm run build 2>&1 | tee ../test_reports/ci/frontend-build.log
+          : > ../test_reports/ci/frontend-build.log
+          npm ci 2>&1 | tee -a ../test_reports/ci/frontend-build.log
+          npm run build 2>&1 | tee -a ../test_reports/ci/frontend-build.log
         working-directory: frontend
 
       - name: Upload frontend build log
