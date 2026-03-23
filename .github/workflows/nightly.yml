@@ -1,63 +1,28 @@
-name: ci
+name: nightly-regression
 
 on:
-  push:
-    branches:
-      - main
-      - master
-  pull_request:
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      run_docker:
+        description: Build the Docker image during this run
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: nightly-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  syntax:
-    name: syntax (node ${{ matrix.node-version }})
+  regression:
+    name: regression (node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22, 24]
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
-
-      - name: Install root dependencies
-        run: npm ci
-
-      - name: Run syntax checks
-        shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p test_reports/ci
-          npm run test:syntax 2>&1 | tee test_reports/ci/syntax-node${{ matrix.node-version }}.log
-
-      - name: Upload syntax logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: syntax-node${{ matrix.node-version }}-logs
-          path: test_reports/ci/syntax-node${{ matrix.node-version }}.log
-          if-no-files-found: error
-          retention-days: 14
-
-  unit:
-    name: unit (node ${{ matrix.node-version }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -90,26 +55,26 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Run unit tests
+      - name: Run full regression suite
         shell: bash
         run: |
           set -o pipefail
           mkdir -p test_reports/ci
-          npm run test:unit 2>&1 | tee test_reports/ci/unit-node${{ matrix.node-version }}.log
+          npm test 2>&1 | tee test_reports/ci/nightly-regression-node${{ matrix.node-version }}.log
 
-      - name: Upload unit logs
+      - name: Upload nightly regression logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-node${{ matrix.node-version }}-logs
-          path: test_reports/ci/unit-node${{ matrix.node-version }}.log
+          name: nightly-regression-node${{ matrix.node-version }}-logs
+          path: test_reports/ci/nightly-regression-node${{ matrix.node-version }}.log
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 21
 
-  mongo-smoke:
-    name: mongo smoke
+  recovery-focus:
+    name: recovery-focus
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     services:
       mongo:
         image: mongo:7
@@ -138,24 +103,24 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Run Mongo smoke test
+      - name: Run recovery-focused tests
         shell: bash
         run: |
           set -o pipefail
           mkdir -p test_reports/ci
-          node --input-type=module -e "const db = await import('./src/lib/db.js'); await db.connect(); if (!db.getDb()) throw new Error('Mongo connection failed'); await db.close();" 2>&1 | tee test_reports/ci/mongo-smoke.log
+          node --test test/pricing-and-runtime.test.js test/web-server-dashboard.test.js test/weekly-digest.test.js 2>&1 | tee test_reports/ci/nightly-recovery-focus.log
 
-      - name: Upload Mongo smoke log
+      - name: Upload recovery-focused logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mongo-smoke-log
-          path: test_reports/ci/mongo-smoke.log
+          name: nightly-recovery-focus-log
+          path: test_reports/ci/nightly-recovery-focus.log
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 21
 
   frontend-build:
-    name: frontend build
+    name: nightly frontend build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -176,20 +141,21 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p test_reports/ci
-          npm run build 2>&1 | tee ../test_reports/ci/frontend-build.log
+          npm run build 2>&1 | tee ../test_reports/ci/nightly-frontend-build.log
         working-directory: frontend
 
-      - name: Upload frontend build log
+      - name: Upload nightly frontend build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-build-log
-          path: test_reports/ci/frontend-build.log
+          name: nightly-frontend-build-log
+          path: test_reports/ci/nightly-frontend-build.log
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 21
 
   docker-build:
-    name: docker build
+    name: nightly docker build
+    if: ${{ github.event_name == 'schedule' || inputs.run_docker }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -200,13 +166,13 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p test_reports/ci
-          docker build -t omnifm-ci . 2>&1 | tee test_reports/ci/docker-build.log
+          docker build -t omnifm-nightly . 2>&1 | tee test_reports/ci/nightly-docker-build.log
 
-      - name: Upload docker build log
+      - name: Upload nightly docker build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: docker-build-log
-          path: test_reports/ci/docker-build.log
+          name: nightly-docker-build-log
+          path: test_reports/ci/nightly-docker-build.log
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 21

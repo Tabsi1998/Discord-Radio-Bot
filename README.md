@@ -359,6 +359,7 @@ If the Docker build fails while installing Chromaprint, inspect the build log di
 | --- | --- |
 | `VOICE_CHANNEL_STATUS_ENABLED` | Updates channel status where supported |
 | `VOICE_CHANNEL_STATUS_TEMPLATE` | Template for the voice channel status |
+| `VOICE_CHANNEL_STATUS_REFRESH_MS` | Minimum delay before reapplying the voice channel status |
 | `VOICE_STATE_RECONCILE_ENABLED` | Enables periodic voice reconciliation |
 | `VOICE_STATE_RECONCILE_MS` | Voice reconciliation interval |
 | `STREAM_RESTART_BASE_MS` | Base stream restart delay |
@@ -637,6 +638,25 @@ Frontend production build:
 npm --prefix frontend install
 npm --prefix frontend run build
 ```
+
+## GitHub Automation
+
+The repository ships with GitHub Actions for:
+
+- CI on push, pull request, and manual dispatch
+- nightly regression checks
+- dependency review on pull requests
+- CodeQL analysis
+- Dependabot updates for GitHub Actions and npm packages
+
+Recommended required checks for `main`:
+
+- `ci`
+- `dependency-review`
+- `codeql`
+
+Keep the nightly workflow as scheduled monitoring rather than a required merge gate.
+It is intended to catch long-running reconnect, voice status, and restore regressions without blocking normal pull requests.
 
 ## Local development
 

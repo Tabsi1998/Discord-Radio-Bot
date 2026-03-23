@@ -1,0 +1,15 @@
+# Default owner
+* @Tabsi1998
+
+# Automation and release safety
+/.github/ @Tabsi1998
+
+# Core runtime and API
+/src/ @Tabsi1998
+
+# Frontend
+/frontend/ @Tabsi1998
+
+# Operational scripts
+/install.sh @Tabsi1998
+/update.sh @Tabsi1998
