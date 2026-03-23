@@ -1,6 +1,7 @@
 # escape=\
 
-FROM node:22-slim AS frontend-builder
+# Keep the frontend builder aligned with the frontend CI/npm toolchain.
+FROM node:24-slim AS frontend-builder
 
 WORKDIR /frontend
 

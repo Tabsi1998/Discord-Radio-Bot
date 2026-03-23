@@ -61,6 +61,10 @@ test("github automation files and docs stay in sync", async () => {
   expectMatches(nightly, /actions\/upload-artifact@v\d+/, "nightly artifact upload missing");
   expectIncludes(nightly, "recovery-focus:", "nightly recovery job missing");
 
+  const dockerfile = await readText("Dockerfile");
+  expectIncludes(dockerfile, "FROM node:24-slim AS frontend-builder", "Docker frontend builder must stay on Node 24");
+  expectIncludes(dockerfile, "FROM node:22-slim", "Docker runtime image missing");
+
   const codeql = await readText(".github/workflows/codeql.yml");
   expectIncludes(codeql, "workflow_dispatch:", "codeql workflow_dispatch missing");
   expectIncludes(codeql, "schedule:", "codeql schedule missing");
