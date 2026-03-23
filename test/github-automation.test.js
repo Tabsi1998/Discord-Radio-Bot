@@ -59,13 +59,18 @@ test("github automation files and docs stay in sync", async () => {
   const codeql = await readText(".github/workflows/codeql.yml");
   expectIncludes(codeql, "workflow_dispatch:", "codeql workflow_dispatch missing");
   expectIncludes(codeql, "schedule:", "codeql schedule missing");
+  expectIncludes(codeql, "code-scanning/alerts", "codeql preflight missing");
+  expectIncludes(codeql, "Code scanning unavailable", "codeql skip notice missing");
   expectIncludes(codeql, "github/codeql-action/init@v4", "codeql init missing");
   expectIncludes(codeql, "github/codeql-action/analyze@v4", "codeql analyze missing");
 
   const dependencyReview = await readText(".github/workflows/dependency-review.yml");
-  expectIncludes(dependencyReview, "dependency-graph/sbom", "dependency review preflight missing");
-  expectIncludes(dependencyReview, "Dependency review unavailable", "dependency review skip notice missing");
-  expectIncludes(dependencyReview, "actions/dependency-review-action@v4", "dependency review action missing");
+  expectIncludes(dependencyReview, "Dependency review disabled", "dependency review disabled notice missing");
+  assert.equal(
+    dependencyReview.includes("actions/dependency-review-action@v4"),
+    false,
+    "dependency review action should not run on this repo"
+  );
 
   const dependabot = await readText(".github/dependabot.yml");
   expectIncludes(dependabot, "package-ecosystem: github-actions", "dependabot actions config missing");
@@ -89,7 +94,6 @@ test("github automation files and docs stay in sync", async () => {
   expectIncludes(readme, "## GitHub Automation", "README GitHub automation section missing");
   expectIncludes(readme, "Recommended required checks for `main`", "README required checks note missing");
   expectIncludes(readme, "`ci`", "README required ci check missing");
-  expectIncludes(readme, "`dependency-review`", "README dependency review check missing");
   expectIncludes(readme, "`codeql`", "README codeql check missing");
   expectIncludes(readme, "VOICE_CHANNEL_STATUS_REFRESH_MS", "README voice channel refresh setting missing");
 

@@ -30,7 +30,42 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Check code scanning support
+        id: support
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api_url="https://api.github.com/repos/${{ github.repository }}/code-scanning/alerts?per_page=1"
+          status="$(curl -sS -L -o codeql-support.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$api_url")"
+
+          case "$status" in
+            200)
+              echo "supported=true" >> "$GITHUB_OUTPUT"
+              ;;
+            403|404|422)
+              echo "supported=false" >> "$GITHUB_OUTPUT"
+              echo "http_status=$status" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error title=CodeQL preflight failed::Unexpected GitHub API status $status while checking code scanning support."
+              cat codeql-support.json || true
+              exit 1
+              ;;
+          esac
+
+      - name: Code scanning unavailable
+        if: steps.support.outputs.supported != 'true'
+        run: |
+          echo "::notice title=CodeQL skipped::GitHub code scanning is not available for this repository (HTTP ${{ steps.support.outputs.http_status }}). Enable code scanning or GitHub Advanced Security if you want this check enforced."
+
       - uses: actions/setup-node@v5
+        if: steps.support.outputs.supported == 'true'
         with:
           node-version: 24
           cache: npm
@@ -39,19 +74,24 @@ jobs:
             frontend/package-lock.json
 
       - uses: github/codeql-action/init@v4
+        if: steps.support.outputs.supported == 'true'
         with:
           languages: javascript-typescript
 
       - name: Install root dependencies
+        if: steps.support.outputs.supported == 'true'
         run: npm ci
 
       - name: Install frontend dependencies
+        if: steps.support.outputs.supported == 'true'
         run: npm ci
         working-directory: frontend
 
       - name: Run syntax checks
+        if: steps.support.outputs.supported == 'true'
         run: npm run test:syntax
 
       - uses: github/codeql-action/analyze@v4
+        if: steps.support.outputs.supported == 'true'
         with:
           category: "/language:javascript-typescript"

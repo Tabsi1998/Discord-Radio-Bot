@@ -645,18 +645,17 @@ The repository ships with GitHub Actions for:
 
 - CI on push, pull request, and manual dispatch
 - nightly regression checks
-- dependency review on pull requests
-- CodeQL analysis
+- CodeQL analysis where the repository has code scanning enabled
 - Dependabot updates for GitHub Actions and npm packages
 
 Recommended required checks for `main`:
 
 - `ci`
-- `dependency-review`
 - `codeql`
 
 Keep the nightly workflow as scheduled monitoring rather than a required merge gate.
 It is intended to catch long-running reconnect, voice status, and restore regressions without blocking normal pull requests.
+For private repositories without GitHub Advanced Security, do not require `dependency-review`.
 
 ## Local development
 
