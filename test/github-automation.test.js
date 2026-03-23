@@ -45,7 +45,7 @@ test("github automation files and docs stay in sync", async () => {
   expectIncludes(ci, "concurrency:", "ci concurrency missing");
   expectIncludes(ci, "workflow_dispatch:", "ci workflow_dispatch missing");
   expectIncludes(ci, "node-version: [22, 24]", "ci matrix missing Node 22/24");
-  expectIncludes(ci, "actions/upload-artifact@v4", "ci artifact upload missing");
+  expectIncludes(ci, "actions/upload-artifact@v6", "ci artifact upload missing");
   expectIncludes(ci, "mongo-smoke:", "ci mongo smoke job missing");
   expectIncludes(ci, "frontend-build:", "ci frontend job missing");
   expectIncludes(ci, "docker-build:", "ci docker job missing");
@@ -63,6 +63,8 @@ test("github automation files and docs stay in sync", async () => {
   expectIncludes(codeql, "github/codeql-action/analyze@v4", "codeql analyze missing");
 
   const dependencyReview = await readText(".github/workflows/dependency-review.yml");
+  expectIncludes(dependencyReview, "dependency-graph/sbom", "dependency review preflight missing");
+  expectIncludes(dependencyReview, "Dependency review unavailable", "dependency review skip notice missing");
   expectIncludes(dependencyReview, "actions/dependency-review-action@v4", "dependency review action missing");
 
   const dependabot = await readText(".github/dependabot.yml");

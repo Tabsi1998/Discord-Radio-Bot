@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload nightly regression logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nightly-regression-node${{ matrix.node-version }}-logs
           path: test_reports/ci/nightly-regression-node${{ matrix.node-version }}.log
@@ -112,7 +112,7 @@ jobs:
 
       - name: Upload recovery-focused logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nightly-recovery-focus-log
           path: test_reports/ci/nightly-recovery-focus.log
@@ -140,13 +140,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mkdir -p test_reports/ci
+          mkdir -p ../test_reports/ci
           npm run build 2>&1 | tee ../test_reports/ci/nightly-frontend-build.log
         working-directory: frontend
 
       - name: Upload nightly frontend build log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nightly-frontend-build-log
           path: test_reports/ci/nightly-frontend-build.log
@@ -170,7 +170,7 @@ jobs:
 
       - name: Upload nightly docker build log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nightly-docker-build-log
           path: test_reports/ci/nightly-docker-build.log

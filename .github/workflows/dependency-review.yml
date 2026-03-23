@@ -21,4 +21,40 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+
+      - name: Check dependency review support
+        id: support
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api_url="https://api.github.com/repos/${{ github.repository }}/dependency-graph/sbom"
+          status="$(curl -sS -L -o dependency-review-support.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$api_url")"
+
+          case "$status" in
+            200)
+              echo "supported=true" >> "$GITHUB_OUTPUT"
+              ;;
+            403|404|422)
+              echo "supported=false" >> "$GITHUB_OUTPUT"
+              echo "http_status=$status" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error title=Dependency review preflight failed::Unexpected GitHub API status $status while checking dependency review support."
+              cat dependency-review-support.json || true
+              exit 1
+              ;;
+          esac
+
+      - name: Dependency review unavailable
+        if: steps.support.outputs.supported != 'true'
+        run: |
+          echo "::notice title=Dependency review skipped::GitHub dependency review is not available for this repository (HTTP ${{ steps.support.outputs.http_status }}). Enable the required GitHub security features if you want this check enforced."
+
       - uses: actions/dependency-review-action@v4
+        if: steps.support.outputs.supported == 'true'

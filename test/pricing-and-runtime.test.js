@@ -12,6 +12,7 @@ import {
   isWithinWorkerPlanLimit,
 } from "../src/lib/helpers.js";
 import { buildCommandsJson } from "../src/commands.js";
+import { networkRecoveryCoordinator } from "../src/core/network-recovery.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { BotRuntime } from "../src/bot/runtime.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
@@ -1817,10 +1818,14 @@ test("restartCurrentStation retries after transient restart failures", async () 
   const originalNoteFailure = networkRecoveryCoordinator.noteFailure;
   const originalGetRecoveryDelayMs = networkRecoveryCoordinator.getRecoveryDelayMs;
   const notedFailures = [];
+  let recoveryDelayCalls = 0;
   networkRecoveryCoordinator.noteFailure = (source, detail) => {
     notedFailures.push({ source, detail });
   };
-  networkRecoveryCoordinator.getRecoveryDelayMs = () => 12_345;
+  networkRecoveryCoordinator.getRecoveryDelayMs = () => {
+    recoveryDelayCalls += 1;
+    return recoveryDelayCalls === 1 ? 0 : 12_345;
+  };
 
   try {
     let scheduled = null;
