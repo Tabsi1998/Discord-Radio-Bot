@@ -729,6 +729,9 @@ test("voice reconcile waits for confirmation before tearing down an active sessi
     scheduleStreamRestart() {
       throw new Error("scheduleStreamRestart should not run");
     },
+    syncVoiceChannelStatus() {
+      return Promise.resolve();
+    },
   };
 
   await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
@@ -927,6 +930,9 @@ test("voice reconcile waits while a connect or reconnect is already in flight", 
     },
     scheduleStreamRestart() {
       throw new Error("scheduleStreamRestart should not run");
+    },
+    syncVoiceChannelStatus() {
+      return Promise.resolve();
     },
   };
 
@@ -1162,6 +1168,9 @@ test("voice reconcile keeps the reconnect target until a channel mismatch is con
     scheduleStreamRestart() {
       throw new Error("scheduleStreamRestart should not run");
     },
+    syncVoiceChannelStatus() {
+      return Promise.resolve();
+    },
   };
 
   await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
@@ -1208,6 +1217,9 @@ test("voice reconcile syncs the remembered channel when active connection and vo
     },
     scheduleStreamRestart() {
       throw new Error("scheduleStreamRestart should not run");
+    },
+    syncVoiceChannelStatus() {
+      return Promise.resolve();
     },
   };
 
