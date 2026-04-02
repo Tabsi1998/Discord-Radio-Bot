@@ -60,6 +60,7 @@ import {
 import { resolveRequestLanguage } from "../lib/request-language.js";
 import {
   EVENT_FALLBACK_TIME_ZONE,
+  buildEventDateTimeFromParts,
   getZonedPartsFromUtcMs,
   normalizeEventTimeZone,
   normalizeRepeatMode,
@@ -2677,6 +2678,38 @@ async function normalizeDashboardEventInput(body, {
       timeZone: timezone,
       durationMs,
       endAtMs: durationMs > 0 ? parsedRunAtMs + durationMs : 0,
+    };
+  } else if (startInput.mode === "local") {
+    const now = Date.now();
+    const parsedStart = buildEventDateTimeFromParts({
+      rawDateTime: startInput.value,
+      language,
+      preferredTimeZone: timezone,
+      fallbackRunAtMs: existingEvent?.runAtMs || now,
+      nowMs: now,
+    });
+    if (!parsedStart?.ok) {
+      return {
+        ok: false,
+        message: parsedStart?.message || languagePick(language, "Startzeit ist ungÃ¼ltig.", "Start time is invalid."),
+      };
+    }
+
+    let runAtMs = Number.parseInt(String(parsedStart.runAtMs || 0), 10);
+    const resolvedTimeZone = parsedStart.timeZone || timezone;
+    let endAtMs = durationMs > 0 ? runAtMs + durationMs : 0;
+
+    if (!createDiscordEvent && runAtMs <= (now + 60_000) && runAtMs >= (now - 60_000)) {
+      runAtMs = now;
+      endAtMs = durationMs > 0 ? runAtMs + durationMs : 0;
+    }
+
+    parsedWindow = {
+      ok: true,
+      runAtMs,
+      timeZone: resolvedTimeZone,
+      durationMs,
+      endAtMs,
     };
   } else {
     parsedWindow = runtime.parseEventWindowInput({
