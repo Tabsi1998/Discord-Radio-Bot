@@ -15,6 +15,7 @@ import { buildCommandsJson } from "../src/commands.js";
 import { networkRecoveryCoordinator } from "../src/core/network-recovery.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { BotRuntime } from "../src/bot/runtime.js";
+import { WorkerBridgeService } from "../src/bot/worker-bridge-service.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import {
   attachRuntimeConnectionHandlers,
@@ -1515,7 +1516,10 @@ test("restore clears persisted state when Discord reports the guild as permanent
   assert.equal(result.ok, false);
   assert.equal(result.permanent, true);
   assert.equal(result.resource, "guild");
-  assert.deepEqual(getBotState("bot-permanent-guild"), {});
+  assert.equal(getBotState("bot-permanent-guild")["guild-1"]?.volume, 100);
+  assert.equal(getBotState("bot-permanent-guild")["guild-1"]?.volumePreference, true);
+  assert.equal(getBotState("bot-permanent-guild")["guild-1"]?.stationKey, undefined);
+  assert.equal(getBotState("bot-permanent-guild")["guild-1"]?.channelId, undefined);
 });
 
 test("restore clears persisted state when Discord reports the voice channel as deleted", async (t) => {
@@ -1569,7 +1573,10 @@ test("restore clears persisted state when Discord reports the voice channel as d
   assert.equal(result.ok, false);
   assert.equal(result.permanent, true);
   assert.equal(result.resource, "channel");
-  assert.deepEqual(getBotState("bot-permanent-channel"), {});
+  assert.equal(getBotState("bot-permanent-channel")["guild-1"]?.volume, 100);
+  assert.equal(getBotState("bot-permanent-channel")["guild-1"]?.volumePreference, true);
+  assert.equal(getBotState("bot-permanent-channel")["guild-1"]?.stationKey, undefined);
+  assert.equal(getBotState("bot-permanent-channel")["guild-1"]?.channelId, undefined);
 });
 
 test("restore clears persisted state when the saved channel is no longer a voice channel", async (t) => {
@@ -1623,7 +1630,10 @@ test("restore clears persisted state when the saved channel is no longer a voice
   assert.equal(result.ok, false);
   assert.equal(result.permanent, true);
   assert.equal(result.resource, "channel-type");
-  assert.deepEqual(getBotState("bot-channel-type"), {});
+  assert.equal(getBotState("bot-channel-type")["guild-1"]?.volume, 100);
+  assert.equal(getBotState("bot-channel-type")["guild-1"]?.volumePreference, true);
+  assert.equal(getBotState("bot-channel-type")["guild-1"]?.stationKey, undefined);
+  assert.equal(getBotState("bot-channel-type")["guild-1"]?.channelId, undefined);
 });
 
 test("restore clears persisted state only when the saved station is permanently missing", async (t) => {
@@ -1682,7 +1692,10 @@ test("restore clears persisted state only when the saved station is permanently 
   assert.equal(result.ok, false);
   assert.equal(result.permanent, true);
   assert.equal(result.resource, "station");
-  assert.deepEqual(getBotState("bot-missing-station"), {});
+  assert.equal(getBotState("bot-missing-station")["guild-1"]?.volume, 100);
+  assert.equal(getBotState("bot-missing-station")["guild-1"]?.volumePreference, true);
+  assert.equal(getBotState("bot-missing-station")["guild-1"]?.stationKey, undefined);
+  assert.equal(getBotState("bot-missing-station")["guild-1"]?.channelId, undefined);
 });
 
 test("persistState stores reconnectable guilds even without a live voice connection", async (t) => {
@@ -1719,6 +1732,205 @@ test("persistState stores reconnectable guilds even without a live voice connect
   assert.equal(saved["guild-1"]?.stationKey, "station-a");
   assert.equal(saved["guild-1"]?.stationName, "Station A");
   assert.equal(saved["guild-1"]?.volume, 77);
+});
+
+test("setVolumeInGuild persists a worker volume preference even without active playback", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({});
+
+  const runtime = {
+    config: { id: "bot-volume-pref", name: "OmniFM Volume" },
+    guildState: new Map(),
+    getState: BotRuntime.prototype.getState,
+    persistState: BotRuntime.prototype.persistState,
+    lastPersistLoggedPersistableCount: null,
+    lastPersistLoggedActiveCount: null,
+  };
+
+  const result = BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 37);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.appliedLive, false);
+  assert.equal(result.value, 37);
+
+  const saved = getBotState("bot-volume-pref");
+  assert.equal(saved["guild-1"]?.volume, 37);
+  assert.equal(saved["guild-1"]?.volumePreference, true);
+  assert.equal(saved["guild-1"]?.stationKey, undefined);
+  assert.equal(saved["guild-1"]?.channelId, undefined);
+});
+
+test("playInGuild reuses the stored guild volume when no explicit volume is provided", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-play-volume": {
+      "guild-1": {
+        volume: 41,
+        volumePreference: true,
+        savedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  const observed = [];
+  const guild = {
+    id: "guild-1",
+    voiceAdapterCreator: () => ({}),
+  };
+  const runtime = {
+    config: { id: "bot-play-volume", name: "OmniFM Worker" },
+    guildState: new Map(),
+    client: {
+      guilds: {
+        cache: new Map([["guild-1", guild]]),
+      },
+    },
+    getState: BotRuntime.prototype.getState,
+    clearRestoreRetry() {},
+    markScheduledEventPlayback() {},
+    clearScheduledEventPlayback() {},
+    ensureVoiceConnectionForChannel: async (_guildId, channelId, state) => {
+      state.connection = { joinConfig: { channelId } };
+      return {
+        guild,
+        channel: {
+          id: channelId,
+          type: ChannelType.GuildVoice,
+        },
+      };
+    },
+    playStation: async (state) => {
+      observed.push(state.volume);
+      state.currentStationKey = "station-a";
+      state.currentStationName = "Station A";
+    },
+    ensureStageChannelReady: async () => {},
+    updatePresence() {},
+    scheduleReconnect() {},
+    armPlaybackRecovery() {
+      return { scheduled: false };
+    },
+    resetVoiceSession() {},
+  };
+
+  const result = await BotRuntime.prototype.playInGuild.call(
+    runtime,
+    "guild-1",
+    "voice-1",
+    "station-a",
+    {
+      stations: {
+        "station-a": { name: "Station A" },
+      },
+    },
+    undefined
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(observed, [41]);
+  assert.equal(runtime.guildState.get("guild-1")?.volume, 41);
+  assert.equal(runtime.guildState.get("guild-1")?.volumePreferenceSet, true);
+});
+
+test("restoreRuntimeState skips volume-only entries without trying to reconnect", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-volume-only": {
+      "guild-1": {
+        volume: 55,
+        volumePreference: true,
+        savedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  const runtime = {
+    config: { id: "bot-volume-only", name: "OmniFM Restore" },
+    guildState: new Map(),
+    ensureVoiceConnectionForChannel: async () => {
+      throw new Error("restore should not connect for volume-only entries");
+    },
+    playStation: async () => {
+      throw new Error("restore should not play for volume-only entries");
+    },
+  };
+
+  await restoreRuntimeState(runtime, {});
+
+  assert.equal(runtime.guildState.size, 0);
+});
+
+test("worker bridge keeps mute volume and omitted play volume intact", async () => {
+  const calls = [];
+  const service = new WorkerBridgeService({
+    config: { id: "bot-bridge", name: "OmniFM Bridge" },
+    setVolumeInGuild(guildId, value) {
+      calls.push({ type: "setVolume", guildId, value });
+      return { ok: true };
+    },
+    playInGuild(guildId, channelId, stationKey, stationsData, volume, options) {
+      calls.push({
+        type: "play",
+        guildId,
+        channelId,
+        stationKey,
+        stationsData,
+        volume,
+        options,
+      });
+      return { ok: true };
+    },
+  });
+
+  await service.executeCommand({
+    type: "setVolume",
+    payload: {
+      guildId: "guild-1",
+      value: 0,
+    },
+  });
+
+  await service.executeCommand({
+    type: "play",
+    payload: {
+      guildId: "guild-1",
+      channelId: "voice-1",
+      stationKey: "station-a",
+      stationsData: { stations: {} },
+      options: { test: true },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    { type: "setVolume", guildId: "guild-1", value: 0 },
+    {
+      type: "play",
+      guildId: "guild-1",
+      channelId: "voice-1",
+      stationKey: "station-a",
+      stationsData: { stations: {} },
+      volume: undefined,
+      options: { test: true },
+    },
+  ]);
 });
 
 test("restoreState reconnects the saved radio in the same voice channel", async (t) => {

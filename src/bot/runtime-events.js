@@ -745,7 +745,7 @@ export async function executeScheduledEvent(runtime, event) {
         event.voiceChannelId,
         stationResult.key,
         stationResult.stations,
-        worker.getState(event.guildId).volume || 100,
+        undefined,
         {
           stageTopic,
           guildScheduledEventId: event.discordScheduledEventId || null,

@@ -101,7 +101,12 @@ import {
   normalizeTrackSearchText,
 } from "../services/now-playing.js";
 import { loadStations, normalizeKey, resolveStation, getFallbackKey, filterStationsByTier, buildScopedStationsData } from "../stations-store.js";
-import { saveBotState, clearBotGuild, isPersistableGuildState } from "../bot-state.js";
+import {
+  saveBotState,
+  clearBotGuild,
+  isPersistableGuildState,
+  getBotGuildVolume,
+} from "../bot-state.js";
 import {
   addCustomStation,
   removeCustomStation,
@@ -417,6 +422,7 @@ class BotRuntime {
 
   getState(guildId) {
     if (!this.guildState.has(guildId)) {
+      const savedVolume = getBotGuildVolume(this.config.id, guildId);
       const player = createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Play }
       });
@@ -427,7 +433,8 @@ class BotRuntime {
         currentStationName: null,
         currentMeta: null,
         lastChannelId: null,
-        volume: 100,
+        volume: savedVolume ?? 100,
+        volumePreferenceSet: savedVolume !== null,
         currentProcess: null,
         streamStableTimer: null,
         lastStreamErrorAt: null,
@@ -3472,14 +3479,19 @@ class BotRuntime {
    * Programmatic play - used by Commander to tell a Worker to stream.
    * Returns { ok, error? }
    */
-  async playInGuild(guildId, channelId, stationKey, stationsData, volume = 100, options = {}) {
+  async playInGuild(guildId, channelId, stationKey, stationsData, volume = undefined, options = {}) {
     const state = this.getState(guildId);
     try {
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
 
       this.clearRestoreRetry(guildId);
-      state.volume = volume;
+      const parsedVolume = Number.parseInt(String(volume ?? ""), 10);
+      const resolvedVolume = Number.isFinite(parsedVolume)
+        ? Math.max(0, Math.min(100, parsedVolume))
+        : (Number.isFinite(Number(state.volume)) ? Math.max(0, Math.min(100, Number(state.volume))) : 100);
+      state.volume = resolvedVolume;
+      state.volumePreferenceSet = true;
       state.shouldReconnect = true;
       state.lastChannelId = channelId;
       if (options?.scheduledEventId) {
@@ -3588,14 +3600,30 @@ class BotRuntime {
    * Programmatic volume set.
    */
   setVolumeInGuild(guildId, value) {
-    const state = this.guildState.get(guildId);
-    if (!state) return { ok: false, error: "Kein State." };
-    state.volume = value;
+    const parsedValue = Number.parseInt(String(value ?? ""), 10);
+    if (!Number.isFinite(parsedValue)) {
+      return { ok: false, error: "Ungueltige Lautstaerke." };
+    }
+
+    const normalizedValue = Math.max(0, Math.min(100, parsedValue));
+    const state = this.getState(guildId);
+    state.volume = normalizedValue;
+    state.volumePreferenceSet = true;
+
+    let appliedLive = false;
     const resource = state.player.state.resource;
     if (resource?.volume) {
-      resource.volume.setVolume(clampVolume(value));
+      resource.volume.setVolume(clampVolume(normalizedValue));
+      appliedLive = true;
     }
-    return { ok: true };
+
+    this.persistState({ forceLog: false });
+    return {
+      ok: true,
+      value: normalizedValue,
+      appliedLive,
+      playing: Boolean(state.currentStationKey && state.connection),
+    };
   }
 
   /**

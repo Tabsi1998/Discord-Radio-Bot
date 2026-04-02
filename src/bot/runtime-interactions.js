@@ -12,7 +12,6 @@ import { log } from "../lib/logging.js";
 import {
   TIER_RANK,
   SONG_HISTORY_ENABLED,
-  clampVolume,
   clipText,
 } from "../lib/helpers.js";
 import {
@@ -208,8 +207,6 @@ export async function handleRuntimeAutocomplete(runtime, interaction) {
   }
 }
 
-
-
 export async function handleRuntimeInteraction(runtime, interaction) {
   if (interaction.isAutocomplete()) {
     await runtime.handleAutocomplete(interaction);
@@ -296,7 +293,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   // ---- Commander-only commands ----
   if (interaction.commandName === "invite") {
     if (runtime.role !== "commander" || !runtime.workerManager) {
-      await interaction.reply({ content: t("Dieser Befehl ist nur für den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: t("Dieser Befehl ist nur fÃ¼r den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -397,7 +394,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
   if (interaction.commandName === "workers") {
     if (runtime.role !== "commander" || !runtime.workerManager) {
-      await interaction.reply({ content: t("Dieser Befehl ist nur für den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: t("Dieser Befehl ist nur fÃ¼r den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -417,7 +414,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       if (!runtime.hasGuildManagePermissions(interaction)) {
         await interaction.reply({
           content: t(
-            "Du brauchst die Berechtigung `Server verwalten`, um ein öffentliches Worker-Panel zu posten.",
+            "Du brauchst die Berechtigung `Server verwalten`, um ein Ã¶ffentliches Worker-Panel zu posten.",
             "You need the `Manage Server` permission to post a public worker panel."
           ),
           flags: MessageFlags.Ephemeral,
@@ -439,7 +436,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
       const payload = await runtime.buildWorkersStatusPayload(interaction, {
         hint: t(
-          "Dieses Panel bleibt im Channel sichtbar und kann über die Buttons aktualisiert werden.",
+          "Dieses Panel bleibt im Channel sichtbar und kann Ã¼ber die Buttons aktualisiert werden.",
           "This panel stays visible in the channel and can be refreshed with the buttons."
         ),
       });
@@ -456,7 +453,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       } catch (err) {
         await interaction.reply({
           content: t(
-            "Worker-Panel konnte nicht gepostet werden. Prüfe meine Schreibrechte in diesem Channel.",
+            "Worker-Panel konnte nicht gepostet werden. PrÃ¼fe meine Schreibrechte in diesem Channel.",
             "Could not post the worker panel. Check my send-message permission in this channel."
           ),
           flags: MessageFlags.Ephemeral,
@@ -484,7 +481,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }).join("\n");
     const custom = guildTier === "ultimate" ? getGuildStations(interaction.guildId) : {};
     const customList = Object.entries(custom).map(([k, v]) => `\`${k}\` - ${v.name} [CUSTOM]`).join("\n");
-    let content = `**${t("Verfügbare Stationen", "Available stations")}${tierLabel} (${Object.keys(available).length}):**\n${list}`;
+    let content = `**${t("VerfÃ¼gbare Stationen", "Available stations")}${tierLabel} (${Object.keys(available).length}):**\n${list}`;
     if (customList) content += `\n\n**${t("Custom Stationen", "Custom stations")} (${Object.keys(custom).length}):**\n${customList}`;
     await runtime.respondLongInteraction(interaction, content, { flags: MessageFlags.Ephemeral });
     return;
@@ -527,7 +524,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     if ((TIER_RANK[guildTier] ?? 0) < (TIER_RANK.pro ?? 1)) {
       await interaction.reply({
         content: t(
-          "`/now` ist ab **Pro** verfügbar. Upgrade: https://omnifm.xyz#premium",
+          "`/now` ist ab **Pro** verfÃ¼gbar. Upgrade: https://omnifm.xyz#premium",
           "`/now` is available with **Pro** and above. Upgrade: https://omnifm.xyz#premium"
         ),
         flags: MessageFlags.Ephemeral,
@@ -611,7 +608,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     if (!history.length) {
       await interaction.reply({
         content: t(
-          "Noch keine Song-History verfügbar. Starte zuerst eine Station mit `/play`.",
+          "Noch keine Song-History verfÃ¼gbar. Starte zuerst eine Station mit `/play`.",
           "No song history yet. Start a station with `/play` first."
         ),
         flags: MessageFlags.Ephemeral
@@ -694,23 +691,23 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const guildId = interaction.guildId;
       let workers = [];
       
-      // Priorität 1: Explizit bot: Parameter
+      // PrioritÃ¤t 1: Explizit bot: Parameter
       if (requestedBot) {
         const worker = runtime.workerManager.getWorkerByIndex(requestedBot);
         if (worker) workers = [worker];
       }
-      // Priorität 2: all: true Parameter
+      // PrioritÃ¤t 2: all: true Parameter
       else if (stopAll) {
         workers = runtime.workerManager.getStreamingWorkers(guildId);
       }
-      // Priorität 3: User im Voice-Channel → stoppe nur Worker in diesem Channel
+      // PrioritÃ¤t 3: User im Voice-Channel â†’ stoppe nur Worker in diesem Channel
       else {
         const guild = interaction.guild || runtime.client.guilds.cache.get(guildId);
         const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
         const userChannelId = String(member?.voice?.channelId || "").trim();
         
         if (userChannelId) {
-          // User ist in Channel → stoppe nur Worker in diesem Channel
+          // User ist in Channel â†’ stoppe nur Worker in diesem Channel
           const allStreamingWorkers = runtime.workerManager.getStreamingWorkers(guildId);
           const matchingWorkers = allStreamingWorkers.filter((worker) => {
             const info = worker.getGuildInfo(guildId);
@@ -718,7 +715,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
           });
           workers = matchingWorkers.length > 0 ? matchingWorkers : allStreamingWorkers.slice(0, 1);
         } else {
-          // User nicht im Channel → Error
+          // User nicht im Channel â†’ Error
           await interaction.reply({
             content: t(
               "Du musst in einem Voice-Channel sein oder `/stop bot:<nummer>` / `/stop all:true` nutzen.",
@@ -782,85 +779,130 @@ export async function handleRuntimeInteraction(runtime, interaction) {
             offline: t(`Worker ${requestedBot} ist offline.`, `Worker ${requestedBot} is offline.`),
             not_invited: t(`Worker ${requestedBot} ist nicht auf diesem Server eingeladen.`, `Worker ${requestedBot} is not invited on this server.`),
           };
-          await interaction.reply({ content: reasons[check.reason] || t("Worker nicht verfügbar.", "Worker not available."), flags: MessageFlags.Ephemeral });
-          return;
-        }
-        const info = check.worker.getGuildInfo(interaction.guildId);
-        if (!info?.playing) {
-          await interaction.reply({
-            content: t(
-              `Worker ${requestedBot} streamt aktuell nicht auf diesem Server.`,
-              `Worker ${requestedBot} is not currently streaming on this server.`
-            ),
-            flags: MessageFlags.Ephemeral,
-          });
+          await interaction.reply({ content: reasons[check.reason] || t("Worker nicht verfÃ¼gbar.", "Worker not available."), flags: MessageFlags.Ephemeral });
           return;
         }
         targetWorkers = [check.worker];
       } else {
         const workers = runtime.workerManager.getStreamingWorkers(interaction.guildId);
         if (workers.length === 0) {
-          await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
-          return;
-        }
-
-        const guild = interaction.guild || runtime.client.guilds.cache.get(interaction.guildId);
-        const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
-        const userChannelId = String(member?.voice?.channelId || "").trim();
-        if (userChannelId) {
-          const matchingByChannel = workers.filter((worker) => {
-            const info = worker.getGuildInfo(interaction.guildId);
-            return String(info?.channelId || "").trim() === userChannelId;
-          });
-          if (matchingByChannel.length === 1) {
-            targetWorkers = matchingByChannel;
+          const invitedWorkers = runtime.workerManager.getInvitedWorkers(interaction.guildId, guildTier);
+          if (invitedWorkers.length === 1) {
+            targetWorkers = invitedWorkers;
+          } else if (invitedWorkers.length === 0) {
+            await interaction.reply({
+              content: t("Kein Worker ist auf diesem Server eingeladen.", "No worker is invited on this server."),
+              flags: MessageFlags.Ephemeral,
+            });
+            return;
+          } else {
+            await interaction.reply({
+              content: t(
+                "Aktuell streamt kein Worker. Nutze `/setvolume <value> bot:<nummer>`, um die Lautstaerke fuer einen bestimmten Worker zu speichern.",
+                "No worker is currently streaming. Use `/setvolume <value> bot:<number>` to save the volume for a specific worker."
+              ),
+              flags: MessageFlags.Ephemeral,
+            });
+            return;
           }
         }
 
-        if (targetWorkers.length === 0 && workers.length === 1) {
-          targetWorkers = workers;
-        }
-        if (targetWorkers.length === 0 && workers.length > 1) {
-          await interaction.reply({
-            content: t(
-              "Mehrere Worker streamen aktuell. Nutze `/setvolume <value> bot:<nummer>` oder tritt dem Ziel-Voice-Channel bei.",
-              "Multiple workers are currently streaming. Use `/setvolume <value> bot:<number>` or join the target voice channel."
-            ),
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
+        if (workers.length > 0) {
+          const guild = interaction.guild || runtime.client.guilds.cache.get(interaction.guildId);
+          const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+          const userChannelId = String(member?.voice?.channelId || "").trim();
+          if (userChannelId) {
+            const matchingByChannel = workers.filter((worker) => {
+              const info = worker.getGuildInfo(interaction.guildId);
+              return String(info?.channelId || "").trim() === userChannelId;
+            });
+            if (matchingByChannel.length === 1) {
+              targetWorkers = matchingByChannel;
+            }
+          }
+
+          if (targetWorkers.length === 0 && workers.length === 1) {
+            targetWorkers = workers;
+          }
+          if (targetWorkers.length === 0 && workers.length > 1) {
+            await interaction.reply({
+              content: t(
+                "Mehrere Worker streamen aktuell. Nutze `/setvolume <value> bot:<nummer>` oder tritt dem Ziel-Voice-Channel bei.",
+                "Multiple workers are currently streaming. Use `/setvolume <value> bot:<number>` or join the target voice channel."
+              ),
+              flags: MessageFlags.Ephemeral,
+            });
+            return;
+          }
         }
       }
 
       if (targetWorkers.length === 0) {
-        await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: t("Kein passender Worker gefunden.", "No matching worker found."), flags: MessageFlags.Ephemeral });
         return;
       }
       const failures = [];
+      const appliedWorkers = [];
+      const savedWorkers = [];
       for (const worker of targetWorkers) {
         const result = await worker.setVolumeInGuild(interaction.guildId, value);
-        if (!result?.ok) failures.push(`${worker.config?.name || "Worker"}: ${result?.error || "setvolume_failed"}`);
+        if (!result?.ok) {
+          failures.push(`${worker.config?.name || "Worker"}: ${result?.error || "setvolume_failed"}`);
+          continue;
+        }
+        if (result?.appliedLive) {
+          appliedWorkers.push(worker.config?.name || "Worker");
+        } else {
+          savedWorkers.push(worker.config?.name || "Worker");
+        }
       }
       if (failures.length === targetWorkers.length) {
         await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
         return;
       }
-      const targetNames = targetWorkers.map((worker) => worker.config?.name || "Worker").join(", ");
+      const responseLines = [];
+      if (appliedWorkers.length > 0) {
+        responseLines.push(
+          t(
+            `Lautstaerke gesetzt: ${value} (${appliedWorkers.join(", ")})`,
+            `Volume set to: ${value} (${appliedWorkers.join(", ")})`
+          )
+        );
+      }
+      if (savedWorkers.length > 0) {
+        responseLines.push(
+          t(
+            `Lautstaerke gespeichert: ${value} (${savedWorkers.join(", ")}). Wird beim naechsten Start verwendet.`,
+            `Volume saved: ${value} (${savedWorkers.join(", ")}). It will be used for the next playback.`
+          )
+        );
+      }
+      if (failures.length > 0) {
+        responseLines.push(failures.join("\n"));
+      }
       await interaction.reply({
-        content: t(
-          `Lautstärke gesetzt: ${value} (${targetNames})`,
-          `Volume set to: ${value} (${targetNames})`
-        ),
+        content: responseLines.join("\n"),
         flags: MessageFlags.Ephemeral
       });
       return;
     }
-    state.volume = value;
-    const resource = state.player.state.resource;
-    if (resource?.volume) {
-      resource.volume.setVolume(clampVolume(value));
+    const result = runtime.setVolumeInGuild(interaction.guildId, value);
+    if (!result?.ok) {
+      await interaction.reply({
+        content: t(`Fehler: ${result?.error || "setvolume_failed"}`, `Error: ${result?.error || "setvolume_failed"}`),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
     }
-    await interaction.reply({ content: t(`Lautstärke gesetzt: ${value}`, `Volume set to: ${value}`), flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: result.appliedLive
+        ? t(`LautstÃ¤rke gesetzt: ${value}`, `Volume set to: ${value}`)
+        : t(
+            `Lautstaerke gespeichert: ${value}. Wird beim naechsten Start verwendet.`,
+            `Volume saved: ${value}. It will be used for the next playback.`
+          ),
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
@@ -1101,7 +1143,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const count = countGuildStations(guildId);
       await interaction.reply({
         content: t(
-          `Custom Station hinzugefügt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`,
+          `Custom Station hinzugefÃ¼gt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`,
           `Custom station added: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} slots used.`
         ),
         flags: MessageFlags.Ephemeral,
@@ -1136,7 +1178,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const custom = getGuildStations(guildId);
     const keys = Object.keys(custom);
     if (keys.length === 0) {
-      await interaction.reply({ content: t("Keine Custom-Stationen. Nutze `/addstation`, um eine hinzuzufügen.", "No custom stations. Use `/addstation` to add one."), flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: t("Keine Custom-Stationen. Nutze `/addstation`, um eine hinzuzufÃ¼gen.", "No custom stations. Use `/addstation` to add one."), flags: MessageFlags.Ephemeral });
     } else {
       const list = keys.map((k) => {
         const station = custom[k] || {};
@@ -1165,7 +1207,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     if (requiresManagePermission && !runtime.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
         content: t(
-          "Du brauchst die Berechtigung `Server verwalten`, um Lizenz-Aktionen auszuführen.",
+          "Du brauchst die Berechtigung `Server verwalten`, um Lizenz-Aktionen auszufÃ¼hren.",
           "You need the `Manage Server` permission to execute license actions."
         ),
         flags: MessageFlags.Ephemeral
@@ -1289,7 +1331,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
       await interaction.reply({
         content: t(
-          "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann für einen anderen Server genutzt werden.\nNutze `/license activate <key>`, um eine neue Lizenz zu aktivieren.",
+          "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann fÃ¼r einen anderen Server genutzt werden.\nNutze `/license activate <key>`, um eine neue Lizenz zu aktivieren.",
           "Server was unlinked from the license. The seat is now free and can be used for another server.\nUse `/license activate <key>` to activate a new license."
         ),
         flags: MessageFlags.Ephemeral,
@@ -1421,7 +1463,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
             offline: t(`Worker ${requestedBotIndex} ist offline.`, `Worker ${requestedBotIndex} is offline.`),
             not_invited: t(`Worker ${requestedBotIndex} ist nicht auf diesem Server. Nutze \`/invite worker:${requestedBotIndex}\` zum Einladen.`, `Worker ${requestedBotIndex} is not on this server. Use \`/invite worker:${requestedBotIndex}\` to invite.`),
           };
-          await interaction.editReply(reasons[check.reason] || t("Worker nicht verfügbar.", "Worker not available."));
+          await interaction.editReply(reasons[check.reason] || t("Worker nicht verfÃ¼gbar.", "Worker not available."));
           return;
         }
         worker = check.worker;
@@ -1462,7 +1504,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const selectedStation = playStations.stations[key];
       log("INFO", `[${runtime.config.name}] /play guild=${guildId} station=${key} -> delegating to ${worker.config.name}`);
       worker.clearScheduledEventPlaybackInGuild(guildId);
-      const result = await worker.playInGuild(guildId, channelId, key, playStations, state.volume || 100);
+      const result = await worker.playInGuild(guildId, channelId, key, playStations, undefined);
       if (!result.ok) {
         await interaction.editReply(t(`Fehler: ${result.error}`, `Error: ${result.error}`));
         return;

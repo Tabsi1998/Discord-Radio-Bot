@@ -1055,7 +1055,8 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
   log("INFO", `[${runtime.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${restoredStation.station.name}`);
 
   const state = runtime.getState(guildId);
-  state.volume = data.volume ?? 100;
+  state.volume = data.volume ?? state.volume ?? 100;
+  state.volumePreferenceSet = Number.isFinite(Number(state.volume));
   state.shouldReconnect = true;
   state.lastChannelId = data.channelId;
   state.currentStationKey = restoredStation.key;
@@ -1093,9 +1094,15 @@ export async function restoreRuntimeState(runtime, stations) {
     return;
   }
 
-  log("INFO", `[${runtime.config.name}] Stelle ${Object.keys(saved).length} Verbindung(en) wieder her...`);
+  const restorableEntries = Object.entries(saved).filter(([_, data]) => data?.stationKey && data?.channelId);
+  if (restorableEntries.length === 0) {
+    log("INFO", `[${runtime.config.name}] Nur gespeicherte Guild-Einstellungen gefunden (kein aktives Restore-Ziel).`);
+    return;
+  }
 
-  for (const [guildId, data] of Object.entries(saved)) {
+  log("INFO", `[${runtime.config.name}] Stelle ${restorableEntries.length} Verbindung(en) wieder her...`);
+
+  for (const [guildId, data] of restorableEntries) {
     try {
       await restoreRuntimeGuildEntry(runtime, guildId, data, stations, { source: "restore" });
     } catch (err) {

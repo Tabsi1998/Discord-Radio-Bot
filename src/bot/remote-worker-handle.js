@@ -329,15 +329,19 @@ class RemoteWorkerHandle {
     }
   }
 
-  async playInGuild(guildId, channelId, stationKey, stationsData, volume = 100, options = {}) {
-    return this.sendCommand("play", {
+  async playInGuild(guildId, channelId, stationKey, stationsData, volume = undefined, options = {}) {
+    const payload = {
       guildId,
       channelId,
       stationKey,
       stationsData,
-      volume,
       options,
-    }, { timeoutMs: 60_000 });
+    };
+    const parsedVolume = Number.parseInt(String(volume ?? ""), 10);
+    if (Number.isFinite(parsedVolume)) {
+      payload.volume = Math.max(0, Math.min(100, parsedVolume));
+    }
+    return this.sendCommand("play", payload, { timeoutMs: 60_000 });
   }
 
   async stopInGuild(guildId) {

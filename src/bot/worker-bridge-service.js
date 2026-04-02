@@ -62,23 +62,30 @@ class WorkerBridgeService {
     const guildId = String(payload.guildId || "").trim();
 
     switch (String(command?.type || "").trim()) {
-      case "play":
+      case "play": {
+        const parsedVolume = Number.parseInt(String(payload.volume ?? ""), 10);
+        const resolvedVolume = Number.isFinite(parsedVolume)
+          ? Math.max(0, Math.min(100, parsedVolume))
+          : undefined;
         return this.runtime.playInGuild(
           guildId,
           payload.channelId,
           payload.stationKey,
           payload.stationsData,
-          Number(payload.volume ?? 100) || 100,
+          resolvedVolume,
           payload.options || {}
         );
+      }
       case "stop":
         return this.runtime.stopInGuild(guildId);
       case "pause":
         return this.runtime.pauseInGuild(guildId);
       case "resume":
         return this.runtime.resumeInGuild(guildId);
-      case "setVolume":
-        return this.runtime.setVolumeInGuild(guildId, Number(payload.value ?? 100) || 100);
+      case "setVolume": {
+        const parsedValue = Number.parseInt(String(payload.value ?? ""), 10);
+        return this.runtime.setVolumeInGuild(guildId, Number.isFinite(parsedValue) ? parsedValue : payload.value);
+      }
       default:
         throw new Error(`Unbekannter Worker-Command: ${command?.type || "-"}`);
     }

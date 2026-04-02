@@ -15,6 +15,16 @@ function hasStateEntries(value) {
   return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
 }
 
+function normalizeStoredVolume(rawValue) {
+  const parsed = Number.parseInt(String(rawValue ?? ""), 10);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.min(100, parsed));
+}
+
+function hasSavedVolumePreference(entry) {
+  return normalizeStoredVolume(entry?.volume) !== null;
+}
+
 function isPersistableGuildState(state) {
   return Boolean(state?.currentStationKey && state?.lastChannelId);
 }
@@ -59,6 +69,16 @@ function ensureDirectoryForFile(filePath) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+function buildVolumeOnlyEntry(entry = {}) {
+  const volume = normalizeStoredVolume(entry?.volume);
+  if (volume === null) return null;
+  return {
+    volume,
+    volumePreference: true,
+    savedAt: entry?.savedAt || new Date().toISOString(),
+  };
 }
 
 function saveState(state) {
@@ -163,19 +183,33 @@ function saveBotState(botId, guildStates) {
   const botData = {};
 
   for (const [guildId, state] of guildStates.entries()) {
-    if (!isPersistableGuildState(state)) continue;
+    const volume = normalizeStoredVolume(state?.volume);
+    const persistPlaybackState = isPersistableGuildState(state);
+    const persistVolumePreference = state?.volumePreferenceSet === true && volume !== null;
+    if (!persistPlaybackState && !persistVolumePreference) continue;
     const scheduledEventStopAtMs = Number.parseInt(String(state.activeScheduledEventStopAtMs || 0), 10);
-    botData[guildId] = {
-      channelId: state.lastChannelId,
-      stationKey: state.currentStationKey,
-      stationName: state.currentStationName || null,
-      volume: state.volume ?? 100,
-      scheduledEventId: state.activeScheduledEventId || null,
-      scheduledEventStopAtMs: Number.isFinite(scheduledEventStopAtMs) && scheduledEventStopAtMs > 0
-        ? scheduledEventStopAtMs
-        : 0,
+    const entry = {
       savedAt: new Date().toISOString(),
     };
+
+    if (persistPlaybackState) {
+      entry.channelId = state.lastChannelId;
+      entry.stationKey = state.currentStationKey;
+      entry.stationName = state.currentStationName || null;
+      entry.scheduledEventId = state.activeScheduledEventId || null;
+      entry.scheduledEventStopAtMs = Number.isFinite(scheduledEventStopAtMs) && scheduledEventStopAtMs > 0
+        ? scheduledEventStopAtMs
+        : 0;
+    }
+
+    if (persistVolumePreference || persistPlaybackState) {
+      entry.volume = volume ?? 100;
+    }
+    if (persistVolumePreference) {
+      entry.volumePreference = true;
+    }
+
+    botData[guildId] = entry;
   }
 
   if (SPLIT_STATE_STORAGE_ENABLED) {
@@ -204,10 +238,67 @@ function getBotState(botId) {
   return allState[botId] || {};
 }
 
+function saveResolvedBotState(botId, state) {
+  if (SPLIT_STATE_STORAGE_ENABLED) {
+    const filePath = getSplitBotStateFile(botId);
+    const backupFilePath = getSplitBotBackupFile(botId);
+    if (!filePath) return;
+    if (!hasStateEntries(state)) {
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    saveStateToFile(filePath, backupFilePath, state);
+    return;
+  }
+
+  const allState = loadState();
+  if (hasStateEntries(state)) {
+    allState[botId] = state;
+  } else {
+    delete allState[botId];
+  }
+  saveState(allState);
+}
+
+function setBotGuildVolume(botId, guildId, value) {
+  const normalizedGuildId = String(guildId || "").trim();
+  const normalizedVolume = normalizeStoredVolume(value);
+  if (!normalizedGuildId || normalizedVolume === null) return false;
+  const botState = getBotState(botId);
+  const nextEntry = {
+    ...(botState?.[normalizedGuildId] && typeof botState[normalizedGuildId] === "object"
+      ? botState[normalizedGuildId]
+      : {}),
+    volume: normalizedVolume,
+    volumePreference: true,
+    savedAt: new Date().toISOString(),
+  };
+  botState[normalizedGuildId] = nextEntry;
+  saveResolvedBotState(botId, botState);
+  return true;
+}
+
+function getBotGuildVolume(botId, guildId) {
+  const normalizedGuildId = String(guildId || "").trim();
+  if (!normalizedGuildId) return null;
+  const botState = getBotState(botId);
+  return normalizeStoredVolume(botState?.[normalizedGuildId]?.volume);
+}
+
 function clearBotGuild(botId, guildId) {
   if (SPLIT_STATE_STORAGE_ENABLED) {
     const botState = loadSplitBotState(botId);
-    delete botState[guildId];
+    const currentEntry = botState[guildId];
+    const volumeOnlyEntry = buildVolumeOnlyEntry(currentEntry);
+    if (volumeOnlyEntry) {
+      botState[guildId] = volumeOnlyEntry;
+    } else {
+      delete botState[guildId];
+    }
     const filePath = getSplitBotStateFile(botId);
     const backupFilePath = getSplitBotBackupFile(botId);
     if (!filePath) return;
@@ -225,7 +316,13 @@ function clearBotGuild(botId, guildId) {
 
   const allState = loadState();
   if (allState[botId]) {
-    delete allState[botId][guildId];
+    const currentEntry = allState[botId][guildId];
+    const volumeOnlyEntry = buildVolumeOnlyEntry(currentEntry);
+    if (volumeOnlyEntry) {
+      allState[botId][guildId] = volumeOnlyEntry;
+    } else {
+      delete allState[botId][guildId];
+    }
     if (Object.keys(allState[botId]).length === 0) {
       delete allState[botId];
     }
@@ -233,4 +330,13 @@ function clearBotGuild(botId, guildId) {
   }
 }
 
-export { saveBotState, getBotState, clearBotGuild, isPersistableGuildState, loadState, saveState };
+export {
+  saveBotState,
+  getBotState,
+  clearBotGuild,
+  isPersistableGuildState,
+  loadState,
+  saveState,
+  setBotGuildVolume,
+  getBotGuildVolume,
+};
