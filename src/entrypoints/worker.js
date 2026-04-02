@@ -1,0 +1,69 @@
+import { BotRuntime } from "../bot/runtime.js";
+import { WorkerBridgeService } from "../bot/worker-bridge-service.js";
+import { loadStations } from "../stations-store.js";
+import { log } from "../lib/logging.js";
+import {
+  initializeSharedServices,
+  installProcessHandlers,
+  resolveBotTopology,
+  resolveWorkerConfig,
+} from "./shared.js";
+
+await initializeSharedServices({ requireMongo: true });
+
+const topology = resolveBotTopology(process.env);
+const workerIndex = Number.parseInt(String(process.env.BOT_PROCESS_INDEX || ""), 10);
+const workerConfig = resolveWorkerConfig(topology.botConfigs, workerIndex);
+
+if (Number(workerConfig?.index || 0) === Number(topology.commanderConfig?.index || 0)) {
+  throw new Error(`BOT_${workerIndex} ist als Commander konfiguriert und kann nicht als Worker gestartet werden.`);
+}
+
+const runtime = new BotRuntime(workerConfig, { role: "worker" });
+const bridgeService = new WorkerBridgeService(runtime);
+
+const started = await runtime.start();
+if (!started) {
+  log("ERROR", `[${workerConfig.name}] Worker-Start fehlgeschlagen.`);
+  process.exit(1);
+}
+
+installProcessHandlers({
+  localRuntimes: [runtime],
+  extraShutdown: [
+    async () => {
+      await bridgeService.stop();
+    },
+  ],
+});
+
+await bridgeService.start();
+
+const stations = loadStations();
+const doRestore = () => {
+  log("INFO", `[${runtime.config.name}] Starte Auto-Restore (split-worker)...`);
+  runtime.restoreState(stations).catch((err) => {
+    log("ERROR", `[${runtime.config.name}] Auto-Restore fehlgeschlagen: ${err?.message || err}`);
+  });
+};
+
+if (runtime.client.isReady()) {
+  doRestore();
+} else {
+  runtime.client.once("clientReady", () => {
+    setTimeout(doRestore, 2000);
+  });
+}
+
+setInterval(() => {
+  if (runtime.client.isReady()) {
+    runtime.persistState();
+  }
+}, 60_000);
+
+setInterval(() => {
+  if (!runtime.client.isReady()) return;
+  runtime.enforcePremiumGuildScope("periodic").catch((err) => {
+    log("ERROR", `[${runtime.config.name}] Periodische Premium-Guild-Scope Pruefung fehlgeschlagen: ${err?.message || err}`);
+  });
+}, 10 * 60 * 1000);

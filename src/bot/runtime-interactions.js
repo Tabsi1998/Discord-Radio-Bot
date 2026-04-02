@@ -242,6 +242,10 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }
   }
 
+  if (runtime.role === "commander" && runtime.workerManager?.refreshRemoteStates) {
+    await runtime.workerManager.refreshRemoteStates().catch(() => null);
+  }
+
   if (interaction.commandName === "help") {
     recordCommandUsage(interaction.guildId, interaction.commandName);
     const payload = runtime.buildHelpMessage(interaction);
@@ -543,7 +547,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const activeRuntime = playback.runtime;
     const activeState = playback.state;
     const playingGuilds = activeRuntime.getPlayingGuildCount();
-    const current = activeRuntime.getResolvedCurrentStation(interaction.guildId, activeState, language);
+    const current = runtime.getResolvedCurrentStation(interaction.guildId, activeState, language);
     if (!current?.station) {
       await interaction.reply({ content: t("Aktuelle Station wurde entfernt.", "Current station was removed."), flags: MessageFlags.Ephemeral });
       return;
@@ -551,7 +555,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
     const channelId = activeState.connection?.joinConfig?.channelId || activeState.lastChannelId || null;
     const meta = activeState.currentMeta || {};
-    const embed = activeRuntime.buildNowPlayingEmbed(interaction.guildId, current.station, {
+    const embed = runtime.buildNowPlayingEmbed(interaction.guildId, current.station, {
       ...meta,
       name: meta.name || current.station.name || null,
     }, {
@@ -569,7 +573,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
     await interaction.reply({
       embeds: [embed],
-      components: activeRuntime.buildTrackLinkComponents(interaction.guildId, current.station, meta),
+      components: runtime.buildTrackLinkComponents(interaction.guildId, current.station, meta),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -630,7 +634,15 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
         return;
       }
-      for (const w of workers) w.pauseInGuild(interaction.guildId);
+      const failures = [];
+      for (const w of workers) {
+        const result = await w.pauseInGuild(interaction.guildId);
+        if (!result?.ok) failures.push(`${w.config?.name || "Worker"}: ${result?.error || "pause_failed"}`);
+      }
+      if (failures.length === workers.length) {
+        await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
+        return;
+      }
       await interaction.reply({ content: t("Pausiert.", "Paused."), flags: MessageFlags.Ephemeral });
       return;
     }
@@ -653,7 +665,15 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
         return;
       }
-      for (const w of workers) w.resumeInGuild(interaction.guildId);
+      const failures = [];
+      for (const w of workers) {
+        const result = await w.resumeInGuild(interaction.guildId);
+        if (!result?.ok) failures.push(`${w.config?.name || "Worker"}: ${result?.error || "resume_failed"}`);
+      }
+      if (failures.length === workers.length) {
+        await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
+        return;
+      }
       await interaction.reply({ content: t("Weiter gehts.", "Resumed."), flags: MessageFlags.Ephemeral });
       return;
     }
@@ -714,8 +734,15 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
         return;
       }
-      
-      for (const w of workers) w.stopInGuild(guildId);
+      const failures = [];
+      for (const w of workers) {
+        const result = await w.stopInGuild(guildId);
+        if (!result?.ok) failures.push(`${w.config?.name || "Worker"}: ${result?.error || "stop_failed"}`);
+      }
+      if (failures.length === workers.length) {
+        await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
+        return;
+      }
       const workerNames = workers.map(w => w.config?.name || "Worker").join(", ");
       await interaction.reply({
         content: t(
@@ -809,8 +836,14 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
         return;
       }
+      const failures = [];
       for (const worker of targetWorkers) {
-        worker.setVolumeInGuild(interaction.guildId, value);
+        const result = await worker.setVolumeInGuild(interaction.guildId, value);
+        if (!result?.ok) failures.push(`${worker.config?.name || "Worker"}: ${result?.error || "setvolume_failed"}`);
+      }
+      if (failures.length === targetWorkers.length) {
+        await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
+        return;
       }
       const targetNames = targetWorkers.map((worker) => worker.config?.name || "Worker").join(", ");
       await interaction.reply({
@@ -945,7 +978,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const connected = activeState.connection ? t("ja", "yes") : t("nein", "no");
     const channelId = activeState.connection?.joinConfig?.channelId || activeState.lastChannelId || "-";
     const station = activeState.currentStationKey || "-";
-    const diag = activeRuntime.getStreamDiagnostics(interaction.guildId, activeState);
+    const diag = runtime.getStreamDiagnostics(interaction.guildId, activeState);
     const restartPending = activeState.streamRestartTimer ? t("ja", "yes") : t("nein", "no");
     const reconnectPending = activeState.reconnectTimer ? t("ja", "yes") : t("nein", "no");
     const networkHoldMs = activeRuntime.getNetworkRecoveryDelayMs(interaction.guildId);
@@ -1004,9 +1037,16 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const activeState = playback.state;
     const connected = activeState.connection ? t("ja", "yes") : t("nein", "no");
     const channelId = activeState.connection?.joinConfig?.channelId || activeState.lastChannelId || "-";
-    const uptimeSec = Math.floor((Date.now() - activeRuntime.startedAt) / 1000);
-    const load = os.loadavg().map((v) => v.toFixed(2)).join(", ");
-    const mem = `${Math.round(process.memoryUsage().rss / (1024 * 1024))}MB`;
+    const runtimeMetrics = typeof activeRuntime.getRuntimeMetrics === "function"
+      ? activeRuntime.getRuntimeMetrics()
+      : {};
+    const uptimeSec = Number(runtimeMetrics?.uptimeSec || 0) || Math.floor((Date.now() - activeRuntime.startedAt) / 1000);
+    const load = Array.isArray(runtimeMetrics?.loadAvg) && runtimeMetrics.loadAvg.length
+      ? runtimeMetrics.loadAvg.map((value) => Number(value).toFixed(2)).join(", ")
+      : os.loadavg().map((value) => value.toFixed(2)).join(", ");
+    const mem = runtimeMetrics?.memoryRssMb
+      ? `${runtimeMetrics.memoryRssMb}MB`
+      : `${Math.round(process.memoryUsage().rss / (1024 * 1024))}MB`;
     const station = activeState.currentStationKey || "-";
     const resolvedChannel = /^\d{16,22}$/.test(String(channelId))
       ? `<#${channelId}>`

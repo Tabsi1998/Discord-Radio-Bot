@@ -678,6 +678,9 @@ export async function postScheduledEventAnnouncement(runtime, event, station, la
 }
 
 export async function executeScheduledEvent(runtime, event) {
+  if (runtime.workerManager?.refreshRemoteStates) {
+    await runtime.workerManager.refreshRemoteStates().catch(() => null);
+  }
   const now = Date.now();
   if (!runtime.client.guilds.cache.has(event.guildId)) {
     deleteScheduledEvent(event.id, { guildId: event.guildId, botId: runtime.config.id });
@@ -832,6 +835,9 @@ export async function executeScheduledEvent(runtime, event) {
 }
 
 export async function executeScheduledEventStop(runtime, event) {
+  if (runtime.workerManager?.refreshRemoteStates) {
+    await runtime.workerManager.refreshRemoteStates().catch(() => null);
+  }
   const stopAtMs = Number.parseInt(String(event?.activeUntilMs || 0), 10);
   if (!Number.isFinite(stopAtMs) || stopAtMs <= 0) return;
 
@@ -848,7 +854,7 @@ export async function executeScheduledEventStop(runtime, event) {
   if (!stopped && runtime.workerManager) {
     const worker = runtime.workerManager.findWorkerByScheduledEvent(event.guildId, event.id);
     if (worker) {
-      const result = worker.stopInGuild(event.guildId);
+      const result = await worker.stopInGuild(event.guildId);
       stopped = Boolean(result?.ok);
       stoppedBy = worker.config?.name || "Worker";
     }
@@ -873,6 +879,10 @@ export async function executeScheduledEventStop(runtime, event) {
 export async function tickScheduledEvents(runtime, ) {
   if (!EVENT_SCHEDULER_ENABLED) return;
   if (!runtime.client.isReady()) return;
+
+  if (runtime.workerManager?.refreshRemoteStates) {
+    await runtime.workerManager.refreshRemoteStates().catch(() => null);
+  }
 
   const now = Date.now();
   const scheduled = listScheduledEvents({

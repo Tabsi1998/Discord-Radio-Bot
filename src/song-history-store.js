@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORE_FILE = path.resolve(__dirname, "..", "song-history.json");
 const BACKUP_FILE = `${STORE_FILE}.bak`;
+const SPLIT_PROCESS_ROLE = String(process.env.BOT_PROCESS_ROLE || "").trim().toLowerCase();
+const SPLIT_HISTORY_STORAGE_ENABLED = SPLIT_PROCESS_ROLE === "commander" || SPLIT_PROCESS_ROLE === "worker";
+const SPLIT_HISTORY_DIR = path.resolve(__dirname, "..", "song-history");
 const DEFAULT_MAX_PER_GUILD = 120;
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 30;
@@ -86,6 +89,54 @@ function readStateFile(filePath) {
   }
 }
 
+function getGuildHistoryFile(guildId) {
+  const gid = normalizeGuildId(guildId);
+  if (!gid) return null;
+  return path.join(SPLIT_HISTORY_DIR, `${gid}.json`);
+}
+
+function getGuildHistoryBackupFile(guildId) {
+  const filePath = getGuildHistoryFile(guildId);
+  return filePath ? `${filePath}.bak` : null;
+}
+
+function ensureSplitHistoryDir() {
+  if (!fs.existsSync(SPLIT_HISTORY_DIR)) {
+    fs.mkdirSync(SPLIT_HISTORY_DIR, { recursive: true });
+  }
+}
+
+function readSplitGuildState(guildId) {
+  const filePath = getGuildHistoryFile(guildId);
+  const backupFilePath = getGuildHistoryBackupFile(guildId);
+  if (!filePath) return { guilds: { [guildId]: [] } };
+  return readStateFile(filePath) || readStateFile(backupFilePath) || { guilds: { [guildId]: [] } };
+}
+
+function saveSplitGuildState(guildId, state) {
+  const filePath = getGuildHistoryFile(guildId);
+  const backupFilePath = getGuildHistoryBackupFile(guildId);
+  if (!filePath) return;
+
+  ensureSplitHistoryDir();
+  const tmpFile = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  const payload = JSON.stringify(state, null, 2) + "\n";
+
+  try {
+    if (fs.existsSync(filePath)) {
+      try { fs.copyFileSync(filePath, backupFilePath); } catch {}
+    }
+    fs.writeFileSync(tmpFile, payload, "utf8");
+    try {
+      fs.renameSync(tmpFile, filePath);
+    } catch {
+      fs.writeFileSync(filePath, payload, "utf8");
+    }
+  } finally {
+    try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch {}
+  }
+}
+
 let stateCache = null;
 
 function ensureState() {
@@ -151,7 +202,9 @@ export function appendSongHistory(guildId, track, options = {}) {
 
   if (!entry) return { saved: false, reason: "invalid-entry" };
 
-  const state = ensureState();
+  const state = SPLIT_HISTORY_STORAGE_ENABLED
+    ? readSplitGuildState(gid)
+    : ensureState();
   if (!state.guilds[gid]) state.guilds[gid] = [];
   const list = state.guilds[gid];
 
@@ -169,7 +222,11 @@ export function appendSongHistory(guildId, track, options = {}) {
     state.guilds[gid] = list.slice(-maxPerGuild);
   }
 
-  saveState();
+  if (SPLIT_HISTORY_STORAGE_ENABLED) {
+    saveSplitGuildState(gid, { guilds: { [gid]: state.guilds[gid] } });
+  } else {
+    saveState();
+  }
   return { saved: true, entry };
 }
 
@@ -182,7 +239,9 @@ export function getSongHistory(guildId, options = {}) {
     ? Math.max(1, Math.min(MAX_LIMIT, limitRaw))
     : DEFAULT_LIMIT;
 
-  const state = ensureState();
+  const state = SPLIT_HISTORY_STORAGE_ENABLED
+    ? readSplitGuildState(gid)
+    : ensureState();
   const entries = Array.isArray(state.guilds[gid]) ? state.guilds[gid] : [];
   return entries.slice(-limit).reverse().map((entry) => ({ ...entry }));
 }
@@ -191,10 +250,19 @@ export function clearSongHistory(guildId) {
   const gid = normalizeGuildId(guildId);
   if (!gid) return false;
 
-  const state = ensureState();
+  const state = SPLIT_HISTORY_STORAGE_ENABLED
+    ? readSplitGuildState(gid)
+    : ensureState();
   if (!state.guilds[gid]) return false;
   delete state.guilds[gid];
-  saveState();
+  if (SPLIT_HISTORY_STORAGE_ENABLED) {
+    const filePath = getGuildHistoryFile(gid);
+    try {
+      if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch {}
+  } else {
+    saveState();
+  }
   return true;
 }
 

@@ -38,8 +38,13 @@ class WorkerManager {
   /**
    * @param {BotRuntime[]} workers - Worker bot instances
    */
-  constructor(workers = []) {
+  constructor(workers = [], options = {}) {
     this.workers = [...workers].sort((a, b) => Number(a?.config?.index || 0) - Number(b?.config?.index || 0));
+    this.statusProvider = options?.statusProvider || null;
+    this.remoteRefreshIntervalMs = Math.max(500, Number(options?.remoteRefreshIntervalMs || process.env.REMOTE_WORKER_STATUS_POLL_MS || 2000) || 2000);
+    this.lastRemoteRefreshAt = 0;
+    this.remoteRefreshInFlight = null;
+    this.remoteRefreshTimer = null;
     this.workers.forEach((worker, idx) => {
       if (worker) {
         worker.workerSlot = idx + 1;
@@ -147,6 +152,61 @@ class WorkerManager {
    */
   getWorkerByIndex(index) {
     return this.resolveWorker(index)?.worker || null;
+  }
+
+  async refreshRemoteStates({ force = false } = {}) {
+    if (!this.statusProvider || typeof this.statusProvider.listStatuses !== "function") {
+      return this.workers;
+    }
+
+    const now = Date.now();
+    if (!force && this.lastRemoteRefreshAt > 0 && (now - this.lastRemoteRefreshAt) < this.remoteRefreshIntervalMs) {
+      return this.workers;
+    }
+
+    if (this.remoteRefreshInFlight) {
+      return this.remoteRefreshInFlight;
+    }
+
+    this.remoteRefreshInFlight = (async () => {
+      try {
+        const workerIds = this.workers
+          .map((worker) => String(worker?.config?.id || "").trim())
+          .filter(Boolean);
+        const docs = await this.statusProvider.listStatuses({ workerIds });
+        const docMap = new Map(
+          (Array.isArray(docs) ? docs : []).map((doc) => [String(doc?.workerId || "").trim(), doc])
+        );
+
+        for (const worker of this.workers) {
+          if (typeof worker?.applyRemoteStatus !== "function") continue;
+          const workerId = String(worker?.config?.id || "").trim();
+          worker.applyRemoteStatus(docMap.get(workerId) || null);
+        }
+
+        this.lastRemoteRefreshAt = Date.now();
+        return this.workers;
+      } finally {
+        this.remoteRefreshInFlight = null;
+      }
+    })();
+
+    return this.remoteRefreshInFlight;
+  }
+
+  startRemotePolling() {
+    if (!this.statusProvider || typeof this.statusProvider.listStatuses !== "function") return;
+    if (this.remoteRefreshTimer) return;
+    this.remoteRefreshTimer = setInterval(() => {
+      this.refreshRemoteStates().catch(() => null);
+    }, this.remoteRefreshIntervalMs);
+    this.remoteRefreshTimer?.unref?.();
+  }
+
+  stopRemotePolling() {
+    if (!this.remoteRefreshTimer) return;
+    clearInterval(this.remoteRefreshTimer);
+    this.remoteRefreshTimer = null;
   }
 
   /**

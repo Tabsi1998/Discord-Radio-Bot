@@ -3690,7 +3690,7 @@ class BotRuntime {
     for (const [guildId, state] of this.guildState.entries()) {
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) continue;
-      guildDetails.push({
+      const detail = {
         guildId,
         guildName: guild.name,
         stationKey: state.currentStationKey || null,
@@ -3709,7 +3709,50 @@ class BotRuntime {
         streamErrorCount: Number(state.streamErrorCount || 0) || 0,
         shouldReconnect: state.shouldReconnect === true,
         meta: state.currentMeta || null,
-      });
+      };
+
+      const reconnectCount = Number(state.reconnectCount || 0) || 0;
+      if (reconnectCount > 0) detail.reconnectCount = reconnectCount;
+
+      if (state.lastReconnectAt) detail.lastReconnectAt = state.lastReconnectAt;
+      if (state.reconnectTimer) detail.reconnectPending = true;
+      if (state.reconnectInFlight === true) detail.reconnectInFlight = true;
+      if (state.streamRestartTimer) detail.streamRestartPending = true;
+      if (state.voiceConnectInFlight === true) detail.voiceConnectInFlight = true;
+      if (state.lastStreamErrorAt) detail.lastStreamErrorAt = state.lastStreamErrorAt;
+      if (state.lastProcessExitCode !== null && state.lastProcessExitCode !== undefined) {
+        detail.lastProcessExitCode = state.lastProcessExitCode;
+      }
+      if (state.lastProcessExitDetail) detail.lastProcessExitDetail = state.lastProcessExitDetail;
+
+      const lastProcessExitAt = Number(state.lastProcessExitAt || 0) || 0;
+      if (lastProcessExitAt > 0) detail.lastProcessExitAt = lastProcessExitAt;
+
+      if (state.lastStreamStartAt) {
+        detail.lastStreamStartAt = new Date(Number(state.lastStreamStartAt)).toISOString();
+      }
+
+      if (state.activeScheduledEventId) detail.activeScheduledEventId = state.activeScheduledEventId;
+
+      const activeScheduledEventStopAtMs = Number(state.activeScheduledEventStopAtMs || 0) || 0;
+      if (activeScheduledEventStopAtMs > 0) {
+        detail.activeScheduledEventStopAtMs = activeScheduledEventStopAtMs;
+      }
+
+      const reconnectCircuitTripCount = Number(state.reconnectCircuitTripCount || 0) || 0;
+      if (reconnectCircuitTripCount > 0) detail.reconnectCircuitTripCount = reconnectCircuitTripCount;
+
+      const reconnectCircuitOpenUntil = Number(state.reconnectCircuitOpenUntil || 0) || 0;
+      if (reconnectCircuitOpenUntil > 0) detail.reconnectCircuitOpenUntil = reconnectCircuitOpenUntil;
+
+      const getNetworkRecoveryDelayMs =
+        typeof this.getNetworkRecoveryDelayMs === "function"
+          ? this.getNetworkRecoveryDelayMs.bind(this)
+          : null;
+      const networkRecoveryDelayMs = getNetworkRecoveryDelayMs ? (Number(getNetworkRecoveryDelayMs(guildId)) || 0) : 0;
+      if (networkRecoveryDelayMs > 0) detail.networkRecoveryDelayMs = networkRecoveryDelayMs;
+
+      guildDetails.push(detail);
     }
 
     return {
