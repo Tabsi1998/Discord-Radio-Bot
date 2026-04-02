@@ -11,7 +11,7 @@ import {
 import { log, shouldLogFfmpegStderrLine } from "../lib/logging.js";
 import {
   clipText,
-  clampVolume,
+  applyVolumeTransformerLevel,
   sanitizeUrlForLog,
   buildTranscodeProfile,
   isLikelyNetworkFailureLine,
@@ -127,9 +127,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       inputType,
       inlineVolume: true,
     });
-    if (resource.volume) {
-      resource.volume.setVolume(clampVolume(volume));
-    }
+    applyVolumeTransformerLevel(resource.volume, volume);
 
     return { resource, process: ffmpeg };
   }
@@ -147,9 +145,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
   networkRecoveryCoordinator.noteSuccess(`${botName} fetch-stream`, recoveryOptions);
   const probe = await demuxProbe(stream);
   const resource = createAudioResource(probe.stream, { inputType: probe.type, inlineVolume: true });
-  if (resource.volume) {
-    resource.volume.setVolume(clampVolume(volume));
-  }
+  applyVolumeTransformerLevel(resource.volume, volume);
 
   return { resource, process: null };
 }

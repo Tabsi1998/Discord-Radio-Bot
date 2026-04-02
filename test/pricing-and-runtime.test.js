@@ -10,6 +10,7 @@ import {
   calculateUpgradePrice,
   seatPricingInEuro,
   isWithinWorkerPlanLimit,
+  applyVolumeTransformerLevel,
 } from "../src/lib/helpers.js";
 import { buildCommandsJson } from "../src/commands.js";
 import { networkRecoveryCoordinator } from "../src/core/network-recovery.js";
@@ -1826,6 +1827,23 @@ test("setVolumeInGuild refreshes the now-playing embed and keeps zero volume int
   const saved = getBotState("bot-live-volume");
   assert.equal(saved["guild-1"]?.volume, 0);
   assert.equal(saved["guild-1"]?.volumePreference, true);
+});
+
+test("applyVolumeTransformerLevel prefers logarithmic scaling for perceived volume", () => {
+  const calls = [];
+  const transformer = {
+    setVolumeLogarithmic(value) {
+      calls.push({ type: "logarithmic", value });
+    },
+    setVolume(value) {
+      calls.push({ type: "linear", value });
+    },
+  };
+
+  const applied = applyVolumeTransformerLevel(transformer, 50);
+
+  assert.equal(applied, true);
+  assert.deepEqual(calls, [{ type: "logarithmic", value: 0.5 }]);
 });
 
 test("playInGuild reuses the stored guild volume when no explicit volume is provided", async (t) => {

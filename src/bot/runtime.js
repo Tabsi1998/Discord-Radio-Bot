@@ -46,7 +46,7 @@ import {
   TIERS,
   TIER_RANK,
   clipText,
-  clampVolume,
+  applyVolumeTransformerLevel,
   applyJitter,
   buildTranscodeProfile,
   isWithinWorkerPlanLimit,
@@ -3626,10 +3626,7 @@ class BotRuntime {
 
     let appliedLive = false;
     const resource = state.player.state.resource;
-    if (resource?.volume) {
-      resource.volume.setVolume(clampVolume(normalizedValue));
-      appliedLive = true;
-    }
+    appliedLive = applyVolumeTransformerLevel(resource?.volume, normalizedValue);
 
     this.persistState({ forceLog: false });
     if (state.currentStationKey && state.connection && typeof this.updateNowPlayingEmbed === "function") {

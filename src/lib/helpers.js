@@ -189,6 +189,20 @@ function clampVolume(value) {
   return Math.max(0, Math.min(1, value / 100));
 }
 
+function applyVolumeTransformerLevel(transformer, value) {
+  if (!transformer) return false;
+  const normalized = clampVolume(value);
+  if (typeof transformer.setVolumeLogarithmic === "function") {
+    transformer.setVolumeLogarithmic(normalized);
+    return true;
+  }
+  if (typeof transformer.setVolume === "function") {
+    transformer.setVolume(normalized);
+    return true;
+  }
+  return false;
+}
+
 function sanitizeUrlForLog(rawUrl) {
   const text = String(rawUrl || "").trim();
   if (!text) return "-";
@@ -413,6 +427,7 @@ export {
   // Text
   clipText,
   clampVolume,
+  applyVolumeTransformerLevel,
   sanitizeUrlForLog,
   splitTextForDiscord,
   concatUint8Arrays,
