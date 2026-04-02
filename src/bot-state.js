@@ -11,6 +11,10 @@ const SPLIT_PROCESS_ROLE = String(process.env.BOT_PROCESS_ROLE || "").trim().toL
 const SPLIT_STATE_STORAGE_ENABLED = SPLIT_PROCESS_ROLE === "commander" || SPLIT_PROCESS_ROLE === "worker";
 const SPLIT_STATE_DIR = path.join(rootDir, String(process.env.BOT_STATE_SPLIT_DIR || "bot-state").trim() || "bot-state");
 
+function hasStateEntries(value) {
+  return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
+}
+
 function isPersistableGuildState(state) {
   return Boolean(state?.currentStationKey && state?.lastChannelId);
 }
@@ -134,7 +138,25 @@ function loadSplitBotState(botId) {
   const filePath = getSplitBotStateFile(botId);
   const backupFilePath = getSplitBotBackupFile(botId);
   if (!filePath) return {};
-  return readStateFile(filePath) || readStateFile(backupFilePath) || {};
+  const splitState = readStateFile(filePath) || readStateFile(backupFilePath) || {};
+  if (hasStateEntries(splitState)) {
+    return splitState;
+  }
+
+  const legacyState = loadState();
+  const legacyBotState = legacyState?.[botId];
+  if (!hasStateEntries(legacyBotState)) {
+    return splitState;
+  }
+
+  saveStateToFile(filePath, backupFilePath, legacyBotState);
+  delete legacyState[botId];
+  saveState(legacyState);
+  log(
+    "INFO",
+    `[bot-state] Legacy-State fuer ${botId} nach Split-Storage migriert (${Object.keys(legacyBotState).length} Guild(s)).`
+  );
+  return legacyBotState;
 }
 
 function saveBotState(botId, guildStates) {
