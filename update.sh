@@ -42,6 +42,10 @@ fail()  { echo -e "  ${RED}[FAIL]${NC} $*"; }
 APP_DIR="${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$APP_DIR"
 
+# shellcheck source=/dev/null
+source "$APP_DIR/scripts/runtime-compose.sh"
+refresh_omnifm_compose_env "$APP_DIR"
+
 # .env sanitizer: ANSI-Codes entfernen falls vorhanden
 if [[ -f .env ]] && grep -qP '\x1b\[' .env 2>/dev/null; then
   warn ".env enthaelt ANSI-Codes - wird bereinigt..."
@@ -452,30 +456,37 @@ mode_description_for_admin() {
 }
 
 show_container_status_table() {
+  refresh_compose_environment
   echo ""
   echo -e "  ${BOLD}Container-Status:${NC}"
+  echo -e "  ${DIM}$(compose_deployment_summary "$APP_DIR")${NC}"
   echo ""
   docker compose ps 2>/dev/null || warn "Kein Container aktiv."
 }
 
 show_recent_container_logs() {
   local tail_lines="${1:-20}"
+  local -a runtime_services=()
+  populate_runtime_services_array runtime_services
   echo ""
-  echo -e "  ${BOLD}Letzte ${tail_lines} Log-Zeilen (docker compose / omnifm):${NC}"
+  echo -e "  ${BOLD}Letzte ${tail_lines} Log-Zeilen (docker compose / Runtime):${NC}"
   echo ""
-  docker compose logs --tail="$tail_lines" omnifm 2>/dev/null || warn "Keine Container-Logs verfuegbar."
+  docker compose logs --tail="$tail_lines" "${runtime_services[@]}" 2>/dev/null || warn "Keine Container-Logs verfuegbar."
 }
 
 show_live_container_logs() {
   local tail_lines="${1:-80}"
   local refresh_seconds="${2:-2}"
   local key=""
+  local -a runtime_services=()
   while true; do
+    populate_runtime_services_array runtime_services
     clear 2>/dev/null || printf '\033c'
-    echo -e "  ${BOLD}Live Docker-Logs (omnifm)${NC}"
+    echo -e "  ${BOLD}Live Docker-Logs (Runtime)${NC}"
+    echo -e "  ${DIM}$(compose_deployment_summary "$APP_DIR")${NC}"
     echo -e "  ${DIM}Aktualisierung alle ${refresh_seconds}s | q = zurueck | Enter = sofort neu laden${NC}"
     echo ""
-    docker compose logs --tail="$tail_lines" omnifm 2>/dev/null || warn "Keine Container-Logs verfuegbar."
+    docker compose logs --tail="$tail_lines" "${runtime_services[@]}" 2>/dev/null || warn "Keine Container-Logs verfuegbar."
     echo ""
     IFS= read -rsn1 -t "$refresh_seconds" key || true
     case "${key:-}" in
@@ -588,6 +599,7 @@ show_admin_runtime_summary() {
   local log_mb log_files log_days auto_prune prune_until logs_dir
   local stripe dbl_token dbl_enabled dbl_status botsgg_token botsgg_enabled botsgg_status
   local topgg_token topgg_enabled topgg_status dash_status mongo_status container_status
+  local mode expected_workers running_workers
 
   bot_count="$(count_bots)"
   commander_idx="$(read_env "COMMANDER_BOT_INDEX" "1")"
@@ -613,10 +625,23 @@ show_admin_runtime_summary() {
   topgg_token="$(read_env "TOPGG_TOKEN" "")"
   topgg_enabled="$(read_env "TOPGG_ENABLED" "0")"
 
+  refresh_compose_environment
+  mode="$(deployment_mode)"
+  expected_workers="$(runtime_worker_count_expected)"
+  running_workers="$(runtime_worker_count_running)"
+
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
-    container_status="${GREEN}laeuft${NC}"
+    if [[ "$mode" == "split" ]]; then
+      container_status="${GREEN}Commander laeuft${NC}, Worker ${CYAN}${running_workers}/${expected_workers}${NC}"
+    else
+      container_status="${GREEN}laeuft${NC}"
+    fi
   else
-    container_status="${YELLOW}gestoppt${NC}"
+    if [[ "$mode" == "split" ]]; then
+      container_status="${YELLOW}Commander gestoppt${NC}, Worker ${CYAN}${running_workers}/${expected_workers}${NC}"
+    else
+      container_status="${YELLOW}gestoppt${NC}"
+    fi
   fi
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^mongodb$"; then
     mongo_status="${GREEN}MongoDB${NC}"
@@ -654,6 +679,7 @@ show_admin_runtime_summary() {
   echo -e "  ${BOLD}Admin-Cockpit${NC}"
   echo "  ------------------------------------"
   echo -e "    Runtime:             ${container_status} / ${mongo_status}"
+  echo -e "    Deployment:          ${CYAN}${mode}${NC}"
   echo -e "    Commander/Bots:      ${CYAN}#${commander_idx}${NC} / ${CYAN}${bot_count}${NC}"
   echo -e "    Slash-Commands:      ${CYAN}${command_mode}${NC} (${DIM}$(mode_description_for_admin "$command_mode")${NC})"
   echo -e "    Periodischer Sync:   ${CYAN}${command_periodic}${NC}"
@@ -813,6 +839,50 @@ count_bots() {
   echo "$c"
 }
 
+refresh_compose_environment() {
+  refresh_omnifm_compose_env "$APP_DIR"
+}
+
+deployment_mode() {
+  compose_determine_mode "$APP_DIR"
+}
+
+runtime_worker_count_expected() {
+  compose_expected_worker_count "$APP_DIR"
+}
+
+runtime_worker_count_running() {
+  refresh_compose_environment
+  local service running_services count=0
+
+  running_services="$(docker compose ps --services --filter status=running 2>/dev/null || true)"
+  while IFS= read -r service; do
+    [[ -n "$service" ]] || continue
+    if printf "%s\n" "$running_services" | grep -qx "$service"; then
+      count=$((count + 1))
+    fi
+  done < <(compose_worker_services "$APP_DIR")
+
+  printf "%s" "$count"
+}
+
+populate_runtime_services_array() {
+  local __target_var="$1"
+  local -a services=()
+
+  refresh_compose_environment
+  mapfile -t services < <(compose_runtime_services "$APP_DIR")
+  if (( ${#services[@]} == 0 )); then
+    services=("omnifm")
+  fi
+
+  eval "$__target_var=()"
+  local service
+  for service in "${services[@]}"; do
+    eval "$__target_var+=(\"\$service\")"
+  done
+}
+
 prompt_tier() {
   echo "" >&2
   echo -e "  ${DIM}Tier-Optionen:${NC}" >&2
@@ -900,6 +970,7 @@ json_validation_available_local() {
 json_file_can_use_container_validation() {
   local fp="$1"
   [[ "$fp" =~ ^[A-Za-z0-9._-]+\.json$ ]] || return 1
+  refresh_compose_environment
   docker compose ps --services --filter status=running 2>/dev/null | grep -q '^omnifm$'
 }
 
@@ -949,6 +1020,7 @@ PY
 json_file_is_valid_in_omnifm() {
   local fp="$1"
   json_file_can_use_container_validation "$fp" || return 1
+  refresh_compose_environment
   docker compose exec -T omnifm node -e "const fs=require('fs'); const p=process.argv[1]; if(!fs.statSync(p).isFile()) process.exit(2); JSON.parse(fs.readFileSync(p, 'utf8'));" "/app/${fp}" >/dev/null 2>&1
 }
 
@@ -1019,6 +1091,7 @@ ensure_all_json_files() {
 
 repair_runtime_json_mount_dirs() {
   local json_file host_repair_needed=0 restart_needed=0 was_running=0 default_content=""
+  local -a runtime_services=()
 
   for json_file in discordbotlist.json botsgg.json topgg.json vote-events.json; do
     if [[ -d "$json_file" || ! -f "$json_file" ]]; then
@@ -1038,10 +1111,11 @@ repair_runtime_json_mount_dirs() {
 
   (( host_repair_needed || restart_needed )) || return 0
 
+  populate_runtime_services_array runtime_services
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q '^omnifm$'; then
     was_running=1
-    info "Stoppe omnifm kurz, um JSON-Bind-Mounts zu korrigieren..."
-    docker compose stop -t 15 omnifm >/dev/null 2>&1 || warn "omnifm konnte fuer JSON-Reparatur nicht gestoppt werden."
+    info "Stoppe Runtime-Container kurz, um JSON-Bind-Mounts zu korrigieren..."
+    docker compose stop -t 15 "${runtime_services[@]}" >/dev/null 2>&1 || warn "Runtime-Container konnten fuer JSON-Reparatur nicht gestoppt werden."
   fi
 
   if (( host_repair_needed )); then
@@ -1063,8 +1137,8 @@ repair_runtime_json_mount_dirs() {
   fi
 
   if (( was_running )); then
-    info "Starte omnifm nach JSON-Bind-Mount-Reparatur wieder..."
-    docker compose start omnifm >/dev/null 2>&1 || warn "omnifm konnte nach JSON-Reparatur nicht gestartet werden."
+    info "Starte Runtime-Container nach JSON-Reparatur wieder..."
+    docker compose start "${runtime_services[@]}" >/dev/null 2>&1 || warn "Runtime-Container konnten nach JSON-Reparatur nicht gestartet werden."
     sleep 2
   fi
 }
@@ -1161,6 +1235,7 @@ show_storage_overview() {
 }
 
 report_runtime_tools_status() {
+  refresh_compose_environment
   if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
     return 0
   fi
@@ -1298,10 +1373,22 @@ run_system_doctor() {
   done
 
   # 5) Runtime status
+  local current_mode expected_workers running_workers
+  current_mode="$(deployment_mode)"
+  expected_workers="$(runtime_worker_count_expected)"
+  running_workers="$(runtime_worker_count_running)"
+  doctor_ok "Deployment-Modus: ${current_mode}"
   if docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then
     doctor_ok "Container omnifm laeuft."
   else
     doctor_warn "Container omnifm laeuft aktuell nicht."
+  fi
+  if [[ "$current_mode" == "split" ]]; then
+    if [[ "$running_workers" == "$expected_workers" ]]; then
+      doctor_ok "Worker-Container aktiv: ${running_workers}/${expected_workers}"
+    else
+      doctor_warn "Worker-Container aktiv: ${running_workers}/${expected_workers}"
+    fi
   fi
 
   # 6) MongoDB status
@@ -1336,9 +1423,10 @@ run_recognition_test() {
     return 1
   fi
 
+  refresh_compose_environment
   if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
     fail "Container 'omnifm' laeuft nicht."
-    echo -e "  ${DIM}Starte zuerst: docker compose up -d --build${NC}"
+    echo -e "  ${DIM}Starte zuerst: bash ./scripts/compose.sh up -d --build${NC}"
     return 1
   fi
 
@@ -1496,6 +1584,7 @@ EOF'
 }
 
 compose_build() {
+  refresh_compose_environment
   if docker compose build "$@"; then
     return 0
   fi
@@ -1504,6 +1593,7 @@ compose_build() {
 }
 
 compose_up() {
+  refresh_compose_environment
   if docker compose up -d --remove-orphans; then
     return 0
   fi
@@ -1512,6 +1602,8 @@ compose_up() {
 }
 
 compose_up_with_build() {
+  refresh_compose_environment
+  info "$(compose_deployment_summary "$APP_DIR")"
   if docker compose up -d --build --remove-orphans; then
     report_runtime_tools_status
     return 0
@@ -1532,11 +1624,12 @@ restart_container() {
       return 1
     fi
   else
-    warn "Nicht vergessen: ${BOLD}docker compose up -d --build${NC} ausfuehren!"
+    warn "Nicht vergessen: ${BOLD}bash ./scripts/compose.sh up -d --build${NC} ausfuehren!"
   fi
 }
 
 omnifm_container_running() {
+  refresh_compose_environment
   docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"
 }
 
@@ -1562,6 +1655,7 @@ run_omnifm_exec() {
   if ! ensure_omnifm_running; then
     return 1
   fi
+  refresh_compose_environment
   docker compose exec omnifm "$@"
 }
 
@@ -1638,6 +1732,8 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 ensure_env_default "SYNC_GUILD_COMMANDS_ON_BOOT" "1"
+ensure_env_default "COMMANDER_BOT_INDEX" "1"
+ensure_env_default "OMNIFM_DEPLOYMENT_MODE" "auto"
 ensure_env_default "COMMAND_REGISTRATION_MODE" "guild"
 ensure_env_default "CLEAN_GLOBAL_COMMANDS_ON_BOOT" "1"
 ensure_env_default "CLEAN_GUILD_COMMANDS_ON_BOOT" "0"
@@ -1661,6 +1757,12 @@ ensure_env_default "NOW_PLAYING_RECOGNITION_CACHE_TTL_MS" "90000"
 ensure_env_default "NOW_PLAYING_RECOGNITION_FAILURE_TTL_MS" "180000"
 ensure_env_default "NOW_PLAYING_RECOGNITION_SCORE_THRESHOLD" "0.55"
 ensure_env_default "NOW_PLAYING_MUSICBRAINZ_ENABLED" "1"
+ensure_env_default "REMOTE_WORKER_HEARTBEAT_MS" "5000"
+ensure_env_default "REMOTE_WORKER_COMMAND_POLL_MS" "1000"
+ensure_env_default "REMOTE_WORKER_COMMAND_TTL_MS" "300000"
+ensure_env_default "REMOTE_WORKER_STATUS_POLL_MS" "2000"
+ensure_env_default "REMOTE_WORKER_STATUS_STALE_MS" "45000"
+ensure_env_default "BOT_STATE_SPLIT_DIR" "bot-state"
 ensure_env_default "DISCORD_OAUTH_SCOPES" "identify guilds"
 ensure_env_default "DASHBOARD_SESSION_COOKIE" "omnifm_session"
 ensure_env_default "DASHBOARD_SESSION_TTL_SECONDS" "86400"
@@ -1670,6 +1772,9 @@ ensure_env_default "DISCORD_CLIENT_SECRET" ""
 ensure_env_default "DISCORD_REDIRECT_URI" ""
 ensure_env_default "MONGO_URL" "mongodb://mongodb:27017"
 ensure_env_default "DB_NAME" "radio_bot"
+write_env_line "BOT_COUNT" "$(count_bots)"
+write_env_line "COMMANDER_BOT_INDEX" "$(compose_resolve_commander_index "$APP_DIR")"
+refresh_compose_environment
 
 # Einmalige Migration: fruehere Defaults hatten CLEAN_GUILD_COMMANDS_ON_BOOT=1.
 # Das kann bei transienten API-Fehlern Commands entfernen.
@@ -1966,8 +2071,8 @@ if [[ "$MODE" == "--email" ]]; then
       fi
 
       # Pruefen ob Container laeuft
-      if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then
-        fail "Container nicht aktiv. Bitte zuerst starten: docker compose up -d"
+      if ! omnifm_container_running; then
+        fail "Container nicht aktiv. Bitte zuerst starten: bash ./scripts/compose.sh up -d --build"
         exit 1
       fi
 
@@ -1976,6 +2081,7 @@ if [[ "$MODE" == "--email" ]]; then
       info "Sende Test-Email an ${test_to}..."
 
       # Test-Email via Node.js im Container senden
+      refresh_compose_environment
       RESULT=$(docker compose exec -T omnifm node -e "
         const nm = require('nodemailer');
         const port = Number(process.env.SMTP_PORT) || 587;
@@ -2150,7 +2256,8 @@ if [[ "$MODE" == "--settings" ]]; then
     cur_terms_status="Basis vorhanden"
   fi
   cur_fpcalc_status="Container gestoppt"
-  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
+  if omnifm_container_running; then
+    refresh_compose_environment
     if docker compose exec -T omnifm sh -lc 'command -v fpcalc >/dev/null 2>&1' >/dev/null 2>&1; then
       cur_fpcalc_status="verfuegbar"
     else
@@ -2878,18 +2985,18 @@ fi
 # MODE: Premium verwalten (via Docker)
 # ============================================================
 if [[ "$MODE" == "--premium" ]]; then
-  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then
-    docker compose exec omnifm node src/premium-cli.js wizard
+  if omnifm_container_running; then
+    run_omnifm_exec node src/premium-cli.js wizard
   else
     warn "Container nicht aktiv."
     echo ""
     if prompt_yes_no "Container jetzt starten?" "j"; then
       ensure_all_json_files
-      docker compose up -d --build --remove-orphans
+      compose_up_with_build
       sleep 3
-      docker compose exec omnifm node src/premium-cli.js wizard
+      run_omnifm_exec node src/premium-cli.js wizard
     else
-      echo -e "  ${DIM}Starte manuell: docker compose up -d${NC}"
+      echo -e "  ${DIM}Starte manuell: bash ./scripts/compose.sh up -d --build${NC}"
     fi
   fi
   exit 0
@@ -2899,18 +3006,18 @@ fi
 # MODE: Coupon/Referral/Gratis-Lizenz Codes verwalten (via Docker)
 # ============================================================
 if [[ "$MODE" == "--offers" ]]; then
-  if docker compose ps --services --filter status=running 2>/dev/null | grep -q "omnifm"; then
-    docker compose exec omnifm node src/premium-cli.js offers
+  if omnifm_container_running; then
+    run_omnifm_exec node src/premium-cli.js offers
   else
     warn "Container nicht aktiv."
     echo ""
     if prompt_yes_no "Container jetzt starten?" "j"; then
       ensure_all_json_files
-      docker compose up -d --build --remove-orphans
+      compose_up_with_build
       sleep 3
-      docker compose exec omnifm node src/premium-cli.js offers
+      run_omnifm_exec node src/premium-cli.js offers
     else
-      echo -e "  ${DIM}Starte manuell: docker compose up -d${NC}"
+      echo -e "  ${DIM}Starte manuell: bash ./scripts/compose.sh up -d --build${NC}"
     fi
   fi
   exit 0
@@ -3005,6 +3112,9 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
     write_env_line "BOT_COUNT" "$new_index"
 
     ok "Bot ${new_index} konfiguriert: ${bot_name} (${bot_tier})"
+    if (( new_index > 1 )); then
+      info "Beim Neustart wird fuer den neuen Bot automatisch ein eigener Worker-Container angelegt und gestartet."
+    fi
     restart_container
     exit 0
   fi
@@ -3135,8 +3245,10 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
 
     new_count=$((bot_count - 1))
     write_env_line "BOT_COUNT" "$new_count"
+    write_env_line "COMMANDER_BOT_INDEX" "$(compose_resolve_commander_index "$APP_DIR")"
 
     ok "Bot ${rm_name} entfernt. Verbleibend: ${new_count} Bot(s)."
+    info "Beim Neustart werden nicht mehr benoetigte Worker-Container automatisch entfernt."
     restart_container
     exit 0
   fi
@@ -3175,7 +3287,7 @@ if [[ "$MODE" == "--bots" || "$MODE" == "--show-bots" || "$MODE" == "--add-bot" 
       write_env_line "COMMANDER_BOT_INDEX" "$NEW_COMMANDER"
       new_name=$(read_env "BOT_${NEW_COMMANDER}_NAME" "Bot ${NEW_COMMANDER}")
       ok "Commander gesetzt: Bot #${NEW_COMMANDER} (${new_name})"
-      echo -e "  ${DIM}Alle anderen Bots werden automatisch als Worker gestartet.${NC}"
+      echo -e "  ${DIM}Alle anderen Bots werden beim Neustart automatisch als eigene Worker-Container gestartet.${NC}"
       restart_container
     else
       fail "Ungueltige Auswahl."
@@ -3367,9 +3479,12 @@ bot_count=$(count_bots)
 cur_stripe=$(read_env "STRIPE_SECRET_KEY")
 cur_dbl_token=$(read_env "DISCORDBOTLIST_TOKEN")
 web_port=$(read_env "WEB_PORT" "8081")
+current_mode="$(deployment_mode)"
+current_workers="$(runtime_worker_count_expected)"
 
 echo -e "  ${BOLD}Zusammenfassung:${NC}"
 echo -e "    Bots:      ${CYAN}${bot_count}${NC}"
+echo -e "    Runtime:   ${CYAN}${current_mode}${NC}$(if [[ "$current_mode" == "split" ]]; then printf ' (%s Worker)' "$current_workers"; fi)"
 echo -e "    Stripe:    $(if [[ -n "$cur_stripe" ]]; then echo -e "${GREEN}konfiguriert${NC}"; else echo -e "${RED}nicht gesetzt${NC}"; fi)"
 echo -e "    DBL:       $(if [[ -n "$cur_dbl_token" ]]; then echo -e "${GREEN}konfiguriert${NC}"; else echo -e "${RED}nicht gesetzt${NC}"; fi)"
 echo -e "    Web:       ${CYAN}http://localhost:${web_port}${NC}"
@@ -3388,6 +3503,7 @@ echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
 echo -e "    Status Quick:     ${GREEN}./update.sh --status quick${NC}"
 echo -e "    Live Docker-Log:  ${GREEN}./update.sh --status live${NC}"
 echo -e "    Live Local-Log:   ${GREEN}./update.sh --status local-live${NC}"
+echo -e "    Compose Wrapper:  ${GREEN}bash ./scripts/compose.sh ps${NC}"
 echo -e "    Speicher cleanup: ${GREEN}./update.sh --cleanup${NC}"
 echo -e "    Recognition-Test:${GREEN} ./update.sh --recognition-test <URL>${NC}"
 echo -e "    Dieses Menue:     ${GREEN}./update.sh${NC}"

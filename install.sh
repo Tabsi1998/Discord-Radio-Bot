@@ -17,7 +17,15 @@ ok()    { echo -e "${GREEN}[OK]${NC}   $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
 
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$APP_DIR"
+
+# shellcheck source=/dev/null
+source "$APP_DIR/scripts/runtime-compose.sh"
+refresh_omnifm_compose_env "$APP_DIR"
+
 report_runtime_tools_status() {
+  refresh_omnifm_compose_env "$APP_DIR"
   if ! docker compose ps --services --filter status=running 2>/dev/null | grep -q "^omnifm$"; then
     return 0
   fi
@@ -36,7 +44,9 @@ report_runtime_tools_status() {
 }
 
 compose_up_with_build() {
-  if docker compose up -d --build; then
+  refresh_omnifm_compose_env "$APP_DIR"
+  info "$(compose_deployment_summary "$APP_DIR")"
+  if docker compose up -d --build --remove-orphans; then
     report_runtime_tools_status
     return 0
   fi
@@ -107,7 +117,11 @@ write_env_line() {
   local value="$2"
   value="${value//$'\r'/}"
   value="${value//$'\n'/}"
-  printf '%s=%s\n' "$key" "$value" >> .env
+  if grep -q "^${key}=" .env 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${value}|" .env
+  else
+    printf '%s=%s\n' "$key" "$value" >> .env
+  fi
 }
 
 validate_token() {
@@ -354,6 +368,26 @@ if [[ $existing_bots -eq 0 ]]; then
   done
 fi
 
+configured_bot_count="$(compose_count_bots "$APP_DIR")"
+resolved_commander_idx="$(compose_resolve_commander_index "$APP_DIR")"
+deployment_mode_setting="$(compose_read_env_value "$APP_DIR" "OMNIFM_DEPLOYMENT_MODE" "auto")"
+
+write_env_line "BOT_COUNT" "$configured_bot_count"
+write_env_line "COMMANDER_BOT_INDEX" "$resolved_commander_idx"
+write_env_line "OMNIFM_DEPLOYMENT_MODE" "${deployment_mode_setting:-auto}"
+write_env_line "REMOTE_WORKER_HEARTBEAT_MS" "$(compose_read_env_value "$APP_DIR" "REMOTE_WORKER_HEARTBEAT_MS" "5000")"
+write_env_line "REMOTE_WORKER_COMMAND_POLL_MS" "$(compose_read_env_value "$APP_DIR" "REMOTE_WORKER_COMMAND_POLL_MS" "1000")"
+write_env_line "REMOTE_WORKER_COMMAND_TTL_MS" "$(compose_read_env_value "$APP_DIR" "REMOTE_WORKER_COMMAND_TTL_MS" "300000")"
+write_env_line "REMOTE_WORKER_STATUS_POLL_MS" "$(compose_read_env_value "$APP_DIR" "REMOTE_WORKER_STATUS_POLL_MS" "2000")"
+write_env_line "REMOTE_WORKER_STATUS_STALE_MS" "$(compose_read_env_value "$APP_DIR" "REMOTE_WORKER_STATUS_STALE_MS" "45000")"
+write_env_line "BOT_STATE_SPLIT_DIR" "$(compose_read_env_value "$APP_DIR" "BOT_STATE_SPLIT_DIR" "bot-state")"
+
+refresh_omnifm_compose_env "$APP_DIR"
+ok "$(compose_deployment_summary "$APP_DIR")"
+if [[ "${OMNIFM_DEPLOYMENT_ACTIVE:-monolith}" == "split" ]]; then
+  info "Neue Bots werden kuenftig automatisch als eigene Worker-Container gestartet, sobald du install.sh oder update.sh erneut laufen laesst."
+fi
+
 echo ""
 
 # ====================================
@@ -588,6 +622,8 @@ info "Baue und starte Container..."
 for jf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json discordbotlist.json botsgg.json topgg.json vote-events.json; do
   if [[ -d "$jf" ]]; then rm -rf "$jf" 2>/dev/null || true; fi
 done
+if [[ -f bot-state ]]; then rm -f bot-state 2>/dev/null || true; fi
+if [[ -f song-history ]]; then rm -f song-history 2>/dev/null || true; fi
 [[ -f premium.json ]]         || echo '{"licenses":{}}' > premium.json
 [[ -f bot-state.json ]]       || echo '{}' > bot-state.json
 [[ -f custom-stations.json ]] || echo '{}' > custom-stations.json
@@ -602,6 +638,7 @@ done
 [[ -f botsgg.json ]] || echo '{"version":1,"lastStatsSync":null}' > botsgg.json
 [[ -f topgg.json ]] || echo '{"version":1,"project":null,"lastProjectSync":null,"lastCommandsSync":null,"lastStatsSync":null,"lastVoteSync":null,"lastWebhookVoteAt":null,"lastWebhookTestAt":null}' > topgg.json
 [[ -f vote-events.json ]] || echo '{"version":1,"totalVotes":0,"votes":[],"providers":{"discordbotlist":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null},"topgg":{"totalVotes":0,"lastVoteAt":null,"lastReceivedAt":null}}}' > vote-events.json
+mkdir -p logs bot-state song-history
 
 compose_up_with_build || exit 1
 
@@ -627,7 +664,10 @@ if $health_ok; then
   ok "Health-Check bestanden!"
 else
   warn "Health-Check nicht bestanden. Das kann normal sein wenn Bot-Tokens noch nicht verifiziert sind."
-  echo -e "  ${DIM}Pruefe Logs:  docker compose logs --tail=100 omnifm${NC}"
+  echo -e "  ${DIM}Pruefe Logs:  bash ./scripts/compose.sh logs --tail=100 omnifm${NC}"
+  if [[ "${OMNIFM_DEPLOYMENT_ACTIVE:-monolith}" == "split" ]]; then
+    echo -e "  ${DIM}Komplettstatus: bash ./update.sh --status quick${NC}"
+  fi
 fi
 
 # ====================================
@@ -651,10 +691,15 @@ echo ""
 echo -e "  ${BOLD}Nuetzliche Befehle:${NC}"
 echo -e "    Stationen:        ${GREEN}bash ./stations.sh${NC}"
 echo -e "    Bot bearbeiten:   ${GREEN}bash ./update.sh --edit-bot${NC}"
+echo -e "    Bots verwalten:   ${GREEN}bash ./update.sh --bots${NC}"
 echo -e "    Premium:          ${GREEN}bash ./update.sh --premium${NC}"
 echo -e "    Stripe Setup:     ${GREEN}bash ./setup-stripe.sh${NC}"
 echo -e "    Update:           ${GREEN}bash ./update.sh${NC}"
-echo -e "    Logs:             ${GREEN}docker compose logs -f omnifm${NC}"
-echo -e "    Status:           ${GREEN}docker compose ps${NC}"
-echo -e "    Neustart:         ${GREEN}docker compose restart${NC}"
+echo -e "    Logs:             ${GREEN}bash ./scripts/compose.sh logs -f omnifm${NC}"
+echo -e "    Status:           ${GREEN}bash ./scripts/compose.sh ps${NC}"
+echo -e "    Neustart:         ${GREEN}bash ./scripts/compose.sh restart${NC}"
+if [[ "${OMNIFM_DEPLOYMENT_ACTIVE:-monolith}" == "split" ]]; then
+  echo -e "    Worker-Logs:      ${GREEN}bash ./scripts/compose.sh logs -f omnifm-worker-<bot-index>${NC}"
+  echo -e "    Hinweis:          ${DIM}Neue Bots aus ./update.sh --add-bot werden automatisch als neue Worker-Container gestartet.${NC}"
+fi
 echo ""

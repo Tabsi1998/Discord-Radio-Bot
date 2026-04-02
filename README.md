@@ -61,8 +61,8 @@ The interactive scripts now also cover:
 After installation:
 
 ```bash
-docker compose up -d --build
-docker compose logs -f omnifm
+bash ./scripts/compose.sh up -d --build
+bash ./scripts/compose.sh logs -f omnifm
 ```
 
 The production path uses the Node app started from `src/index.js`. `backend/` is not part of the primary install, run, or test flow anymore.
