@@ -66,8 +66,31 @@ function getSplitBotBackupFile(botId) {
 
 function ensureDirectoryForFile(filePath) {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  if (fs.existsSync(dir)) {
+    try {
+      if (!fs.statSync(dir).isDirectory()) {
+        log("WARN", `[bot-state] ${dir} ist keine Verzeichnisstruktur fuer Split-State.`);
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    return true;
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  return true;
+}
+
+function writeTextFileWithDirRetry(filePath, content) {
+  try {
+    if (!ensureDirectoryForFile(filePath)) return false;
+    fs.writeFileSync(filePath, content, "utf8");
+    return true;
+  } catch (err) {
+    if (err?.code !== "ENOENT") throw err;
+    if (!ensureDirectoryForFile(filePath)) return false;
+    fs.writeFileSync(filePath, content, "utf8");
+    return true;
   }
 }
 
@@ -122,7 +145,10 @@ function saveStateToFile(filePath, backupFilePath, state) {
   const payload = JSON.stringify(state, null, 2);
   const tmpFile = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   try {
-    ensureDirectoryForFile(filePath);
+    if (!ensureDirectoryForFile(filePath)) {
+      log("WARN", `[bot-state] Split-State-Verzeichnis ungueltig fuer ${filePath}.`);
+      return;
+    }
 
     if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
       log("WARN", `[bot-state] ${filePath} ist ein Verzeichnis - State wird nur im Speicher gehalten.`);
@@ -137,11 +163,15 @@ function saveStateToFile(filePath, backupFilePath, state) {
       }
     }
 
-    fs.writeFileSync(tmpFile, payload, "utf8");
+    if (!writeTextFileWithDirRetry(tmpFile, payload)) {
+      return;
+    }
     try {
       fs.renameSync(tmpFile, filePath);
     } catch {
-      fs.writeFileSync(filePath, payload, "utf8");
+      if (!writeTextFileWithDirRetry(filePath, payload)) {
+        return;
+      }
     }
   } catch (err) {
     log("ERROR", `[bot-state] Fehler beim Speichern (${filePath}): ${err?.message || err}`);

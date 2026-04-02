@@ -4,6 +4,22 @@
 export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 
+init_runtime_dir() {
+  local dirpath="$1"
+
+  if [ -f "$dirpath" ]; then
+    echo "[WARN] $dirpath ist eine Datei statt ein Verzeichnis."
+    echo "[WARN] Bitte auf dem Host korrigieren und den Container neu starten."
+    return 0
+  fi
+
+  mkdir -p "$dirpath" 2>/dev/null || true
+}
+
+init_runtime_dir "/app/logs"
+init_runtime_dir "/app/bot-state"
+init_runtime_dir "/app/song-history"
+
 # === JSON-Dateien sicherstellen ===
 # Docker bind-mount erstellt ein VERZEICHNIS wenn die Datei auf dem Host fehlt.
 # Ein Verzeichnis-Mount kann NICHT geloescht werden (Device or resource busy).

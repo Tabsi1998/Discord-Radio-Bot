@@ -1089,6 +1089,18 @@ ensure_all_json_files() {
   fi
 }
 
+ensure_split_state_dirs() {
+  if [[ -f "bot-state" ]]; then
+    warn "bot-state war eine Datei statt ein Verzeichnis - korrigiere auf Verzeichnis."
+    rm -f "bot-state" 2>/dev/null || true
+  fi
+  if [[ -f "song-history" ]]; then
+    warn "song-history war eine Datei statt ein Verzeichnis - korrigiere auf Verzeichnis."
+    rm -f "song-history" 2>/dev/null || true
+  fi
+  mkdir -p logs bot-state song-history
+}
+
 repair_runtime_json_mount_dirs() {
   local json_file host_repair_needed=0 restart_needed=0 was_running=0 default_content=""
   local -a runtime_services=()
@@ -3382,6 +3394,8 @@ git reset --hard "$REMOTE/$BRANCH"
 new_head="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
 git clean -fd \
   -e logs \
+  -e bot-state \
+  -e song-history \
   -e .update-backups \
   -e .env \
   -e stations.json \
@@ -3449,6 +3463,7 @@ info "Lizenz-Check: vor Update=${licenses_before_update}, nach Update=${licenses
 # JSON-Dateien sicherstellen
 echo ""
 ensure_all_json_files
+ensure_split_state_dirs
 
 # Container rebuild
 info "Baue Container neu..."
