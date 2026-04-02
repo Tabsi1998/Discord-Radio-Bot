@@ -7,6 +7,25 @@ function countLabel(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function resolveRuntimePresenceName(runtime) {
+  const workerSlot = Number(runtime.workerSlot || runtime.config?.index || 0) || null;
+  if (runtime.role === "commander") {
+    return clipText(runtime.config?.name || "OmniFM DJ", 48) || "OmniFM DJ";
+  }
+  return clipText(runtime.config?.name || `Worker ${workerSlot || "?"}`, 48) || `Worker ${workerSlot || "?"}`;
+}
+
+function resolvePresenceStationLabel(activeStates = []) {
+  if (!Array.isArray(activeStates) || activeStates.length !== 1) return "";
+  const [, state] = activeStates[0] || [];
+  return clipText(
+    state?.currentStationName
+      || state?.currentStationKey
+      || "",
+    52
+  ) || "";
+}
+
 export function buildRuntimePresenceActivity(runtime) {
   const activeStates = [...runtime.guildState.entries()]
     .filter(([, state]) => state.currentStationKey && state.connection);
@@ -16,7 +35,8 @@ export function buildRuntimePresenceActivity(runtime) {
   const publicLabel = publicUrlRaw
     ? clipText(publicUrlRaw.replace(/\/+$/, ""), 64)
     : "";
-  const workerSlot = Number(runtime.workerSlot || runtime.config?.index || 0) || null;
+  const runtimeName = resolveRuntimePresenceName(runtime);
+  const singleStationLabel = resolvePresenceStationLabel(activeStates);
 
   let totalListeners = 0;
   if (typeof runtime.collectStats === "function") {
@@ -31,21 +51,25 @@ export function buildRuntimePresenceActivity(runtime) {
   }
 
   const listenerSuffix = totalListeners > 0 ? ` | ${countLabel(totalListeners, "listener")}` : "";
-  const commanderName = clipText(runtime.config?.name || "OmniFM DJ", 48) || "OmniFM DJ";
 
   if (runtime.role === "commander") {
     if (activeStreams > 0) {
       return {
         type: ActivityType.Playing,
-        name: clipText(`DJ on ${countLabel(activeStreams, "server")}${listenerSuffix}`, 120),
+        name: clipText(
+          activeStreams === 1 && singleStationLabel
+            ? `DJ routing ${singleStationLabel}${listenerSuffix}`
+            : `DJ routing ${countLabel(activeStreams, "server")}${listenerSuffix}`,
+          120
+        ),
       };
     }
     return {
       type: ActivityType.Listening,
       name: clipText(
         publicLabel
-          ? `${commanderName} | /play | ${publicLabel}`
-          : `${commanderName} | /play | ${countLabel(connectedGuilds, "server")}`,
+          ? `${runtimeName} | /play | ${publicLabel}`
+          : `${runtimeName} | /play | ${countLabel(connectedGuilds, "server")}`,
         120
       ),
     };
@@ -54,7 +78,12 @@ export function buildRuntimePresenceActivity(runtime) {
   if (activeStreams > 0) {
     return {
       type: ActivityType.Playing,
-      name: clipText(`Play on ${countLabel(activeStreams, "server")}${listenerSuffix}`, 120),
+      name: clipText(
+        activeStreams === 1 && singleStationLabel
+          ? `${runtimeName} | ${singleStationLabel}${listenerSuffix}`
+          : `${runtimeName} | ${countLabel(activeStreams, "server")} live${listenerSuffix}`,
+        120
+      ),
     };
   }
 
@@ -62,8 +91,8 @@ export function buildRuntimePresenceActivity(runtime) {
     type: ActivityType.Listening,
     name: clipText(
       publicLabel
-        ? `Worker ${workerSlot || "?"} ready | /play | ${publicLabel}`
-        : `Worker ${workerSlot || "?"} ready | /play`,
+        ? `${runtimeName} ready | /play | ${publicLabel}`
+        : `${runtimeName} ready | /play`,
       120
     ),
   };

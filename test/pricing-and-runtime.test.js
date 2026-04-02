@@ -2426,7 +2426,7 @@ test("presence shows dynamic commander and worker activity with listener totals"
   };
   const workerRuntime = {
     role: "worker",
-    config: { index: 7 },
+    config: { index: 7, name: "OmniFM 7" },
     client: { guilds: { cache: { size: 8 } } },
     guildState: new Map([
       ["g1", { currentStationKey: "house", currentStationName: "House Beats", connection: {}, listenerCount: 2 }],
@@ -2437,11 +2437,10 @@ test("presence shows dynamic commander and worker activity with listener totals"
   const workerPresence = BotRuntime.prototype.buildPresenceActivity.call(workerRuntime);
 
   assert.equal(commanderPresence?.type, ActivityType.Playing);
-  assert.match(String(commanderPresence?.name || ""), /DJ on 2 servers \| 7 listeners/);
+  assert.match(String(commanderPresence?.name || ""), /DJ routing 2 servers \| 7 listeners/);
   assert.doesNotMatch(String(commanderPresence?.name || ""), /Chillout FM|Hip Hop Radio/);
   assert.equal(workerPresence?.type, ActivityType.Playing);
-  assert.match(String(workerPresence?.name || ""), /Play on 1 server \| 2 listeners/);
-  assert.doesNotMatch(String(workerPresence?.name || ""), /House Beats/);
+  assert.match(String(workerPresence?.name || ""), /^OmniFM 7 \| House Beats \| 2 listeners$/);
 });
 
 test("presence keeps commander and worker idle copy clean with /play and website", () => {
@@ -2464,7 +2463,7 @@ test("presence keeps commander and worker idle copy clean with /play and website
   assert.equal(commanderPresence?.type, ActivityType.Listening);
   assert.match(String(commanderPresence?.name || ""), /^OmniFM DJ \| \/play \| https:\/\/omnifm\.xyz$/);
   assert.equal(workerPresence?.type, ActivityType.Listening);
-  assert.match(String(workerPresence?.name || ""), /^Worker 3 ready \| \/play \| https:\/\/omnifm\.xyz$/);
+  assert.match(String(workerPresence?.name || ""), /^OmniFM 3 ready \| \/play \| https:\/\/omnifm\.xyz$/);
 });
 
 test("programmatic stop routes through resetVoiceSession so listening sessions are finalized", () => {
