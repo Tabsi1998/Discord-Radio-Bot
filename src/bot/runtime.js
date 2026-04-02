@@ -105,6 +105,7 @@ import {
   saveBotState,
   clearBotGuild,
   isPersistableGuildState,
+  setBotGuildVolume,
   getBotGuildVolume,
 } from "../bot-state.js";
 import {
@@ -1621,6 +1622,10 @@ class BotRuntime {
     const streamInfo = this.normalizeNowPlayingValue(meta?.description, station, meta, 240);
     const hasTrack = Boolean(trackLabel);
     const listenerCount = Math.max(0, Number.parseInt(String(context?.listenerCount || 0), 10) || 0);
+    const parsedVolume = Number.parseInt(String(context?.volume ?? ""), 10);
+    const visibleVolume = Number.isFinite(parsedVolume)
+      ? `${Math.max(0, Math.min(100, parsedVolume))}%`
+      : null;
     const voiceChannelId = String(context?.channelId || "").trim();
     const workerName = clipText(String(context?.workerName || this.config.name || BRAND.name), 60) || BRAND.name;
     const metadataSource = String(meta?.metadataSource || "").trim().toLowerCase();
@@ -1766,6 +1771,13 @@ class BotRuntime {
       stableFields.push({
         name: isDe ? "\u{1f465} H\u00f6ren gerade" : "\u{1f465} Listening now",
         value: visibleListenerCount,
+        inline: true,
+      });
+    }
+    if (visibleVolume) {
+      stableFields.push({
+        name: isDe ? "\u{1f50a} Lautst\u00e4rke" : "\u{1f50a} Volume",
+        value: visibleVolume,
         inline: true,
       });
     }
@@ -1998,6 +2010,7 @@ class BotRuntime {
       const payload = this.buildNowPlayingMessagePayload(guildId, station, nextMeta, {
         channelId: state.connection?.joinConfig?.channelId || state.lastChannelId || null,
         listenerCount,
+        volume: state.volume,
         workerName: this.config.name,
       });
       const sent = await this.upsertNowPlayingMessage(guildId, state, payload, channel);
@@ -3609,6 +3622,7 @@ class BotRuntime {
     const state = this.getState(guildId);
     state.volume = normalizedValue;
     state.volumePreferenceSet = true;
+    setBotGuildVolume(this.config.id, guildId, normalizedValue);
 
     let appliedLive = false;
     const resource = state.player.state.resource;
@@ -3618,6 +3632,13 @@ class BotRuntime {
     }
 
     this.persistState({ forceLog: false });
+    if (state.currentStationKey && state.connection && typeof this.updateNowPlayingEmbed === "function") {
+      setTimeout(() => {
+        this.updateNowPlayingEmbed(guildId, state, { force: true }).catch((err) => {
+          log("WARN", `[${this.config.name}] Now-Playing-Update nach Lautstaerkewechsel fehlgeschlagen: ${err?.message || err}`);
+        });
+      }, 0);
+    }
     return {
       ok: true,
       value: normalizedValue,

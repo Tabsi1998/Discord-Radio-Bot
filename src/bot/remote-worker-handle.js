@@ -16,6 +16,12 @@ function buildRemoteConnection(detail) {
   };
 }
 
+function normalizeRemoteVolume(value, fallback = 100) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(100, parsed));
+}
+
 function buildRemoteGuildState(detail = {}) {
   const channelId = String(detail?.channelId || "").trim();
   return {
@@ -30,7 +36,7 @@ function buildRemoteGuildState(detail = {}) {
     currentStationName: detail?.stationName || null,
     currentMeta: detail?.meta || null,
     lastChannelId: channelId || null,
-    volume: Number(detail?.volume ?? 100) || 100,
+    volume: normalizeRemoteVolume(detail?.volume, 100),
     shouldReconnect: detail?.shouldReconnect === true,
     reconnectCount: Number(detail?.reconnectCount || 0) || 0,
     lastReconnectAt: detail?.lastReconnectAt || null,
@@ -230,7 +236,7 @@ class RemoteWorkerHandle {
       stationKey: detail?.stationKey || null,
       stationName: detail?.stationName || null,
       meta: detail?.meta || null,
-      volume: Number(detail?.volume ?? 100) || 100,
+      volume: normalizeRemoteVolume(detail?.volume, 100),
       channelId: detail?.channelId || null,
       listenerCount: Number(detail?.listenerCount || 0) || 0,
       reconnectAttempts: Number(detail?.reconnectAttempts || 0) || 0,

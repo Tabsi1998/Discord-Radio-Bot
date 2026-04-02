@@ -558,6 +558,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }, {
       channelId,
       listenerCount: activeRuntime.getCurrentListenerCount(interaction.guildId, activeState),
+      volume: activeState.volume,
       workerName: activeRuntime.config?.name || BRAND.name,
     });
     embed.addFields(

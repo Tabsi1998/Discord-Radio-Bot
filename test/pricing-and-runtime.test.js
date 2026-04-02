@@ -15,6 +15,7 @@ import { buildCommandsJson } from "../src/commands.js";
 import { networkRecoveryCoordinator } from "../src/core/network-recovery.js";
 import { WorkerManager } from "../src/bot/worker-manager.js";
 import { BotRuntime } from "../src/bot/runtime.js";
+import { RemoteWorkerHandle } from "../src/bot/remote-worker-handle.js";
 import { WorkerBridgeService } from "../src/bot/worker-bridge-service.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import {
@@ -1766,6 +1767,67 @@ test("setVolumeInGuild persists a worker volume preference even without active p
   assert.equal(saved["guild-1"]?.channelId, undefined);
 });
 
+test("setVolumeInGuild refreshes the now-playing embed and keeps zero volume intact", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({});
+
+  const liveVolumes = [];
+  const nowPlayingUpdates = [];
+  const runtime = {
+    config: { id: "bot-live-volume", name: "OmniFM Live" },
+    guildState: new Map([[
+      "guild-1",
+      {
+        player: {
+          state: {
+            resource: {
+              volume: {
+                setVolume(value) {
+                  liveVolumes.push(value);
+                },
+              },
+            },
+          },
+        },
+        currentStationKey: "station-a",
+        currentStationName: "Station A",
+        connection: { joinConfig: { channelId: "voice-1" } },
+        lastChannelId: "voice-1",
+        volume: 55,
+      },
+    ]]),
+    getState: BotRuntime.prototype.getState,
+    persistState() {},
+    updateNowPlayingEmbed: async (guildId, state, options = {}) => {
+      nowPlayingUpdates.push({
+        guildId,
+        volume: state.volume,
+        force: options.force === true,
+      });
+    },
+  };
+
+  const result = BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 0);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.appliedLive, true);
+  assert.equal(result.value, 0);
+  assert.deepEqual(liveVolumes, [0]);
+  assert.deepEqual(nowPlayingUpdates, [{ guildId: "guild-1", volume: 0, force: true }]);
+  assert.equal(runtime.guildState.get("guild-1")?.volume, 0);
+
+  const saved = getBotState("bot-live-volume");
+  assert.equal(saved["guild-1"]?.volume, 0);
+  assert.equal(saved["guild-1"]?.volumePreference, true);
+});
+
 test("playInGuild reuses the stored guild volume when no explicit volume is provided", async (t) => {
   const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
   const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
@@ -1931,6 +1993,64 @@ test("worker bridge keeps mute volume and omitted play volume intact", async () 
       options: { test: true },
     },
   ]);
+});
+
+test("remote worker handle preserves zero volume in guild details", () => {
+  const worker = new RemoteWorkerHandle({ id: "bot-remote-zero", name: "OmniFM Remote" });
+  worker.applyRemoteStatus({
+    heartbeatAt: new Date().toISOString(),
+    status: {
+      ready: true,
+      guildDetails: [{
+        guildId: "guild-1",
+        guildName: "Guild One",
+        channelId: "voice-1",
+        channelName: "Radio",
+        playing: true,
+        stationKey: "station-a",
+        stationName: "Station A",
+        volume: 0,
+        listenerCount: 2,
+      }],
+    },
+  });
+
+  assert.equal(worker.getState("guild-1")?.volume, 0);
+  assert.equal(worker.getGuildInfo("guild-1")?.volume, 0);
+});
+
+test("buildNowPlayingEmbed shows the current worker volume", () => {
+  const runtime = Object.create(BotRuntime.prototype);
+  runtime.config = { id: "bot-now-volume", name: "OmniFM Embed" };
+  runtime.client = {
+    user: {
+      displayAvatarURL: () => null,
+    },
+  };
+  runtime.resolveGuildLanguage = () => "de";
+
+  const embed = BotRuntime.prototype.buildNowPlayingEmbed.call(
+    runtime,
+    "guild-1",
+    { name: "Reggaeton FM" },
+    {
+      artist: "Artist",
+      title: "Track",
+      displayTitle: "Artist - Track",
+      metadataSource: "icy",
+      metadataStatus: "ok",
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      channelId: "voice-1",
+      listenerCount: 3,
+      volume: 37,
+      workerName: "OmniFM 4",
+    }
+  );
+
+  const volumeField = (embed.data.fields || []).find((field) => String(field?.name || "").includes("Lautst"));
+  assert.equal(volumeField?.value, "37%");
 });
 
 test("restoreState reconnects the saved radio in the same voice channel", async (t) => {
