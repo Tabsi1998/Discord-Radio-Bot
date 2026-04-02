@@ -9,36 +9,76 @@ import {
   applyJitter,
 } from "../lib/helpers.js";
 
+function normalizeOptions(options = {}) {
+  if (typeof options === "string") {
+    return { scope: options };
+  }
+  if (!options || typeof options !== "object") {
+    return {};
+  }
+  return options;
+}
+
+function normalizeScope(rawScope) {
+  return String(rawScope || "global").trim() || "global";
+}
+
 class NetworkRecoveryCoordinator {
   constructor() {
-    this.failureCount = 0;
-    this.lastFailureAt = 0;
-    this.lastSuccessAt = Date.now();
+    this.scopes = new Map();
     this.listeners = new Set();
   }
 
-  noteFailure(source, detail = "") {
-    const now = Date.now();
-    if (now - this.lastFailureAt > NETWORK_FAILURE_RESET_MS) {
-      this.failureCount = 0;
+  getScopeState(scope = "global", { createIfMissing = true } = {}) {
+    const key = normalizeScope(scope);
+    if (!this.scopes.has(key)) {
+      if (!createIfMissing) return null;
+      this.scopes.set(key, {
+        failureCount: 0,
+        lastFailureAt: 0,
+        lastSuccessAt: Date.now(),
+      });
     }
-    this.failureCount += 1;
-    this.lastFailureAt = now;
-    if (this.failureCount <= 3) {
-      log("INFO", `[NetworkRecovery] failure noted from ${source} (count=${this.failureCount})${detail ? `: ${detail}` : ""}`);
+    return this.scopes.get(key);
+  }
+
+  noteFailure(source, detail = "", options = {}) {
+    const { scope } = normalizeOptions(options);
+    const scopeKey = normalizeScope(scope);
+    const scopeState = this.getScopeState(scopeKey);
+    const now = Date.now();
+    if (now - scopeState.lastFailureAt > NETWORK_FAILURE_RESET_MS) {
+      scopeState.failureCount = 0;
+    }
+    scopeState.failureCount += 1;
+    scopeState.lastFailureAt = now;
+    if (scopeState.failureCount <= 3) {
+      log(
+        "INFO",
+        `[NetworkRecovery] failure noted from ${source} (scope=${scopeKey}, count=${scopeState.failureCount})${detail ? `: ${detail}` : ""}`
+      );
     }
   }
 
-  noteSuccess(source) {
+  noteSuccess(source, options = {}) {
+    const { scope } = normalizeOptions(options);
+    const scopeKey = normalizeScope(scope);
+    const scopeState = this.getScopeState(scopeKey, { createIfMissing: false });
+    if (!scopeState) return;
     const now = Date.now();
-    const hadFailures = this.failureCount > 0;
-    this.failureCount = 0;
-    this.lastSuccessAt = now;
+    const hadFailures = scopeState.failureCount > 0;
+    scopeState.failureCount = 0;
+    scopeState.lastSuccessAt = now;
     if (hadFailures) {
-      log("INFO", `[NetworkRecovery] success noted from ${source} - triggering recovery.`);
+      const event = {
+        scope: scopeKey,
+        source,
+        recoveredAt: now,
+      };
+      log("INFO", `[NetworkRecovery] success noted from ${source} (scope=${scopeKey}) - triggering recovery.`);
       for (const listener of this.listeners) {
         try {
-          listener();
+          listener(event);
         } catch {
           // ignore
         }
@@ -53,14 +93,30 @@ class NetworkRecoveryCoordinator {
     };
   }
 
-  getRecoveryDelayMs() {
-    if (this.failureCount <= 0) return 0;
-    const backoff = NETWORK_COOLDOWN_BASE_MS * Math.pow(1.6, Math.min(this.failureCount - 1, 10));
+  getRecoveryDelayMs(options = {}) {
+    const { scope } = normalizeOptions(options);
+    const scopeKey = normalizeScope(scope);
+    const scopeState = this.getScopeState(scopeKey, { createIfMissing: false });
+    if (!scopeState) return 0;
+    if (scopeState.failureCount <= 0) return 0;
+    const backoff = NETWORK_COOLDOWN_BASE_MS * Math.pow(1.6, Math.min(scopeState.failureCount - 1, 10));
     return Math.min(NETWORK_COOLDOWN_MAX_MS, applyJitter(backoff, 0.25));
   }
 
-  isNetworkHealthy() {
-    return this.failureCount <= 0;
+  isNetworkHealthy(options = {}) {
+    return this.getRecoveryDelayMs(options) <= 0;
+  }
+
+  reset(options = {}) {
+    const normalized = normalizeOptions(options);
+    const hasScope = Object.prototype.hasOwnProperty.call(normalized, "scope");
+    if (!hasScope) {
+      this.scopes.clear();
+      return;
+    }
+
+    const scopeKey = normalizeScope(normalized.scope);
+    this.scopes.delete(scopeKey);
   }
 }
 

@@ -19,13 +19,14 @@ import {
 import { networkRecoveryCoordinator } from "../core/network-recovery.js";
 import { validateCustomStationUrlWithDns } from "../custom-stations.js";
 
-async function createResource(url, volume, qualityPreset, botName, bitrateOverride) {
+async function createResource(url, volume, qualityPreset, botName, bitrateOverride, networkScope = null) {
   const urlValidation = await validateCustomStationUrlWithDns(url);
   if (!urlValidation.ok) {
     throw new Error(urlValidation.error);
   }
 
   const safeUrl = urlValidation.url;
+  const recoveryOptions = networkScope ? { scope: networkScope } : undefined;
   const preset = qualityPreset || "custom";
   const presetBitrate =
     preset === "low" ? "96k" : preset === "medium" ? "128k" : preset === "high" ? "192k" : null;
@@ -107,7 +108,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
       for (const line of lines) {
         const trimmed = line.trim();
         if (isLikelyNetworkFailureLine(trimmed)) {
-          networkRecoveryCoordinator.noteFailure(`${botName} ffmpeg`, trimmed);
+          networkRecoveryCoordinator.noteFailure(`${botName} ffmpeg`, trimmed, recoveryOptions);
         }
         if (!shouldLogFfmpegStderrLine(trimmed)) continue;
         log("INFO", `[${botName}] ffmpeg: ${clipText(trimmed, 500)}`);
@@ -115,7 +116,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
     });
 
     ffmpeg.stdout.once("data", () => {
-      networkRecoveryCoordinator.noteSuccess(`${botName} ffmpeg audio`);
+      networkRecoveryCoordinator.noteSuccess(`${botName} ffmpeg audio`, recoveryOptions);
     });
 
     ffmpeg.on("error", (err) => {
@@ -143,7 +144,7 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
   }
 
   const stream = Readable.fromWeb(res.body);
-  networkRecoveryCoordinator.noteSuccess(`${botName} fetch-stream`);
+  networkRecoveryCoordinator.noteSuccess(`${botName} fetch-stream`, recoveryOptions);
   const probe = await demuxProbe(stream);
   const resource = createAudioResource(probe.stream, { inputType: probe.type, inlineVolume: true });
   if (resource.volume) {

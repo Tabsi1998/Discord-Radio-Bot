@@ -14,6 +14,112 @@ const MAX_TAGS_PER_STATION = 8;
 const MAX_FOLDER_LENGTH = 40;
 const MAX_TAG_LENGTH = 24;
 const CUSTOM_STATION_PREFIX = "custom:";
+const dnsValidationCache = new Map();
+
+function parseEnvInt(rawValue, fallbackValue, minValue = 0, maxValue = Number.MAX_SAFE_INTEGER) {
+  const parsed = Number.parseInt(String(rawValue ?? fallbackValue), 10);
+  if (!Number.isFinite(parsed)) return fallbackValue;
+  return Math.min(maxValue, Math.max(minValue, parsed));
+}
+
+const DNS_LOOKUP_RETRY_COUNT = parseEnvInt(process.env.DNS_LOOKUP_RETRY_COUNT, 3, 1, 6);
+const DNS_LOOKUP_RETRY_DELAY_MS = parseEnvInt(process.env.DNS_LOOKUP_RETRY_DELAY_MS, 750, 0, 10_000);
+const DNS_LOOKUP_CACHE_TTL_MS = parseEnvInt(process.env.DNS_LOOKUP_CACHE_TTL_MS, 10 * 60_000, 5_000, 24 * 60 * 60_000);
+const DNS_LOOKUP_STALE_TTL_MS = parseEnvInt(process.env.DNS_LOOKUP_STALE_TTL_MS, 60 * 60_000, DNS_LOOKUP_CACHE_TTL_MS, 7 * 24 * 60 * 60_000);
+
+function waitMs(ms) {
+  const delay = Math.max(0, Number(ms) || 0);
+  if (delay <= 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    setTimeout(resolve, delay);
+  });
+}
+
+function normalizeResolvedAddresses(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => ({
+      address: String(entry?.address || "").trim(),
+      family: Number(entry?.family || 0) || 0,
+    }))
+    .filter((entry) => Boolean(entry.address));
+}
+
+function getCachedDnsValidation(hostname, { allowStale = false } = {}) {
+  const key = String(hostname || "").trim().toLowerCase();
+  if (!key) return null;
+
+  const cached = dnsValidationCache.get(key);
+  if (!cached) return null;
+
+  const ageMs = Date.now() - Number(cached.savedAt || 0);
+  const maxAgeMs = allowStale ? DNS_LOOKUP_STALE_TTL_MS : DNS_LOOKUP_CACHE_TTL_MS;
+  if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > maxAgeMs) {
+    dnsValidationCache.delete(key);
+    return null;
+  }
+
+  return cached;
+}
+
+function setCachedDnsValidation(hostname, addresses) {
+  const key = String(hostname || "").trim().toLowerCase();
+  const normalizedAddresses = normalizeResolvedAddresses(addresses);
+  if (!key || normalizedAddresses.length === 0) return;
+  dnsValidationCache.set(key, {
+    addresses: normalizedAddresses,
+    savedAt: Date.now(),
+  });
+}
+
+function isRetryableDnsLookupError(err) {
+  const code = String(err?.code || "").trim().toUpperCase();
+  if (["EAI_AGAIN", "ETIMEDOUT", "ETIME", "ESERVFAIL", "EREFUSED"].includes(code)) {
+    return true;
+  }
+
+  const message = String(err?.message || err || "").trim().toLowerCase();
+  if (!message) return false;
+  return (
+    message.includes("temporary failure") ||
+    message.includes("try again") ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    message.includes("servfail") ||
+    message.includes("refused")
+  );
+}
+
+async function resolveHostnameWithRetries(hostname, {
+  lookupFn = dnsLookup,
+  retryCount = DNS_LOOKUP_RETRY_COUNT,
+  retryDelayMs = DNS_LOOKUP_RETRY_DELAY_MS,
+} = {}) {
+  const attempts = Math.max(1, Number(retryCount) || 1);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const resolvedAddresses = normalizeResolvedAddresses(
+        await lookupFn(hostname, { all: true, verbatim: true })
+      );
+      if (resolvedAddresses.length > 0) {
+        return { ok: true, addresses: resolvedAddresses, attempts: attempt };
+      }
+      lastError = new Error("empty-dns-result");
+      lastError.code = "EEMPTYDNS";
+    } catch (err) {
+      lastError = err;
+    }
+
+    if (attempt >= attempts || !isRetryableDnsLookupError(lastError)) {
+      break;
+    }
+    await waitMs(retryDelayMs);
+  }
+
+  return { ok: false, error: lastError, addresses: [] };
+}
 
 function normalizeWhitespace(value) {
   return String(value || "").trim().replace(/\s+/g, " ");
@@ -269,7 +375,7 @@ function validateCustomStationUrl(rawUrl) {
   return { ok: true, url: parsedUrl.toString() };
 }
 
-async function validateCustomStationUrlWithDns(rawUrl) {
+async function validateCustomStationUrlWithDns(rawUrl, options = {}) {
   const basicValidation = validateCustomStationUrl(rawUrl);
   if (!basicValidation.ok) return basicValidation;
 
@@ -278,11 +384,31 @@ async function validateCustomStationUrlWithDns(rawUrl) {
     return basicValidation;
   }
 
-  let resolvedAddresses = [];
-  try {
-    resolvedAddresses = await dnsLookup(parsedUrl.hostname, { all: true, verbatim: true });
-  } catch {
-    return { ok: false, error: "Host konnte nicht aufgelöst werden." };
+  let resolvedAddresses = getCachedDnsValidation(parsedUrl.hostname)?.addresses || [];
+  if (resolvedAddresses.length === 0) {
+    try {
+      const resolution = await resolveHostnameWithRetries(parsedUrl.hostname, options);
+      if (!resolution.ok) {
+        const staleCache = getCachedDnsValidation(parsedUrl.hostname, { allowStale: true });
+        if (!staleCache?.addresses?.length) {
+          return { ok: false, error: "Host konnte nicht aufgelöst werden." };
+        }
+
+        resolvedAddresses = staleCache.addresses;
+        log(
+          "WARN",
+          `[custom-stations] DNS-Cache-Fallback fuer ${parsedUrl.hostname} nach Lookup-Fehler: ${resolution.error?.message || resolution.error || "unknown"}`
+        );
+      } else {
+        resolvedAddresses = resolution.addresses;
+        setCachedDnsValidation(parsedUrl.hostname, resolvedAddresses);
+        if (Number(resolution.attempts || 1) > 1) {
+          log("INFO", `[custom-stations] DNS-Aufloesung fuer ${parsedUrl.hostname} nach ${resolution.attempts} Versuchen erfolgreich.`);
+        }
+      }
+    } catch {
+      return { ok: false, error: "Host konnte nicht aufgelöst werden." };
+    }
   }
 
   if (!Array.isArray(resolvedAddresses) || resolvedAddresses.length === 0) {

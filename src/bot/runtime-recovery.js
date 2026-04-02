@@ -52,6 +52,36 @@ function getTierConfig(guildId) {
   return { ...config, tier: config.plan };
 }
 
+function getRuntimeRecoveryDelayMs(runtime, guildId) {
+  if (typeof runtime?.getNetworkRecoveryDelayMs === "function") {
+    return runtime.getNetworkRecoveryDelayMs(guildId);
+  }
+  return networkRecoveryCoordinator.getRecoveryDelayMs();
+}
+
+function noteRuntimeRecoveryFailure(runtime, guildId, source, detail = "") {
+  if (typeof runtime?.noteNetworkRecoveryFailure === "function") {
+    runtime.noteNetworkRecoveryFailure(guildId, source, detail);
+    return;
+  }
+  networkRecoveryCoordinator.noteFailure(source, detail);
+}
+
+function noteRuntimeRecoverySuccess(runtime, guildId, source) {
+  if (typeof runtime?.noteNetworkRecoverySuccess === "function") {
+    runtime.noteNetworkRecoverySuccess(guildId, source);
+    return;
+  }
+  networkRecoveryCoordinator.noteSuccess(source);
+}
+
+function runtimeRecoveryScopeMatches(runtime, guildId, recoveryEvent = null) {
+  const recoveredScope = String(recoveryEvent?.scope || "").trim();
+  if (!recoveredScope) return true;
+  if (typeof runtime?.getNetworkRecoveryScope !== "function") return true;
+  return runtime.getNetworkRecoveryScope(guildId) === recoveredScope;
+}
+
 function hasRecoverableRuntimeState(state) {
   return Boolean(
     state?.currentStationKey
@@ -640,7 +670,7 @@ export function attachRuntimeConnectionHandlers(runtime, guildId, connection) {
     const errorMessage = getRuntimeErrorMessage(err);
     const recoverableNetworkError = isRecoverableVoiceConnectionError(errorMessage);
     if (recoverableNetworkError) {
-      networkRecoveryCoordinator.noteFailure(`${runtime.config.name} voice-error`, `guild=${guildId}: ${errorMessage}`);
+      noteRuntimeRecoveryFailure(runtime, guildId, `${runtime.config.name} voice-error`, `guild=${guildId}: ${errorMessage}`);
     }
     log(recoverableNetworkError ? "WARN" : "ERROR", `[${runtime.config.name}] VoiceConnection error: ${errorMessage}`);
     recordConnectionEvent(guildId, {
@@ -666,7 +696,7 @@ export async function tryRuntimeReconnect(runtime, guildId) {
 
   state.reconnectInFlight = true;
   try {
-    const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+    const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
     if (networkCooldownMs > 0) {
       log(
         "INFO",
@@ -804,7 +834,7 @@ export async function tryRuntimeReconnect(runtime, guildId) {
       if (state.connection === connection) {
         state.connection = null;
       }
-      networkRecoveryCoordinator.noteFailure(`${runtime.config.name} reconnect-timeout`, `guild=${guildId}`);
+      noteRuntimeRecoveryFailure(runtime, guildId, `${runtime.config.name} reconnect-timeout`, `guild=${guildId}`);
       try { connection.destroy(); } catch {}
       return;
     }
@@ -814,7 +844,7 @@ export async function tryRuntimeReconnect(runtime, guildId) {
       if (state.connection === connection) {
         state.connection = null;
       }
-      networkRecoveryCoordinator.noteFailure(`${runtime.config.name} reconnect-ghost`, `guild=${guildId}`);
+      noteRuntimeRecoveryFailure(runtime, guildId, `${runtime.config.name} reconnect-ghost`, `guild=${guildId}`);
       try { connection.destroy(); } catch {}
       return;
     }
@@ -836,7 +866,7 @@ export async function tryRuntimeReconnect(runtime, guildId) {
     state.voiceDisconnectObservedAt = 0;
     runtime.clearReconnectTimer(state);
     runtime.attachConnectionHandlers(guildId, connection);
-    networkRecoveryCoordinator.noteSuccess(`${runtime.config.name} rejoin-ready guild=${guildId}`);
+    noteRuntimeRecoverySuccess(runtime, guildId, `${runtime.config.name} rejoin-ready guild=${guildId}`);
     recordConnectionEvent(guildId, {
       botId: runtime.config.id || "",
       eventType: "connect",
@@ -861,9 +891,11 @@ export async function tryRuntimeReconnect(runtime, guildId) {
   }
 }
 
-export function handleRuntimeNetworkRecovered(runtime) {
+export function handleRuntimeNetworkRecovered(runtime, recoveryEvent = null) {
   for (const [guildId, state] of runtime.guildState.entries()) {
     if (!state.shouldReconnect || !state.currentStationKey || !state.lastChannelId) continue;
+    if (!runtimeRecoveryScopeMatches(runtime, guildId, recoveryEvent)) continue;
+    if (state.reconnectInFlight || state.voiceConnectInFlight) continue;
 
     if (!state.connection) {
       if (state.reconnectTimer) {
@@ -903,7 +935,7 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   let logMessage = null;
   let eventDetails = `attempt=${attempt} reason=${String(options.reason || "auto")}`;
 
-  const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+  const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
   if (networkCooldownMs > 0) {
     delay = Math.max(delay, networkCooldownMs);
   }
@@ -1040,7 +1072,7 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
   } catch (err) {
     clearRuntimeRestoreRetry(runtime, guildId);
     log("ERROR", `[${runtime.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen: ${err?.message || err}`);
-    networkRecoveryCoordinator.noteFailure(`${runtime.config.name} restore-voice-timeout`, `guild=${guildId}`);
+    noteRuntimeRecoveryFailure(runtime, guildId, `${runtime.config.name} restore-voice-timeout`, `guild=${guildId}`);
     runtime.scheduleReconnect(guildId, { reason: "restore-ready-timeout" });
     return { ok: false, reconnectScheduled: true };
   }

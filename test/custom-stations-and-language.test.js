@@ -59,6 +59,65 @@ test("custom station validation returns a dedicated DNS resolution error", async
   });
 });
 
+test("custom station validation retries transient DNS failures before succeeding", async () => {
+  const moduleUrl = new URL(`../src/custom-stations.js?dns-retry-test=${Date.now()}`, import.meta.url);
+  const customStations = await import(moduleUrl.href);
+
+  let attempts = 0;
+  const result = await customStations.validateCustomStationUrlWithDns(
+    "https://radio.example/live",
+    {
+      retryCount: 3,
+      retryDelayMs: 0,
+      lookupFn: async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          const err = new Error("temporary failure in name resolution");
+          err.code = "EAI_AGAIN";
+          throw err;
+        }
+        return [{ address: "93.184.216.34", family: 4 }];
+      },
+    }
+  );
+
+  assert.equal(attempts, 3);
+  assert.equal(result.ok, true);
+  assert.equal(result.url, "https://radio.example/live");
+});
+
+test("custom station validation uses a recent cached DNS result during transient resolver failures", async () => {
+  const moduleUrl = new URL(`../src/custom-stations.js?dns-cache-test=${Date.now()}`, import.meta.url);
+  const customStations = await import(moduleUrl.href);
+
+  const success = await customStations.validateCustomStationUrlWithDns(
+    "https://cache.example/live",
+    {
+      retryCount: 1,
+      retryDelayMs: 0,
+      lookupFn: async () => [{ address: "93.184.216.34", family: 4 }],
+    }
+  );
+
+  assert.equal(success.ok, true);
+
+  const fallback = await customStations.validateCustomStationUrlWithDns(
+    "https://cache.example/live",
+    {
+      retryCount: 2,
+      retryDelayMs: 0,
+      lookupFn: async () => {
+        const err = new Error("temporary failure in name resolution");
+        err.code = "EAI_AGAIN";
+        throw err;
+      },
+    }
+  );
+
+  assert.equal(fallback.ok, true);
+  assert.equal(fallback.url, "https://cache.example/live");
+});
+
 test("custom station helpers normalize folder and tags safely", async () => {
   const moduleUrl = new URL(`../src/custom-stations.js?normalize-test=${Date.now()}`, import.meta.url);
   const customStations = await import(moduleUrl.href);

@@ -326,8 +326,8 @@ class BotRuntime {
     this.pendingVoiceReconcileTimers = new Map();
     this.scheduledEventInFlight = new Set();
     this.lastPersistLoggedActiveCount = null;
-    this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered(() => {
-      this.handleNetworkRecovered();
+    this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered((event) => {
+      this.handleNetworkRecovered(event);
     });
 
     this.client.once("clientReady", () => {
@@ -434,6 +434,8 @@ class BotRuntime {
         reconnectCount: 0,
         lastReconnectAt: null,
         reconnectAttempts: 0,
+        reconnectCircuitTripCount: 0,
+        reconnectCircuitOpenUntil: 0,
         reconnectTimer: null,
         streamRestartTimer: null,
         shouldReconnect: false,
@@ -478,6 +480,32 @@ class BotRuntime {
     }
 
     return this.guildState.get(guildId);
+  }
+
+  getNetworkRecoveryScope(guildId = null) {
+    const runtimeKey = String(this.config.id || this.config.clientId || this.config.name || "runtime").trim() || "runtime";
+    const normalizedGuildId = String(guildId || "").trim();
+    return normalizedGuildId
+      ? `${runtimeKey}:guild:${normalizedGuildId}`
+      : `${runtimeKey}:global`;
+  }
+
+  noteNetworkRecoveryFailure(guildId, source, detail = "") {
+    networkRecoveryCoordinator.noteFailure(source, detail, {
+      scope: this.getNetworkRecoveryScope(guildId),
+    });
+  }
+
+  noteNetworkRecoverySuccess(guildId, source) {
+    networkRecoveryCoordinator.noteSuccess(source, {
+      scope: this.getNetworkRecoveryScope(guildId),
+    });
+  }
+
+  getNetworkRecoveryDelayMs(guildId) {
+    return networkRecoveryCoordinator.getRecoveryDelayMs({
+      scope: this.getNetworkRecoveryScope(guildId),
+    });
   }
 
   getStreamDiagnostics(guildId, state) {
@@ -3345,7 +3373,7 @@ class BotRuntime {
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
     this.clearReconnectTimer(state);
-    networkRecoveryCoordinator.noteSuccess(`${this.config.name} voice-ready guild=${guildId}`);
+    this.noteNetworkRecoverySuccess(guildId, `${this.config.name} voice-ready guild=${guildId}`);
     recordConnectionEvent(guildId, {
       botId: this.config.id || "",
       eventType: "connect",
@@ -3365,8 +3393,8 @@ class BotRuntime {
     return tryRuntimeReconnect(this, guildId);
   }
 
-  handleNetworkRecovered() {
-    return handleRuntimeNetworkRecovered(this);
+  handleNetworkRecovered(recoveryEvent = null) {
+    return handleRuntimeNetworkRecovered(this, recoveryEvent);
   }
 
   scheduleReconnect(guildId, options = {}) {

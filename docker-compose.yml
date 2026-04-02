@@ -17,6 +17,7 @@ services:
   omnifm:
     build: .
     container_name: omnifm
+    init: true
     env_file:
       - .env
     environment:
@@ -42,6 +43,18 @@ services:
       - ./vote-events.json:/app/vote-events.json
       - ./logs:/app/logs
     restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch(`http://127.0.0.1:${process.env.WEB_INTERNAL_PORT || 8080}/api/health`).then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
     depends_on:
       mongodb:
         condition: service_healthy

@@ -7,7 +7,6 @@ import {
 
 import { log } from "../lib/logging.js";
 import { clipText, waitMs } from "../lib/helpers.js";
-import { networkRecoveryCoordinator } from "../core/network-recovery.js";
 import { BRAND } from "../config/plans.js";
 import { recordConnectionEvent } from "../listening-stats-store.js";
 
@@ -203,7 +202,7 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
       state.connection = null;
     }
     try { connection.destroy(); } catch {}
-    networkRecoveryCoordinator.noteFailure(`${runtime.config.name} voice-connect-timeout`, `guild=${guildId} channel=${channel.id}`);
+    runtime.noteNetworkRecoveryFailure(guildId, `${runtime.config.name} voice-connect-timeout`, `guild=${guildId} channel=${channel.id}`);
     throw new Error("Voice-Verbindung konnte nicht hergestellt werden.");
   }
 
@@ -232,7 +231,7 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
   state.voiceDisconnectObservedAt = 0;
   runtime.clearReconnectTimer(state);
   runtime.attachConnectionHandlers(guildId, connection);
-  networkRecoveryCoordinator.noteSuccess(`${runtime.config.name} voice-ready guild=${guildId}`);
+  runtime.noteNetworkRecoverySuccess(guildId, `${runtime.config.name} voice-ready guild=${guildId}`);
   recordConnectionEvent(guildId, {
     botId: runtime.config.id || "",
     eventType: "connect",

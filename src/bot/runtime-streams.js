@@ -32,6 +32,36 @@ function getTierConfig(guildId) {
   return { ...config, tier: config.plan };
 }
 
+function getRuntimeRecoveryDelayMs(runtime, guildId) {
+  if (typeof runtime?.getNetworkRecoveryDelayMs === "function") {
+    return runtime.getNetworkRecoveryDelayMs(guildId);
+  }
+  return networkRecoveryCoordinator.getRecoveryDelayMs();
+}
+
+function noteRuntimeRecoveryFailure(runtime, guildId, source, detail = "") {
+  if (typeof runtime?.noteNetworkRecoveryFailure === "function") {
+    runtime.noteNetworkRecoveryFailure(guildId, source, detail);
+    return;
+  }
+  networkRecoveryCoordinator.noteFailure(source, detail);
+}
+
+function noteRuntimeRecoverySuccess(runtime, guildId, source) {
+  if (typeof runtime?.noteNetworkRecoverySuccess === "function") {
+    runtime.noteNetworkRecoverySuccess(guildId, source);
+    return;
+  }
+  networkRecoveryCoordinator.noteSuccess(source);
+}
+
+function getRuntimeRecoveryScope(runtime, guildId) {
+  if (typeof runtime?.getNetworkRecoveryScope === "function") {
+    return runtime.getNetworkRecoveryScope(guildId);
+  }
+  return null;
+}
+
 function classifyFfmpegExitDetail(line) {
   const text = String(line || "").trim().toLowerCase();
   if (!text) return null;
@@ -98,7 +128,7 @@ export function armRuntimeStreamStabilityReset(runtime, guildId, state) {
     state.lastProcessExitDetail = null;
     state.lastProcessExitAt = 0;
     state.lastNetworkFailureAt = 0;
-    networkRecoveryCoordinator.noteSuccess(`${runtime.config.name} stable-stream guild=${guildId}`);
+    noteRuntimeRecoverySuccess(runtime, guildId, `${runtime.config.name} stable-stream guild=${guildId}`);
   }, STREAM_STABLE_RESET_MS);
 }
 
@@ -230,7 +260,7 @@ export function handleRuntimeStreamEnd(runtime, guildId, state, reason) {
     );
   }
 
-  const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs(now);
+  const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
   if (networkCooldownMs > 0) {
     delay = Math.max(delay, networkCooldownMs);
   }
@@ -275,7 +305,7 @@ export function armRuntimePlaybackRecovery(
   runtime.updatePresence();
   runtime.persistState();
 
-  const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+  const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
   const delay = Math.max(1_000, networkCooldownMs || STREAM_RESTART_BASE_MS);
 
   if (state.connection) {
@@ -316,7 +346,8 @@ export async function playRuntimeStation(runtime, state, stations, key, guildId)
     state.volume,
     stations.qualityPreset,
     runtime.config.name,
-    bitrateOverride
+    bitrateOverride,
+    getRuntimeRecoveryScope(runtime, guildId)
   );
 
   state.currentProcess = process;
@@ -406,7 +437,7 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
     return;
   }
 
-  const networkCooldownMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+  const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
   if (networkCooldownMs > 0) {
     runtime.scheduleStreamRestart(guildId, state, Math.max(1_000, networkCooldownMs), "network-cooldown");
     return;
@@ -423,7 +454,7 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
     const recoverableRestartError = isRecoverableStreamRestartError(errorMessage);
     state.lastStreamErrorAt = new Date().toISOString();
     if (recoverableRestartError) {
-      networkRecoveryCoordinator.noteFailure(`${runtime.config.name} auto-restart`, `guild=${guildId} station=${key}: ${errorMessage}`);
+      noteRuntimeRecoveryFailure(runtime, guildId, `${runtime.config.name} auto-restart`, `guild=${guildId} station=${key}: ${errorMessage}`);
     }
     log(recoverableRestartError ? "WARN" : "ERROR", `[${runtime.config.name}] Auto-restart error for ${key}: ${errorMessage}`);
 
@@ -465,7 +496,9 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
         const fallbackMessage = getStreamRestartErrorMessage(fallbackErr);
         const recoverableFallbackError = isRecoverableStreamRestartError(fallbackMessage);
         if (recoverableFallbackError) {
-          networkRecoveryCoordinator.noteFailure(
+          noteRuntimeRecoveryFailure(
+            runtime,
+            guildId,
             `${runtime.config.name} failover-restart`,
             `guild=${guildId} station=${fallbackCandidate}: ${fallbackMessage}`
           );
@@ -481,7 +514,7 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
       log(recoverableRestartError ? "WARN" : "ERROR", `[${runtime.config.name}] Exhausted failover chain after restart failure`);
     }
 
-    const retryDelay = Math.max(STREAM_RESTART_BASE_MS, networkRecoveryCoordinator.getRecoveryDelayMs());
+    const retryDelay = Math.max(STREAM_RESTART_BASE_MS, getRuntimeRecoveryDelayMs(runtime, guildId));
     if (state.connection) {
       log(
         "INFO",

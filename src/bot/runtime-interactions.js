@@ -24,7 +24,6 @@ import {
   EVENT_TIME_ZONE_SUGGESTIONS,
   formatDateTime,
 } from "../lib/event-time.js";
-import { networkRecoveryCoordinator } from "../core/network-recovery.js";
 import {
   loadStations,
   resolveStation,
@@ -918,7 +917,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }
     const activeRuntime = playback.runtime;
     const activeState = playback.state;
-    const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+    const networkHoldMs = activeRuntime.getNetworkRecoveryDelayMs(interaction.guildId);
     const content = [
       `Bot: ${activeRuntime.config.name}`,
       `Ready: ${activeRuntime.client.isReady() ? t("ja", "yes") : t("nein", "no")}`,
@@ -949,7 +948,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const diag = activeRuntime.getStreamDiagnostics(interaction.guildId, activeState);
     const restartPending = activeState.streamRestartTimer ? t("ja", "yes") : t("nein", "no");
     const reconnectPending = activeState.reconnectTimer ? t("ja", "yes") : t("nein", "no");
-    const networkHoldMs = networkRecoveryCoordinator.getRecoveryDelayMs();
+    const networkHoldMs = activeRuntime.getNetworkRecoveryDelayMs(interaction.guildId);
     const resolvedChannel = /^\d{16,22}$/.test(String(channelId))
       ? `<#${channelId}>`
       : String(channelId || "-");
