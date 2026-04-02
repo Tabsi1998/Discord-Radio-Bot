@@ -883,6 +883,24 @@ populate_runtime_services_array() {
   done
 }
 
+stop_runtime_containers_for_update() {
+  local __target_var="${1:-}"
+  local -a runtime_services=()
+  local was_running=0
+
+  populate_runtime_services_array runtime_services
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q '^omnifm$'; then
+    was_running=1
+    info "Stoppe Runtime-Container fuer ein sauberes Update..."
+    docker compose stop -t 20 "${runtime_services[@]}" >/dev/null 2>&1 \
+      || warn "Runtime-Container konnten vor dem Update nicht sauber gestoppt werden."
+  fi
+
+  if [[ -n "$__target_var" ]]; then
+    printf -v "$__target_var" '%s' "$was_running"
+  fi
+}
+
 prompt_tier() {
   echo "" >&2
   echo -e "  ${DIM}Tier-Optionen:${NC}" >&2
@@ -1628,6 +1646,7 @@ restart_container() {
   echo ""
   if prompt_yes_no "Container jetzt neu starten (noetig fuer Aenderungen)?" "j"; then
     ensure_all_json_files
+    ensure_split_state_dirs
     info "Starte Container neu..."
     if compose_up_with_build; then
       ok "Container neu gestartet."
@@ -1653,6 +1672,7 @@ ensure_omnifm_running() {
   echo ""
   if prompt_yes_no "Container jetzt starten?" "j"; then
     ensure_all_json_files
+    ensure_split_state_dirs
     if compose_up_with_build; then
       sleep 3
       return 0
@@ -1675,6 +1695,7 @@ rebuild_container_now() {
   echo ""
   info "Starte Container mit Build neu..."
   ensure_all_json_files
+  ensure_split_state_dirs
   if compose_up_with_build; then
     ok "Container aktiv."
     return 0
@@ -3388,6 +3409,8 @@ done
 prune_update_backups
 
 git fetch "$REMOTE" "$BRANCH" 2>&1 | tail -3
+
+stop_runtime_containers_for_update
 
 old_head="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
 git reset --hard "$REMOTE/$BRANCH"
