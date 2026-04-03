@@ -58,3 +58,7 @@ vote-events.json.bak
 design_guidelines.json
 backend_test.py
 .gitconfig
+-e 
+# Environment files
+*.env
+*.env.*
