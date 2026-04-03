@@ -1,0 +1,242 @@
+import { log } from "../lib/logging.js";
+
+function toPositiveInt(rawValue, fallbackValue) {
+  const parsed = Number.parseInt(String(rawValue ?? fallbackValue), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackValue;
+  return parsed;
+}
+
+function parseTimestampMs(value) {
+  if (!value) return 0;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function hasRecoverablePlaybackTarget(state) {
+  return Boolean(
+    state?.currentStationKey
+    && state?.shouldReconnect === true
+    && state?.lastChannelId
+  );
+}
+
+function hasActiveVoicePlayback(state) {
+  return Boolean(state?.currentStationKey && state?.connection);
+}
+
+function describeRecoveringGuildState(guildId, state, sinceMs, nowMs) {
+  if (!hasRecoverablePlaybackTarget(state) || hasActiveVoicePlayback(state)) {
+    return null;
+  }
+
+  return {
+    guildId,
+    stationKey: state?.currentStationKey || null,
+    channelId: state?.lastChannelId || null,
+    reconnectAttempts: Number(state?.reconnectAttempts || 0) || 0,
+    reconnectCount: Number(state?.reconnectCount || 0) || 0,
+    reconnectPending: Boolean(state?.reconnectTimer),
+    reconnectInFlight: state?.reconnectInFlight === true,
+    voiceConnectInFlight: state?.voiceConnectInFlight === true,
+    streamRestartPending: Boolean(state?.streamRestartTimer),
+    reconnectCircuitOpenUntil: Number(state?.reconnectCircuitOpenUntil || 0) || 0,
+    voiceDisconnectObservedAt: Number(state?.voiceDisconnectObservedAt || 0) || 0,
+    lastReconnectAtMs: parseTimestampMs(state?.lastReconnectAt),
+    lastStreamErrorAtMs: parseTimestampMs(state?.lastStreamErrorAt),
+    lastProcessExitAtMs: Number(state?.lastProcessExitAt || 0) || 0,
+    sinceMs,
+    recoveringMs: Math.max(0, nowMs - sinceMs),
+  };
+}
+
+function formatRecoveringGuildLog(row, nowMs) {
+  const circuitRemainingMs = Math.max(0, Number(row?.reconnectCircuitOpenUntil || 0) - nowMs);
+  const detail = [
+    `guild=${row.guildId}`,
+    `station=${row.stationKey || "-"}`,
+    `channel=${row.channelId || "-"}`,
+    `recovering=${Math.round((Number(row.recoveringMs || 0) || 0) / 1000)}s`,
+    `attempts=${Number(row.reconnectAttempts || 0) || 0}`,
+  ];
+  if (row?.reconnectPending) detail.push("timer=1");
+  if (row?.reconnectInFlight) detail.push("reconnect=1");
+  if (row?.voiceConnectInFlight) detail.push("voice=1");
+  if (row?.streamRestartPending) detail.push("stream=1");
+  if (circuitRemainingMs > 0) {
+    detail.push(`circuitRemaining=${Math.round(circuitRemainingMs / 1000)}s`);
+  }
+  return detail.join(" ");
+}
+
+function resolveWorkerAutohealOptions(env = process.env, runtime = null) {
+  const workerIndex = Number.parseInt(
+    String(runtime?.config?.index || env.BOT_PROCESS_INDEX || "0"),
+    10
+  ) || 0;
+  const workerStaggerMs = Math.max(0, ((Math.max(1, workerIndex) - 1) % 5) * 30_000);
+
+  const checkMs = Math.max(5_000, toPositiveInt(env.WORKER_AUTOHEAL_CHECK_MS, 30_000));
+  const graceMs = Math.max(60_000, toPositiveInt(env.WORKER_AUTOHEAL_GRACE_MS, 10 * 60_000)) + workerStaggerMs;
+  const unhealthyMs = Math.max(2 * 60_000, toPositiveInt(env.WORKER_AUTOHEAL_RECOVERING_MS, 20 * 60_000)) + workerStaggerMs;
+
+  return {
+    enabled: String(env.WORKER_AUTOHEAL_ENABLED ?? "1") !== "0",
+    checkMs,
+    graceMs,
+    unhealthyMs,
+    workerIndex,
+    workerStaggerMs,
+  };
+}
+
+function evaluateWorkerAutohealState(runtime, unhealthySinceByGuild = new Map(), options = {}, nowMs = Date.now()) {
+  const normalizedOptions = {
+    enabled: options.enabled !== false,
+    graceMs: Math.max(60_000, Number(options.graceMs || 10 * 60_000) || (10 * 60_000)),
+    unhealthyMs: Math.max(2 * 60_000, Number(options.unhealthyMs || 20 * 60_000) || (20 * 60_000)),
+  };
+  const nextTracker = new Map(unhealthySinceByGuild);
+  const guildEntries = [...(runtime?.guildState?.entries?.() || [])];
+
+  let recoverableTargetCount = 0;
+  let activeVoiceCount = 0;
+  const recoveringGuilds = [];
+
+  for (const [guildId, state] of guildEntries) {
+    if (hasRecoverablePlaybackTarget(state)) {
+      recoverableTargetCount += 1;
+    }
+    if (hasActiveVoicePlayback(state)) {
+      activeVoiceCount += 1;
+    }
+
+    if (!hasRecoverablePlaybackTarget(state) || hasActiveVoicePlayback(state)) {
+      nextTracker.delete(guildId);
+      continue;
+    }
+
+    const sinceMs = Number(nextTracker.get(guildId) || nowMs) || nowMs;
+    nextTracker.set(guildId, sinceMs);
+    const row = describeRecoveringGuildState(guildId, state, sinceMs, nowMs);
+    if (row) recoveringGuilds.push(row);
+  }
+
+  for (const guildId of [...nextTracker.keys()]) {
+    if (!guildEntries.some(([entryGuildId, state]) => entryGuildId === guildId && hasRecoverablePlaybackTarget(state) && !hasActiveVoicePlayback(state))) {
+      nextTracker.delete(guildId);
+    }
+  }
+
+  const ready = runtime?.client?.isReady?.() === true;
+  const startedAtMs = Number(runtime?.startedAt || 0) || 0;
+  const uptimeMs = startedAtMs > 0 ? Math.max(0, nowMs - startedAtMs) : 0;
+  const stuckGuilds = recoveringGuilds.filter((row) => row.recoveringMs >= normalizedOptions.unhealthyMs);
+
+  const shouldExit = Boolean(
+    normalizedOptions.enabled
+    && ready
+    && uptimeMs >= normalizedOptions.graceMs
+    && recoverableTargetCount > 0
+    && activeVoiceCount === 0
+    && recoveringGuilds.length > 0
+    && stuckGuilds.length === recoveringGuilds.length
+    && recoveringGuilds.length === recoverableTargetCount
+  );
+
+  return {
+    ready,
+    uptimeMs,
+    recoverableTargetCount,
+    activeVoiceCount,
+    recoveringGuilds,
+    stuckGuilds,
+    shouldExit,
+    unhealthySinceByGuild: nextTracker,
+    options: normalizedOptions,
+  };
+}
+
+function startWorkerAutohealMonitor({
+  runtime,
+  shutdown = null,
+  exit = (code) => process.exit(code),
+  env = process.env,
+} = {}) {
+  const options = resolveWorkerAutohealOptions(env, runtime);
+  if (!options.enabled) {
+    return {
+      options,
+      async tick() {
+        return null;
+      },
+      stop() {},
+    };
+  }
+
+  let timer = null;
+  let unhealthySinceByGuild = new Map();
+  let stopping = false;
+
+  const tick = async () => {
+    const evaluation = evaluateWorkerAutohealState(runtime, unhealthySinceByGuild, options, Date.now());
+    unhealthySinceByGuild = evaluation.unhealthySinceByGuild;
+
+    if (!evaluation.shouldExit || stopping) {
+      return evaluation;
+    }
+
+    stopping = true;
+    const details = evaluation.stuckGuilds.map((row) => formatRecoveringGuildLog(row, Date.now())).join(" | ");
+    log(
+      "ERROR",
+      `[${runtime?.config?.name || "Worker"}] Worker-Autoheal ausgeloest: ` +
+      `${evaluation.stuckGuilds.length} Recovery-Ziel(e) seit >=${Math.round(options.unhealthyMs / 1000)}s ohne aktive Voice-Verbindung. ` +
+      `Neustart des Workers wird angefordert.${details ? ` ${details}` : ""}`
+    );
+
+    try {
+      runtime?.persistState?.({ forceLog: true });
+    } catch {
+      // ignore persist issues during forced restart
+    }
+
+    try {
+      if (typeof shutdown === "function") {
+        await shutdown("worker-autoheal");
+      }
+    } catch (err) {
+      log("ERROR", `[${runtime?.config?.name || "Worker"}] Worker-Autoheal Shutdown fehlgeschlagen: ${err?.message || err}`);
+    } finally {
+      exit(1);
+    }
+
+    return evaluation;
+  };
+
+  timer = setInterval(() => {
+    tick().catch((err) => {
+      log("ERROR", `[${runtime?.config?.name || "Worker"}] Worker-Autoheal Tick fehlgeschlagen: ${err?.message || err}`);
+    });
+  }, options.checkMs);
+  timer?.unref?.();
+
+  return {
+    options,
+    tick,
+    stop() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      unhealthySinceByGuild.clear();
+      stopping = true;
+    },
+  };
+}
+
+export {
+  evaluateWorkerAutohealState,
+  resolveWorkerAutohealOptions,
+  startWorkerAutohealMonitor,
+};

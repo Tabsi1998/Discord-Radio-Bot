@@ -8,6 +8,7 @@ import {
   resolveBotTopology,
   resolveWorkerConfig,
 } from "./shared.js";
+import { startWorkerAutohealMonitor } from "./worker-autoheal.js";
 
 await initializeSharedServices({ requireMongo: true });
 
@@ -21,6 +22,7 @@ if (Number(workerConfig?.index || 0) === Number(topology.commanderConfig?.index 
 
 const runtime = new BotRuntime(workerConfig, { role: "worker" });
 const bridgeService = new WorkerBridgeService(runtime);
+let autohealMonitor = null;
 
 const started = await runtime.start();
 if (!started) {
@@ -28,16 +30,21 @@ if (!started) {
   process.exit(1);
 }
 
-installProcessHandlers({
+const { shutdown } = installProcessHandlers({
   localRuntimes: [runtime],
   extraShutdown: [
     async () => {
+      autohealMonitor?.stop?.();
       await bridgeService.stop();
     },
   ],
 });
 
 await bridgeService.start();
+autohealMonitor = startWorkerAutohealMonitor({
+  runtime,
+  shutdown,
+});
 
 const stations = loadStations();
 const doRestore = () => {

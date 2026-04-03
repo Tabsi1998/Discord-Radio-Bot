@@ -20,6 +20,7 @@ import { BotRuntime } from "../src/bot/runtime.js";
 import { RemoteWorkerHandle } from "../src/bot/remote-worker-handle.js";
 import { WorkerBridgeService } from "../src/bot/worker-bridge-service.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
+import { evaluateWorkerAutohealState } from "../src/entrypoints/worker-autoheal.js";
 import {
   attachRuntimeConnectionHandlers,
   fetchRuntimeBotVoiceState,
@@ -3145,4 +3146,90 @@ test("workers command exposes private and panel view options", () => {
   assert.equal(choices.length, 2);
   assert.equal(choices[0].value, "private");
   assert.equal(choices[1].value, "panel");
+});
+
+test("worker autoheal exits only when the whole worker is stuck recovering for too long", () => {
+  const runtime = {
+    startedAt: Date.now() - (40 * 60 * 1000),
+    client: {
+      isReady: () => true,
+    },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "station-a",
+        shouldReconnect: true,
+        lastChannelId: "channel-a",
+        connection: null,
+        reconnectAttempts: 7,
+        reconnectCount: 12,
+        reconnectTimer: { active: true },
+        reconnectInFlight: false,
+        voiceConnectInFlight: false,
+        streamRestartTimer: null,
+        reconnectCircuitOpenUntil: 0,
+      }],
+    ]),
+  };
+
+  const options = {
+    unhealthyMs: 10 * 60 * 1000,
+    graceMs: 5 * 60 * 1000,
+  };
+  const firstNow = Date.now();
+  const firstPass = evaluateWorkerAutohealState(runtime, new Map(), options, firstNow);
+  assert.equal(firstPass.shouldExit, false);
+  assert.equal(firstPass.recoveringGuilds.length, 1);
+
+  const secondPass = evaluateWorkerAutohealState(
+    runtime,
+    firstPass.unhealthySinceByGuild,
+    options,
+    firstNow + (11 * 60 * 1000)
+  );
+  assert.equal(secondPass.shouldExit, true);
+  assert.equal(secondPass.stuckGuilds.length, 1);
+});
+
+test("worker autoheal does not restart a worker while another guild is still healthy", () => {
+  const now = Date.now();
+  const runtime = {
+    startedAt: now - (50 * 60 * 1000),
+    client: {
+      isReady: () => true,
+    },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "station-a",
+        shouldReconnect: true,
+        lastChannelId: "channel-a",
+        connection: null,
+        reconnectAttempts: 9,
+        reconnectTimer: { active: true },
+      }],
+      ["guild-2", {
+        currentStationKey: "station-b",
+        shouldReconnect: true,
+        lastChannelId: "channel-b",
+        connection: {
+          joinConfig: {
+            channelId: "channel-b",
+          },
+        },
+      }],
+    ]),
+  };
+
+  const evaluation = evaluateWorkerAutohealState(
+    runtime,
+    new Map([["guild-1", now - (20 * 60 * 1000)]]),
+    {
+      unhealthyMs: 10 * 60 * 1000,
+      graceMs: 5 * 60 * 1000,
+    },
+    now
+  );
+
+  assert.equal(evaluation.activeVoiceCount, 1);
+  assert.equal(evaluation.shouldExit, false);
+  assert.equal(evaluation.stuckGuilds.length, 1);
 });
