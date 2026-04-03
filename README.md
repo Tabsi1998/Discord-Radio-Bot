@@ -81,6 +81,8 @@ The commander handles commands. Workers carry the actual audio streams.
 
 ```bash
 ./update.sh
+./update.sh --update-rolling
+./update.sh --update-commander
 ./update.sh --bots
 ./update.sh --settings
 ./update.sh --settings commands
@@ -93,7 +95,7 @@ The commander handles commands. Workers carry the actual audio streams.
 ./update.sh --cleanup
 ```
 
-`./update.sh --settings commands` opens the slash-command and sync configuration directly. `./update.sh --status` opens the interactive admin cockpit for runtime status, API health, Docker logs, local rotated logs, MongoDB status, storage checks, container rebuilds, slash-command deploys, premium/offers actions, SMTP setup, and quick jumps back into settings or bot management. `./update.sh --offers` opens the offer manager for discount, referral, and direct free-license codes.
+`./update.sh --settings commands` opens the slash-command and sync configuration directly. `./update.sh --status` opens the interactive admin cockpit for runtime status, API health, Docker logs, local rotated logs, MongoDB status, storage checks, container rebuilds, slash-command deploys, premium/offers actions, SMTP setup, and quick jumps back into settings or bot management. `./update.sh --offers` opens the offer manager for discount, referral, and direct free-license codes. In split mode, `./update.sh --update-rolling` restarts workers one after another, while `./update.sh --update-commander` only redeploys the commander container for dashboard/command/web-only changes.
 
 ## Website legal pages
 

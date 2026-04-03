@@ -901,6 +901,188 @@ stop_runtime_containers_for_update() {
   fi
 }
 
+stop_commander_container_for_update() {
+  refresh_compose_environment
+
+  if docker compose ps --services --filter status=running 2>/dev/null | grep -q '^omnifm$'; then
+    info "Stoppe Commander fuer Update, Worker bleiben aktiv..."
+    docker compose stop -t 20 omnifm >/dev/null 2>&1 \
+      || warn "Commander konnte vor dem Update nicht sauber gestoppt werden."
+  fi
+}
+
+normalize_update_strategy() {
+  local raw="${1:-}"
+  raw="$(printf "%s" "$raw" | tr '[:upper:]' '[:lower:]' | xargs)"
+  case "$raw" in
+    ""|auto|default)
+      printf "%s" ""
+      ;;
+    full|rebuild|complete)
+      printf "%s" "full"
+      ;;
+    rolling|roll|staggered)
+      printf "%s" "rolling"
+      ;;
+    commander|commander-only|commander_only|dashboard|web)
+      printf "%s" "commander"
+      ;;
+    *)
+      printf "%s" "$raw"
+      ;;
+  esac
+}
+
+select_update_strategy() {
+  local requested="${1:-}"
+  local current_mode configured normalized choice default_choice
+
+  current_mode="$(deployment_mode)"
+  normalized="$(normalize_update_strategy "$requested")"
+
+  if [[ "$current_mode" != "split" ]]; then
+    if [[ -n "$normalized" && "$normalized" != "full" ]]; then
+      warn "Update-Strategie '${normalized}' ist nur im Split-Modus verfuegbar. Nutze Voll-Update."
+    fi
+    printf "%s" "full"
+    return 0
+  fi
+
+  if [[ -n "$normalized" ]]; then
+    case "$normalized" in
+      full|rolling|commander)
+        printf "%s" "$normalized"
+        return 0
+        ;;
+      *)
+        warn "Unbekannte Update-Strategie '${requested}'. Nutze Rolling-Update."
+        printf "%s" "rolling"
+        return 0
+        ;;
+    esac
+  fi
+
+  configured="$(normalize_update_strategy "$(read_env "UPDATE_STRATEGY" "rolling")")"
+  if [[ ! -t 0 ]]; then
+    case "$configured" in
+      commander|rolling|full) printf "%s" "$configured" ;;
+      *) printf "%s" "rolling" ;;
+    esac
+    return 0
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Update-Strategie (Split-Modus)${NC}"
+  echo "  ------------------------------------"
+  echo -e "    ${GREEN}1${NC}) Rolling Update      - Worker nacheinander neu starten ${DIM}(Empfohlen)${NC}"
+  echo -e "    ${CYAN}2${NC}) Commander-only      - nur Dashboard/Commands/Web neu deployen"
+  echo -e "    ${YELLOW}3${NC}) Voller Rebuild      - Commander + alle Worker gemeinsam"
+  echo ""
+  echo -e "  ${DIM}Commander-only nur nutzen, wenn die Aenderung wirklich nur Commander/Web betrifft.${NC}"
+  echo ""
+
+  case "$configured" in
+    commander) default_choice="2" ;;
+    full) default_choice="3" ;;
+    *) default_choice="1" ;;
+  esac
+
+  read -rp "$(echo -e "  ${CYAN}?${NC} Update-Strategie [${default_choice}]: ")" choice
+  choice="${choice:-$default_choice}"
+  case "$choice" in
+    1) printf "%s" "rolling" ;;
+    2) printf "%s" "commander" ;;
+    3) printf "%s" "full" ;;
+    *)
+      warn "Ungueltige Auswahl '${choice}'. Nutze Rolling-Update."
+      printf "%s" "rolling"
+      ;;
+  esac
+}
+
+run_update_deploy_strategy() {
+  local strategy="${1:-full}"
+  local build_no_cache current_mode delay_ms timeout_ms sleep_seconds
+  local -a build_args=()
+  local -a runtime_services=()
+  local -a worker_services=()
+  local idx service
+
+  current_mode="$(deployment_mode)"
+  build_no_cache="$(read_env "UPDATE_BUILD_NO_CACHE" "0")"
+  if [[ "$build_no_cache" == "1" ]]; then
+    warn "UPDATE_BUILD_NO_CACHE=1 - baue ohne Cache (langsamer, mehr Speicherverbrauch)."
+    build_args+=(--no-cache)
+  fi
+
+  case "$strategy" in
+    commander)
+      if [[ "$current_mode" != "split" ]]; then
+        warn "Commander-only ist nur im Split-Modus sinnvoll. Nutze Voll-Update."
+        run_update_deploy_strategy "full"
+        return $?
+      fi
+      info "Baue nur den Commander neu..."
+      compose_build "${build_args[@]}" omnifm || return 1
+      info "Starte nur den Commander neu..."
+      compose_up_no_deps omnifm || return 1
+      if ! wait_for_compose_service_running "omnifm" 120000; then
+        fail "Commander wurde nach dem gezielten Update nicht rechtzeitig aktiv."
+        return 1
+      fi
+      report_runtime_tools_status
+      return 0
+      ;;
+    rolling)
+      if [[ "$current_mode" != "split" ]]; then
+        warn "Rolling Update ist nur im Split-Modus verfuegbar. Nutze Voll-Update."
+        run_update_deploy_strategy "full"
+        return $?
+      fi
+
+      mapfile -t runtime_services < <(compose_runtime_services "$APP_DIR")
+      mapfile -t worker_services < <(compose_worker_services "$APP_DIR")
+      delay_ms="$(read_env "UPDATE_ROLLING_DELAY_MS" "15000")"
+      timeout_ms="$(read_env "UPDATE_ROLLING_WAIT_TIMEOUT_MS" "120000")"
+      sleep_seconds="$(awk "BEGIN { printf \"%.3f\", (${delay_ms:-15000} / 1000) }")"
+
+      info "Baue Runtime-Images fuer Rolling Update..."
+      compose_build "${build_args[@]}" "${runtime_services[@]}" || return 1
+
+      info "Aktualisiere Commander zuerst..."
+      compose_up_no_deps omnifm || return 1
+      if ! wait_for_compose_service_running "omnifm" "$timeout_ms"; then
+        fail "Commander wurde nach dem Rolling Update nicht rechtzeitig aktiv."
+        return 1
+      fi
+
+      for idx in "${!worker_services[@]}"; do
+        service="${worker_services[$idx]}"
+        info "Rolling Update fuer ${service}..."
+        compose_up_no_deps "$service" || return 1
+        if ! wait_for_compose_service_running "$service" "$timeout_ms"; then
+          fail "${service} wurde nach dem Rolling Update nicht rechtzeitig aktiv."
+          return 1
+        fi
+        if (( idx + 1 < ${#worker_services[@]} )); then
+          info "Warte ${sleep_seconds}s bis zum naechsten Worker..."
+          sleep "$sleep_seconds"
+        fi
+      done
+
+      report_runtime_tools_status
+      return 0
+      ;;
+    *)
+      info "Baue Container neu..."
+      compose_build "${build_args[@]}" || return 1
+      compose_up || return 1
+      report_runtime_tools_status
+      return 0
+      ;;
+  esac
+}
+
 prompt_tier() {
   echo "" >&2
   echo -e "  ${DIM}Tier-Optionen:${NC}" >&2
@@ -1631,6 +1813,42 @@ compose_up() {
   return 1
 }
 
+compose_up_no_deps() {
+  refresh_compose_environment
+  if docker compose up -d --no-deps "$@"; then
+    return 0
+  fi
+  fail "Gezielter Container-Start fehlgeschlagen."
+  return 1
+}
+
+compose_service_running() {
+  refresh_compose_environment
+  local service="$1"
+  docker compose ps --services --filter status=running 2>/dev/null | grep -qx "$service"
+}
+
+wait_for_compose_service_running() {
+  local service="$1"
+  local timeout_ms="${2:-120000}"
+  local started_at now
+  started_at="$(date +%s)"
+
+  while true; do
+    if compose_service_running "$service"; then
+      return 0
+    fi
+
+    now="$(date +%s)"
+    if (( ((now - started_at) * 1000) >= timeout_ms )); then
+      break
+    fi
+    sleep 2
+  done
+
+  return 1
+}
+
 compose_up_with_build() {
   refresh_compose_environment
   info "$(compose_deployment_summary "$APP_DIR")"
@@ -1795,6 +2013,9 @@ ensure_env_default "REMOTE_WORKER_COMMAND_POLL_MS" "1000"
 ensure_env_default "REMOTE_WORKER_COMMAND_TTL_MS" "300000"
 ensure_env_default "REMOTE_WORKER_STATUS_POLL_MS" "2000"
 ensure_env_default "REMOTE_WORKER_STATUS_STALE_MS" "45000"
+ensure_env_default "UPDATE_STRATEGY" "rolling"
+ensure_env_default "UPDATE_ROLLING_DELAY_MS" "15000"
+ensure_env_default "UPDATE_ROLLING_WAIT_TIMEOUT_MS" "120000"
 ensure_env_default "WORKER_AUTOHEAL_ENABLED" "1"
 ensure_env_default "WORKER_AUTOHEAL_CHECK_MS" "30000"
 ensure_env_default "WORKER_AUTOHEAL_GRACE_MS" "600000"
@@ -1878,12 +2099,22 @@ if [[ "$MODE" == "--dashboard-settings" ]]; then
   MODE_ARG="dashboard"
 fi
 
+if [[ "$MODE" == "--update-rolling" ]]; then
+  MODE="--update"
+  MODE_ARG="rolling"
+fi
+
+if [[ "$MODE" == "--update-commander" ]]; then
+  MODE="--update"
+  MODE_ARG="commander"
+fi
+
 case "$MODE" in
-  --update|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--set-commander|--show-roles|--stripe|--premium|--offers|--email|--settings|--dashboard-settings|--status|--cleanup|--doctor|--recognition-test)
+  --update|--update-rolling|--update-commander|--bots|--show-bots|--add-bot|--edit-bot|--remove-bot|--set-commander|--show-roles|--stripe|--premium|--offers|--email|--settings|--dashboard-settings|--status|--cleanup|--doctor|--recognition-test)
     ;;
   *)
     fail "Unbekannter Modus: ${MODE}"
-    echo -e "  ${DIM}Erlaubt: --update, --bots, --stripe, --premium, --offers, --email, --settings, --dashboard-settings, --status, --cleanup, --doctor, --recognition-test${NC}"
+    echo -e "  ${DIM}Erlaubt: --update, --update-rolling, --update-commander, --bots, --stripe, --premium, --offers, --email, --settings, --dashboard-settings, --status, --cleanup, --doctor, --recognition-test${NC}"
     exit 1
     ;;
 esac
@@ -3403,6 +3634,8 @@ fi
 info "Hole neuesten Code von ${REMOTE}/${BRANCH}..."
 update_stamp="$(date +%Y%m%d%H%M%S)"
 licenses_before_update="$(count_license_entries premium.json)"
+update_strategy="$(select_update_strategy "${MODE_ARG:-}")"
+info "Update-Strategie: ${update_strategy}"
 
 # WICHTIG: Premium-Daten IMMER sichern vor Update!
 for pf in premium.json bot-state.json custom-stations.json command-permissions.json guild-languages.json song-history.json listening-stats.json scheduled-events.json coupons.json dashboard.json discordbotlist.json botsgg.json topgg.json vote-events.json; do
@@ -3414,7 +3647,14 @@ prune_update_backups
 
 git fetch "$REMOTE" "$BRANCH" 2>&1 | tail -3
 
-stop_runtime_containers_for_update
+case "$update_strategy" in
+  commander|rolling)
+    stop_commander_container_for_update
+    ;;
+  *)
+    stop_runtime_containers_for_update
+    ;;
+esac
 
 old_head="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
 git reset --hard "$REMOTE/$BRANCH"
@@ -3493,16 +3733,7 @@ ensure_all_json_files
 ensure_split_state_dirs
 
 # Container rebuild
-info "Baue Container neu..."
-build_no_cache="$(read_env "UPDATE_BUILD_NO_CACHE" "0")"
-if [[ "$build_no_cache" == "1" ]]; then
-  warn "UPDATE_BUILD_NO_CACHE=1 - baue ohne Cache (langsamer, mehr Speicherverbrauch)."
-  compose_build --no-cache || exit 1
-else
-  compose_build || exit 1
-fi
-compose_up || exit 1
-report_runtime_tools_status
+run_update_deploy_strategy "$update_strategy" || exit 1
 
 # Housekeeping nach Update
 prune_update_backups
@@ -3543,6 +3774,8 @@ echo -e "    Dashboard OAuth:  ${GREEN}./update.sh --dashboard-settings${NC}"
 echo -e "    Doctor Check:     ${GREEN}./update.sh --doctor${NC}"
 echo -e "    Status & Logs:    ${GREEN}./update.sh --status${NC}"
 echo -e "    Status Quick:     ${GREEN}./update.sh --status quick${NC}"
+echo -e "    Rolling Update:   ${GREEN}./update.sh --update-rolling${NC}"
+echo -e "    Commander Update: ${GREEN}./update.sh --update-commander${NC}"
 echo -e "    Live Docker-Log:  ${GREEN}./update.sh --status live${NC}"
 echo -e "    Live Local-Log:   ${GREEN}./update.sh --status local-live${NC}"
 echo -e "    Compose Wrapper:  ${GREEN}bash ./scripts/compose.sh ps${NC}"
