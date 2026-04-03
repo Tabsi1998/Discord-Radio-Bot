@@ -11,11 +11,13 @@ export function createAuthRoutesHandler(deps) {
     fetchDiscordUserGuilds,
     fetchDiscordUserProfile,
     getCommonSecurityHeaders,
+    getConfiguredPublicOrigin,
     getDashboardSession,
     getDashboardSessionTtlSeconds,
     getDefaultLanguage,
     getDiscordOauthStateTtlSeconds,
     getFrontendBaseOrigin,
+    isAllowedFrontendOrigin,
     isDiscordOauthConfigured,
     languagePick,
     log,
@@ -29,6 +31,22 @@ export function createAuthRoutesHandler(deps) {
     setDashboardAuthSession,
     setDashboardOauthState,
   } = deps;
+
+  function resolveTrustedFrontendOrigin(req, publicUrl, preferredOrigin = "") {
+    const candidateOrigin = getFrontendBaseOrigin(req, publicUrl, preferredOrigin);
+    if (
+      candidateOrigin
+      && (
+        typeof isAllowedFrontendOrigin !== "function"
+        || isAllowedFrontendOrigin(candidateOrigin, publicUrl)
+      )
+    ) {
+      return candidateOrigin;
+    }
+    return typeof getConfiguredPublicOrigin === "function"
+      ? getConfiguredPublicOrigin(publicUrl)
+      : candidateOrigin;
+  }
 
   return async function handleAuthRoutes(context) {
     const { req, res, requestUrl, publicUrl } = context;
@@ -49,7 +67,7 @@ export function createAuthRoutesHandler(deps) {
 
       const nextPage = sanitizeDashboardPage(requestUrl.searchParams.get("nextPage"));
       const stateToken = randomBytes(24).toString("base64url");
-      const frontendOrigin = getFrontendBaseOrigin(req, publicUrl);
+      const frontendOrigin = resolveTrustedFrontendOrigin(req, publicUrl);
       const nowTs = Math.floor(Date.now() / 1000);
       setDashboardOauthState(stateToken, {
         nextPage,
@@ -75,9 +93,11 @@ export function createAuthRoutesHandler(deps) {
 
       const code = String(requestUrl.searchParams.get("code") || "").trim();
       const stateToken = String(requestUrl.searchParams.get("state") || "").trim();
-      const fallbackOrigin = getFrontendBaseOrigin(req, publicUrl);
+      const fallbackOrigin = resolveTrustedFrontendOrigin(req, publicUrl);
       const statePayload = popDashboardOauthState(stateToken);
-      const frontendOrigin = statePayload?.origin || fallbackOrigin;
+      const frontendOrigin = statePayload
+        ? resolveTrustedFrontendOrigin(req, publicUrl, statePayload.origin || "")
+        : fallbackOrigin;
       const oauthLanguage = normalizeLanguage(statePayload?.language, getDefaultLanguage());
 
       if (!isDiscordOauthConfigured()) {
@@ -179,7 +199,7 @@ export function createAuthRoutesHandler(deps) {
       ...getCommonSecurityHeaders(),
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
-      "Set-Cookie": buildDashboardSessionCookieDeletion(req, getFrontendBaseOrigin(req, publicUrl)),
+      "Set-Cookie": buildDashboardSessionCookieDeletion(req, resolveTrustedFrontendOrigin(req, publicUrl)),
     });
     res.end(JSON.stringify({ success: true }));
     return true;

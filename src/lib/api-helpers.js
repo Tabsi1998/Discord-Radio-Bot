@@ -174,6 +174,56 @@ function getConfiguredPublicOrigin(publicUrl) {
   return domainOrigins[0] || "http://localhost";
 }
 
+function isLocalDevelopmentOrigin(rawOrigin) {
+  const origin = toOrigin(rawOrigin);
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    const hostname = String(parsed.hostname || "").trim().toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function shouldIncludeDefaultLocalOrigins(publicUrl, configuredOrigins = []) {
+  const candidates = [
+    ...configuredOrigins,
+    publicUrl,
+    ...buildWebDomainOriginCandidates(),
+  ];
+  const hasExplicitNonLocalOrigin = candidates
+    .map((candidate) => toOrigin(candidate))
+    .filter(Boolean)
+    .some((origin) => !isLocalDevelopmentOrigin(origin));
+  return !hasExplicitNonLocalOrigin;
+}
+
+function buildAllowedFrontendOrigins(publicUrl) {
+  const configured = parseCsvEnv(process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGINS || "");
+  const candidates = [
+    ...configured,
+    publicUrl,
+    ...buildWebDomainOriginCandidates(),
+  ];
+
+  if (shouldIncludeDefaultLocalOrigins(publicUrl, configured)) {
+    candidates.push(
+      "http://localhost",
+      "http://127.0.0.1",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000"
+    );
+  }
+
+  const allowed = new Set();
+  for (const candidate of candidates) {
+    const origin = toOrigin(candidate);
+    if (origin) allowed.add(origin);
+  }
+  return allowed;
+}
+
 function buildAllowedReturnOrigins(publicUrl, req) {
   const configured = [
     ...parseCsvEnv(process.env.CHECKOUT_RETURN_ORIGINS || ""),
@@ -184,9 +234,14 @@ function buildAllowedReturnOrigins(publicUrl, req) {
     ...configured,
     publicUrl,
     ...buildWebDomainOriginCandidates(),
-    "http://localhost",
-    "http://127.0.0.1"
   ];
+
+  if (shouldIncludeDefaultLocalOrigins(publicUrl, configured)) {
+    candidates.push(
+      "http://localhost",
+      "http://127.0.0.1"
+    );
+  }
 
   const allowed = new Set();
   for (const candidate of candidates) {
@@ -227,11 +282,16 @@ function buildAllowedApiOrigins(publicUrl, req) {
     publicUrl,
     ...buildWebDomainOriginCandidates(),
     getRequestOrigin(req),
-    "http://localhost",
-    "http://127.0.0.1",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000"
   ];
+
+  if (shouldIncludeDefaultLocalOrigins(publicUrl, configured)) {
+    candidates.push(
+      "http://localhost",
+      "http://127.0.0.1",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000"
+    );
+  }
 
   const allowed = new Set();
   for (const candidate of candidates) {
@@ -239,6 +299,12 @@ function buildAllowedApiOrigins(publicUrl, req) {
     if (origin) allowed.add(origin);
   }
   return allowed;
+}
+
+function isAllowedFrontendOrigin(rawOrigin, publicUrl) {
+  const origin = toOrigin(rawOrigin);
+  if (!origin) return false;
+  return buildAllowedFrontendOrigins(publicUrl).has(origin);
 }
 
 function applyCors(req, res, publicUrl) {
@@ -608,6 +674,7 @@ export {
   getStripeSecretKey,
   resolveCheckoutReturnBase,
   getConfiguredPublicOrigin,
+  isAllowedFrontendOrigin,
   toOrigin,
   enforceApiRateLimit,
   getClientIp,

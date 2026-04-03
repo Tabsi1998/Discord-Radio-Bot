@@ -84,6 +84,7 @@ function normalizeOauthState(rawState) {
   return {
     token,
     nextPage: sanitizeText(rawState.nextPage, 40) || "dashboard",
+    language: sanitizeText(rawState.language, 12),
     origin: sanitizeText(rawState.origin, 200),
     createdAt: Number.parseInt(String(rawState.createdAt || 0), 10) || Math.floor(Date.now() / 1000),
     expiresAt,
@@ -116,6 +117,7 @@ function normalizeState(rawState) {
     if (!normalizedStateRow) continue;
     normalized.oauthStates[normalizedStateRow.token] = {
       nextPage: normalizedStateRow.nextPage,
+      language: normalizedStateRow.language,
       origin: normalizedStateRow.origin,
       createdAt: normalizedStateRow.createdAt,
       expiresAt: normalizedStateRow.expiresAt,
@@ -217,6 +219,7 @@ export function setDashboardOauthState(token, payload) {
   const state = ensureState();
   state.oauthStates[safeToken] = {
     nextPage: stateRow.nextPage,
+    language: stateRow.language,
     origin: stateRow.origin,
     createdAt: stateRow.createdAt,
     expiresAt: stateRow.expiresAt,
