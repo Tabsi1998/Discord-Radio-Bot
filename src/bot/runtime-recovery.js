@@ -43,6 +43,8 @@ const VOICE_RECONNECT_CIRCUIT_BREAKER_MS = Math.max(
 );
 const RESTORE_RETRY_BASE_MS = Math.max(5_000, toPositiveInt(process.env.RESTORE_RETRY_BASE_MS, 15_000));
 const RESTORE_RETRY_MAX_MS = Math.max(30_000, toPositiveInt(process.env.RESTORE_RETRY_MAX_MS, 5 * 60_000));
+const VOICE_NETWORK_ERROR_RETRY_MIN_MS = 15_000;
+const VOICE_NETWORK_ERROR_RETRY_JITTER = 0.6;
 
 const PERMANENT_RESTORE_GUILD_ERROR_CODES = new Set([10004, 50001]);
 const PERMANENT_RESTORE_CHANNEL_ERROR_CODES = new Set([10003]);
@@ -681,7 +683,16 @@ export function attachRuntimeConnectionHandlers(runtime, guildId, connection) {
     });
     markDisconnected();
     if (!state.shouldReconnect) return;
-    runtime.scheduleReconnect(guildId, { reason: recoverableNetworkError ? "voice-network-error" : "voice-error" });
+    runtime.scheduleReconnect(
+      guildId,
+      recoverableNetworkError
+        ? {
+            reason: "voice-network-error",
+            minDelayMs: VOICE_NETWORK_ERROR_RETRY_MIN_MS,
+            jitterFactor: VOICE_NETWORK_ERROR_RETRY_JITTER,
+          }
+        : { reason: "voice-error" }
+    );
   });
 }
 
@@ -929,6 +940,12 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   const attempt = state.reconnectAttempts + 1;
   const tierConfig = getTierConfig(guildId);
   const baseDelay = Math.max(400, tierConfig.reconnectMs || 5_000);
+  const parsedMinDelayMs = Number.parseInt(String(options.minDelayMs || 0), 10);
+  const minDelayMs = Number.isFinite(parsedMinDelayMs) ? Math.max(0, parsedMinDelayMs) : 0;
+  const parsedJitterFactor = Number.parseFloat(String(options.jitterFactor ?? ""));
+  const jitterFactor = Number.isFinite(parsedJitterFactor)
+    ? Math.max(0, Math.min(0.95, parsedJitterFactor))
+    : 0.2;
   const exp = Math.min(Math.max(0, attempt - 1), VOICE_RECONNECT_EXP_STEPS);
   let delay = Math.min(VOICE_RECONNECT_MAX_MS, baseDelay * Math.pow(1.8, exp));
   let logLevel = "INFO";
@@ -938,6 +955,9 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
   if (networkCooldownMs > 0) {
     delay = Math.max(delay, networkCooldownMs);
+  }
+  if (minDelayMs > 0) {
+    delay = Math.max(delay, minDelayMs);
   }
 
   const reason = String(options.reason || "auto");
@@ -958,7 +978,7 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
       `circuit=open trip=${circuitTripCount}`;
   } else {
     state.reconnectAttempts = attempt;
-    delay = applyJitter(delay, 0.2);
+    delay = applyJitter(delay, jitterFactor);
     logMessage =
       `[${runtime.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms ` +
       `(attempt ${attempt}, plan=${tierConfig.tier}, reason=${reason})`;

@@ -40,6 +40,7 @@ import {
   normalizeWeeklyDigestConfig,
   shouldSendWeeklyDigest,
 } from "../lib/weekly-digest.js";
+import { TIERS } from "../lib/helpers.js";
 import { getGuildDailyStats } from "../listening-stats-store.js";
 import { log } from "../lib/logging.js";
 import {

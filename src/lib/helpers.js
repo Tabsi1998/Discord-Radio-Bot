@@ -298,6 +298,9 @@ function isWithinWorkerPlanLimit({ role = "worker", workerSlot = null, botIndex 
 function isLikelyNetworkFailureLine(line) {
   const text = String(line || "").trim().toLowerCase();
   if (!text) return false;
+  if (/unexpected server response:\s*52\d\b/.test(text)) {
+    return true;
+  }
 
   const patterns = [
     "failed to resolve hostname",
@@ -315,7 +318,6 @@ function isLikelyNetworkFailureLine(line) {
     "connection reset",
     "socket closed",
     "cannot perform ip discovery",
-    "unexpected server response: 522",
     "timed out",
     "timeout",
   ];

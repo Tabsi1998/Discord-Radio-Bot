@@ -11,6 +11,7 @@ import {
   seatPricingInEuro,
   isWithinWorkerPlanLimit,
   applyVolumeTransformerLevel,
+  isLikelyNetworkFailureLine,
 } from "../src/lib/helpers.js";
 import { buildCommandsJson } from "../src/commands.js";
 import { networkRecoveryCoordinator } from "../src/core/network-recovery.js";
@@ -522,17 +523,23 @@ test("recoverable voice connection errors stay on reconnect flow", () => {
     };
 
     attachRuntimeConnectionHandlers(runtime, "guild-1", connection);
-    handlers.get("error")(new Error("Unexpected server response: 522"));
+    handlers.get("error")(new Error("Unexpected server response: 521"));
 
     assert.equal(state.connection, null);
     assert.deepEqual(scheduled, [{
       guildId: "guild-1",
-      options: { reason: "voice-network-error" },
+      options: { reason: "voice-network-error", minDelayMs: 15000, jitterFactor: 0.6 },
     }]);
     assert.equal(notedFailures.length, 1);
   } finally {
     networkRecoveryCoordinator.noteFailure = originalNoteFailure;
   }
+});
+
+test("network failure detection treats unexpected 52x voice responses as recoverable", () => {
+  assert.equal(isLikelyNetworkFailureLine("Unexpected server response: 521"), true);
+  assert.equal(isLikelyNetworkFailureLine("Unexpected server response: 522"), true);
+  assert.equal(isLikelyNetworkFailureLine("Unexpected server response: 401"), false);
 });
 
 test("scheduleReconnect persists a recoverable playback target for restart restore", () => {
@@ -664,6 +671,58 @@ test("scheduleReconnect skips when a connect or reconnect is already in flight",
     state.voiceConnectInFlight = true;
     scheduleRuntimeReconnect(runtime, "guild-1", { reason: "retry" });
     assert.equal(scheduled, 0);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
+});
+
+test("scheduleReconnect honors explicit minimum delay and jitter overrides", () => {
+  const originalSetTimeout = global.setTimeout;
+  const scheduled = [];
+  global.setTimeout = (fn, delay) => {
+    const timer = { fn, delay, unref() {} };
+    scheduled.push(timer);
+    return timer;
+  };
+
+  try {
+    const state = {
+      shouldReconnect: true,
+      lastChannelId: "voice-1",
+      activeScheduledEventStopAtMs: 0,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      reconnectCount: 0,
+      lastReconnectAt: null,
+      connection: null,
+      reconnectInFlight: false,
+      voiceConnectInFlight: false,
+    };
+    const runtime = {
+      config: { name: "OmniFM 6", id: "bot-6" },
+      getState() {
+        return state;
+      },
+      getNetworkRecoveryDelayMs() {
+        return 0;
+      },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      stopInGuild() {
+        throw new Error("stopInGuild should not be called");
+      },
+      persistState() {},
+    };
+
+    scheduleRuntimeReconnect(runtime, "guild-1", {
+      reason: "voice-network-error",
+      minDelayMs: 15_000,
+      jitterFactor: 0,
+    });
+
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].delay, 15_000);
   } finally {
     global.setTimeout = originalSetTimeout;
   }
