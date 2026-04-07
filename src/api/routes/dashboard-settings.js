@@ -3,6 +3,7 @@ import { loadDashboardGuildSettings } from "./dashboard-guild-settings.js";
 
 export function createDashboardSettingsRouteHandler(deps) {
   const {
+    buildDashboardIncidentAlertsResponse,
     buildDashboardExportsWebhookResponse,
     buildDashboardFailoverChainPreview,
     buildDashboardFallbackStationPreview,
@@ -21,6 +22,7 @@ export function createDashboardSettingsRouteHandler(deps) {
     sendJson,
     sendLocalizedError,
     serverHasCapability,
+    validateDashboardIncidentAlertsConfig,
     validateDashboardExportsWebhookConfig,
   } = deps;
 
@@ -64,6 +66,7 @@ export function createDashboardSettingsRouteHandler(deps) {
         failoverChainPreview: buildDashboardFailoverChainPreview(guildInfo.id, failoverChain, fallbackStation),
         fallbackStation,
         fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
+        incidentAlerts: buildDashboardIncidentAlertsResponse(settings.incidentAlerts || {}),
         exportsWebhook: buildDashboardExportsWebhookResponse(settings.exportsWebhook || {}),
       });
       return true;
@@ -142,6 +145,29 @@ export function createDashboardSettingsRouteHandler(deps) {
           updates.exportsWebhook = validatedWebhook.config;
         }
 
+        if (body?.incidentAlerts && typeof body.incidentAlerts === "object") {
+          if (!serverHasCapability(guildInfo.id, "exports_webhooks")) {
+            sendLocalizedError(res, 403, language, "Incident-Alerts sind nur fuer Ultimate verfuegbar.", "Incident alerts are only available for Ultimate.");
+            return true;
+          }
+          const validatedIncidentAlerts = validateDashboardIncidentAlertsConfig(body.incidentAlerts);
+          if (!validatedIncidentAlerts.ok) {
+            sendJson(res, 400, { error: validatedIncidentAlerts.error });
+            return true;
+          }
+          if (validatedIncidentAlerts.config.enabled && !validatedIncidentAlerts.config.channelId) {
+            sendLocalizedError(
+              res,
+              400,
+              language,
+              "Fuer aktive Incident-Alerts muss ein Text-Channel ausgewaehlt werden.",
+              "An active incident alert requires a selected text channel."
+            );
+            return true;
+          }
+          updates.incidentAlerts = validatedIncidentAlerts.config;
+        }
+
         if (!isConnected() || !getDb()) {
           sendLocalizedError(res, 503, language, "MongoDB nicht verbunden.", "MongoDB is not connected.");
           return true;
@@ -162,6 +188,9 @@ export function createDashboardSettingsRouteHandler(deps) {
         const fallbackStation = Object.prototype.hasOwnProperty.call(updates, "fallbackStation")
           ? String(updates.fallbackStation || "").trim().toLowerCase()
           : getPrimaryFailoverStation(failoverChain, currentSettings.fallbackStation || "");
+        const incidentAlerts = Object.prototype.hasOwnProperty.call(updates, "incidentAlerts")
+          ? buildDashboardIncidentAlertsResponse(updates.incidentAlerts)
+          : buildDashboardIncidentAlertsResponse(currentSettings.incidentAlerts || {});
         const exportsWebhook = Object.prototype.hasOwnProperty.call(updates, "exportsWebhook")
           ? buildDashboardExportsWebhookResponse(updates.exportsWebhook)
           : buildDashboardExportsWebhookResponse(currentSettings.exportsWebhook || {});
@@ -179,6 +208,7 @@ export function createDashboardSettingsRouteHandler(deps) {
           failoverChainPreview: buildDashboardFailoverChainPreview(guildInfo.id, failoverChain, fallbackStation),
           fallbackStation,
           fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
+          incidentAlerts,
           exportsWebhook,
         });
       } catch (err) {

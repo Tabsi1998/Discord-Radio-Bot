@@ -105,6 +105,11 @@ import {
   deliverDashboardWebhook,
 } from "../lib/dashboard-webhooks.js";
 import {
+  DEFAULT_DASHBOARD_INCIDENT_ALERTS_CONFIG,
+  normalizeDashboardIncidentAlertsConfig,
+  validateDashboardIncidentAlertsConfig,
+} from "../lib/dashboard-incident-alerts.js";
+import {
   getPrimaryFailoverStation,
   normalizeFailoverChain,
 } from "../lib/failover-chain.js";
@@ -539,6 +544,14 @@ function buildDashboardExportsWebhookResponse(rawConfig) {
   );
 }
 
+function buildDashboardIncidentAlertsResponse(rawConfig) {
+  return normalizeDashboardIncidentAlertsConfig(
+    rawConfig && typeof rawConfig === "object"
+      ? rawConfig
+      : DEFAULT_DASHBOARD_INCIDENT_ALERTS_CONFIG
+  );
+}
+
 const handleDashboardLicenseRoute = createDashboardLicenseRouteHandler({
   BRAND,
   TIERS,
@@ -784,6 +797,7 @@ const handlePremiumOffersRoutes = createPremiumOffersRoutesHandler({
 });
 
 const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
+  buildDashboardIncidentAlertsResponse,
   buildDashboardExportsWebhookResponse,
   buildDashboardFailoverChainPreview,
   buildDashboardFallbackStationPreview,
@@ -802,6 +816,7 @@ const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
   sendJson,
   sendLocalizedError,
   serverHasCapability,
+  validateDashboardIncidentAlertsConfig,
   validateDashboardExportsWebhookConfig,
 });
 

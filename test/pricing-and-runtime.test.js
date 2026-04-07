@@ -2313,6 +2313,7 @@ test("stream healthcheck forces an early restart when audio stalls", async () =>
     let scheduled = null;
     let killedWith = null;
     let persisted = 0;
+    const dispatchedIncidentAlerts = [];
     const runtime = {
       role: "worker",
       config: { id: "bot-test-1", name: "OmniFM Test" },
@@ -2326,6 +2327,10 @@ test("stream healthcheck forces an early restart when audio stalls", async () =>
       },
       scheduleStreamRestart(guildId, state, delayMs, reason) {
         scheduled = { guildId, state, delayMs, reason };
+      },
+      async dispatchIncidentAlert(payload) {
+        dispatchedIncidentAlerts.push(payload);
+        return { attempted: true, delivered: true };
       },
       persistState() {
         persisted += 1;
@@ -2384,6 +2389,10 @@ test("stream healthcheck forces an early restart when audio stalls", async () =>
     });
     assert.equal(notedFailures.length, 1);
     assert.match(notedFailures[0].detail, /silenceMs=60000/);
+    assert.equal(dispatchedIncidentAlerts.length, 1);
+    assert.equal(dispatchedIncidentAlerts[0].eventKey, "stream_healthcheck_stalled");
+    assert.equal(dispatchedIncidentAlerts[0].payload.previousStationKey, "nightwave");
+    assert.equal(dispatchedIncidentAlerts[0].payload.silenceMs, 60000);
   } finally {
     networkRecoveryCoordinator.noteFailure = originalNoteFailure;
     networkRecoveryCoordinator.getRecoveryDelayMs = originalGetRecoveryDelayMs;

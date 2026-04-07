@@ -1351,6 +1351,9 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.deepEqual(settingsResponse.payload.failoverChainPreview, []);
   assert.equal(settingsResponse.payload.fallbackStation, "");
   assert.equal(settingsResponse.payload.fallbackStationPreview.valid, true);
+  assert.equal(settingsResponse.payload.incidentAlerts.enabled, false);
+  assert.equal(settingsResponse.payload.incidentAlerts.channelId, "");
+  assert.deepEqual(settingsResponse.payload.incidentAlerts.events, []);
   assert.equal(settingsResponse.payload.exportsWebhook.enabled, false);
   assert.equal(settingsResponse.payload.exportsWebhook.url, "");
   assert.deepEqual(settingsResponse.payload.exportsWebhook.events, []);
@@ -1391,6 +1394,28 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   );
   assert.equal(invalidDigestSettings.status, 400);
   assert.match(invalidDigestSettings.payload.error, /text channel/i);
+
+  const invalidIncidentAlertSettings = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        incidentAlerts: {
+          enabled: true,
+          channelId: "",
+          events: ["stream_failover_exhausted"],
+        },
+      }),
+    }
+  );
+  assert.equal(invalidIncidentAlertSettings.status, 400);
+  assert.match(invalidIncidentAlertSettings.payload.error, /incident alert/i);
 
   const digestPreviewResponse = await requestJson(
     baseUrl,
@@ -1657,6 +1682,11 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        incidentAlerts: {
+          enabled: true,
+          channelId: TEXT_CHANNEL_ID,
+          events: ["stream_healthcheck_stalled", "stream_failover_exhausted"],
+        },
         exportsWebhook: {
           enabled: true,
           url: webhookUrl,
@@ -1668,6 +1698,9 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   );
   assert.equal(exportSettingsResponse.status, mongoAvailable ? 200 : 503);
   if (mongoAvailable) {
+    assert.equal(exportSettingsResponse.payload.incidentAlerts.enabled, true);
+    assert.equal(exportSettingsResponse.payload.incidentAlerts.channelId, TEXT_CHANNEL_ID);
+    assert.deepEqual(exportSettingsResponse.payload.incidentAlerts.events, ["stream_healthcheck_stalled", "stream_failover_exhausted"]);
     assert.equal(exportSettingsResponse.payload.exportsWebhook.enabled, true);
     assert.equal(exportSettingsResponse.payload.exportsWebhook.url, webhookUrl);
     assert.deepEqual(exportSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "custom_stations_exported", "stream_healthcheck_stalled", "stream_recovered"]);

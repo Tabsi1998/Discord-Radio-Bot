@@ -18,6 +18,7 @@ import { getFallbackKey } from "../stations-store.js";
 import { normalizeFailoverChain, buildFailoverCandidateChain } from "../lib/failover-chain.js";
 import { recordStationStart } from "../listening-stats-store.js";
 import { dispatchRuntimeReliabilityWebhook } from "../lib/runtime-alerts.js";
+import { dispatchRuntimeIncidentAlert } from "../lib/runtime-discord-alerts.js";
 import { recordRuntimeIncident } from "../runtime-incidents-store.js";
 
 function toPositiveInt(rawValue, fallbackValue) {
@@ -51,6 +52,16 @@ function shouldEmitRecoveredAlert({ errorCount = 0, reconnectAttempts = 0, reaso
   return !["provider-eof", "restart", "network-cooldown"].includes(normalizedReason);
 }
 
+function dispatchRuntimeIncidentChannelAlert(runtime, input) {
+  const dispatch = typeof runtime?.dispatchIncidentAlert === "function"
+    ? runtime.dispatchIncidentAlert.bind(runtime)
+    : dispatchRuntimeIncidentAlert;
+  return dispatch({
+    ...input,
+    runtime,
+  });
+}
+
 async function emitRuntimeReliabilityAlert(runtime, guildId, eventKey, payload = {}) {
   const guild = runtime?.client?.guilds?.cache?.get(guildId) || null;
   const tier = getTierConfig(guildId).tier;
@@ -73,6 +84,14 @@ async function emitRuntimeReliabilityAlert(runtime, guildId, eventKey, payload =
       payload: runtimePayload,
     });
   } catch {}
+
+  void dispatchRuntimeIncidentChannelAlert(runtime, {
+    guildId,
+    guildName: guild?.name || guildId,
+    tier,
+    eventKey,
+    payload: runtimePayload,
+  }).catch(() => null);
 
   return dispatchRuntimeReliabilityWebhook({
     guildId,
@@ -264,6 +283,30 @@ export async function evaluateRuntimeStreamHealth(runtime, guildId, state, proce
       },
     });
   } catch {}
+
+  void dispatchRuntimeIncidentChannelAlert(runtime, {
+    guildId,
+    guildName: runtime?.client?.guilds?.cache?.get?.(guildId)?.name || guildId,
+    tier: getTierConfig(guildId).tier,
+    eventKey: "stream_healthcheck_stalled",
+    payload: {
+      runtime: {
+        id: String(runtime?.config?.id || "").trim(),
+        name: String(runtime?.config?.name || "").trim(),
+        role: String(runtime?.role || "").trim(),
+      },
+      previousStationKey: state.currentStationKey,
+      previousStationName: stationName,
+      triggerError: healthError,
+      streamErrorCount: state.streamErrorCount,
+      reconnectAttempts: Number(state.reconnectAttempts || 0) || 0,
+      listenerCount: typeof runtime?.getCurrentListenerCount === "function"
+        ? runtime.getCurrentListenerCount(guildId, state)
+        : 0,
+      lastStreamErrorAt: failureAtIso,
+      silenceMs: Math.round(silenceMs),
+    },
+  }).catch(() => null);
 
   void dispatchRuntimeReliabilityWebhook({
     guildId,
