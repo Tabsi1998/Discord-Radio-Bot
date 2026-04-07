@@ -265,6 +265,31 @@ export async function evaluateRuntimeStreamHealth(runtime, guildId, state, proce
     });
   } catch {}
 
+  void dispatchRuntimeReliabilityWebhook({
+    guildId,
+    guildName: runtime?.client?.guilds?.cache?.get?.(guildId)?.name || guildId,
+    tier: getTierConfig(guildId).tier,
+    eventKey: "stream_healthcheck_stalled",
+    source: "runtime",
+    payload: {
+      runtime: {
+        id: String(runtime?.config?.id || "").trim(),
+        name: String(runtime?.config?.name || "").trim(),
+        role: String(runtime?.role || "").trim(),
+      },
+      previousStationKey: state.currentStationKey,
+      previousStationName: stationName,
+      triggerError: healthError,
+      streamErrorCount: state.streamErrorCount,
+      reconnectAttempts: Number(state.reconnectAttempts || 0) || 0,
+      listenerCount: typeof runtime?.getCurrentListenerCount === "function"
+        ? runtime.getCurrentListenerCount(guildId, state)
+        : 0,
+      lastStreamErrorAt: failureAtIso,
+      silenceMs: Math.round(silenceMs),
+    },
+  }).catch(() => null);
+
   runtime.scheduleStreamRestart(
     guildId,
     state,

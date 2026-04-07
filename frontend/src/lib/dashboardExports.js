@@ -1,6 +1,7 @@
 export const DASHBOARD_EXPORT_WEBHOOK_EVENTS = Object.freeze([
   { key: 'stats_exported', de: 'Stats-Exporte', en: 'Stats exports' },
   { key: 'custom_stations_exported', de: 'Custom-Station-Exporte', en: 'Custom station exports' },
+  { key: 'stream_healthcheck_stalled', de: 'Stream-Healthcheck ausgelöst', en: 'Stream health check triggered' },
   { key: 'stream_recovered', de: 'Stream-Erholung', en: 'Stream recovered' },
   { key: 'stream_failover_activated', de: 'Failover aktiviert', en: 'Failover activated' },
   { key: 'stream_failover_exhausted', de: 'Failover ausgeschöpft', en: 'Failover exhausted' },
@@ -46,8 +47,8 @@ export function buildDashboardExportsWebhookSummary(rawConfig, t) {
       statusLabel: t('Nicht konfiguriert', 'Not configured'),
       statusAccent: '#71717A',
       description: t(
-        'Lege eine URL fest, um Exporte sowie Recovery- und Failover-Alerts an deine Automationen weiterzugeben.',
-        'Add a URL to forward exports as well as recovery and failover alerts to your automations.'
+        'Lege eine URL fest, um Exporte sowie Stall-, Recovery- und Failover-Alerts an deine Automationen weiterzugeben.',
+        'Add a URL to forward exports as well as stall, recovery, and failover alerts to your automations.'
       ),
     };
   }
@@ -57,8 +58,8 @@ export function buildDashboardExportsWebhookSummary(rawConfig, t) {
       statusLabel: t('Aktiv', 'Active'),
       statusAccent: '#10B981',
       description: t(
-        'Webhook-Events werden bei passenden Exporten sowie Recovery- und Failover-Situationen automatisch ausgelöst.',
-        'Webhook events are triggered automatically for matching exports as well as recovery and failover situations.'
+        'Webhook-Events werden bei passenden Exporten sowie Stall-, Recovery- und Failover-Situationen automatisch ausgelöst.',
+        'Webhook events are triggered automatically for matching exports as well as stall, recovery, and failover situations.'
       ),
     };
   }

@@ -3,6 +3,7 @@ import { validateCustomStationUrlWithDns } from "../custom-stations.js";
 const DASHBOARD_EXPORT_WEBHOOK_EVENT_KEYS = Object.freeze([
   "stats_exported",
   "custom_stations_exported",
+  "stream_healthcheck_stalled",
   "stream_recovered",
   "stream_failover_activated",
   "stream_failover_exhausted",

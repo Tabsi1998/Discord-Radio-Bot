@@ -65,6 +65,39 @@ test("runtime reliability webhooks skip unselected events without attempting del
   assert.equal(deliverCalls, 0);
 });
 
+test("runtime reliability webhooks deliver stream stall alerts when selected", async () => {
+  let capturedDelivery = null;
+
+  const result = await dispatchRuntimeReliabilityWebhook({
+    guildId: "123",
+    guildName: "OmniFM Guild",
+    tier: "ultimate",
+    eventKey: "stream_healthcheck_stalled",
+    payload: {
+      previousStationKey: "nightwave",
+      silenceMs: 60000,
+    },
+  }, {
+    hasCapability: () => true,
+    loadWebhookConfig: async () => ({
+      enabled: true,
+      url: "https://example.com/hook",
+      secret: "",
+      events: ["stream_healthcheck_stalled"],
+    }),
+    deliver: async (config, eventKey, payload) => {
+      capturedDelivery = { config, eventKey, payload };
+      return { attempted: true, delivered: true, status: 204 };
+    },
+  });
+
+  assert.equal(result.delivered, true);
+  assert.equal(capturedDelivery.eventKey, "stream_healthcheck_stalled");
+  assert.equal(capturedDelivery.payload.source, "runtime");
+  assert.equal(capturedDelivery.payload.payload.previousStationKey, "nightwave");
+  assert.equal(capturedDelivery.payload.payload.silenceMs, 60000);
+});
+
 test("runtime reliability webhooks respect capability gating before loading config", async () => {
   let loadCalls = 0;
 

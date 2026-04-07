@@ -13,16 +13,17 @@ test("dashboard webhook helpers normalize config and gate delivery", () => {
     enabled: true,
     url: "https://example.com/hook",
     secret: "demo",
-    events: ["stats_exported", "stream_recovered", "custom_stations_exported", "stats_exported", "invalid"],
+    events: ["stats_exported", "stream_healthcheck_stalled", "stream_recovered", "custom_stations_exported", "stats_exported", "invalid"],
   });
 
   assert.deepEqual(config, {
     enabled: true,
     url: "https://example.com/hook",
     secret: "demo",
-    events: ["stats_exported", "stream_recovered", "custom_stations_exported"],
+    events: ["stats_exported", "stream_healthcheck_stalled", "stream_recovered", "custom_stations_exported"],
   });
   assert.equal(shouldDeliverDashboardWebhook(config, "stats_exported"), true);
+  assert.equal(shouldDeliverDashboardWebhook(config, "stream_healthcheck_stalled"), true);
   assert.equal(shouldDeliverDashboardWebhook(config, "stream_recovered"), true);
   assert.equal(shouldDeliverDashboardWebhook(config, "missing"), false);
 });

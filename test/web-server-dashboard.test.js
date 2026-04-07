@@ -1661,7 +1661,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
           enabled: true,
           url: webhookUrl,
           secret: "test-secret",
-          events: ["stats_exported", "custom_stations_exported", "stream_recovered"],
+          events: ["stats_exported", "custom_stations_exported", "stream_healthcheck_stalled", "stream_recovered"],
         },
       }),
     }
@@ -1670,7 +1670,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   if (mongoAvailable) {
     assert.equal(exportSettingsResponse.payload.exportsWebhook.enabled, true);
     assert.equal(exportSettingsResponse.payload.exportsWebhook.url, webhookUrl);
-    assert.deepEqual(exportSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "custom_stations_exported", "stream_recovered"]);
+    assert.deepEqual(exportSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "custom_stations_exported", "stream_healthcheck_stalled", "stream_recovered"]);
   }
 
   const stationsResponse = await requestJson(

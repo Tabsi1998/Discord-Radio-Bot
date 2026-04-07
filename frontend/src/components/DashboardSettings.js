@@ -763,8 +763,8 @@ export default function DashboardSettings({
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
           {t(
-            'Ultimate-Server können Stats und Custom-Stationen als JSON exportieren und zusätzlich Recovery- sowie Failover-Ereignisse per Webhook an Automationen melden.',
-            'Ultimate servers can export stats and custom stations as JSON and additionally send recovery and failover events to automations via webhook.'
+            'Ultimate-Server können Stats und Custom-Stationen als JSON exportieren und zusätzlich Stall-, Recovery- sowie Failover-Ereignisse per Webhook an Automationen melden.',
+            'Ultimate servers can export stats and custom stations as JSON and additionally send stall, recovery, and failover events to automations via webhook.'
           )}
         </p>
         {exportsHint && (
