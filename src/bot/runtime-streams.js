@@ -17,6 +17,7 @@ import { getServerPlanConfig } from "../core/entitlements.js";
 import { getFallbackKey } from "../stations-store.js";
 import { normalizeFailoverChain, buildFailoverCandidateChain } from "../lib/failover-chain.js";
 import { recordStationStart } from "../listening-stats-store.js";
+import { dispatchRuntimeReliabilityWebhook } from "../lib/runtime-alerts.js";
 
 function toPositiveInt(rawValue, fallbackValue) {
   const parsed = Number.parseInt(String(rawValue ?? fallbackValue), 10);
@@ -30,6 +31,35 @@ const IDLE_RESTART_EXP_STEPS = toPositiveInt(process.env.STREAM_IDLE_RESTART_EXP
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
   return { ...config, tier: config.plan };
+}
+
+function shouldEmitRecoveredAlert({ errorCount = 0, reconnectAttempts = 0, reason = "" } = {}) {
+  if ((Number(errorCount) || 0) > 0) return true;
+  if ((Number(reconnectAttempts) || 0) > 0) return true;
+
+  const normalizedReason = String(reason || "").trim().toLowerCase();
+  if (!normalizedReason) return false;
+  return !["provider-eof", "restart", "network-cooldown"].includes(normalizedReason);
+}
+
+function emitRuntimeReliabilityAlert(runtime, guildId, eventKey, payload = {}) {
+  const guild = runtime?.client?.guilds?.cache?.get(guildId) || null;
+  const tier = getTierConfig(guildId).tier;
+  return dispatchRuntimeReliabilityWebhook({
+    guildId,
+    guildName: guild?.name || guildId,
+    tier,
+    eventKey,
+    source: "runtime",
+    payload: {
+      runtime: {
+        id: String(runtime?.config?.id || "").trim(),
+        name: String(runtime?.config?.name || "").trim(),
+        role: String(runtime?.role || "").trim(),
+      },
+      ...payload,
+    },
+  });
 }
 
 function getRuntimeRecoveryDelayMs(runtime, guildId) {
@@ -425,6 +455,10 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
 
   const resolvedStation = runtime.getResolvedCurrentStation(guildId, state);
   const key = state.currentStationKey;
+  const previousErrorCount = Number(state.streamErrorCount || 0) || 0;
+  const previousReconnectAttempts = Number(state.reconnectAttempts || 0) || 0;
+  const previousRestartReason = String(state.lastStreamEndReason || "").trim().toLowerCase();
+  const previousLastStreamErrorAt = state.lastStreamErrorAt || null;
   if (!resolvedStation?.stations || !resolvedStation?.station) {
     runtime.clearNowPlayingTimer(state);
     state.currentStationKey = null;
@@ -449,6 +483,22 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
     state.currentStationName = resolvedStation.station.name || resolvedStation.key;
     await runtime.playStation(state, resolvedStation.stations, resolvedStation.key, guildId);
     log("INFO", `[${runtime.config.name}] Stream restarted: ${resolvedStation.key}`);
+    if (shouldEmitRecoveredAlert({
+      errorCount: previousErrorCount,
+      reconnectAttempts: previousReconnectAttempts,
+      reason: previousRestartReason,
+    })) {
+      void emitRuntimeReliabilityAlert(runtime, guildId, "stream_recovered", {
+        recoveredStationKey: resolvedStation.key,
+        recoveredStationName: resolvedStation.station.name || resolvedStation.key,
+        previousStationKey: key,
+        restartReason: previousRestartReason || "restart",
+        streamErrorCount: previousErrorCount,
+        reconnectAttempts: previousReconnectAttempts,
+        lastStreamErrorAt: previousLastStreamErrorAt,
+        listenerCount: runtime.getCurrentListenerCount(guildId, state),
+      }).catch(() => null);
+    }
   } catch (err) {
     const errorMessage = getStreamRestartErrorMessage(err);
     const recoverableRestartError = isRecoverableStreamRestartError(errorMessage);
@@ -491,6 +541,17 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
       try {
         await runtime.playStation(state, fallbackStation.stations, fallbackStation.key, guildId);
         log("INFO", `[${runtime.config.name}] Failover to ${fallbackStation.key} after restart failure`);
+        void emitRuntimeReliabilityAlert(runtime, guildId, "stream_failover_activated", {
+          previousStationKey: resolvedStation.key,
+          previousStationName: resolvedStation.station.name || resolvedStation.key,
+          failoverStationKey: fallbackStation.key,
+          failoverStationName: fallbackStation.station.name || fallbackStation.key,
+          attemptedCandidates: fallbackCandidates,
+          triggerError: errorMessage,
+          recoverableRestartError,
+          streamErrorCount: previousErrorCount,
+          listenerCount: runtime.getCurrentListenerCount(guildId, state),
+        }).catch(() => null);
         return;
       } catch (fallbackErr) {
         const fallbackMessage = getStreamRestartErrorMessage(fallbackErr);
@@ -512,6 +573,15 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
 
     if (fallbackCandidates.length > 0) {
       log(recoverableRestartError ? "WARN" : "ERROR", `[${runtime.config.name}] Exhausted failover chain after restart failure`);
+      void emitRuntimeReliabilityAlert(runtime, guildId, "stream_failover_exhausted", {
+        previousStationKey: resolvedStation.key,
+        previousStationName: resolvedStation.station.name || resolvedStation.key,
+        attemptedCandidates: fallbackCandidates,
+        triggerError: errorMessage,
+        recoverableRestartError,
+        streamErrorCount: previousErrorCount,
+        lastStreamErrorAt: previousLastStreamErrorAt,
+      }).catch(() => null);
     }
 
     const retryDelay = Math.max(STREAM_RESTART_BASE_MS, getRuntimeRecoveryDelayMs(runtime, guildId));

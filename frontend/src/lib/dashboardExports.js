@@ -1,6 +1,9 @@
 export const DASHBOARD_EXPORT_WEBHOOK_EVENTS = Object.freeze([
   { key: 'stats_exported', de: 'Stats-Exporte', en: 'Stats exports' },
   { key: 'custom_stations_exported', de: 'Custom-Station-Exporte', en: 'Custom station exports' },
+  { key: 'stream_recovered', de: 'Stream-Erholung', en: 'Stream recovered' },
+  { key: 'stream_failover_activated', de: 'Failover aktiviert', en: 'Failover activated' },
+  { key: 'stream_failover_exhausted', de: 'Failover ausgeschöpft', en: 'Failover exhausted' },
 ]);
 
 export const DASHBOARD_EXPORTS_WEBHOOK_DEFAULTS = Object.freeze({
@@ -43,8 +46,8 @@ export function buildDashboardExportsWebhookSummary(rawConfig, t) {
       statusLabel: t('Nicht konfiguriert', 'Not configured'),
       statusAccent: '#71717A',
       description: t(
-        'Lege eine URL fest, um Stats- oder Stations-Exporte an deine Automationen weiterzugeben.',
-        'Add a URL to forward stats or station exports to your automations.'
+        'Lege eine URL fest, um Exporte sowie Recovery- und Failover-Alerts an deine Automationen weiterzugeben.',
+        'Add a URL to forward exports as well as recovery and failover alerts to your automations.'
       ),
     };
   }
@@ -54,8 +57,8 @@ export function buildDashboardExportsWebhookSummary(rawConfig, t) {
       statusLabel: t('Aktiv', 'Active'),
       statusAccent: '#10B981',
       description: t(
-        'Export-Webhooks werden bei passenden Exporten automatisch ausgeloest.',
-        'Export webhooks are triggered automatically for matching exports.'
+        'Webhook-Events werden bei passenden Exporten sowie Recovery- und Failover-Situationen automatisch ausgelöst.',
+        'Webhook events are triggered automatically for matching exports as well as recovery and failover situations.'
       ),
     };
   }
@@ -64,8 +67,8 @@ export function buildDashboardExportsWebhookSummary(rawConfig, t) {
     statusLabel: t('Bereit', 'Ready'),
     statusAccent: '#8B5CF6',
     description: t(
-      'Die Webhook-Ziele sind gespeichert, aber automatische Ausloesungen sind aktuell deaktiviert.',
-      'The webhook target is saved, but automatic triggers are currently disabled.'
+      'Das Webhook-Ziel ist gespeichert, aber automatische Export- und Reliability-Ereignisse sind aktuell deaktiviert.',
+      'The webhook target is saved, but automatic export and reliability events are currently disabled.'
     ),
   };
 }

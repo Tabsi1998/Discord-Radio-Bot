@@ -13,16 +13,17 @@ test("dashboard webhook helpers normalize config and gate delivery", () => {
     enabled: true,
     url: "https://example.com/hook",
     secret: "demo",
-    events: ["stats_exported", "custom_stations_exported", "stats_exported", "invalid"],
+    events: ["stats_exported", "stream_recovered", "custom_stations_exported", "stats_exported", "invalid"],
   });
 
   assert.deepEqual(config, {
     enabled: true,
     url: "https://example.com/hook",
     secret: "demo",
-    events: ["stats_exported", "custom_stations_exported"],
+    events: ["stats_exported", "stream_recovered", "custom_stations_exported"],
   });
   assert.equal(shouldDeliverDashboardWebhook(config, "stats_exported"), true);
+  assert.equal(shouldDeliverDashboardWebhook(config, "stream_recovered"), true);
   assert.equal(shouldDeliverDashboardWebhook(config, "missing"), false);
 });
 
@@ -46,13 +47,14 @@ test("dashboard webhook validation allows loopback test URLs only with explicit 
 
 test("dashboard webhook payloads include source, server, and actor metadata", () => {
   const payload = buildDashboardWebhookPayload("stats_exported", {
+    source: "runtime",
     server: { id: "1", name: "Guild", tier: "ultimate" },
     actor: { id: "2", username: "Tester" },
     payload: { exportType: "stats" },
   });
 
   assert.equal(payload.event, "stats_exported");
-  assert.equal(payload.source, "dashboard");
+  assert.equal(payload.source, "runtime");
   assert.equal(payload.server.id, "1");
   assert.equal(payload.actor.username, "Tester");
   assert.equal(payload.payload.exportType, "stats");

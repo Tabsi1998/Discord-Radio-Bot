@@ -259,7 +259,80 @@ function buildDashboardUpgradePreview(currentLicense, targetTier, seatCount) {
   };
 }
 
-function buildDashboardLicensePayload(guildInfo) {
+function getDashboardTierName(tier) {
+  const normalizedTier = String(tier || "free").trim().toLowerCase();
+  if (normalizedTier === "ultimate") return "Ultimate";
+  if (normalizedTier === "pro") return "Pro";
+  return "Free";
+}
+
+function buildDashboardLicenseWorkspace(license, guildInfo, sessionPayload, capabilityPayload) {
+  if (!license?.id || capabilityPayload?.capabilities?.licenseWorkspace !== true) {
+    return null;
+  }
+
+  const selectedGuildId = String(guildInfo?.id || "").trim();
+  const linkedServerIds = [...new Set(
+    (Array.isArray(license?.linkedServerIds) ? license.linkedServerIds : [])
+      .map((serverId) => String(serverId || "").trim())
+      .filter((serverId) => /^\d{17,22}$/.test(serverId))
+  )];
+  const sessionGuilds = resolveDashboardGuildsForSession(sessionPayload);
+  const sessionGuildMap = new Map(sessionGuilds.map((guild) => [guild.id, guild]));
+
+  const linkedServers = linkedServerIds
+    .map((serverId) => {
+      const sessionGuild = sessionGuildMap.get(serverId);
+      const assignedLicense = serverId === selectedGuildId
+        ? license
+        : getServerLicense(serverId);
+      const plan = String(assignedLicense?.plan || sessionGuild?.tier || "free").trim().toLowerCase();
+      return {
+        id: serverId,
+        name: sessionGuild?.name || serverId,
+        icon: sessionGuild?.icon || "",
+        accessible: Boolean(sessionGuild),
+        selected: serverId === selectedGuildId,
+        tier: plan,
+        tierName: getDashboardTierName(plan),
+        active: Boolean(assignedLicense?.active) && !Boolean(assignedLicense?.expired),
+      };
+    })
+    .sort((a, b) => Number(Boolean(b.selected)) - Number(Boolean(a.selected)) || a.name.localeCompare(b.name));
+
+  const candidates = sessionGuilds
+    .filter((guild) => !linkedServerIds.includes(guild.id))
+    .map((guild) => {
+      const assignedLicense = getServerLicense(guild.id);
+      const foreignActiveLicense = Boolean(assignedLicense?.id)
+        && String(assignedLicense.id) !== String(license.id)
+        && Boolean(assignedLicense.active)
+        && !Boolean(assignedLicense.expired);
+      const assignedPlan = String(assignedLicense?.plan || guild?.tier || "free").trim().toLowerCase();
+      return {
+        id: guild.id,
+        name: guild.name,
+        icon: guild.icon || "",
+        owner: Boolean(guild.owner),
+        tier: assignedPlan,
+        tierName: getDashboardTierName(assignedPlan),
+        reason: foreignActiveLicense ? "existing_active_license" : "",
+        canLink: !foreignActiveLicense,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    enabled: true,
+    canManage: Boolean(license.active) && !Boolean(license.expired),
+    linkedServers,
+    availableServers: candidates.filter((candidate) => candidate.canLink),
+    blockedServers: candidates.filter((candidate) => !candidate.canLink),
+    hiddenLinkedServerCount: linkedServers.filter((server) => !server.accessible).length,
+  };
+}
+
+function buildDashboardLicensePayload(guildInfo, sessionPayload = null) {
   const license = getLicense(guildInfo.id);
   const capabilityPayload = buildServerCapabilityPayload(guildInfo.id);
   const effectiveTier = String(license?.plan || guildInfo.tier || "free").trim().toLowerCase();
@@ -269,12 +342,13 @@ function buildDashboardLicensePayload(guildInfo) {
   const licenseEmail = String(license?.contactEmail || license?.email || "").trim().toLowerCase();
   const hasBillingEmail = isValidEmailAddress(licenseEmail);
   const linkedServers = Array.isArray(license?.linkedServerIds) ? license.linkedServerIds : [];
+  const workspace = buildDashboardLicenseWorkspace(license, guildInfo, sessionPayload, capabilityPayload);
 
   return {
     serverId: guildInfo.id,
     tier: guildInfo.tier,
     effectiveTier,
-    tierName: effectiveTier === "ultimate" ? "Ultimate" : effectiveTier === "pro" ? "Pro" : "Free",
+    tierName: getDashboardTierName(effectiveTier),
     capabilities: capabilityPayload.capabilities,
     limits: capabilityPayload.limits,
     upgradeHints: capabilityPayload.upgradeHints,
@@ -319,8 +393,10 @@ function buildDashboardLicensePayload(guildInfo) {
       emailMasked: maskDashboardEmail(licenseEmail),
       hasBillingEmail,
       canUpdateEmail: true,
+      canManageWorkspace: workspace?.canManage === true,
       updatedAt: license.updatedAt || null,
       contactEmailDomain: hasBillingEmail ? licenseEmail.split("@")[1] : "",
+      workspace,
     } : null,
   };
 }
@@ -474,6 +550,7 @@ const handleDashboardLicenseRoute = createDashboardLicenseRouteHandler({
   getStripeSecretKey,
   isValidEmailAddress,
   languagePick,
+  linkServerToLicense,
   log,
   maskDashboardEmail,
   methodNotAllowed,
@@ -488,6 +565,8 @@ const handleDashboardLicenseRoute = createDashboardLicenseRouteHandler({
   sanitizeOfferCode,
   sendJson,
   sendLocalizedError,
+  serverHasCapability,
+  unlinkServerFromLicense,
   updateLicenseContactEmail,
 });
 

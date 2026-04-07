@@ -763,8 +763,8 @@ export default function DashboardSettings({
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
           {t(
-            'Ultimate-Server können Stats und Custom-Stationen als JSON exportieren und diese Exporte optional an Automationen weiterleiten.',
-            'Ultimate servers can export stats and custom stations as JSON and optionally forward these exports to automations.'
+            'Ultimate-Server können Stats und Custom-Stationen als JSON exportieren und zusätzlich Recovery- sowie Failover-Ereignisse per Webhook an Automationen melden.',
+            'Ultimate servers can export stats and custom stations as JSON and additionally send recovery and failover events to automations via webhook.'
           )}
         </p>
         {exportsHint && (
@@ -817,7 +817,7 @@ export default function DashboardSettings({
               onChange={(e) => updateExportsWebhook({ enabled: e.target.checked })}
               style={{ width: 16, height: 16, accentColor: '#F59E0B' }}
             />
-            {t('Automatisch bei Exporten senden', 'Send automatically on exports')}
+            {t('Automatisch bei Exporten und Alerts senden', 'Send automatically on exports and alerts')}
           </label>
 
           <div>

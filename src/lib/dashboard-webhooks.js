@@ -3,6 +3,9 @@ import { validateCustomStationUrlWithDns } from "../custom-stations.js";
 const DASHBOARD_EXPORT_WEBHOOK_EVENT_KEYS = Object.freeze([
   "stats_exported",
   "custom_stations_exported",
+  "stream_recovered",
+  "stream_failover_activated",
+  "stream_failover_exhausted",
 ]);
 
 const DEFAULT_DASHBOARD_EXPORTS_WEBHOOK_CONFIG = Object.freeze({
@@ -96,7 +99,7 @@ function shouldDeliverDashboardWebhook(config, eventKey) {
 function buildDashboardWebhookPayload(eventKey, meta = {}) {
   return {
     event: String(eventKey || "").trim().toLowerCase(),
-    source: "dashboard",
+    source: String(meta.source || "dashboard").trim().toLowerCase() || "dashboard",
     sentAt: new Date().toISOString(),
     server: meta.server ? {
       id: String(meta.server.id || "").trim(),

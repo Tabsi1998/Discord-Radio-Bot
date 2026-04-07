@@ -16,6 +16,7 @@ import {
   reserveTrialClaim,
   finalizeTrialClaim,
   listLicensesByContactEmail,
+  upgradeLicenseForServer,
 } from "../src/premium-store.js";
 import { upsertOffer, markOfferRedemption } from "../src/coupon-store.js";
 import {
@@ -27,6 +28,8 @@ import { createScheduledEvent } from "../src/scheduled-events-store.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const GUILD_ID = "123456789012345678";
+const SECOND_GUILD_ID = "123456789012345679";
+const BLOCKED_GUILD_ID = "123456789012345680";
 const ROLE_DJ_ID = "223456789012345678";
 const ROLE_ADMIN_ID = "323456789012345678";
 const VOICE_CHANNEL_ID = "423456789012345678";
@@ -364,6 +367,17 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   });
   const seededLink = linkServerToLicense(GUILD_ID, seededLicense.id);
   assert.equal(seededLink.ok, true);
+  const blockedWorkspaceLicense = createLicense({
+    plan: "pro",
+    seats: 1,
+    billingPeriod: "monthly",
+    months: 1,
+    activatedBy: "test-suite",
+    contactEmail: "blocked@example.com",
+    preferredLanguage: "en",
+  });
+  const blockedWorkspaceLink = linkServerToLicense(BLOCKED_GUILD_ID, blockedWorkspaceLicense.id);
+  assert.equal(blockedWorkspaceLink.ok, true);
   markSessionProcessed("cs_dashboard_paid_1", {
     email: "owner@example.com",
     tier: "ultimate",
@@ -459,6 +473,16 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
       name: "OmniFM Test Guild",
       permissions: "32",
       owner: true,
+    }, {
+      id: SECOND_GUILD_ID,
+      name: "OmniFM Lounge",
+      permissions: "32",
+      owner: false,
+    }, {
+      id: BLOCKED_GUILD_ID,
+      name: "OmniFM Backup",
+      permissions: "32",
+      owner: false,
     }],
     createdAt: nowTs,
     expiresAt: nowTs + 3600,
@@ -1161,6 +1185,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(initialLicenseResponse.payload.license.seatsUsed, 1);
   assert.equal(initialLicenseResponse.payload.license.seatsAvailable, 1);
   assert.equal(initialLicenseResponse.payload.license.emailMasked, "ow***@example.com");
+  assert.equal(initialLicenseResponse.payload.license.workspace, null);
   assert.equal(initialLicenseResponse.payload.currentPlan.limits.maxBots, 8);
   assert.equal(initialLicenseResponse.payload.currentPlan.pricing.monthlyCents, 549);
   assert.equal(initialLicenseResponse.payload.recommendedUpgrade.tier, "ultimate");
@@ -1443,6 +1468,81 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
 
   activePlan = "ultimate";
   activeSeats = 2;
+  upgradeLicenseForServer(GUILD_ID, "ultimate");
+  const workspaceLicenseResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license?serverId=${GUILD_ID}`,
+    { headers: authHeaders }
+  );
+  assert.equal(workspaceLicenseResponse.status, 200);
+  assert.equal(workspaceLicenseResponse.payload.license.plan, "ultimate");
+  assert.equal(workspaceLicenseResponse.payload.license.canManageWorkspace, true);
+  assert.equal(workspaceLicenseResponse.payload.license.workspace.linkedServers.length, 1);
+  assert.equal(workspaceLicenseResponse.payload.license.workspace.linkedServers[0].id, GUILD_ID);
+  assert.equal(workspaceLicenseResponse.payload.license.workspace.availableServers.some((server) => server.id === SECOND_GUILD_ID), true);
+  assert.equal(workspaceLicenseResponse.payload.license.workspace.blockedServers.some((server) => server.id === BLOCKED_GUILD_ID), true);
+
+  const blockedWorkspaceMoveResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license/workspace?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "link",
+        targetServerId: BLOCKED_GUILD_ID,
+      }),
+    }
+  );
+  assert.equal(blockedWorkspaceMoveResponse.status, 409);
+  assert.match(blockedWorkspaceMoveResponse.payload.error, /another active license/i);
+
+  const workspaceLinkResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license/workspace?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "link",
+        targetServerId: SECOND_GUILD_ID,
+      }),
+    }
+  );
+  assert.equal(workspaceLinkResponse.status, 200);
+  assert.equal(workspaceLinkResponse.payload.success, true);
+  assert.equal(workspaceLinkResponse.payload.license.seatsUsed, 2);
+  assert.equal(workspaceLinkResponse.payload.license.seatsAvailable, 0);
+  assert.equal(workspaceLinkResponse.payload.license.workspace.linkedServers.some((server) => server.id === SECOND_GUILD_ID), true);
+  assert.equal(workspaceLinkResponse.payload.license.workspace.availableServers.length, 0);
+
+  const workspaceUnlinkResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/license/workspace?serverId=${GUILD_ID}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "unlink",
+        targetServerId: SECOND_GUILD_ID,
+      }),
+    }
+  );
+  assert.equal(workspaceUnlinkResponse.status, 200);
+  assert.equal(workspaceUnlinkResponse.payload.success, true);
+  assert.equal(workspaceUnlinkResponse.payload.license.seatsUsed, 1);
+  assert.equal(workspaceUnlinkResponse.payload.license.seatsAvailable, 1);
+  assert.equal(workspaceUnlinkResponse.payload.license.workspace.availableServers.some((server) => server.id === SECOND_GUILD_ID), true);
+
   const detailStatsResponse = await requestJson(
     baseUrl,
     `/api/dashboard/stats/detail?serverId=${GUILD_ID}&days=30`,
@@ -1556,7 +1656,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
           enabled: true,
           url: webhookUrl,
           secret: "test-secret",
-          events: ["stats_exported", "custom_stations_exported"],
+          events: ["stats_exported", "custom_stations_exported", "stream_recovered"],
         },
       }),
     }
@@ -1565,7 +1665,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   if (mongoAvailable) {
     assert.equal(exportSettingsResponse.payload.exportsWebhook.enabled, true);
     assert.equal(exportSettingsResponse.payload.exportsWebhook.url, webhookUrl);
-    assert.deepEqual(exportSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "custom_stations_exported"]);
+    assert.deepEqual(exportSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "custom_stations_exported", "stream_recovered"]);
   }
 
   const stationsResponse = await requestJson(

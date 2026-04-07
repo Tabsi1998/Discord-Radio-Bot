@@ -308,11 +308,11 @@ export function buildDashboardExportsHint({ setupStatus, exportsWebhook, t }) {
 
   if (!setupStatus?.firstStreamLive) {
     return {
-      eyebrow: t('Exports vorbereiten', 'Prepare exports'),
+      eyebrow: t('Webhooks vorbereiten', 'Prepare webhooks'),
       title: t('Warte auf die ersten echten Server-Daten', 'Wait for the first real server data'),
       body: t(
-        'Exporte und Webhooks sind besonders hilfreich, sobald bereits Statistiken, Custom Stations oder andere Verwaltungsdaten anfallen.',
-        'Exports and webhooks are especially helpful once statistics, custom stations, or other management data already exist.'
+        'Exporte sowie Recovery- und Failover-Alerts sind besonders hilfreich, sobald bereits Statistiken, Custom Stations oder echte Laufzeitereignisse anfallen.',
+        'Exports as well as recovery and failover alerts are especially helpful once statistics, custom stations, or real runtime events already exist.'
       ),
       command: '/play',
     };
@@ -320,18 +320,18 @@ export function buildDashboardExportsHint({ setupStatus, exportsWebhook, t }) {
 
   if (!String(webhook.url || '').trim()) {
     return {
-      eyebrow: t('Exports vorbereiten', 'Prepare exports'),
+      eyebrow: t('Webhooks vorbereiten', 'Prepare webhooks'),
       title: t('Hinterlege zuerst eine Webhook-URL', 'Add a webhook URL first'),
       body: t(
-        'Mit einer Ziel-URL kann OmniFM Exporte, Testnachrichten und spaeter Automationen sauber an dein eigenes System uebergeben.',
-        'With a target URL, OmniFM can hand off exports, test messages, and later automations cleanly to your own system.'
+        'Mit einer Ziel-URL kann OmniFM Exporte, Testnachrichten und spaeter auch Recovery- oder Failover-Alerts sauber an dein eigenes System uebergeben.',
+        'With a target URL, OmniFM can hand off exports, test messages, and later also recovery or failover alerts cleanly to your own system.'
       ),
     };
   }
 
   if (webhook.enabled !== true) {
     return {
-      eyebrow: t('Exports vorbereiten', 'Prepare exports'),
+      eyebrow: t('Webhooks vorbereiten', 'Prepare webhooks'),
       title: t('Aktiviere den Webhook, sobald URL und Secret passen', 'Enable the webhook once URL and secret are ready'),
       body: t(
         'Der Endpoint ist hinterlegt. Jetzt kannst du Events auswaehlen und den Webhook bewusst aktiv schalten.',
@@ -342,7 +342,7 @@ export function buildDashboardExportsHint({ setupStatus, exportsWebhook, t }) {
 
   if (!Array.isArray(webhook.events) || webhook.events.length <= 0) {
     return {
-      eyebrow: t('Exports vorbereiten', 'Prepare exports'),
+      eyebrow: t('Webhooks vorbereiten', 'Prepare webhooks'),
       title: t('Waehle mindestens ein Webhook-Event aus', 'Select at least one webhook event'),
       body: t(
         'Ohne ausgewaehlte Events bleibt der Webhook aktiv, aber er wird nie etwas senden.',
