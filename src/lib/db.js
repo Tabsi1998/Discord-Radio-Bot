@@ -48,6 +48,7 @@ async function initCollections(database) {
     }
     await database.collection("runtime_incidents").createIndexes([
       { key: { guildId: 1, timestamp: -1 }, name: "guild_time" },
+      { key: { guildId: 1, id: 1 }, name: "guild_incident_id" },
       { key: { timestamp: 1 }, name: "ttl", expireAfterSeconds: 86400 * 90 },
     ]).catch(() => null);
 

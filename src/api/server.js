@@ -194,7 +194,7 @@ import {
   getActiveSessionsForGuild,
   resetGuildStats,
 } from "../listening-stats-store.js";
-import { getRecentRuntimeIncidents } from "../runtime-incidents-store.js";
+import { getRecentRuntimeIncidents, acknowledgeRuntimeIncident } from "../runtime-incidents-store.js";
 import {
   fetchBotsGGPublicBotSummary,
   getBotsGGStatus,
@@ -821,11 +821,14 @@ const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
 });
 
 const handleDashboardStatsRoute = createDashboardStatsRouteHandler({
+  acknowledgeRuntimeIncident,
   buildDashboardDetailStatsPayload,
   buildDashboardStatsForGuild,
   getDashboardRequestTranslator,
   getDashboardSession,
   getDb,
+  getLocalizedJsonBodyError,
+  getRecentRuntimeIncidents,
   languagePick,
   log,
   methodNotAllowed,
@@ -2047,7 +2050,7 @@ async function buildDashboardStatsForGuild(serverId, tier, runtimes) {
   const liveRows = collectGuildLiveDetails(runtimes, serverId);
   const events = listScheduledEvents({ guildId: serverId });
   const permissionRules = getGuildCommandPermissionRules(serverId);
-  const healthIncidents = await getRecentRuntimeIncidents(serverId, 6);
+  const healthIncidents = await getRecentRuntimeIncidents(serverId, 20);
 
   const listenersNow = liveRows.reduce((sum, row) => sum + (Number(row.listeners || 0) || 0), 0);
   const activeStreams = liveRows.length;
@@ -2985,7 +2988,7 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (await handleDashboardStatsRoute({ req, res, requestUrl, runtimes })) {
+    if (await handleDashboardStatsRoute({ req, res, requestUrl, readJsonBody, runtimes })) {
       return;
     }
 

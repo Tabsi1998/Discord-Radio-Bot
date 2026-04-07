@@ -7,10 +7,12 @@ import { RotateCcw } from 'lucide-react';
 import {
   buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
+  buildDashboardHealthIncidentCounts,
   buildDashboardHealthIncidentRows,
   buildDashboardHealthStatus,
   buildReliabilitySummary,
   formatDashboardDuration,
+  normalizeDashboardHealthIncidentStatusFilter,
 } from '../lib/dashboardStats.js';
 import { buildDashboardNextSetupAction } from '../lib/dashboardOnboarding.js';
 import DashboardOnboardingHint from './DashboardOnboardingHint.js';
@@ -77,12 +79,15 @@ export default function DashboardOverview({
   t,
   isUltimate,
   onResetStats,
+  onAcknowledgeIncident = null,
   onOpenSubscription = null,
   showBasicHealth = false,
   formatDate = null,
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [incidentFilter, setIncidentFilter] = useState('all');
+  const [acknowledgingIncidentId, setAcknowledgingIncidentId] = useState('');
   const basic = stats?.basic || {};
   const isDE = t('de', 'en') === 'de';
   const dayNames = isDE ? DAYS_DE : DAYS_EN;
@@ -113,7 +118,14 @@ export default function DashboardOverview({
   const basicHealth = basic.health || null;
   const healthStatus = buildDashboardHealthStatus(basicHealth, t);
   const healthAlerts = buildDashboardHealthAlerts(basicHealth, t);
-  const healthIncidentRows = buildDashboardHealthIncidentRows(basicHealth, { t, formatDate });
+  const normalizedIncidentFilter = normalizeDashboardHealthIncidentStatusFilter(incidentFilter);
+  const healthIncidentCounts = buildDashboardHealthIncidentCounts(basicHealth);
+  const healthIncidentRows = buildDashboardHealthIncidentRows(basicHealth, {
+    t,
+    formatDate,
+    statusFilter: normalizedIncidentFilter,
+    maxItems: 20,
+  });
   const healthBots = Array.isArray(basicHealth?.bots) ? basicHealth.bots : [];
   const analyticsUpgradeHint = buildDashboardAnalyticsUpgradeHint({ isUltimate, t });
   const showAdvancedAnalytics = analyticsUpgradeHint == null;
@@ -167,6 +179,18 @@ export default function DashboardOverview({
     } finally {
       setResetting(false);
       setShowResetConfirm(false);
+    }
+  };
+
+  const handleAcknowledgeIncident = async (incidentId) => {
+    if (typeof onAcknowledgeIncident !== 'function' || !incidentId) return;
+    setAcknowledgingIncidentId(incidentId);
+    try {
+      await onAcknowledgeIncident(incidentId);
+    } catch {
+      // Portal handles the visible error state.
+    } finally {
+      setAcknowledgingIncidentId('');
     }
   };
 
@@ -487,63 +511,155 @@ export default function DashboardOverview({
             ))}
           </div>
 
-          {healthIncidentRows.length > 0 && (
+          {healthIncidentCounts.all > 0 && (
             <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ color: '#D4D4D8', fontSize: 14, fontWeight: 600 }}>
-                {t('Letzte Vorfaelle', 'Recent incidents')}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ color: '#D4D4D8', fontSize: 14, fontWeight: 600 }}>
+                  {t('Letzte Vorfaelle', 'Recent incidents')}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[
+                    { key: 'all', label: t('Alle', 'All'), count: healthIncidentCounts.all },
+                    { key: 'open', label: t('Offen', 'Open'), count: healthIncidentCounts.open },
+                    { key: 'acknowledged', label: t('Quittiert', 'Acknowledged'), count: healthIncidentCounts.acknowledged },
+                  ].map((filterOption) => (
+                    <button
+                      key={filterOption.key}
+                      type="button"
+                      data-testid={`dashboard-health-incident-filter-${filterOption.key}`}
+                      onClick={() => setIncidentFilter(filterOption.key)}
+                      style={{
+                        border: normalizedIncidentFilter === filterOption.key ? '1px solid #10B981' : '1px solid #27272A',
+                        background: normalizedIncidentFilter === filterOption.key ? 'rgba(6,95,70,0.16)' : '#050505',
+                        color: normalizedIncidentFilter === filterOption.key ? '#BBF7D0' : '#A1A1AA',
+                        padding: '6px 10px',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {filterOption.label} {filterOption.count}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div style={{ display: 'grid', gap: 8 }}>
-                {healthIncidentRows.map((incident, index) => (
-                  <div
-                    key={incident.id || index}
-                    data-testid={`dashboard-health-incident-${index}`}
-                    style={{
-                      border: `1px solid ${incident.severity === 'critical' ? 'rgba(239,68,68,0.25)' : incident.severity === 'warning' ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)'}`,
-                      background: incident.severity === 'critical'
-                        ? 'rgba(127,29,29,0.10)'
-                        : incident.severity === 'warning'
-                          ? 'rgba(120,53,15,0.10)'
-                          : 'rgba(6,78,59,0.10)',
-                      padding: '12px 14px',
-                      display: 'grid',
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                      <div style={{ display: 'grid', gap: 4 }}>
-                        <strong style={{ color: '#D4D4D8', fontSize: 13 }}>{incident.title}</strong>
-                        <span style={{ color: '#A1A1AA', fontSize: 12 }}>{incident.detail}</span>
+              {healthIncidentRows.length > 0 ? (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {healthIncidentRows.map((incident, index) => (
+                    <div
+                      key={incident.id || index}
+                      data-testid={`dashboard-health-incident-${index}`}
+                      style={{
+                        border: `1px solid ${incident.severity === 'critical' ? 'rgba(239,68,68,0.25)' : incident.severity === 'warning' ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)'}`,
+                        background: incident.severity === 'critical'
+                          ? 'rgba(127,29,29,0.10)'
+                          : incident.severity === 'warning'
+                            ? 'rgba(120,53,15,0.10)'
+                            : 'rgba(6,78,59,0.10)',
+                        padding: '12px 14px',
+                        display: 'grid',
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'grid', gap: 4 }}>
+                          <strong style={{ color: '#D4D4D8', fontSize: 13 }}>{incident.title}</strong>
+                          <span style={{ color: '#A1A1AA', fontSize: 12 }}>{incident.detail}</span>
+                        </div>
+                        <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }}>
+                          {incident.timestampLabel && (
+                            <span style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                              {incident.timestampLabel}
+                            </span>
+                          )}
+                          {incident.isAcknowledged ? (
+                            <span
+                              data-testid={`dashboard-health-incident-acknowledged-${index}`}
+                              style={{
+                                border: '1px solid rgba(16,185,129,0.25)',
+                                background: 'rgba(6,95,70,0.16)',
+                                color: '#6EE7B7',
+                                padding: '4px 8px',
+                                fontSize: 11,
+                                letterSpacing: '0.04em',
+                              }}
+                            >
+                              {incident.acknowledgedByLabel
+                                ? t(`Quittiert von ${incident.acknowledgedByLabel}`, `Acknowledged by ${incident.acknowledgedByLabel}`)
+                                : t('Quittiert', 'Acknowledged')}
+                            </span>
+                          ) : typeof onAcknowledgeIncident === 'function' ? (
+                            <button
+                              type="button"
+                              data-testid={`dashboard-health-incident-ack-btn-${index}`}
+                              disabled={acknowledgingIncidentId === incident.id}
+                              onClick={() => handleAcknowledgeIncident(incident.id)}
+                              style={{
+                                border: '1px solid rgba(16,185,129,0.3)',
+                                background: 'rgba(6,95,70,0.16)',
+                                color: acknowledgingIncidentId === incident.id ? '#86EFAC' : '#BBF7D0',
+                                padding: '6px 10px',
+                                cursor: acknowledgingIncidentId === incident.id ? 'wait' : 'pointer',
+                                fontSize: 11,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {acknowledgingIncidentId === incident.id
+                                ? t('Quittiere...', 'Acknowledging...')
+                                : t('Quittieren', 'Acknowledge')}
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
-                      {incident.timestampLabel && (
-                        <span style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                          {incident.timestampLabel}
-                        </span>
+                      {incident.errorLabel && (
+                        <div style={{ color: '#71717A', fontSize: 12, lineHeight: 1.5 }}>
+                          {incident.errorLabel}
+                        </div>
+                      )}
+                      {incident.acknowledgedLabel && (
+                        <div style={{ color: '#71717A', fontSize: 12, lineHeight: 1.5 }}>
+                          {t(`Quittiert am ${incident.acknowledgedLabel}`, `Acknowledged at ${incident.acknowledgedLabel}`)}
+                        </div>
+                      )}
+                      {incident.chips.length > 0 && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {incident.chips.map((chip) => (
+                            <span key={chip} style={{
+                              border: '1px solid #27272A',
+                              background: '#050505',
+                              color: '#A1A1AA',
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              letterSpacing: '0.04em',
+                            }}>
+                              {chip}
+                            </span>
+                          ))}
+                        </div>
                       )}
                     </div>
-                    {incident.errorLabel && (
-                      <div style={{ color: '#71717A', fontSize: 12, lineHeight: 1.5 }}>
-                        {incident.errorLabel}
-                      </div>
-                    )}
-                    {incident.chips.length > 0 && (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {incident.chips.map((chip) => (
-                          <span key={chip} style={{
-                            border: '1px solid #27272A',
-                            background: '#050505',
-                            color: '#A1A1AA',
-                            padding: '4px 8px',
-                            fontSize: 11,
-                            letterSpacing: '0.04em',
-                          }}>
-                            {chip}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  data-testid="dashboard-health-incidents-empty"
+                  style={{
+                    border: '1px dashed #27272A',
+                    background: '#050505',
+                    padding: '12px 14px',
+                    color: '#A1A1AA',
+                    fontSize: 13,
+                    lineHeight: 1.7,
+                  }}
+                >
+                  {normalizedIncidentFilter === 'open'
+                    ? t('Aktuell gibt es keine offenen Vorfaelle.', 'There are currently no open incidents.')
+                    : normalizedIncidentFilter === 'acknowledged'
+                      ? t('Noch keine quittierten Vorfaelle vorhanden.', 'There are no acknowledged incidents yet.')
+                      : t('Noch keine Vorfaelle vorhanden.', 'There are no incidents yet.')}
+                </div>
+              )}
             </div>
           )}
 

@@ -479,6 +479,22 @@ export default function DashboardPortal() {
     setMessage(t('Statistiken wurden zurückgesetzt.', 'Statistics have been reset.'));
   }, [apiRequest, refreshDashboardData, selectedGuildId, t]);
 
+  const acknowledgeIncidentForSelectedGuild = useCallback(async (incidentId) => {
+    if (!selectedGuildId || !incidentId) return;
+    setError('');
+    try {
+      await apiRequest(`/api/dashboard/stats/incidents?serverId=${encodeURIComponent(selectedGuildId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ incidentId }),
+      });
+      await refreshDashboardData({ silent: true });
+      setMessage(t('Vorfall quittiert.', 'Incident acknowledged.'));
+    } catch (err) {
+      setError(err.message || t('Vorfall konnte nicht quittiert werden.', 'Incident could not be acknowledged.'));
+      throw err;
+    }
+  }, [apiRequest, refreshDashboardData, selectedGuildId, t]);
+
   // Loading state
   if (loadingSession) {
     return (
@@ -809,6 +825,7 @@ export default function DashboardPortal() {
               t={t}
               isUltimate={canViewAdvancedStats}
               onResetStats={resetStatsForSelectedGuild}
+              onAcknowledgeIncident={acknowledgeIncidentForSelectedGuild}
               onOpenSubscription={() => setActiveTab('subscription')}
               showBasicHealth={capabilities.basicHealth === true}
               formatDate={formatDate}

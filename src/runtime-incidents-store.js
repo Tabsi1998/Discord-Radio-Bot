@@ -39,6 +39,17 @@ function normalizeBoolean(value) {
   return value === true;
 }
 
+function normalizeActor(value) {
+  const input = isObject(value) ? value : {};
+  const id = sanitizeSnowflake(input.id);
+  const username = sanitizeText(input.username || input.globalName, 120);
+  if (!id && !username) return null;
+  return {
+    id: id || null,
+    username: username || null,
+  };
+}
+
 function normalizeCount(value) {
   const parsed = Number.parseInt(String(value || 0), 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
@@ -71,6 +82,27 @@ function normalizeCandidateList(value, maxItems = 6) {
     .slice(0, maxItems);
 }
 
+function normalizeIncidentStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "acknowledged") return "acknowledged";
+  if (normalized === "open") return "open";
+  return "all";
+}
+
+function sortRuntimeIncidents(rows = []) {
+  return [...(Array.isArray(rows) ? rows : [])]
+    .sort((a, b) => String(b?.timestamp || "").localeCompare(String(a?.timestamp || "")));
+}
+
+function filterRuntimeIncidentsByStatus(rows, status = "all") {
+  const normalizedStatus = normalizeIncidentStatus(status);
+  if (normalizedStatus === "all") return Array.isArray(rows) ? rows : [];
+  return (Array.isArray(rows) ? rows : []).filter((incident) => {
+    const incidentStatus = String(incident?.status || "").trim().toLowerCase() || "open";
+    return incidentStatus === normalizedStatus;
+  });
+}
+
 function buildRuntimeIncidentId(entry = {}) {
   return JSON.stringify([
     String(entry?.timestamp || ""),
@@ -98,6 +130,8 @@ function normalizeRuntimeIncident(rawIncident, guildId = "") {
     name: sanitizeText(runtimeInput.name, 120),
     role: sanitizeText(runtimeInput.role, 40),
   };
+  const acknowledgedAt = normalizeIsoDate(rawIncident.acknowledgedAt);
+  const acknowledgedBy = normalizeActor(rawIncident.acknowledgedBy);
 
   return {
     id: sanitizeText(rawIncident.id, 240) || buildRuntimeIncidentId({
@@ -112,6 +146,9 @@ function normalizeRuntimeIncident(rawIncident, guildId = "") {
     eventKey,
     severity: normalizeSeverity(rawIncident.severity, eventKey),
     timestamp,
+    acknowledgedAt,
+    acknowledgedBy,
+    status: acknowledgedAt ? "acknowledged" : "open",
     runtime,
     payload: {
       previousStationKey: sanitizeText(payloadInput.previousStationKey, 120),
@@ -221,41 +258,86 @@ export async function recordRuntimeIncident(input) {
     });
     return incident;
   });
-  if (mongoResult) {
+  if (mongoResult !== null) {
     return deepClone(mongoResult);
   }
 
   const state = ensureState();
   const current = Array.isArray(state.incidents[guildId]) ? state.incidents[guildId] : [];
-  state.incidents[guildId] = [incident, ...current]
-    .sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")))
-    .slice(0, MAX_FALLBACK_INCIDENTS_PER_GUILD);
+  state.incidents[guildId] = sortRuntimeIncidents([incident, ...current]).slice(0, MAX_FALLBACK_INCIDENTS_PER_GUILD);
   saveState();
   return deepClone(incident);
 }
 
-export async function getRecentRuntimeIncidents(guildId, limit = 6) {
+export async function getRecentRuntimeIncidents(guildId, limit = 6, options = {}) {
   const safeGuildId = sanitizeSnowflake(guildId);
   if (!safeGuildId) return [];
   const safeLimit = Math.max(1, Math.min(20, Number.parseInt(String(limit || 6), 10) || 6));
+  const status = normalizeIncidentStatus(options?.status);
 
   const mongoResult = await runWithMongo(async (db) => {
     const rows = await db.collection("runtime_incidents")
       .find({ guildId: safeGuildId })
       .sort({ timestamp: -1 })
-      .limit(safeLimit)
+      .limit(MAX_FALLBACK_INCIDENTS_PER_GUILD)
       .project({ _id: 0 })
       .toArray();
-    return rows
+    return filterRuntimeIncidentsByStatus(rows
       .map((incident) => normalizeRuntimeIncident(incident, safeGuildId))
-      .filter(Boolean);
+      .filter(Boolean), status).slice(0, safeLimit);
   });
-  if (mongoResult) {
-    return deepClone(mongoResult);
+  if (mongoResult !== null) {
+    return deepClone(mongoResult || []);
   }
 
   const state = ensureState();
-  return deepClone((state.incidents[safeGuildId] || []).slice(0, safeLimit));
+  return deepClone(filterRuntimeIncidentsByStatus(state.incidents[safeGuildId] || [], status).slice(0, safeLimit));
+}
+
+export async function acknowledgeRuntimeIncident(guildId, incidentId, actor = null) {
+  const safeGuildId = sanitizeSnowflake(guildId);
+  const safeIncidentId = sanitizeText(incidentId, 240);
+  if (!safeGuildId || !safeIncidentId) return null;
+
+  const acknowledgedAt = new Date().toISOString();
+  const acknowledgedBy = normalizeActor(actor);
+
+  const mongoResult = await runWithMongo(async (db) => {
+    const filter = { guildId: safeGuildId, id: safeIncidentId };
+    const update = {
+      acknowledgedAt,
+      acknowledgedBy,
+    };
+    const result = await db.collection("runtime_incidents").updateOne(filter, { $set: update });
+    if (!result?.matchedCount) {
+      return undefined;
+    }
+    const row = await db.collection("runtime_incidents").findOne(filter, { projection: { _id: 0 } });
+    return normalizeRuntimeIncident(row, safeGuildId);
+  });
+  if (mongoResult !== null) {
+    return mongoResult ? deepClone(mongoResult) : null;
+  }
+
+  const state = ensureState();
+  const current = Array.isArray(state.incidents[safeGuildId]) ? state.incidents[safeGuildId] : [];
+  const index = current.findIndex((incident) => String(incident?.id || "").trim() === safeIncidentId);
+  if (index < 0) return null;
+
+  const updatedIncident = normalizeRuntimeIncident({
+    ...current[index],
+    acknowledgedAt,
+    acknowledgedBy,
+  }, safeGuildId);
+  if (!updatedIncident) return null;
+
+  state.incidents[safeGuildId] = sortRuntimeIncidents([
+    ...current.slice(0, index),
+    updatedIncident,
+    ...current.slice(index + 1),
+  ]).slice(0, MAX_FALLBACK_INCIDENTS_PER_GUILD);
+  saveState();
+  return deepClone(updatedIncident);
 }
 
 export async function clearRuntimeIncidentsForGuild(guildId) {

@@ -1987,6 +1987,43 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     },
   });
 
+  const incidentsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/stats/incidents?serverId=${GUILD_ID}&status=all&limit=10`,
+    { headers: authHeaders }
+  );
+  assert.equal(incidentsResponse.status, 200);
+  assert.equal(incidentsResponse.payload.incidents.length >= 1, true);
+  assert.equal(incidentsResponse.payload.incidents[0].status, "open");
+
+  const acknowledgeIncidentResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/stats/incidents?serverId=${GUILD_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        incidentId: incidentsResponse.payload.incidents[0].id,
+      }),
+    }
+  );
+  assert.equal(acknowledgeIncidentResponse.status, 200);
+  assert.equal(acknowledgeIncidentResponse.payload.success, true);
+  assert.equal(acknowledgeIncidentResponse.payload.incident.status, "acknowledged");
+  assert.equal(acknowledgeIncidentResponse.payload.incident.acknowledgedBy.username, "TestUser");
+
+  const acknowledgedIncidentsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/stats/incidents?serverId=${GUILD_ID}&status=acknowledged&limit=10`,
+    { headers: authHeaders }
+  );
+  assert.equal(acknowledgedIncidentsResponse.status, 200);
+  assert.equal(acknowledgedIncidentsResponse.payload.incidents.length >= 1, true);
+  assert.equal(acknowledgedIncidentsResponse.payload.incidents[0].status, "acknowledged");
+
   const statsResponse = await requestJson(
     baseUrl,
     `/api/dashboard/stats?serverId=${GUILD_ID}`,
@@ -2009,6 +2046,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(statsResponse.payload.basic.health.alerts.length >= 1, true);
   assert.equal(statsResponse.payload.basic.health.incidents.length >= 1, true);
   assert.equal(statsResponse.payload.basic.health.incidents[0].eventKey, "stream_failover_activated");
+  assert.equal(statsResponse.payload.basic.health.incidents[0].status, "acknowledged");
   assert.equal(statsResponse.payload.basic.health.incidents[0].payload.failoverStationName, "Rock FM");
 
   const initialPerms = await requestJson(

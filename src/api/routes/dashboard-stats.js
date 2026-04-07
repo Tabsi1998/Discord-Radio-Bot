@@ -1,10 +1,25 @@
+function normalizeIncidentStatusFilter(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "open" || normalized === "acknowledged") return normalized;
+  return "all";
+}
+
+function normalizeIncidentLimit(value, fallback = 20) {
+  const parsed = Number.parseInt(String(value || fallback), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(20, parsed));
+}
+
 export function createDashboardStatsRouteHandler(deps) {
   const {
+    acknowledgeRuntimeIncident,
     buildDashboardDetailStatsPayload,
     buildDashboardStatsForGuild,
     getDashboardRequestTranslator,
     getDashboardSession,
     getDb,
+    getLocalizedJsonBodyError,
+    getRecentRuntimeIncidents,
     languagePick,
     log,
     methodNotAllowed,
@@ -16,10 +31,97 @@ export function createDashboardStatsRouteHandler(deps) {
   } = deps;
 
   return async function handleDashboardStatsRoute(context) {
-    const { req, res, requestUrl, runtimes } = context;
+    const { req, res, requestUrl, readJsonBody, runtimes } = context;
 
     if (!requestUrl.pathname.startsWith("/api/dashboard/stats")) {
       return false;
+    }
+
+    if (requestUrl.pathname === "/api/dashboard/stats/incidents") {
+      const { language } = getDashboardRequestTranslator(req, requestUrl);
+      if (req.method !== "GET" && req.method !== "PATCH") {
+        methodNotAllowed(res, ["GET", "PATCH"]);
+        return true;
+      }
+
+      const { session } = getDashboardSession(req);
+      if (!session) {
+        sendLocalizedError(res, 401, language, "Nicht eingeloggt.", "Not signed in.");
+        return true;
+      }
+
+      const guild = resolveDashboardGuildForSession(session, requestUrl.searchParams.get("serverId"));
+      if (!guild) {
+        sendLocalizedError(res, 403, language, "Kein Zugriff auf diesen Server.", "No access to this server.");
+        return true;
+      }
+      if (!serverHasCapability(guild.id, "basic_health")) {
+        sendLocalizedError(
+          res,
+          403,
+          language,
+          "Health-Ansicht ist erst ab Pro verfuegbar.",
+          "Health view is only available from Pro."
+        );
+        return true;
+      }
+
+      const statusFilter = normalizeIncidentStatusFilter(requestUrl.searchParams.get("status"));
+      const limit = normalizeIncidentLimit(requestUrl.searchParams.get("limit"), 20);
+
+      if (req.method === "GET") {
+        const incidents = await getRecentRuntimeIncidents(guild.id, limit, { status: statusFilter });
+        sendJson(res, 200, {
+          serverId: guild.id,
+          tier: guild.tier,
+          statusFilter,
+          incidents,
+        });
+        return true;
+      }
+
+      let body = {};
+      try {
+        body = await readJsonBody();
+      } catch (err) {
+        const status = err?.statusCode || 400;
+        sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
+        return true;
+      }
+
+      const incidentId = String(body?.incidentId || "").trim();
+      if (!incidentId) {
+        sendLocalizedError(
+          res,
+          400,
+          language,
+          "Incident-ID fehlt.",
+          "Incident id is required."
+        );
+        return true;
+      }
+
+      const updatedIncident = await acknowledgeRuntimeIncident(guild.id, incidentId, {
+        id: session?.user?.id || null,
+        username: session?.user?.username || session?.user?.globalName || null,
+      });
+      if (!updatedIncident) {
+        sendLocalizedError(
+          res,
+          404,
+          language,
+          "Vorfall nicht gefunden.",
+          "Incident not found."
+        );
+        return true;
+      }
+
+      sendJson(res, 200, {
+        success: true,
+        serverId: guild.id,
+        incident: updatedIncident,
+      });
+      return true;
     }
 
     if (requestUrl.pathname === "/api/dashboard/stats") {

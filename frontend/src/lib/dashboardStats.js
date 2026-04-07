@@ -80,12 +80,25 @@ function buildConnectionEventEntryId(event = {}) {
   ]);
 }
 
+function normalizeDashboardHealthIncidentStatusFilter(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "open" || normalized === "acknowledged") return normalized;
+  return "all";
+}
+
 function normalizeDashboardHealthIncident(source = {}) {
   const input = source && typeof source === "object" ? source : {};
   const eventKey = String(input.eventKey || "").trim().toLowerCase();
   if (!eventKey) return null;
 
   const payload = input?.payload && typeof input.payload === "object" ? input.payload : {};
+  const acknowledgedBy = input?.acknowledgedBy && typeof input.acknowledgedBy === "object"
+    ? {
+      id: String(input.acknowledgedBy.id || "").trim() || null,
+      username: String(input.acknowledgedBy.username || "").trim() || null,
+    }
+    : null;
+  const acknowledgedAt = String(input.acknowledgedAt || "").trim() || null;
   return {
     id: String(input.id || "").trim() || buildConnectionEventEntryId({
       timestamp: input.timestamp || "",
@@ -99,6 +112,9 @@ function normalizeDashboardHealthIncident(source = {}) {
       ? String(input.severity).trim().toLowerCase()
       : (eventKey === "stream_recovered" ? "success" : eventKey === "stream_failover_exhausted" ? "critical" : "warning"),
     timestamp: String(input.timestamp || "").trim() || null,
+    acknowledgedAt,
+    acknowledgedBy,
+    status: acknowledgedAt ? "acknowledged" : "open",
     runtime: input?.runtime && typeof input.runtime === "object"
       ? {
         id: String(input.runtime.id || "").trim() || null,
@@ -251,12 +267,32 @@ function buildDashboardHealthAlerts(source = {}, t = (de, en) => de) {
   return alerts;
 }
 
+function buildDashboardHealthIncidentCounts(source = {}) {
+  const health = normalizeDashboardHealth(source);
+  return health.incidents.reduce((summary, incident) => {
+    summary.all += 1;
+    if (incident.status === "acknowledged") {
+      summary.acknowledged += 1;
+    } else {
+      summary.open += 1;
+    }
+    return summary;
+  }, { all: 0, open: 0, acknowledged: 0 });
+}
+
 function buildDashboardHealthIncidentRows(source = {}, {
   t = (de, en) => de,
   formatDate = null,
+  statusFilter = "all",
+  maxItems = 20,
 } = {}) {
   const health = normalizeDashboardHealth(source);
-  return health.incidents.slice(0, 6).map((incident, index) => {
+  const normalizedStatusFilter = normalizeDashboardHealthIncidentStatusFilter(statusFilter);
+  const safeMaxItems = Math.max(1, Number.parseInt(String(maxItems || 20), 10) || 20);
+  return health.incidents
+    .filter((incident) => normalizedStatusFilter === "all" || incident.status === normalizedStatusFilter)
+    .slice(0, safeMaxItems)
+    .map((incident, index) => {
     const runtimeName = incident?.runtime?.name || t("Runtime", "Runtime");
     const runtimeRole = incident?.runtime?.role ? String(incident.runtime.role).toUpperCase() : "";
     const previousStation = incident?.payload?.previousStationName || t("Unbekannte Station", "Unknown station");
@@ -303,9 +339,22 @@ function buildDashboardHealthIncidentRows(source = {}, {
     return {
       id: incident.id || `${incident.eventKey}-${index}`,
       severity: incident.severity,
+      status: incident.status,
+      isAcknowledged: incident.status === "acknowledged",
       title,
       detail,
       timestampLabel,
+      acknowledgedLabel: incident?.acknowledgedAt && typeof formatDate === "function"
+        ? formatDate(incident.acknowledgedAt, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+        : incident?.acknowledgedAt
+          ? new Date(incident.acknowledgedAt).toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+          : "",
+      acknowledgedByLabel: incident?.acknowledgedBy?.username || incident?.acknowledgedBy?.id || "",
       errorLabel: incident?.payload?.triggerError ? String(incident.payload.triggerError).slice(0, 160) : "",
       chips,
     };
@@ -417,10 +466,12 @@ function buildSessionQualitySummary(sessionHistory = [], t = (de, en) => de) {
 export {
   buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
+  buildDashboardHealthIncidentCounts,
   buildDashboardHealthIncidentRows,
   buildDashboardHealthStatus,
   buildConnectionTimelineRows,
   buildConnectionEventEntryId,
+  normalizeDashboardHealthIncidentStatusFilter,
   buildSessionQualitySummary,
   buildSessionHistoryEntryId,
   formatDashboardDuration,

@@ -5,6 +5,7 @@ import {
   buildDashboardAnalyticsUpgradeHint,
   buildConnectionTimelineRows,
   buildDashboardHealthAlerts,
+  buildDashboardHealthIncidentCounts,
   buildDashboardHealthIncidentRows,
   buildDashboardHealthStatus,
   buildReliabilitySummary,
@@ -12,6 +13,7 @@ import {
   buildSessionTimelineRows,
   buildVoiceChannelUsageRows,
   formatDashboardDuration,
+  normalizeDashboardHealthIncidentStatusFilter,
 } from "../frontend/src/lib/dashboardStats.js";
 
 test("formatDashboardDuration keeps short live values readable", () => {
@@ -144,6 +146,46 @@ test("buildDashboardHealthIncidentRows formats recent runtime incidents for the 
   assert.equal(rows[0].timestampLabel, "2026-03-09T06:30");
   assert.ok(rows[0].chips.includes("OmniFM 1"));
   assert.ok(rows[0].chips.includes("4 listeners"));
+});
+
+test("dashboard health incident helpers keep open and acknowledged incidents filterable", () => {
+  const t = (_de, en) => en;
+  const source = {
+    incidents: [{
+      id: "incident-open",
+      eventKey: "stream_healthcheck_stalled",
+      severity: "warning",
+      timestamp: "2026-03-09T06:30:00.000Z",
+      runtime: { id: "bot-1", name: "OmniFM 1", role: "worker" },
+      payload: {
+        previousStationName: "Nightwave FM",
+        triggerError: "timeout",
+      },
+    }, {
+      id: "incident-ack",
+      eventKey: "stream_recovered",
+      severity: "success",
+      timestamp: "2026-03-09T07:00:00.000Z",
+      acknowledgedAt: "2026-03-09T07:05:00.000Z",
+      acknowledgedBy: { id: "1", username: "Tester" },
+      runtime: { id: "bot-1", name: "OmniFM 1", role: "worker" },
+      payload: {
+        recoveredStationName: "Nightwave FM",
+      },
+    }],
+  };
+
+  const counts = buildDashboardHealthIncidentCounts(source);
+  const openRows = buildDashboardHealthIncidentRows(source, { t, statusFilter: "open" });
+  const acknowledgedRows = buildDashboardHealthIncidentRows(source, { t, statusFilter: "acknowledged" });
+
+  assert.deepEqual(counts, { all: 2, open: 1, acknowledged: 1 });
+  assert.equal(normalizeDashboardHealthIncidentStatusFilter("invalid"), "all");
+  assert.equal(openRows.length, 1);
+  assert.equal(openRows[0].isAcknowledged, false);
+  assert.equal(acknowledgedRows.length, 1);
+  assert.equal(acknowledgedRows[0].isAcknowledged, true);
+  assert.equal(acknowledgedRows[0].acknowledgedByLabel, "Tester");
 });
 
 test("buildDashboardAnalyticsUpgradeHint only targets non-ultimate overview users", () => {
