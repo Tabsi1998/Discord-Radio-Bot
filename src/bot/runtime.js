@@ -438,7 +438,9 @@ class BotRuntime {
         volumePreferenceSet: savedVolume !== null,
         currentProcess: null,
         streamStableTimer: null,
+        streamHealthTimer: null,
         lastStreamErrorAt: null,
+        lastHealthcheckFailureAt: null,
         reconnectCount: 0,
         lastReconnectAt: null,
         reconnectAttempts: 0,
@@ -456,6 +458,9 @@ class BotRuntime {
         lastProcessExitAt: 0,
         lastNetworkFailureAt: 0,
         lastStreamEndReason: null,
+        streamHealthStartedAt: 0,
+        lastAudioPacketAt: 0,
+        ignoreNextIdleEvent: false,
         nowPlayingRefreshTimer: null,
         nowPlayingMessageId: null,
         nowPlayingChannelId: null,
@@ -475,6 +480,10 @@ class BotRuntime {
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
+        if (state.ignoreNextIdleEvent === true) {
+          state.ignoreNextIdleEvent = false;
+          return;
+        }
         this.handleStreamEnd(guildId, state, "idle");
       });
 
@@ -3749,7 +3758,12 @@ class BotRuntime {
         recovering: Boolean(
           state.currentStationKey
           && state.shouldReconnect === true
-          && (!state.connection || state.reconnectTimer || (Number(state.reconnectAttempts || 0) || 0) > 0)
+          && (
+            !state.connection
+            || state.reconnectTimer
+            || state.streamRestartTimer
+            || (Number(state.reconnectAttempts || 0) || 0) > 0
+          )
         ),
         reconnectAttempts: Number(state.reconnectAttempts || 0) || 0,
         streamErrorCount: Number(state.streamErrorCount || 0) || 0,
@@ -3766,6 +3780,7 @@ class BotRuntime {
       if (state.streamRestartTimer) detail.streamRestartPending = true;
       if (state.voiceConnectInFlight === true) detail.voiceConnectInFlight = true;
       if (state.lastStreamErrorAt) detail.lastStreamErrorAt = state.lastStreamErrorAt;
+      if (state.lastHealthcheckFailureAt) detail.lastHealthcheckFailureAt = state.lastHealthcheckFailureAt;
       if (state.lastProcessExitCode !== null && state.lastProcessExitCode !== undefined) {
         detail.lastProcessExitCode = state.lastProcessExitCode;
       }

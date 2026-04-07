@@ -276,7 +276,10 @@ function buildDashboardHealthIncidentRows(source = {}, {
 
     let title = t("Reliability-Ereignis", "Reliability event");
     let detail = runtimeName;
-    if (incident.eventKey === "stream_recovered") {
+    if (incident.eventKey === "stream_healthcheck_stalled") {
+      title = t("Stream-Healthcheck ausgelöst", "Stream health check triggered");
+      detail = `${previousStation} | ${runtimeName}`;
+    } else if (incident.eventKey === "stream_recovered") {
       title = t("Stream wiederhergestellt", "Stream recovered");
       detail = `${recoveredStation} | ${runtimeName}`;
     } else if (incident.eventKey === "stream_failover_activated") {

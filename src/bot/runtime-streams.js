@@ -28,6 +28,14 @@ function toPositiveInt(rawValue, fallbackValue) {
 
 const IDLE_RESTART_WINDOW_MS = toPositiveInt(process.env.STREAM_IDLE_RESTART_WINDOW_MS, 15 * 60_000);
 const IDLE_RESTART_EXP_STEPS = toPositiveInt(process.env.STREAM_IDLE_RESTART_EXP_STEPS, 6);
+const STREAM_HEALTHCHECK_ENABLED = String(process.env.STREAM_HEALTHCHECK_ENABLED ?? "1") !== "0";
+const STREAM_HEALTHCHECK_POLL_MS = Math.max(5_000, toPositiveInt(process.env.STREAM_HEALTHCHECK_POLL_MS, 15_000));
+const STREAM_HEALTHCHECK_GRACE_MS = Math.max(10_000, toPositiveInt(process.env.STREAM_HEALTHCHECK_GRACE_MS, 30_000));
+const STREAM_HEALTHCHECK_STALL_MS = Math.max(
+  STREAM_HEALTHCHECK_POLL_MS * 2,
+  toPositiveInt(process.env.STREAM_HEALTHCHECK_STALL_MS, 45_000)
+);
+const STREAM_HEALTHCHECK_RESTART_MS = Math.max(750, toPositiveInt(process.env.STREAM_HEALTHCHECK_RESTART_MS, 1_250));
 
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
@@ -149,7 +157,17 @@ function isRecoverableStreamRestartError(err) {
   return /stream konnte nicht geladen werden:\s*(408|425|429|5\d\d)\b/i.test(text);
 }
 
+function clearRuntimeStreamHealthTimer(state) {
+  if (state?.streamHealthTimer) {
+    clearTimeout(state.streamHealthTimer);
+    state.streamHealthTimer = null;
+  }
+}
+
 export function clearRuntimeCurrentProcess(runtime, state) {
+  clearRuntimeStreamHealthTimer(state);
+  state.lastAudioPacketAt = 0;
+  state.streamHealthStartedAt = 0;
   if (state.currentProcess) {
     try {
       state.currentProcess.kill("SIGKILL");
@@ -158,6 +176,143 @@ export function clearRuntimeCurrentProcess(runtime, state) {
     }
     state.currentProcess = null;
   }
+}
+
+export async function evaluateRuntimeStreamHealth(runtime, guildId, state, process, {
+  nowMs = Date.now(),
+  graceMs = STREAM_HEALTHCHECK_GRACE_MS,
+  stallMs = STREAM_HEALTHCHECK_STALL_MS,
+  restartDelayMs = STREAM_HEALTHCHECK_RESTART_MS,
+} = {}) {
+  if (!state || !process || state.currentProcess !== process) {
+    return { ok: false, skipped: "process" };
+  }
+  if (!state.shouldReconnect || !state.currentStationKey || !state.connection) {
+    return { ok: false, skipped: "inactive" };
+  }
+  if (state.streamRestartTimer || state.reconnectTimer || state.reconnectInFlight || state.voiceConnectInFlight) {
+    return { ok: false, skipped: "recovery" };
+  }
+
+  const startedAt = Number(state.streamHealthStartedAt || state.lastStreamStartAt || 0) || nowMs;
+  if ((nowMs - startedAt) < Math.max(0, Number(graceMs) || 0)) {
+    return { ok: true, skipped: "grace" };
+  }
+
+  const lastPacketAt = Number(state.lastAudioPacketAt || 0) || startedAt;
+  const silenceMs = Math.max(0, nowMs - lastPacketAt);
+  if (silenceMs < Math.max(1_000, Number(stallMs) || 0)) {
+    return { ok: true, silenceMs };
+  }
+
+  const reason = "stream-health-stalled";
+  const failureAtIso = new Date(nowMs).toISOString();
+  const stationName = state.currentStationName || state.currentStationKey;
+  const healthError = `No audio data for ${Math.round(silenceMs)}ms`;
+  state.ignoreNextIdleEvent = true;
+  state.lastStreamErrorAt = failureAtIso;
+  state.lastHealthcheckFailureAt = failureAtIso;
+  state.lastStreamEndReason = reason;
+  state.lastProcessExitDetail = "healthcheck-stall";
+  state.lastProcessExitAt = nowMs;
+  state.streamErrorCount = (Number(state.streamErrorCount || 0) || 0) + 1;
+
+  noteRuntimeRecoveryFailure(
+    runtime,
+    guildId,
+    `${runtime.config.name} stream-healthcheck`,
+    `guild=${guildId} station=${state.currentStationKey || "-"} silenceMs=${Math.round(silenceMs)}`
+  );
+
+  log(
+    "WARN",
+    `[${runtime.config.name}] Stream-Healthcheck ausgelöst guild=${guildId} station=${state.currentStationKey || "-"} gapMs=${Math.round(silenceMs)}`
+  );
+
+  try {
+    if (typeof process.kill === "function") {
+      process.kill("SIGKILL");
+    }
+  } catch {}
+  if (state.currentProcess === process) {
+    state.currentProcess = null;
+  }
+  clearRuntimeStreamHealthTimer(state);
+
+  try {
+    await recordRuntimeIncident({
+      guildId,
+      guildName: runtime?.client?.guilds?.cache?.get?.(guildId)?.name || guildId,
+      tier: getTierConfig(guildId).tier,
+      eventKey: "stream_healthcheck_stalled",
+      severity: "warning",
+      runtime: {
+        id: String(runtime?.config?.id || "").trim(),
+        name: String(runtime?.config?.name || "").trim(),
+        role: String(runtime?.role || "").trim(),
+      },
+      payload: {
+        previousStationKey: state.currentStationKey,
+        previousStationName: stationName,
+        triggerError: healthError,
+        streamErrorCount: state.streamErrorCount,
+        reconnectAttempts: Number(state.reconnectAttempts || 0) || 0,
+        listenerCount: typeof runtime?.getCurrentListenerCount === "function"
+          ? runtime.getCurrentListenerCount(guildId, state)
+          : 0,
+        lastStreamErrorAt: failureAtIso,
+      },
+    });
+  } catch {}
+
+  runtime.scheduleStreamRestart(
+    guildId,
+    state,
+    Math.max(Number(restartDelayMs) || STREAM_HEALTHCHECK_RESTART_MS, getRuntimeRecoveryDelayMs(runtime, guildId)),
+    reason
+  );
+  if (typeof runtime?.persistState === "function") {
+    runtime.persistState();
+  }
+
+  return {
+    ok: false,
+    action: "restart",
+    reason,
+    silenceMs,
+  };
+}
+
+function armRuntimeStreamHealthMonitor(runtime, guildId, state, process) {
+  clearRuntimeStreamHealthTimer(state);
+  if (!STREAM_HEALTHCHECK_ENABLED || !process?.stdout?.on) return;
+
+  state.streamHealthStartedAt = Date.now();
+  state.lastAudioPacketAt = Date.now();
+
+  const scheduleNextTick = () => {
+    clearRuntimeStreamHealthTimer(state);
+    state.streamHealthTimer = setTimeout(() => {
+      state.streamHealthTimer = null;
+      if (state.currentProcess !== process) return;
+
+      evaluateRuntimeStreamHealth(runtime, guildId, state, process)
+        .then((result) => {
+          if (result?.action === "restart") return;
+          if (state.currentProcess !== process) return;
+          scheduleNextTick();
+        })
+        .catch((err) => {
+          log("WARN", `[${runtime.config.name}] Stream-Healthcheck Fehler guild=${guildId}: ${err?.message || err}`);
+          if (state.currentProcess === process) {
+            scheduleNextTick();
+          }
+        });
+    }, STREAM_HEALTHCHECK_POLL_MS);
+    state.streamHealthTimer?.unref?.();
+  };
+
+  scheduleNextTick();
 }
 
 export function armRuntimeStreamStabilityReset(runtime, guildId, state) {
@@ -179,6 +334,7 @@ export function armRuntimeStreamStabilityReset(runtime, guildId, state) {
 export function trackRuntimeProcessLifecycle(runtime, guildId, state, process) {
   if (!process) return;
   let stderrBuffer = "";
+  armRuntimeStreamHealthMonitor(runtime, guildId, state, process);
 
   if (process.stderr?.on) {
     process.stderr.on("data", (chunk) => {
@@ -197,7 +353,17 @@ export function trackRuntimeProcessLifecycle(runtime, guildId, state, process) {
     });
   }
 
+  if (process.stdout?.on) {
+    process.stdout.on("data", (chunk) => {
+      if (state.currentProcess !== process) return;
+      if (chunk?.length > 0) {
+        state.lastAudioPacketAt = Date.now();
+      }
+    });
+  }
+
   process.on("close", (code) => {
+    clearRuntimeStreamHealthTimer(state);
     if (state.currentProcess === process) {
       state.currentProcess = null;
     }
@@ -212,6 +378,7 @@ export function trackRuntimeProcessLifecycle(runtime, guildId, state, process) {
   process.on("error", (err) => {
     log("ERROR", `[${runtime.config.name}] ffmpeg process error: ${err?.message || err}`);
     state.lastStreamErrorAt = new Date().toISOString();
+    clearRuntimeStreamHealthTimer(state);
     if (state.currentProcess === process) {
       state.currentProcess = null;
     }
@@ -407,6 +574,10 @@ export async function playRuntimeStation(runtime, state, stations, key, guildId)
   state.lastProcessExitDetail = null;
   state.lastProcessExitCode = null;
   state.lastProcessExitAt = 0;
+  state.lastHealthcheckFailureAt = null;
+  state.streamHealthStartedAt = state.lastStreamStartAt;
+  state.lastAudioPacketAt = state.lastStreamStartAt;
+  state.ignoreNextIdleEvent = false;
   runtime.armStreamStabilityReset(guildId, state);
   runtime.updatePresence();
   runtime.persistState();

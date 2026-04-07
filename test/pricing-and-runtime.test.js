@@ -31,8 +31,11 @@ import {
   scheduleRuntimeReconnect,
   tryRuntimeReconnect,
 } from "../src/bot/runtime-recovery.js";
-import { armRuntimePlaybackRecovery } from "../src/bot/runtime-streams.js";
-import { restartRuntimeCurrentStation } from "../src/bot/runtime-streams.js";
+import {
+  armRuntimePlaybackRecovery,
+  evaluateRuntimeStreamHealth,
+  restartRuntimeCurrentStation,
+} from "../src/bot/runtime-streams.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import {
@@ -61,6 +64,8 @@ import { getBotState, saveBotState, saveState } from "../src/bot-state.js";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const botStatePath = path.join(repoRoot, "bot-state.json");
 const botStateBackupPath = `${botStatePath}.bak`;
+const runtimeIncidentsPath = path.join(repoRoot, "runtime-incidents.json");
+const runtimeIncidentsBackupPath = `${runtimeIncidentsPath}.bak`;
 
 function snapshotOptionalTextFile(filePath) {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : null;
@@ -2291,6 +2296,152 @@ test("restartCurrentStation retries after transient restart failures", async () 
     networkRecoveryCoordinator.noteFailure = originalNoteFailure;
     networkRecoveryCoordinator.getRecoveryDelayMs = originalGetRecoveryDelayMs;
   }
+});
+
+test("stream healthcheck forces an early restart when audio stalls", async () => {
+  const originalNoteFailure = networkRecoveryCoordinator.noteFailure;
+  const originalGetRecoveryDelayMs = networkRecoveryCoordinator.getRecoveryDelayMs;
+  const incidentsSnapshot = snapshotOptionalTextFile(runtimeIncidentsPath);
+  const incidentsBackupSnapshot = snapshotOptionalTextFile(runtimeIncidentsBackupPath);
+  const notedFailures = [];
+  networkRecoveryCoordinator.noteFailure = (source, detail) => {
+    notedFailures.push({ source, detail });
+  };
+  networkRecoveryCoordinator.getRecoveryDelayMs = () => 0;
+
+  try {
+    let scheduled = null;
+    let killedWith = null;
+    let persisted = 0;
+    const runtime = {
+      role: "worker",
+      config: { id: "bot-test-1", name: "OmniFM Test" },
+      client: {
+        guilds: {
+          cache: new Map([["123456789012345678", { id: "123456789012345678", name: "OmniFM Test Guild" }]]),
+        },
+      },
+      getCurrentListenerCount() {
+        return 4;
+      },
+      scheduleStreamRestart(guildId, state, delayMs, reason) {
+        scheduled = { guildId, state, delayMs, reason };
+      },
+      persistState() {
+        persisted += 1;
+      },
+    };
+    const process = {
+      kill(signal) {
+        killedWith = signal;
+      },
+    };
+    const nowMs = Date.parse("2026-04-07T12:00:00.000Z");
+    const state = {
+      currentProcess: process,
+      shouldReconnect: true,
+      currentStationKey: "nightwave",
+      currentStationName: "Nightwave FM",
+      connection: { joinConfig: { channelId: "voice-1" } },
+      reconnectTimer: null,
+      reconnectInFlight: false,
+      voiceConnectInFlight: false,
+      streamRestartTimer: null,
+      streamHealthTimer: null,
+      lastAudioPacketAt: nowMs - 60_000,
+      streamHealthStartedAt: nowMs - 120_000,
+      streamErrorCount: 0,
+      reconnectAttempts: 0,
+      lastStreamErrorAt: null,
+      lastHealthcheckFailureAt: null,
+      lastStreamEndReason: null,
+      lastProcessExitDetail: null,
+      lastProcessExitAt: 0,
+    };
+
+    const result = await evaluateRuntimeStreamHealth(runtime, "123456789012345678", state, process, {
+      nowMs,
+      graceMs: 10_000,
+      stallMs: 30_000,
+      restartDelayMs: 900,
+    });
+
+    assert.equal(result.action, "restart");
+    assert.equal(result.reason, "stream-health-stalled");
+    assert.equal(result.silenceMs, 60_000);
+    assert.equal(killedWith, "SIGKILL");
+    assert.equal(state.currentProcess, null);
+    assert.equal(state.streamErrorCount, 1);
+    assert.equal(state.lastStreamEndReason, "stream-health-stalled");
+    assert.equal(state.lastProcessExitDetail, "healthcheck-stall");
+    assert.match(String(state.lastStreamErrorAt || ""), /^2026-04-07T12:00:00/);
+    assert.equal(persisted, 1);
+    assert.deepEqual(scheduled, {
+      guildId: "123456789012345678",
+      state,
+      delayMs: 900,
+      reason: "stream-health-stalled",
+    });
+    assert.equal(notedFailures.length, 1);
+    assert.match(notedFailures[0].detail, /silenceMs=60000/);
+  } finally {
+    networkRecoveryCoordinator.noteFailure = originalNoteFailure;
+    networkRecoveryCoordinator.getRecoveryDelayMs = originalGetRecoveryDelayMs;
+    restoreOptionalTextFile(runtimeIncidentsPath, incidentsSnapshot);
+    restoreOptionalTextFile(runtimeIncidentsBackupPath, incidentsBackupSnapshot);
+  }
+});
+
+test("dashboard snapshot treats pending stream restarts as recovering", () => {
+  const voiceChannel = { id: "voice-1", name: "radio-lounge" };
+  const guild = {
+    id: "guild-1",
+    name: "OmniFM Test Guild",
+    memberCount: 12,
+    channels: { cache: new Map([["voice-1", voiceChannel]]) },
+  };
+  const fakeRuntime = {
+    config: { id: "bot-test-1", index: 1, name: "OmniFM Test", requiredTier: "free", clientId: "client-1" },
+    role: "worker",
+    client: {
+      isReady: () => true,
+      user: null,
+      guilds: { cache: new Map([["guild-1", guild]]) },
+    },
+    startedAt: Date.now() - 5_000,
+    startError: null,
+    guildState: new Map([["guild-1", {
+      currentStationKey: "nightwave",
+      currentStationName: "Nightwave FM",
+      lastChannelId: "voice-1",
+      connection: { joinConfig: { channelId: "voice-1" } },
+      shouldReconnect: true,
+      reconnectTimer: null,
+      reconnectAttempts: 0,
+      streamRestartTimer: { pending: true },
+      streamErrorCount: 1,
+      currentMeta: null,
+      volume: 100,
+    }]]),
+    collectStats() {
+      return { servers: 1, users: 12, connections: 1, listeners: 0 };
+    },
+    getApplicationId() {
+      return "client-1";
+    },
+    getCurrentListenerCount() {
+      return 0;
+    },
+    buildStatusSnapshot: BotRuntime.prototype.buildStatusSnapshot,
+  };
+
+  const snapshot = BotRuntime.prototype.getDashboardStatus.call(fakeRuntime);
+  const detail = snapshot.guildDetails[0];
+
+  assert.ok(detail);
+  assert.equal(detail.playing, true);
+  assert.equal(detail.recovering, true);
+  assert.equal(detail.streamRestartPending, true);
 });
 
 test("worker manager reuses the worker already streaming in the requested channel", () => {
