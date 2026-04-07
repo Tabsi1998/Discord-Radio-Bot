@@ -5,6 +5,7 @@ import {
   buildDashboardAnalyticsUpgradeHint,
   buildConnectionTimelineRows,
   buildDashboardHealthAlerts,
+  buildDashboardHealthIncidentRows,
   buildDashboardHealthStatus,
   buildReliabilitySummary,
   buildSessionQualitySummary,
@@ -107,6 +108,42 @@ test("buildDashboardHealthAlerts honors explicit unavailable bot counts from the
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].severity, "warning");
   assert.match(alerts[0].message, /1 bot/i);
+});
+
+test("buildDashboardHealthIncidentRows formats recent runtime incidents for the dashboard overview", () => {
+  const t = (_de, en) => en;
+  const rows = buildDashboardHealthIncidentRows({
+    incidents: [{
+      id: "incident-1",
+      eventKey: "stream_failover_activated",
+      severity: "warning",
+      timestamp: "2026-03-09T06:30:00.000Z",
+      runtime: {
+        id: "bot-test-1",
+        name: "OmniFM 1",
+        role: "worker",
+      },
+      payload: {
+        previousStationName: "Nightwave FM",
+        failoverStationName: "Rock FM",
+        triggerError: "timeout",
+        attemptedCandidates: ["rock", "pop"],
+        listenerCount: 4,
+      },
+    }],
+  }, {
+    t,
+    formatDate: (value) => String(value).slice(0, 16),
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].severity, "warning");
+  assert.match(rows[0].title, /Failover activated/i);
+  assert.match(rows[0].detail, /Nightwave FM/i);
+  assert.match(rows[0].detail, /Rock FM/i);
+  assert.equal(rows[0].timestampLabel, "2026-03-09T06:30");
+  assert.ok(rows[0].chips.includes("OmniFM 1"));
+  assert.ok(rows[0].chips.includes("4 listeners"));
 });
 
 test("buildDashboardAnalyticsUpgradeHint only targets non-ultimate overview users", () => {

@@ -189,6 +189,7 @@ import {
   getActiveSessionsForGuild,
   resetGuildStats,
 } from "../listening-stats-store.js";
+import { getRecentRuntimeIncidents } from "../runtime-incidents-store.js";
 import {
   fetchBotsGGPublicBotSummary,
   getBotsGGStatus,
@@ -1737,10 +1738,12 @@ function buildDashboardHealthSummary(serverId, runtimes, {
   listenersNow = null,
   activeStreams = null,
   events = null,
+  incidents = null,
 } = {}) {
   const botRows = collectGuildBotHealthRows(runtimes, serverId);
   const activeLiveRows = Array.isArray(liveRows) ? liveRows : collectGuildLiveDetails(runtimes, serverId);
   const eventRows = Array.isArray(events) ? events : listScheduledEvents({ guildId: serverId });
+  const recentIncidents = Array.isArray(incidents) ? incidents : [];
   const enabledEvents = eventRows.filter((entry) => entry?.enabled !== false);
   const nextEvent = enabledEvents
     .filter((entry) => Number.parseInt(String(entry?.runAtMs || 0), 10) > Date.now())
@@ -1808,6 +1811,7 @@ function buildDashboardHealthSummary(serverId, runtimes, {
     nextEventAt: nextEvent?.runAtMs ? new Date(Number(nextEvent.runAtMs)).toISOString() : null,
     nextEventTitle: clipText(nextEvent?.name || "", 120) || null,
     alerts,
+    incidents: recentIncidents,
     bots: botRows,
   };
 }
@@ -2022,12 +2026,13 @@ function buildEventInsights(events, listeningStats, nowMs = Date.now()) {
   };
 }
 
-function buildDashboardStatsForGuild(serverId, tier, runtimes) {
+async function buildDashboardStatsForGuild(serverId, tier, runtimes) {
   const listeningStats = getGuildListeningStats(serverId) || {};
   const telemetry = normalizeDashboardTelemetryPayload(getDashboardTelemetry(serverId));
   const liveRows = collectGuildLiveDetails(runtimes, serverId);
   const events = listScheduledEvents({ guildId: serverId });
   const permissionRules = getGuildCommandPermissionRules(serverId);
+  const healthIncidents = await getRecentRuntimeIncidents(serverId, 6);
 
   const listenersNow = liveRows.reduce((sum, row) => sum + (Number(row.listeners || 0) || 0), 0);
   const activeStreams = liveRows.length;
@@ -2129,6 +2134,7 @@ function buildDashboardStatsForGuild(serverId, tier, runtimes) {
       listenersNow,
       activeStreams,
       events,
+      incidents: healthIncidents,
     }),
   };
 

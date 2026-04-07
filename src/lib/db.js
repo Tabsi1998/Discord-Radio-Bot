@@ -42,6 +42,15 @@ async function initCollections(database) {
       { key: { timestamp: 1 }, name: "ttl", expireAfterSeconds: 86400 * 90 },
     ]).catch(() => null);
 
+    // runtime_incidents: recent reliability incidents for dashboard health history
+    if (!names.has("runtime_incidents")) {
+      await database.createCollection("runtime_incidents");
+    }
+    await database.collection("runtime_incidents").createIndexes([
+      { key: { guildId: 1, timestamp: -1 }, name: "guild_time" },
+      { key: { timestamp: 1 }, name: "ttl", expireAfterSeconds: 86400 * 90 },
+    ]).catch(() => null);
+
     // guild_stats: aggregated stats per guild
     if (!names.has("guild_stats")) {
       await database.createCollection("guild_stats");

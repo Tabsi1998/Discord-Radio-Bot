@@ -24,6 +24,7 @@ import {
   deleteDashboardAuthSession,
 } from "../src/dashboard-store.js";
 import { createScheduledEvent } from "../src/scheduled-events-store.js";
+import { recordRuntimeIncident } from "../src/runtime-incidents-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -300,6 +301,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     path.join(repoRoot, "command-permissions.json.bak"),
     path.join(repoRoot, "listening-stats.json"),
     path.join(repoRoot, "listening-stats.json.bak"),
+    path.join(repoRoot, "runtime-incidents.json"),
+    path.join(repoRoot, "runtime-incidents.json.bak"),
     path.join(repoRoot, "premium.json"),
     path.join(repoRoot, "premium.json.bak"),
     path.join(repoRoot, "coupons.json"),
@@ -458,6 +461,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     if (getDb()) {
       mongoAvailable = true;
       await getDb().collection("guild_settings").deleteMany({ guildId: GUILD_ID });
+      await getDb().collection("runtime_incidents").deleteMany({ guildId: GUILD_ID });
     }
   } catch {}
 
@@ -542,6 +546,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     restoreEnv();
     if (mongoAvailable && getDb()) {
       await getDb().collection("guild_settings").deleteMany({ guildId: GUILD_ID }).catch(() => null);
+      await getDb().collection("runtime_incidents").deleteMany({ guildId: GUILD_ID }).catch(() => null);
       await closeDb().catch(() => null);
     }
     for (const [filePath, snapshot] of snapshots.entries()) {
@@ -1928,6 +1933,27 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(eventsAfterDeleteResponse.payload.events.length, 1);
   assert.equal(eventsAfterDeleteResponse.payload.events.some((eventRow) => eventRow.id === createdEventId), false);
 
+  await recordRuntimeIncident({
+    guildId: GUILD_ID,
+    guildName: "OmniFM Test Guild",
+    tier: "pro",
+    eventKey: "stream_failover_activated",
+    runtime: {
+      id: "bot-test-1",
+      name: "OmniFM Test",
+      role: "commander",
+    },
+    payload: {
+      previousStationKey: "nightwave",
+      previousStationName: "Nightwave FM",
+      failoverStationKey: "rock",
+      failoverStationName: "Rock FM",
+      attemptedCandidates: ["rock", "jazz"],
+      triggerError: "timeout",
+      listenerCount: 4,
+    },
+  });
+
   const statsResponse = await requestJson(
     baseUrl,
     `/api/dashboard/stats?serverId=${GUILD_ID}`,
@@ -1948,6 +1974,9 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(statsResponse.payload.basic.health.streamErrors, 1);
   assert.equal(statsResponse.payload.basic.health.nextEventTitle, "Existing Show");
   assert.equal(statsResponse.payload.basic.health.alerts.length >= 1, true);
+  assert.equal(statsResponse.payload.basic.health.incidents.length >= 1, true);
+  assert.equal(statsResponse.payload.basic.health.incidents[0].eventKey, "stream_failover_activated");
+  assert.equal(statsResponse.payload.basic.health.incidents[0].payload.failoverStationName, "Rock FM");
 
   const initialPerms = await requestJson(
     baseUrl,
@@ -2039,6 +2068,8 @@ test("dashboard stats keep recovering workers visible even without an active voi
     path.join(repoRoot, "command-permissions.json.bak"),
     path.join(repoRoot, "listening-stats.json"),
     path.join(repoRoot, "listening-stats.json.bak"),
+    path.join(repoRoot, "runtime-incidents.json"),
+    path.join(repoRoot, "runtime-incidents.json.bak"),
     path.join(repoRoot, "scheduled-events.json"),
   ];
   const snapshots = new Map();

@@ -45,7 +45,7 @@ export function createDashboardStatsRouteHandler(deps) {
         return true;
       }
 
-      const statsPayload = buildDashboardStatsForGuild(guild.id, guild.tier, runtimes);
+      const statsPayload = await buildDashboardStatsForGuild(guild.id, guild.tier, runtimes);
       sendJson(res, 200, {
         serverId: guild.id,
         tier: guild.tier,

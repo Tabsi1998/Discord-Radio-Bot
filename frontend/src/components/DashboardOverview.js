@@ -7,6 +7,7 @@ import { RotateCcw } from 'lucide-react';
 import {
   buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
+  buildDashboardHealthIncidentRows,
   buildDashboardHealthStatus,
   buildReliabilitySummary,
   formatDashboardDuration,
@@ -112,6 +113,7 @@ export default function DashboardOverview({
   const basicHealth = basic.health || null;
   const healthStatus = buildDashboardHealthStatus(basicHealth, t);
   const healthAlerts = buildDashboardHealthAlerts(basicHealth, t);
+  const healthIncidentRows = buildDashboardHealthIncidentRows(basicHealth, { t, formatDate });
   const healthBots = Array.isArray(basicHealth?.bots) ? basicHealth.bots : [];
   const analyticsUpgradeHint = buildDashboardAnalyticsUpgradeHint({ isUltimate, t });
   const showAdvancedAnalytics = analyticsUpgradeHint == null;
@@ -484,6 +486,66 @@ export default function DashboardOverview({
               </div>
             ))}
           </div>
+
+          {healthIncidentRows.length > 0 && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ color: '#D4D4D8', fontSize: 14, fontWeight: 600 }}>
+                {t('Letzte Vorfaelle', 'Recent incidents')}
+              </div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {healthIncidentRows.map((incident, index) => (
+                  <div
+                    key={incident.id || index}
+                    data-testid={`dashboard-health-incident-${index}`}
+                    style={{
+                      border: `1px solid ${incident.severity === 'critical' ? 'rgba(239,68,68,0.25)' : incident.severity === 'warning' ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)'}`,
+                      background: incident.severity === 'critical'
+                        ? 'rgba(127,29,29,0.10)'
+                        : incident.severity === 'warning'
+                          ? 'rgba(120,53,15,0.10)'
+                          : 'rgba(6,78,59,0.10)',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'grid', gap: 4 }}>
+                        <strong style={{ color: '#D4D4D8', fontSize: 13 }}>{incident.title}</strong>
+                        <span style={{ color: '#A1A1AA', fontSize: 12 }}>{incident.detail}</span>
+                      </div>
+                      {incident.timestampLabel && (
+                        <span style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                          {incident.timestampLabel}
+                        </span>
+                      )}
+                    </div>
+                    {incident.errorLabel && (
+                      <div style={{ color: '#71717A', fontSize: 12, lineHeight: 1.5 }}>
+                        {incident.errorLabel}
+                      </div>
+                    )}
+                    {incident.chips.length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {incident.chips.map((chip) => (
+                          <span key={chip} style={{
+                            border: '1px solid #27272A',
+                            background: '#050505',
+                            color: '#A1A1AA',
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            letterSpacing: '0.04em',
+                          }}>
+                            {chip}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {healthBots.length > 0 && (
             <div style={{ display: 'grid', gap: 8 }}>

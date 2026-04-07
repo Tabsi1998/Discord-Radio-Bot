@@ -80,6 +80,48 @@ function buildConnectionEventEntryId(event = {}) {
   ]);
 }
 
+function normalizeDashboardHealthIncident(source = {}) {
+  const input = source && typeof source === "object" ? source : {};
+  const eventKey = String(input.eventKey || "").trim().toLowerCase();
+  if (!eventKey) return null;
+
+  const payload = input?.payload && typeof input.payload === "object" ? input.payload : {};
+  return {
+    id: String(input.id || "").trim() || buildConnectionEventEntryId({
+      timestamp: input.timestamp || "",
+      botId: input?.runtime?.id || "",
+      eventType: eventKey,
+      channelId: payload.previousStationKey || payload.failoverStationKey || payload.recoveredStationKey || "",
+      details: payload.triggerError || payload.restartReason || "",
+    }),
+    eventKey,
+    severity: ["success", "warning", "critical"].includes(String(input.severity || "").trim().toLowerCase())
+      ? String(input.severity).trim().toLowerCase()
+      : (eventKey === "stream_recovered" ? "success" : eventKey === "stream_failover_exhausted" ? "critical" : "warning"),
+    timestamp: String(input.timestamp || "").trim() || null,
+    runtime: input?.runtime && typeof input.runtime === "object"
+      ? {
+        id: String(input.runtime.id || "").trim() || null,
+        name: String(input.runtime.name || "").trim() || null,
+        role: String(input.runtime.role || "").trim() || null,
+      }
+      : null,
+    payload: {
+      previousStationName: String(payload.previousStationName || "").trim() || null,
+      recoveredStationName: String(payload.recoveredStationName || "").trim() || null,
+      failoverStationName: String(payload.failoverStationName || "").trim() || null,
+      restartReason: String(payload.restartReason || "").trim() || null,
+      triggerError: String(payload.triggerError || "").trim() || null,
+      streamErrorCount: Math.max(0, Number(payload.streamErrorCount || 0) || 0),
+      reconnectAttempts: Math.max(0, Number(payload.reconnectAttempts || 0) || 0),
+      listenerCount: Math.max(0, Number(payload.listenerCount || 0) || 0),
+      attemptedCandidates: Array.isArray(payload.attemptedCandidates)
+        ? payload.attemptedCandidates.map((entry) => String(entry || "").trim()).filter(Boolean).slice(0, 6)
+        : [],
+    },
+  };
+}
+
 function normalizeDashboardHealth(source = {}) {
   const input = source && typeof source === "object" ? source : {};
   const managedBots = Math.max(0, Number(input.managedBots || 0) || 0);
@@ -104,6 +146,7 @@ function normalizeDashboardHealth(source = {}) {
     nextEventAt: input.nextEventAt || null,
     nextEventTitle: String(input.nextEventTitle || "").trim() || null,
     alerts: Array.isArray(input.alerts) ? input.alerts : [],
+    incidents: Array.isArray(input.incidents) ? input.incidents.map((incident) => normalizeDashboardHealthIncident(incident)).filter(Boolean) : [],
     bots: Array.isArray(input.bots) ? input.bots : [],
   };
 }
@@ -206,6 +249,64 @@ function buildDashboardHealthAlerts(source = {}, t = (de, en) => de) {
   }
 
   return alerts;
+}
+
+function buildDashboardHealthIncidentRows(source = {}, {
+  t = (de, en) => de,
+  formatDate = null,
+} = {}) {
+  const health = normalizeDashboardHealth(source);
+  return health.incidents.slice(0, 6).map((incident, index) => {
+    const runtimeName = incident?.runtime?.name || t("Runtime", "Runtime");
+    const runtimeRole = incident?.runtime?.role ? String(incident.runtime.role).toUpperCase() : "";
+    const previousStation = incident?.payload?.previousStationName || t("Unbekannte Station", "Unknown station");
+    const recoveredStation = incident?.payload?.recoveredStationName || previousStation;
+    const failoverStation = incident?.payload?.failoverStationName || t("Fallback unbekannt", "Fallback unknown");
+    const attemptedCount = incident?.payload?.attemptedCandidates?.length || 0;
+    const timestampLabel = incident?.timestamp && typeof formatDate === "function"
+      ? formatDate(incident.timestamp, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : incident?.timestamp
+        ? new Date(incident.timestamp).toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+        : "";
+
+    let title = t("Reliability-Ereignis", "Reliability event");
+    let detail = runtimeName;
+    if (incident.eventKey === "stream_recovered") {
+      title = t("Stream wiederhergestellt", "Stream recovered");
+      detail = `${recoveredStation} | ${runtimeName}`;
+    } else if (incident.eventKey === "stream_failover_activated") {
+      title = t("Failover aktiviert", "Failover activated");
+      detail = `${previousStation} -> ${failoverStation}`;
+    } else if (incident.eventKey === "stream_failover_exhausted") {
+      title = t("Failover ausgeschoepft", "Failover exhausted");
+      detail = attemptedCount > 0
+        ? t(`${previousStation} | ${attemptedCount} Kandidaten ohne Erfolg`, `${previousStation} | ${attemptedCount} candidates failed`)
+        : previousStation;
+    }
+
+    const chips = [
+      runtimeName && runtimeName !== t("Runtime", "Runtime") ? runtimeName : "",
+      runtimeRole,
+      incident?.payload?.listenerCount > 0 ? t(`${incident.payload.listenerCount} Zuhoerer`, `${incident.payload.listenerCount} listeners`) : "",
+      incident?.payload?.reconnectAttempts > 0 ? t(`${incident.payload.reconnectAttempts} Reconnects`, `${incident.payload.reconnectAttempts} reconnects`) : "",
+      incident?.payload?.streamErrorCount > 0 ? t(`${incident.payload.streamErrorCount} Fehler`, `${incident.payload.streamErrorCount} errors`) : "",
+    ].filter(Boolean).slice(0, 3);
+
+    return {
+      id: incident.id || `${incident.eventKey}-${index}`,
+      severity: incident.severity,
+      title,
+      detail,
+      timestampLabel,
+      errorLabel: incident?.payload?.triggerError ? String(incident.payload.triggerError).slice(0, 160) : "",
+      chips,
+    };
+  });
 }
 
 function buildDashboardAnalyticsUpgradeHint({ isUltimate = false, t = (de, en) => de } = {}) {
@@ -313,6 +414,7 @@ function buildSessionQualitySummary(sessionHistory = [], t = (de, en) => de) {
 export {
   buildDashboardAnalyticsUpgradeHint,
   buildDashboardHealthAlerts,
+  buildDashboardHealthIncidentRows,
   buildDashboardHealthStatus,
   buildConnectionTimelineRows,
   buildConnectionEventEntryId,

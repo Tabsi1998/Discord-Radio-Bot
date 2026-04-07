@@ -153,7 +153,7 @@ export function createDashboardExportsRouteHandler(deps) {
           runtimes,
           requestUrl.searchParams.get("days") || "30"
         );
-        const summaryPayload = buildDashboardStatsForGuild(guild.id, guild.tier, runtimes);
+        const summaryPayload = await buildDashboardStatsForGuild(guild.id, guild.tier, runtimes);
         const exportPayload = {
           exportType: "stats",
           exportedAt: new Date().toISOString(),

@@ -18,6 +18,7 @@ import { getFallbackKey } from "../stations-store.js";
 import { normalizeFailoverChain, buildFailoverCandidateChain } from "../lib/failover-chain.js";
 import { recordStationStart } from "../listening-stats-store.js";
 import { dispatchRuntimeReliabilityWebhook } from "../lib/runtime-alerts.js";
+import { recordRuntimeIncident } from "../runtime-incidents-store.js";
 
 function toPositiveInt(rawValue, fallbackValue) {
   const parsed = Number.parseInt(String(rawValue ?? fallbackValue), 10);
@@ -42,23 +43,36 @@ function shouldEmitRecoveredAlert({ errorCount = 0, reconnectAttempts = 0, reaso
   return !["provider-eof", "restart", "network-cooldown"].includes(normalizedReason);
 }
 
-function emitRuntimeReliabilityAlert(runtime, guildId, eventKey, payload = {}) {
+async function emitRuntimeReliabilityAlert(runtime, guildId, eventKey, payload = {}) {
   const guild = runtime?.client?.guilds?.cache?.get(guildId) || null;
   const tier = getTierConfig(guildId).tier;
+  const runtimePayload = {
+    runtime: {
+      id: String(runtime?.config?.id || "").trim(),
+      name: String(runtime?.config?.name || "").trim(),
+      role: String(runtime?.role || "").trim(),
+    },
+    ...payload,
+  };
+
+  try {
+    await recordRuntimeIncident({
+      guildId,
+      guildName: guild?.name || guildId,
+      tier,
+      eventKey,
+      runtime: runtimePayload.runtime,
+      payload: runtimePayload,
+    });
+  } catch {}
+
   return dispatchRuntimeReliabilityWebhook({
     guildId,
     guildName: guild?.name || guildId,
     tier,
     eventKey,
     source: "runtime",
-    payload: {
-      runtime: {
-        id: String(runtime?.config?.id || "").trim(),
-        name: String(runtime?.config?.name || "").trim(),
-        role: String(runtime?.role || "").trim(),
-      },
-      ...payload,
-    },
+    payload: runtimePayload,
   });
 }
 
