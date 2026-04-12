@@ -76,12 +76,11 @@ export function buildRuntimePresenceActivity(runtime) {
   }
 
   if (activeStreams > 0) {
+    const liveWorkerLabel = countLabel(activeStreams, "server");
     return {
       type: ActivityType.Playing,
       name: clipText(
-        activeStreams === 1 && singleStationLabel
-          ? `${runtimeName} | ${singleStationLabel}${listenerSuffix}`
-          : `${runtimeName} | ${countLabel(activeStreams, "server")} live${listenerSuffix}`,
+        `${liveWorkerLabel} live${listenerSuffix}`,
         120
       ),
     };

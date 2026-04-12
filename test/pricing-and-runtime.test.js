@@ -2909,7 +2909,8 @@ test("presence shows dynamic commander and worker activity with listener totals"
   assert.match(String(commanderPresence?.name || ""), /DJ routing 2 servers \| 7 listeners/);
   assert.doesNotMatch(String(commanderPresence?.name || ""), /Chillout FM|Hip Hop Radio/);
   assert.equal(workerPresence?.type, ActivityType.Playing);
-  assert.match(String(workerPresence?.name || ""), /^OmniFM 7 \| House Beats \| 2 listeners$/);
+  assert.match(String(workerPresence?.name || ""), /^1 server live \| 2 listeners$/);
+  assert.doesNotMatch(String(workerPresence?.name || ""), /OmniFM 7|House Beats/);
 });
 
 test("presence keeps commander and worker idle copy clean with /play and website", () => {
