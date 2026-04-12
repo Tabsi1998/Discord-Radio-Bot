@@ -234,6 +234,52 @@ test("logging prefixes every line of a multiline error in error.log", async () =
   }
 });
 
+test("logError writes context, metadata, and cause details into error.log", async () => {
+  const tempLogsDir = path.join(repoRoot, "logs", "unit-error-details");
+  const restoreEnv = setEnv({
+    LOGS_DIR: tempLogsDir,
+    NODE_TEST_CONTEXT: undefined,
+  });
+
+  try {
+    fs.rmSync(tempLogsDir, { recursive: true, force: true });
+    const logging = await importFreshLoggingModule();
+
+    const cause = Object.assign(new Error("socket hang up"), {
+      code: "ECONNRESET",
+    });
+    const err = new Error("stats sync failed", { cause });
+    err.name = "TopGGRequestError";
+    err.status = 500;
+    err.retryable = true;
+    err.path = "/bots/1476192449721274472/stats";
+    err.endpoint = "https://top.gg/api/bots/1476192449721274472/stats";
+
+    logging.logError("[TopGG] Stats sync (periodic) fehlgeschlagen", err, {
+      context: {
+        service: "topgg",
+        source: "periodic",
+        bot: "1476192449721274472",
+      },
+    });
+    await logging.getLogWriteQueue();
+
+    const written = fs.readFileSync(path.join(tempLogsDir, "error.log"), "utf8");
+    assert.match(written, /\[ERROR\] \[TopGG\] Stats sync \(periodic\) fehlgeschlagen/);
+    assert.match(written, /\[ERROR\] context .*service=topgg.*source=periodic.*bot=1476192449721274472/);
+    assert.match(written, /\[ERROR\] error TopGGRequestError: stats sync failed/);
+    assert.match(written, /\[ERROR\] errorMeta .*status=500/);
+    assert.match(written, /\[ERROR\] errorMeta .*retryable=true/);
+    assert.match(written, /\[ERROR\] errorMeta .*path=\/bots\/1476192449721274472\/stats/);
+    assert.match(written, /\[ERROR\] stack /);
+    assert.match(written, /\[ERROR\] cause\[1\] Error: socket hang up/);
+    assert.match(written, /\[ERROR\] cause\[1\]\.meta code=ECONNRESET/);
+  } finally {
+    fs.rmSync(tempLogsDir, { recursive: true, force: true });
+    restoreEnv();
+  }
+});
+
 test("recognition no-match logging is throttled with a longer cooldown", () => {
   const originalNow = Date.now;
   const baseNow = 1_700_000_000_000;

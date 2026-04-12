@@ -42,7 +42,7 @@ import {
 } from "../lib/weekly-digest.js";
 import { TIERS } from "../lib/helpers.js";
 import { getGuildDailyStats } from "../listening-stats-store.js";
-import { log } from "../lib/logging.js";
+import { log, logError } from "../lib/logging.js";
 import {
   parseExpiryReminderDays,
   initializeSharedServices,
@@ -179,7 +179,9 @@ if (discordBotListEnabled) {
       await workerManager.refreshRemoteStates({ force: true }).catch(() => null);
       await syncDiscordBotListCommands(runtimes);
     } catch (err) {
-      log("ERROR", `[DiscordBotList] Command sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[DiscordBotList] Command sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "discordbotlist", source, topology: "split" },
+      });
     } finally {
       commandsSyncRunning = false;
     }
@@ -192,7 +194,9 @@ if (discordBotListEnabled) {
       await workerManager.refreshRemoteStates({ force: true }).catch(() => null);
       await syncDiscordBotListStats(runtimes);
     } catch (err) {
-      log("ERROR", `[DiscordBotList] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[DiscordBotList] Stats sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "discordbotlist", source, topology: "split" },
+      });
     } finally {
       statsSyncRunning = false;
     }
@@ -204,7 +208,9 @@ if (discordBotListEnabled) {
     try {
       await syncDiscordBotListVotes(runtimes);
     } catch (err) {
-      log("ERROR", `[DiscordBotList] Vote sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[DiscordBotList] Vote sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "discordbotlist", source, topology: "split" },
+      });
     } finally {
       votesSyncRunning = false;
     }
@@ -247,7 +253,9 @@ if (botsGGEnabled) {
       await workerManager.refreshRemoteStates({ force: true }).catch(() => null);
       await syncBotsGGStats(runtimes);
     } catch (err) {
-      log("ERROR", `[BotsGG] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[BotsGG] Stats sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "botsgg", source, topology: "split" },
+      });
     } finally {
       statsSyncRunning = false;
     }
@@ -280,7 +288,9 @@ if (topGGEnabled) {
     try {
       await syncTopGGProject(runtimes);
     } catch (err) {
-      log("ERROR", `[TopGG] Project sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[TopGG] Project sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "topgg", source, sync: "project", topology: "split" },
+      });
     } finally {
       projectSyncRunning = false;
     }
@@ -292,7 +302,9 @@ if (topGGEnabled) {
     try {
       await syncTopGGCommands(runtimes);
     } catch (err) {
-      log("ERROR", `[TopGG] Command sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[TopGG] Command sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "topgg", source, sync: "commands", topology: "split" },
+      });
     } finally {
       commandsSyncRunning = false;
     }
@@ -305,7 +317,9 @@ if (topGGEnabled) {
       await workerManager.refreshRemoteStates({ force: true }).catch(() => null);
       await syncTopGGStats(runtimes);
     } catch (err) {
-      log("ERROR", `[TopGG] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[TopGG] Stats sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "topgg", source, sync: "stats", topology: "split" },
+      });
     } finally {
       statsSyncRunning = false;
     }
@@ -317,7 +331,9 @@ if (topGGEnabled) {
     try {
       await syncTopGGVotes(runtimes);
     } catch (err) {
-      log("ERROR", `[TopGG] Vote sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[TopGG] Vote sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "topgg", source, sync: "votes", topology: "split" },
+      });
     } finally {
       votesSyncRunning = false;
     }
@@ -373,7 +389,9 @@ if (periodicGuildSyncIntervalMs > 0) {
     periodicGuildSyncRunning = true;
     commanderRuntime.syncGuildCommands("periodic")
       .catch((err) => {
-        log("ERROR", `[GuildSync] Periodischer Sync fehlgeschlagen: ${err?.message || err}`);
+        logError("[GuildSync] Periodischer Sync fehlgeschlagen", err, {
+          context: { source: "periodic", topology: "split" },
+        });
       })
       .finally(() => {
         periodicGuildSyncRunning = false;

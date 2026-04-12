@@ -27,6 +27,10 @@ class TopGGRequestError extends Error {
     status = null,
     retryable = false,
     retryAfterMs = 0,
+    method = "",
+    path = "",
+    endpoint = "",
+    responseBody = "",
     cause = null,
   } = {}) {
     super(message);
@@ -34,6 +38,10 @@ class TopGGRequestError extends Error {
     this.status = Number.isInteger(status) ? status : null;
     this.retryable = retryable === true;
     this.retryAfterMs = Math.max(0, Number(retryAfterMs || 0) || 0);
+    this.method = String(method || "").trim() || null;
+    this.path = String(path || "").trim() || null;
+    this.endpoint = String(endpoint || "").trim() || null;
+    this.responseBody = clipText(String(responseBody || "").trim(), 500) || null;
     if (cause) this.cause = cause;
   }
 }
@@ -259,6 +267,10 @@ async function topGGRequest(method, path, {
           status: response.status,
           retryable: isRetryableTopGGStatus(response.status),
           retryAfterMs: parseRetryAfterMs(response.headers),
+          method,
+          path,
+          endpoint,
+          responseBody: rawText,
         });
       }
 
@@ -268,6 +280,9 @@ async function topGGRequest(method, path, {
         ? err
         : new TopGGRequestError(`${method} ${path} failed: ${err?.message || err}`, {
           retryable: true,
+          method,
+          path,
+          endpoint,
           cause: err,
         });
 

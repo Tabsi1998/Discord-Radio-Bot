@@ -6,7 +6,7 @@ import {
   entersState,
 } from "@discordjs/voice";
 
-import { log } from "../lib/logging.js";
+import { log, logError } from "../lib/logging.js";
 import {
   applyJitter,
   isLikelyNetworkFailureLine,
@@ -136,6 +136,21 @@ function hasRecoverableRuntimeState(state) {
 
 function getRuntimeErrorMessage(err) {
   return String(err?.message || err || "unknown").trim() || "unknown";
+}
+
+function buildRuntimeLogContext(runtime, guildId, state = null, extra = {}) {
+  return {
+    bot: runtime?.config?.name || null,
+    botId: runtime?.config?.id || null,
+    guild: guildId || null,
+    channel: state?.lastChannelId || null,
+    station: state?.currentStationKey || null,
+    stationName: state?.currentStationName || null,
+    reconnectAttempts: Number(state?.reconnectAttempts || 0) || 0,
+    restoreBlockCount: Number(state?.restoreBlockCount || 0) || 0,
+    restoreBlockReason: state?.restoreBlockReason || null,
+    ...extra,
+  };
 }
 
 function isRecoverableVoiceConnectionError(err) {
@@ -270,8 +285,15 @@ function scheduleRuntimeRestoreResume(runtime, guildId, data, stations, delayMs,
   const timer = setTimeout(() => {
     timers.delete(key);
     restoreRuntimeGuildEntry(runtime, key, data, stations, { source: "restore-blocked-resume", reason }).catch((err) => {
-      log("ERROR", `[${runtime.config.name}] Restore-Resume fehlgeschlagen fuer Guild ${key}: ${err?.message || err}`);
       const state = runtime.guildState?.get?.(key);
+      logError(`[${runtime.config.name}] Restore-Resume fehlgeschlagen`, err, {
+        context: buildRuntimeLogContext(runtime, key, state, {
+          source: "restore-blocked-resume",
+          resumeReason: reason,
+          restoreChannel: data?.channelId || null,
+          restoreStation: data?.stationKey || null,
+        }),
+      });
       if (state?.shouldReconnect && state?.currentStationKey && state?.lastChannelId) {
         runtime.scheduleReconnect?.(key, { reason: "restore-resume-error" });
       }
@@ -325,8 +347,15 @@ function scheduleRuntimeRestoreRetry(runtime, guildId, data, stations, reason = 
   const timer = setTimeout(() => {
     timers.delete(key);
     restoreRuntimeGuildEntry(runtime, key, data, stations, { source: "restore-retry", reason }).catch((err) => {
-      log("ERROR", `[${runtime.config.name}] Restore-Retry fehlgeschlagen fuer Guild ${key}: ${err?.message || err}`);
       const state = runtime.guildState?.get?.(key);
+      logError(`[${runtime.config.name}] Restore-Retry fehlgeschlagen`, err, {
+        context: buildRuntimeLogContext(runtime, key, state, {
+          source: "restore-retry",
+          retryReason: reason,
+          restoreChannel: data?.channelId || null,
+          restoreStation: data?.stationKey || null,
+        }),
+      });
       if (state?.shouldReconnect && state?.currentStationKey && state?.lastChannelId) {
         runtime.scheduleReconnect?.(key, { reason: "restore-retry-error" });
       }
@@ -505,7 +534,13 @@ export function queueRuntimeVoiceStateReconcile(runtime, guildId, reason = "queu
   const timer = setTimeout(() => {
     runtime.pendingVoiceReconcileTimers.delete(key);
     runtime.reconcileGuildVoiceState(key, { reason }).catch((err) => {
-      log("WARN", `[${runtime.config.name}] Voice-State-Reconcile (${reason}) fehlgeschlagen guild=${key}: ${err?.message || err}`);
+      const state = runtime.guildState?.get?.(key);
+      logError(`[${runtime.config.name}] Voice-State-Reconcile (${reason}) fehlgeschlagen`, err, {
+        level: "WARN",
+        context: buildRuntimeLogContext(runtime, key, state, {
+          source: "voice-state-reconcile",
+        }),
+      });
     });
   }, Math.max(0, delayMs));
   if (typeof timer?.unref === "function") {
@@ -684,7 +719,13 @@ export function startRuntimeVoiceStateReconciler(runtime) {
 
   const run = () => {
     runtime.tickVoiceStateHealth().catch((err) => {
-      log("ERROR", `[${runtime.config.name}] Voice-State-Reconcile Fehler: ${err?.message || err}`);
+      logError(`[${runtime.config.name}] Voice-State-Reconcile Fehler`, err, {
+        context: {
+          bot: runtime?.config?.name || null,
+          botId: runtime?.config?.id || null,
+          source: "voice-health-timer",
+        },
+      });
     });
   };
 
@@ -1010,7 +1051,12 @@ export async function tryRuntimeReconnect(runtime, guildId) {
         await runtime.restartCurrentStation(state, guildId);
         log("INFO", `[${runtime.config.name}] Reconnect successful: guild=${guildId}`);
       } catch (err) {
-        log("ERROR", `[${runtime.config.name}] Station restart after reconnect failed: ${err?.message || err}`);
+        logError(`[${runtime.config.name}] Station restart after reconnect failed`, err, {
+          context: buildRuntimeLogContext(runtime, guildId, state, {
+            source: "reconnect-station-restart",
+            voiceChannel: channel.id || null,
+          }),
+        });
       }
     }
   } finally {
@@ -1241,7 +1287,14 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
     await runtime.ensureVoiceConnectionForChannel(guildId, channel.id, state, { source });
   } catch (err) {
     clearRuntimeRestoreRetry(runtime, guildId);
-    log("ERROR", `[${runtime.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen: ${err?.message || err}`);
+    logError(`[${runtime.config.name}] Voice-Verbindung zu ${guild.name} fehlgeschlagen`, err, {
+      context: buildRuntimeLogContext(runtime, guildId, state, {
+        source,
+        guildName: guild.name,
+        channelName: channel.name,
+        voiceChannel: channel.id || null,
+      }),
+    });
     noteRuntimeRecoveryFailure(runtime, guildId, `${runtime.config.name} restore-voice-timeout`, `guild=${guildId}`);
     runtime.scheduleReconnect(guildId, { reason: "restore-ready-timeout" });
     return { ok: false, reconnectScheduled: true };
@@ -1276,8 +1329,14 @@ export async function restoreRuntimeState(runtime, stations) {
     try {
       await restoreRuntimeGuildEntry(runtime, guildId, data, stations, { source: "restore" });
     } catch (err) {
-      log("ERROR", `[${runtime.config.name}] Restore fehlgeschlagen fuer Guild ${guildId}: ${err?.message || err}`);
       const state = runtime.guildState.get(guildId);
+      logError(`[${runtime.config.name}] Restore fehlgeschlagen`, err, {
+        context: buildRuntimeLogContext(runtime, guildId, state, {
+          source: "restore",
+          restoreChannel: data?.channelId || null,
+          restoreStation: data?.stationKey || null,
+        }),
+      });
       if (state?.shouldReconnect && state.lastChannelId && state.currentStationKey) {
         runtime.scheduleReconnect(guildId, { reason: "restore-error" });
       }

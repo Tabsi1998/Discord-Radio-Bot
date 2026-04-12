@@ -1,4 +1,4 @@
-import { log } from "../lib/logging.js";
+import { log, logError } from "../lib/logging.js";
 
 function toPositiveInt(rawValue, fallbackValue) {
   const parsed = Number.parseInt(String(rawValue ?? fallbackValue), 10);
@@ -33,6 +33,7 @@ function describeRecoveringGuildState(guildId, state, sinceMs, nowMs) {
   return {
     guildId,
     stationKey: state?.currentStationKey || null,
+    stationName: state?.currentStationName || null,
     channelId: state?.lastChannelId || null,
     reconnectAttempts: Number(state?.reconnectAttempts || 0) || 0,
     reconnectCount: Number(state?.reconnectCount || 0) || 0,
@@ -45,9 +46,24 @@ function describeRecoveringGuildState(guildId, state, sinceMs, nowMs) {
     lastReconnectAtMs: parseTimestampMs(state?.lastReconnectAt),
     lastStreamErrorAtMs: parseTimestampMs(state?.lastStreamErrorAt),
     lastProcessExitAtMs: Number(state?.lastProcessExitAt || 0) || 0,
+    lastProcessExitCode: Number.isFinite(Number(state?.lastProcessExitCode))
+      ? Number(state?.lastProcessExitCode)
+      : null,
+    lastProcessExitDetail: state?.lastProcessExitDetail || null,
+    lastStreamEndReason: state?.lastStreamEndReason || null,
+    lastNetworkFailureAtMs: Number(state?.lastNetworkFailureAt || 0) || 0,
+    restoreBlockedUntil: Number(state?.restoreBlockedUntil || 0) || 0,
+    restoreBlockCount: Number(state?.restoreBlockCount || 0) || 0,
+    restoreBlockReason: state?.restoreBlockReason || null,
     sinceMs,
     recoveringMs: Math.max(0, nowMs - sinceMs),
   };
+}
+
+function formatAgeSeconds(targetMs, nowMs) {
+  const timestampMs = Number(targetMs || 0) || 0;
+  if (timestampMs <= 0 || timestampMs > nowMs) return null;
+  return Math.round((nowMs - timestampMs) / 1000);
 }
 
 function formatRecoveringGuildLog(row, nowMs) {
@@ -59,12 +75,35 @@ function formatRecoveringGuildLog(row, nowMs) {
     `recovering=${Math.round((Number(row.recoveringMs || 0) || 0) / 1000)}s`,
     `attempts=${Number(row.reconnectAttempts || 0) || 0}`,
   ];
+  if (row?.stationName && row.stationName !== row.stationKey) {
+    detail.push(`stationName=${row.stationName}`);
+  }
   if (row?.reconnectPending) detail.push("timer=1");
   if (row?.reconnectInFlight) detail.push("reconnect=1");
   if (row?.voiceConnectInFlight) detail.push("voice=1");
   if (row?.streamRestartPending) detail.push("stream=1");
   if (circuitRemainingMs > 0) {
     detail.push(`circuitRemaining=${Math.round(circuitRemainingMs / 1000)}s`);
+  }
+  if (row?.reconnectCount > 0) detail.push(`reconnects=${row.reconnectCount}`);
+  const lastReconnectAgo = formatAgeSeconds(row?.lastReconnectAtMs, nowMs);
+  if (lastReconnectAgo !== null) detail.push(`lastReconnectAgo=${lastReconnectAgo}s`);
+  const lastStreamErrorAgo = formatAgeSeconds(row?.lastStreamErrorAtMs, nowMs);
+  if (lastStreamErrorAgo !== null) detail.push(`lastStreamErrorAgo=${lastStreamErrorAgo}s`);
+  const lastProcessExitAgo = formatAgeSeconds(row?.lastProcessExitAtMs, nowMs);
+  if (lastProcessExitAgo !== null) detail.push(`lastExitAgo=${lastProcessExitAgo}s`);
+  if (row?.lastProcessExitCode !== null) detail.push(`lastExitCode=${row.lastProcessExitCode}`);
+  if (row?.lastProcessExitDetail) detail.push(`lastExitDetail=${row.lastProcessExitDetail}`);
+  if (row?.lastStreamEndReason) detail.push(`lastStreamEnd=${row.lastStreamEndReason}`);
+  const lastNetworkFailureAgo = formatAgeSeconds(row?.lastNetworkFailureAtMs, nowMs);
+  if (lastNetworkFailureAgo !== null) detail.push(`lastNetworkFailureAgo=${lastNetworkFailureAgo}s`);
+  const voiceDisconnectAgo = formatAgeSeconds(row?.voiceDisconnectObservedAt, nowMs);
+  if (voiceDisconnectAgo !== null) detail.push(`voiceDisconnectAgo=${voiceDisconnectAgo}s`);
+  if (row?.restoreBlockCount > 0) detail.push(`restoreBlocks=${row.restoreBlockCount}`);
+  if (row?.restoreBlockReason) detail.push(`restoreBlockReason=${row.restoreBlockReason}`);
+  const restoreBlockedRemainingMs = Math.max(0, Number(row?.restoreBlockedUntil || 0) - nowMs);
+  if (restoreBlockedRemainingMs > 0) {
+    detail.push(`restoreBlockedFor=${Math.round(restoreBlockedRemainingMs / 1000)}s`);
   }
   return detail.join(" ");
 }
@@ -234,18 +273,25 @@ function startWorkerAutohealMonitor({
 
     stopping = true;
     const blockedTargets = applyWorkerAutohealRecoveryBlock(runtime, evaluation.stuckGuilds, env, nowMs);
-    const details = evaluation.stuckGuilds.map((row) => formatRecoveringGuildLog(row, nowMs)).join(" | ");
-    const blockedDetails = blockedTargets
-      .map((row) => `cooldown=${Math.round((Number(row.delayMs || 0) || 0) / 1000)}s guild=${row.guildId} block=${row.blockCount}`)
-      .join(" | ");
-    log(
-      "ERROR",
+    const lines = [
       `[${runtime?.config?.name || "Worker"}] Worker-Autoheal ausgeloest: ` +
       `${evaluation.stuckGuilds.length} Recovery-Ziel(e) seit >=${Math.round(options.unhealthyMs / 1000)}s ohne aktive Voice-Verbindung. ` +
-      `Neustart des Workers wird angefordert.` +
-      `${details ? ` ${details}` : ""}` +
-      `${blockedDetails ? ` ${blockedDetails}` : ""}`
-    );
+      `Neustart des Workers wird angefordert.`,
+      `summary workerIndex=${options.workerIndex} uptime=${Math.round((Number(evaluation.uptimeMs || 0) || 0) / 1000)}s ` +
+      `recoverableTargets=${evaluation.recoverableTargetCount} activeVoice=${evaluation.activeVoiceCount} ` +
+      `grace=${Math.round(options.graceMs / 1000)}s check=${Math.round(options.checkMs / 1000)}s`,
+    ];
+    evaluation.stuckGuilds.forEach((row, index) => {
+      lines.push(`target[${index + 1}] ${formatRecoveringGuildLog(row, nowMs)}`);
+    });
+    blockedTargets.forEach((row, index) => {
+      lines.push(
+        `cooldown[${index + 1}] guild=${row.guildId} block=${row.blockCount} ` +
+        `cooldown=${Math.round((Number(row.delayMs || 0) || 0) / 1000)}s ` +
+        `blockedUntil=${new Date(Number(row.blockedUntil || nowMs) || nowMs).toISOString()}`
+      );
+    });
+    log("ERROR", lines.join("\n"));
 
     try {
       runtime?.persistState?.({ forceLog: true });
@@ -258,7 +304,14 @@ function startWorkerAutohealMonitor({
         await shutdown("worker-autoheal");
       }
     } catch (err) {
-      log("ERROR", `[${runtime?.config?.name || "Worker"}] Worker-Autoheal Shutdown fehlgeschlagen: ${err?.message || err}`);
+      logError(`[${runtime?.config?.name || "Worker"}] Worker-Autoheal Shutdown fehlgeschlagen`, err, {
+        context: {
+          bot: runtime?.config?.name || null,
+          botId: runtime?.config?.id || null,
+          workerIndex: options.workerIndex,
+          source: "worker-autoheal-shutdown",
+        },
+      });
     } finally {
       exit(1);
     }
@@ -268,7 +321,14 @@ function startWorkerAutohealMonitor({
 
   timer = setInterval(() => {
     tick().catch((err) => {
-      log("ERROR", `[${runtime?.config?.name || "Worker"}] Worker-Autoheal Tick fehlgeschlagen: ${err?.message || err}`);
+      logError(`[${runtime?.config?.name || "Worker"}] Worker-Autoheal Tick fehlgeschlagen`, err, {
+        context: {
+          bot: runtime?.config?.name || null,
+          botId: runtime?.config?.id || null,
+          workerIndex: options.workerIndex,
+          source: "worker-autoheal-tick",
+        },
+      });
     });
   }, options.checkMs);
   timer?.unref?.();

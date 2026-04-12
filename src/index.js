@@ -9,7 +9,7 @@ const entryDir = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.resolve(entryDir, "..", ".env");
 dotenv.config({ path: envPath });
 
-import { log, getLogWriteQueue } from "./lib/logging.js";
+import { log, logError, getLogWriteQueue } from "./lib/logging.js";
 import { connect as connectDb } from "./lib/db.js";
 import { TIERS, parseExpiryReminderDays } from "./lib/helpers.js";
 import { normalizeLanguage, getDefaultLanguage } from "./i18n.js";
@@ -197,7 +197,9 @@ if (discordBotListEnabled) {
     try {
       await syncDiscordBotListCommands(runtimes);
     } catch (err) {
-      log("ERROR", `[DiscordBotList] Command sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[DiscordBotList] Command sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "discordbotlist", source },
+      });
     } finally {
       discordBotListCommandsSyncRunning = false;
     }
@@ -209,7 +211,9 @@ if (discordBotListEnabled) {
     try {
       await syncDiscordBotListStats(runtimes);
     } catch (err) {
-      log("ERROR", `[DiscordBotList] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[DiscordBotList] Stats sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "discordbotlist", source },
+      });
     } finally {
       discordBotListStatsSyncRunning = false;
     }
@@ -221,7 +225,9 @@ if (discordBotListEnabled) {
     try {
       await syncDiscordBotListVotes(runtimes);
     } catch (err) {
-      log("ERROR", `[DiscordBotList] Vote sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[DiscordBotList] Vote sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "discordbotlist", source },
+      });
     } finally {
       discordBotListVotesSyncRunning = false;
     }
@@ -268,7 +274,9 @@ if (botsGGEnabled) {
     try {
       await syncBotsGGStats(runtimes);
     } catch (err) {
-      log("ERROR", `[BotsGG] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[BotsGG] Stats sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "botsgg", source },
+      });
     } finally {
       botsGGStatsSyncRunning = false;
     }
@@ -304,7 +312,9 @@ if (topGGEnabled) {
     try {
       await syncTopGGProject(runtimes);
     } catch (err) {
-      log("ERROR", `[TopGG] Project sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[TopGG] Project sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "topgg", source, sync: "project" },
+      });
     } finally {
       topGGProjectSyncRunning = false;
     }
@@ -316,7 +326,9 @@ if (topGGEnabled) {
     try {
       await syncTopGGCommands(runtimes);
     } catch (err) {
-      log("ERROR", `[TopGG] Command sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[TopGG] Command sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "topgg", source, sync: "commands" },
+      });
     } finally {
       topGGCommandsSyncRunning = false;
     }
@@ -328,7 +340,9 @@ if (topGGEnabled) {
     try {
       await syncTopGGStats(runtimes);
     } catch (err) {
-      log("ERROR", `[TopGG] Stats sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[TopGG] Stats sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "topgg", source, sync: "stats" },
+      });
     } finally {
       topGGStatsSyncRunning = false;
     }
@@ -340,7 +354,9 @@ if (topGGEnabled) {
     try {
       await syncTopGGVotes(runtimes);
     } catch (err) {
-      log("ERROR", `[TopGG] Vote sync (${source}) fehlgeschlagen: ${err?.message || err}`);
+      logError(`[TopGG] Vote sync (${source}) fehlgeschlagen`, err, {
+        context: { service: "topgg", source, sync: "votes" },
+      });
     } finally {
       topGGVotesSyncRunning = false;
     }
@@ -414,7 +430,9 @@ if (periodicGuildSyncIntervalMs > 0) {
       }
     })()
       .catch((err) => {
-        log("ERROR", `[GuildSync] Periodischer Sync fehlgeschlagen: ${err?.message || err}`);
+        logError("[GuildSync] Periodischer Sync fehlgeschlagen", err, {
+          context: { source: "periodic" },
+        });
       })
       .finally(() => {
         periodicGuildSyncRunning = false;
@@ -638,23 +656,22 @@ async function shutdown(signal) {
   process.exit(0);
 }
 
-function formatProcessError(reason) {
-  if (reason instanceof Error) {
-    return reason.stack || reason.message || String(reason);
-  }
-  if (reason && typeof reason === "object") {
-    const stack = reason.stack || reason.message;
-    if (stack) return String(stack);
-  }
-  return String(reason);
-}
-
 process.on("unhandledRejection", (reason) => {
-  log("ERROR", `[Process] Unhandled rejection: ${formatProcessError(reason)}`);
+  logError("[Process] Unhandled rejection", reason, {
+    context: {
+      pid: process.pid,
+      entry: path.basename(process.argv[1] || "index.js"),
+    },
+  });
 });
 
 process.on("uncaughtException", (err) => {
-  log("ERROR", `[Process] Uncaught exception: ${formatProcessError(err)}`);
+  logError("[Process] Uncaught exception", err, {
+    context: {
+      pid: process.pid,
+      entry: path.basename(process.argv[1] || "index.js"),
+    },
+  });
   shutdown("uncaughtException").catch(async () => {
     try {
       await getLogWriteQueue();

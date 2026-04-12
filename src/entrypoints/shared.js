@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
-import { log, getLogWriteQueue } from "../lib/logging.js";
+import { log, logError, getLogWriteQueue } from "../lib/logging.js";
 import { connect as connectDb } from "../lib/db.js";
 import { TIERS, parseExpiryReminderDays } from "../lib/helpers.js";
 import { loadBotConfigs } from "../bot-config.js";
@@ -175,23 +175,22 @@ function installProcessHandlers({
     }
   }
 
-  function formatProcessError(reason) {
-    if (reason instanceof Error) {
-      return reason.stack || reason.message || String(reason);
-    }
-    if (reason && typeof reason === "object") {
-      const stack = reason.stack || reason.message;
-      if (stack) return String(stack);
-    }
-    return String(reason);
-  }
-
   process.on("unhandledRejection", (reason) => {
-    log("ERROR", `[Process] Unhandled rejection: ${formatProcessError(reason)}`);
+    logError("[Process] Unhandled rejection", reason, {
+      context: {
+        pid: process.pid,
+        entry: path.basename(process.argv[1] || "entrypoint.js"),
+      },
+    });
   });
 
   process.on("uncaughtException", (err) => {
-    log("ERROR", `[Process] Uncaught exception: ${formatProcessError(err)}`);
+    logError("[Process] Uncaught exception", err, {
+      context: {
+        pid: process.pid,
+        entry: path.basename(process.argv[1] || "entrypoint.js"),
+      },
+    });
     shutdown("uncaughtException").finally(() => process.exit(1));
   });
 

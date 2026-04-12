@@ -142,6 +142,204 @@ function normalizeLogLines(ts, level, message) {
   return lines.map((line) => `[${ts}] [${level}] ${line}`);
 }
 
+function clipLogText(value, maxLength = 400) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(1, maxLength - 3))}...`;
+}
+
+function formatLogValue(value, { maxLength = 240 } = {}) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") {
+    const text = clipLogText(value, maxLength);
+    if (!text) return "";
+    return /^[A-Za-z0-9_./:@%+,\-=]+$/.test(text) ? text : JSON.stringify(text);
+  }
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (Array.isArray(value)) {
+    return formatLogValue(
+      value
+        .map((entry) => formatLogValue(entry, { maxLength: Math.max(40, Math.floor(maxLength / 3)) }))
+        .filter(Boolean)
+        .join(","),
+      { maxLength }
+    );
+  }
+  if (value instanceof Error) {
+    return clipLogText(`${value.name || "Error"}: ${value.message || String(value)}`, maxLength);
+  }
+  try {
+    return formatLogValue(JSON.stringify(value), { maxLength });
+  } catch {
+    return clipLogText(String(value), maxLength);
+  }
+}
+
+function formatLogContext(context = {}) {
+  if (!context || typeof context !== "object") return "";
+  return Object.entries(context)
+    .filter(([_, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => {
+      const normalizedValue = formatLogValue(value);
+      return normalizedValue ? `${String(key).trim()}=${normalizedValue}` : "";
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+function splitStackLines(stack) {
+  return String(stack ?? "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+}
+
+function getErrorMetadataEntries(err) {
+  if (!err || typeof err !== "object") return [];
+
+  const entries = [];
+  const seenKeys = new Set();
+  const preferredKeys = [
+    "code",
+    "status",
+    "statusCode",
+    "retryable",
+    "retryAfterMs",
+    "errno",
+    "syscall",
+    "address",
+    "port",
+    "path",
+    "method",
+    "endpoint",
+    "url",
+    "source",
+    "scope",
+    "command",
+    "signal",
+  ];
+
+  for (const key of preferredKeys) {
+    const value = err[key];
+    if (value === undefined || value === null || value === "") continue;
+    entries.push([key, value]);
+    seenKeys.add(key);
+  }
+
+  for (const [key, value] of Object.entries(err)) {
+    if (seenKeys.has(key)) continue;
+    if (key === "name" || key === "message" || key === "stack" || key === "cause") continue;
+    if (value === undefined || value === null || value === "") continue;
+    const type = typeof value;
+    const isSimpleObject = Array.isArray(value) || value instanceof Date;
+    if (type === "function") continue;
+    if (type === "object" && !isSimpleObject) continue;
+    entries.push([key, value]);
+  }
+
+  return entries;
+}
+
+function normalizeErrorLike(err) {
+  if (err instanceof Error) {
+    const summary = `${err.name || "Error"}: ${err.message || String(err)}`;
+    const stackLines = splitStackLines(err.stack);
+    if (stackLines.length > 0 && stackLines[0].trim() === summary.trim()) {
+      stackLines.shift();
+    }
+    return {
+      summary,
+      stackLines,
+      metadataEntries: getErrorMetadataEntries(err),
+      cause: err.cause,
+    };
+  }
+
+  if (err && typeof err === "object") {
+    const name = clipLogText(err.name || err.constructor?.name || "Error", 80) || "Error";
+    const message = clipLogText(err.message || JSON.stringify(err), 500) || "unknown";
+    const summary = `${name}: ${message}`;
+    const stackLines = splitStackLines(err.stack);
+    if (stackLines.length > 0 && stackLines[0].trim() === summary.trim()) {
+      stackLines.shift();
+    }
+    return {
+      summary,
+      stackLines,
+      metadataEntries: getErrorMetadataEntries(err),
+      cause: err.cause,
+    };
+  }
+
+  return {
+    summary: clipLogText(String(err || "unknown error"), 500) || "unknown error",
+    stackLines: [],
+    metadataEntries: [],
+    cause: null,
+  };
+}
+
+function buildErrorLogMessage(summary, err, {
+  context = null,
+  maxCauseDepth = 4,
+  includeStack = true,
+} = {}) {
+  const lines = [clipLogText(summary, 500) || "Error"];
+  const contextLine = formatLogContext(context || {});
+  if (contextLine) {
+    lines.push(`context ${contextLine}`);
+  }
+
+  const normalized = normalizeErrorLike(err);
+  if (normalized.summary) {
+    lines.push(`error ${normalized.summary}`);
+  }
+  const metadataLine = formatLogContext(Object.fromEntries(normalized.metadataEntries));
+  if (metadataLine) {
+    lines.push(`errorMeta ${metadataLine}`);
+  }
+  if (includeStack) {
+    for (const stackLine of normalized.stackLines) {
+      lines.push(`stack ${stackLine}`);
+    }
+  }
+
+  const seenCauses = new Set();
+  let depth = 0;
+  let currentCause = normalized.cause;
+  while (currentCause && depth < Math.max(0, maxCauseDepth)) {
+    if (typeof currentCause === "object") {
+      if (seenCauses.has(currentCause)) {
+        lines.push(`cause[${depth + 1}] circular`);
+        break;
+      }
+      seenCauses.add(currentCause);
+    }
+    depth += 1;
+    const normalizedCause = normalizeErrorLike(currentCause);
+    lines.push(`cause[${depth}] ${normalizedCause.summary}`);
+    const causeMetaLine = formatLogContext(Object.fromEntries(normalizedCause.metadataEntries));
+    if (causeMetaLine) {
+      lines.push(`cause[${depth}].meta ${causeMetaLine}`);
+    }
+    if (includeStack) {
+      for (const stackLine of normalizedCause.stackLines) {
+        lines.push(`cause[${depth}].stack ${stackLine}`);
+      }
+    }
+    currentCause = normalizedCause.cause;
+  }
+
+  return lines.join("\n");
+}
+
 function queueLogWrite(lines, { includeErrorLog = false } = {}) {
   const payload = `${lines.join("\n")}\n`;
   logWriteQueue = logWriteQueue
@@ -177,6 +375,12 @@ function log(level, message) {
   queueLogWrite(lines, { includeErrorLog: level === "ERROR" });
 }
 
+function logError(summary, err, { context = null, level = "ERROR", includeStack = true } = {}) {
+  const message = buildErrorLogMessage(summary, err, { context, includeStack });
+  log(level, message);
+  return message;
+}
+
 function logWithCooldown(level, key, message, cooldownMs = repeatedLogCooldownMs) {
   const normalizedMessage = String(message ?? "");
   const normalizedKey = String(key || "").trim();
@@ -202,7 +406,13 @@ function logWithCooldown(level, key, message, cooldownMs = repeatedLogCooldownMs
 function logStoreLoadError(storeKey, filePath, err, cooldownMs = repeatedLogCooldownMs) {
   const label = String(storeKey || "store").trim() || "store";
   const resolvedPath = String(filePath || "").trim();
-  const message = `[${label}] Load error (${resolvedPath}): ${err?.message || err}`;
+  const message = buildErrorLogMessage(`[${label}] Load error`, err, {
+    context: {
+      store: label,
+      file: resolvedPath,
+    },
+    includeStack: false,
+  });
   return logWithCooldown("ERROR", `store-load:${label}:${resolvedPath}`, message, cooldownMs);
 }
 
@@ -244,7 +454,10 @@ function resetLogCooldownStateForTests() {
 }
 
 export {
+  buildErrorLogMessage,
+  formatLogContext,
   log,
+  logError,
   logWithCooldown,
   logStoreLoadError,
   shouldLogFfmpegStderrLine,
