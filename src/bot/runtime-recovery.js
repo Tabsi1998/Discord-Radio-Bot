@@ -61,6 +61,29 @@ const VOICE_NETWORK_ERROR_RETRY_JITTER = 0.6;
 const PERMANENT_RESTORE_GUILD_ERROR_CODES = new Set([10004, 50001]);
 const PERMANENT_RESTORE_CHANNEL_ERROR_CODES = new Set([10003]);
 
+function parseStoredTimestampMs(value) {
+  if (!value) return 0;
+  const numeric = Number.parseInt(String(value ?? ""), 10);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function clearRestoreBlockState(state) {
+  if (!state || (
+    !state.restoreBlockedUntil
+    && !state.restoreBlockedAt
+    && !state.restoreBlockCount
+    && !state.restoreBlockReason
+  )) {
+    return;
+  }
+  state.restoreBlockedUntil = 0;
+  state.restoreBlockedAt = 0;
+  state.restoreBlockCount = 0;
+  state.restoreBlockReason = null;
+}
+
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
   return { ...config, tier: config.plan };
@@ -230,6 +253,35 @@ function getRestoreRetryDelay(runtime, guildId) {
     attempt,
     delay: applyJitter(baseDelay, 0.2),
   };
+}
+
+function scheduleRuntimeRestoreResume(runtime, guildId, data, stations, delayMs, reason = "blocked") {
+  const key = String(guildId || "").trim();
+  if (!key) return false;
+  const timers = getRuntimeRestoreTimers(runtime);
+  if (timers.has(key)) return false;
+
+  const safeDelayMs = Math.max(1_000, Number(delayMs || 0) || 1_000);
+  log(
+    "WARN",
+    `[${runtime.config.name}] Restore fuer guild=${key} pausiert (${reason}) - retry in ${Math.round(safeDelayMs)}ms.`
+  );
+
+  const timer = setTimeout(() => {
+    timers.delete(key);
+    restoreRuntimeGuildEntry(runtime, key, data, stations, { source: "restore-blocked-resume", reason }).catch((err) => {
+      log("ERROR", `[${runtime.config.name}] Restore-Resume fehlgeschlagen fuer Guild ${key}: ${err?.message || err}`);
+      const state = runtime.guildState?.get?.(key);
+      if (state?.shouldReconnect && state?.currentStationKey && state?.lastChannelId) {
+        runtime.scheduleReconnect?.(key, { reason: "restore-resume-error" });
+      }
+    });
+  }, safeDelayMs);
+  if (typeof timer?.unref === "function") {
+    timer.unref();
+  }
+  timers.set(key, timer);
+  return true;
 }
 
 async function fetchRestoreGuild(runtime, guildId) {
@@ -938,6 +990,7 @@ export async function tryRuntimeReconnect(runtime, guildId) {
     state.reconnectCount = (Number(state.reconnectCount || 0) || 0) + 1;
     state.lastReconnectAt = new Date().toISOString();
     state.voiceDisconnectObservedAt = 0;
+    clearRestoreBlockState(state);
     runtime.clearReconnectTimer(state);
     runtime.attachConnectionHandlers(guildId, connection);
     noteRuntimeRecoverySuccess(runtime, guildId, `${runtime.config.name} rejoin-ready guild=${guildId}`);
@@ -1083,6 +1136,11 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
 
 export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations, { source = "restore" } = {}) {
   void stations;
+  const nowMs = Date.now();
+  const restoreBlockedUntil = parseStoredTimestampMs(data?.restoreBlockedUntil);
+  const restoreBlockedAt = parseStoredTimestampMs(data?.restoreBlockedAt);
+  const restoreBlockCount = Math.max(0, Number.parseInt(String(data?.restoreBlockCount || 0), 10) || 0);
+  const restoreBlockReason = String(data?.restoreBlockReason || "").trim() || null;
   const existingState = runtime.guildState.get(guildId);
   if (
     existingState?.currentStationKey === data.stationKey
@@ -1091,6 +1149,19 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
   ) {
     clearRuntimeRestoreRetry(runtime, guildId);
     return { ok: true, skipped: true, reason: "already-active" };
+  }
+
+  if (restoreBlockedUntil > nowMs) {
+    clearRuntimeRestoreRetry(runtime, guildId);
+    const remainingMs = Math.max(1_000, restoreBlockedUntil - nowMs);
+    scheduleRuntimeRestoreResume(runtime, guildId, data, stations, remainingMs, "cooldown");
+    return {
+      ok: false,
+      blocked: true,
+      retryScheduled: true,
+      remainingMs,
+      reason: restoreBlockReason || "restore-cooldown",
+    };
   }
 
   const { guild, error: guildError } = await fetchRestoreGuild(runtime, guildId);
@@ -1149,6 +1220,10 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
   log("INFO", `[${runtime.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${restoredStation.station.name}`);
 
   const state = runtime.getState(guildId);
+  state.restoreBlockCount = restoreBlockCount;
+  state.restoreBlockedAt = restoreBlockedAt;
+  state.restoreBlockedUntil = restoreBlockedUntil > nowMs ? restoreBlockedUntil : 0;
+  state.restoreBlockReason = restoreBlockReason;
   state.volume = data.volume ?? state.volume ?? 100;
   state.volumePreferenceSet = Number.isFinite(Number(state.volume));
   state.shouldReconnect = true;
@@ -1172,6 +1247,7 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
     return { ok: false, reconnectScheduled: true };
   }
 
+  clearRestoreBlockState(state);
   await runtime.playStation(state, restoredStation.stations, restoredStation.key, guildId);
   clearRuntimeRestoreRetry(runtime, guildId);
   log("INFO", `[${runtime.config.name}] Wiederhergestellt: ${guild.name} -> ${restoredStation.station.name}`);

@@ -10,6 +10,21 @@ import { clipText, waitMs } from "../lib/helpers.js";
 import { BRAND } from "../config/plans.js";
 import { recordConnectionEvent } from "../listening-stats-store.js";
 
+function clearRestoreBlockState(state) {
+  if (!state || (
+    !state.restoreBlockedUntil
+    && !state.restoreBlockedAt
+    && !state.restoreBlockCount
+    && !state.restoreBlockReason
+  )) {
+    return;
+  }
+  state.restoreBlockedUntil = 0;
+  state.restoreBlockedAt = 0;
+  state.restoreBlockCount = 0;
+  state.restoreBlockReason = null;
+}
+
 async function waitForVoiceConnectToSettle(state, timeoutMs = 30_000) {
   const startedAt = Date.now();
   while (state?.voiceConnectInFlight && (Date.now() - startedAt) < timeoutMs) {
@@ -136,16 +151,17 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
     runtime.invalidateVoiceStatus?.(state);
   }
 
-  if (state.connection) {
-    const currentChannelId = state.connection.joinConfig?.channelId;
-    if (currentChannelId === channel.id) {
-      state.shouldReconnect = true;
-      state.voiceDisconnectObservedAt = 0;
-      if (channel.type === ChannelType.GuildStageVoice) {
-        await runtime.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
-      }
-      runtime.queueVoiceStateReconcile(guildId, "voice-existing", 900);
-      return { connection: state.connection, guild, channel };
+    if (state.connection) {
+      const currentChannelId = state.connection.joinConfig?.channelId;
+      if (currentChannelId === channel.id) {
+        state.shouldReconnect = true;
+        state.voiceDisconnectObservedAt = 0;
+        clearRestoreBlockState(state);
+        if (channel.type === ChannelType.GuildStageVoice) {
+          await runtime.ensureStageChannelReady(guild, channel, { createInstance: false, ensureSpeaker: true });
+        }
+        runtime.queueVoiceStateReconcile(guildId, "voice-existing", 900);
+        return { connection: state.connection, guild, channel };
     }
 
     const previousShouldReconnect = state.shouldReconnect;
@@ -230,6 +246,7 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
   state.lastReconnectAt = new Date().toISOString();
   state.shouldReconnect = true;
   state.voiceDisconnectObservedAt = 0;
+  clearRestoreBlockState(state);
   runtime.clearReconnectTimer(state);
   runtime.attachConnectionHandlers(guildId, connection);
   runtime.noteNetworkRecoverySuccess(guildId, `${runtime.config.name} voice-ready guild=${guildId}`);

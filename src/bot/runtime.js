@@ -478,6 +478,10 @@ class BotRuntime {
         voiceConnectInFlight: false,
         reconnectInFlight: false,
         voiceDisconnectObservedAt: 0,
+        restoreBlockedUntil: 0,
+        restoreBlockedAt: 0,
+        restoreBlockCount: 0,
+        restoreBlockReason: null,
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
@@ -3355,6 +3359,10 @@ class BotRuntime {
     if (state.connection) {
       const currentChannelId = state.connection.joinConfig?.channelId;
       if (currentChannelId === channel.id) {
+        state.restoreBlockedUntil = 0;
+        state.restoreBlockedAt = 0;
+        state.restoreBlockCount = 0;
+        state.restoreBlockReason = null;
         if (channel.type === ChannelType.GuildStageVoice) {
           await this.ensureStageChannelReady(guild, channel, { createInstance: true, ensureSpeaker: true });
         }
@@ -3401,6 +3409,10 @@ class BotRuntime {
     connection.subscribe(state.player);
     state.reconnectAttempts = 0;
     state.lastReconnectAt = new Date().toISOString();
+    state.restoreBlockedUntil = 0;
+    state.restoreBlockedAt = 0;
+    state.restoreBlockCount = 0;
+    state.restoreBlockReason = null;
     this.clearReconnectTimer(state);
     this.noteNetworkRecoverySuccess(guildId, `${this.config.name} voice-ready guild=${guildId}`);
     recordConnectionEvent(guildId, {

@@ -20,7 +20,10 @@ import { BotRuntime } from "../src/bot/runtime.js";
 import { RemoteWorkerHandle } from "../src/bot/remote-worker-handle.js";
 import { WorkerBridgeService } from "../src/bot/worker-bridge-service.js";
 import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
-import { evaluateWorkerAutohealState } from "../src/entrypoints/worker-autoheal.js";
+import {
+  applyWorkerAutohealRecoveryBlock,
+  evaluateWorkerAutohealState,
+} from "../src/entrypoints/worker-autoheal.js";
 import {
   attachRuntimeConnectionHandlers,
   fetchRuntimeBotVoiceState,
@@ -1632,6 +1635,9 @@ test("restore rejoins the saved channel and restarts the same station", async ()
       volume: 77,
       scheduledEventId: "event-1",
       scheduledEventStopAtMs: 12345,
+      restoreBlockedUntil: Date.now() - 1_000,
+      restoreBlockCount: 2,
+      restoreBlockReason: "worker-autoheal",
     });
 
     assert.deepEqual(result, { ok: true });
@@ -1642,6 +1648,9 @@ test("restore rejoins the saved channel and restarts the same station", async ()
     assert.equal(state.currentStationName, "Rock Radio");
     assert.equal(state.activeScheduledEventId, "event-1");
     assert.equal(state.activeScheduledEventStopAtMs, 12345);
+    assert.equal(state.restoreBlockedUntil, 0);
+    assert.equal(state.restoreBlockCount, 0);
+    assert.equal(state.restoreBlockReason, null);
     assert.deepEqual(calls, [
       "persist",
       "ensure:guild-1:voice-1",
@@ -2132,6 +2141,45 @@ test("restoreRuntimeState skips volume-only entries without trying to reconnect"
   await restoreRuntimeState(runtime, {});
 
   assert.equal(runtime.guildState.size, 0);
+});
+
+test("restore respects temporary cooldowns and schedules a later resume", async () => {
+  const originalSetTimeout = global.setTimeout;
+  const scheduled = [];
+  global.setTimeout = (fn, delay) => {
+    const timer = { fn, delay, unref() {} };
+    scheduled.push(timer);
+    return timer;
+  };
+
+  try {
+    const blockedUntil = Date.now() + 60_000;
+    const runtime = {
+      config: { id: "bot-restore-blocked", name: "OmniFM Restore" },
+      guildState: new Map(),
+    };
+
+    const result = await restoreRuntimeGuildEntry(runtime, "guild-1", {
+      channelId: "voice-1",
+      stationKey: "station-a",
+      volume: 100,
+      restoreBlockedUntil: blockedUntil,
+      restoreBlockedAt: Date.now(),
+      restoreBlockCount: 2,
+      restoreBlockReason: "worker-autoheal",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.blocked, true);
+    assert.equal(result.retryScheduled, true);
+    assert.equal(runtime.pendingRestoreTimers instanceof Map, true);
+    assert.equal(runtime.pendingRestoreTimers.size, 1);
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].delay > 0, true);
+    assert.equal(scheduled[0].delay <= 60_000, true);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
 });
 
 test("worker bridge keeps mute volume and omitted play volume intact", async () => {
@@ -2672,6 +2720,7 @@ test("saveBotState keeps reconnectable targets even without an active voice conn
   });
 
   saveState({});
+  const restoreBlockedUntil = Date.now() + 45 * 60_000;
   saveBotState("bot-reconnectable", new Map([
     ["guild-1", {
       currentStationKey: "station-a",
@@ -2681,6 +2730,10 @@ test("saveBotState keeps reconnectable targets even without an active voice conn
       volume: 88,
       activeScheduledEventId: null,
       activeScheduledEventStopAtMs: 0,
+      restoreBlockedAt: Date.now(),
+      restoreBlockedUntil,
+      restoreBlockCount: 2,
+      restoreBlockReason: "worker-autoheal",
     }],
   ]));
 
@@ -2691,6 +2744,9 @@ test("saveBotState keeps reconnectable targets even without an active voice conn
   assert.equal(saved["guild-1"]?.volume, 88);
   assert.equal(saved["guild-1"]?.scheduledEventId, null);
   assert.equal(saved["guild-1"]?.scheduledEventStopAtMs, 0);
+  assert.equal(saved["guild-1"]?.restoreBlockedUntil, restoreBlockedUntil);
+  assert.equal(saved["guild-1"]?.restoreBlockCount, 2);
+  assert.equal(saved["guild-1"]?.restoreBlockReason, "worker-autoheal");
   assert.match(String(saved["guild-1"]?.savedAt || ""), /^\d{4}-\d{2}-\d{2}T/);
 });
 
@@ -3504,4 +3560,52 @@ test("worker autoheal does not restart a worker while another guild is still hea
   assert.equal(evaluation.activeVoiceCount, 1);
   assert.equal(evaluation.shouldExit, false);
   assert.equal(evaluation.stuckGuilds.length, 1);
+});
+
+test("worker autoheal blocks stuck recovery targets before a restart", () => {
+  const now = Date.now();
+  const reconnectTimer = setTimeout(() => {}, 1_000);
+  const streamRestartTimer = setTimeout(() => {}, 1_000);
+  try {
+    const runtime = {
+      guildState: new Map([
+        ["guild-1", {
+          currentStationKey: "station-a",
+          shouldReconnect: true,
+          lastChannelId: "channel-a",
+          reconnectTimer,
+          streamRestartTimer,
+          reconnectInFlight: true,
+          voiceConnectInFlight: true,
+          restoreBlockCount: 1,
+        }],
+      ]),
+    };
+
+    const applied = applyWorkerAutohealRecoveryBlock(
+      runtime,
+      [{ guildId: "guild-1" }],
+      {
+        WORKER_AUTOHEAL_BLOCK_MS: String(15 * 60_000),
+        WORKER_AUTOHEAL_BLOCK_MAX_MS: String(60 * 60_000),
+      },
+      now
+    );
+
+    const state = runtime.guildState.get("guild-1");
+    assert.equal(applied.length, 1);
+    assert.equal(applied[0].delayMs, 30 * 60_000);
+    assert.equal(state.shouldReconnect, false);
+    assert.equal(state.reconnectTimer, null);
+    assert.equal(state.streamRestartTimer, null);
+    assert.equal(state.reconnectInFlight, false);
+    assert.equal(state.voiceConnectInFlight, false);
+    assert.equal(state.restoreBlockCount, 2);
+    assert.equal(state.restoreBlockReason, "worker-autoheal");
+    assert.equal(state.restoreBlockedAt, now);
+    assert.equal(state.restoreBlockedUntil, now + (30 * 60_000));
+  } finally {
+    clearTimeout(reconnectTimer);
+    clearTimeout(streamRestartTimer);
+  }
 });

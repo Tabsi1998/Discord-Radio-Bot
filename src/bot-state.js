@@ -21,6 +21,14 @@ function normalizeStoredVolume(rawValue) {
   return Math.max(0, Math.min(100, parsed));
 }
 
+function normalizeStoredTimestampMs(rawValue) {
+  if (!rawValue) return 0;
+  const numeric = Number.parseInt(String(rawValue ?? ""), 10);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = Date.parse(String(rawValue));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 function hasSavedVolumePreference(entry) {
   return normalizeStoredVolume(entry?.volume) !== null;
 }
@@ -218,6 +226,10 @@ function saveBotState(botId, guildStates) {
     const persistVolumePreference = state?.volumePreferenceSet === true && volume !== null;
     if (!persistPlaybackState && !persistVolumePreference) continue;
     const scheduledEventStopAtMs = Number.parseInt(String(state.activeScheduledEventStopAtMs || 0), 10);
+    const restoreBlockedUntil = normalizeStoredTimestampMs(state?.restoreBlockedUntil);
+    const restoreBlockedAt = normalizeStoredTimestampMs(state?.restoreBlockedAt);
+    const restoreBlockCount = Math.max(0, Number.parseInt(String(state?.restoreBlockCount || 0), 10) || 0);
+    const restoreBlockReason = String(state?.restoreBlockReason || "").trim().slice(0, 200) || null;
     const entry = {
       savedAt: new Date().toISOString(),
     };
@@ -230,6 +242,12 @@ function saveBotState(botId, guildStates) {
       entry.scheduledEventStopAtMs = Number.isFinite(scheduledEventStopAtMs) && scheduledEventStopAtMs > 0
         ? scheduledEventStopAtMs
         : 0;
+      if (restoreBlockedUntil > Date.now()) {
+        entry.restoreBlockedUntil = restoreBlockedUntil;
+        if (restoreBlockedAt > 0) entry.restoreBlockedAt = restoreBlockedAt;
+        if (restoreBlockCount > 0) entry.restoreBlockCount = restoreBlockCount;
+        if (restoreBlockReason) entry.restoreBlockReason = restoreBlockReason;
+      }
     }
 
     if (persistVolumePreference || persistPlaybackState) {

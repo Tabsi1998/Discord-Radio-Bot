@@ -69,6 +69,51 @@ function formatRecoveringGuildLog(row, nowMs) {
   return detail.join(" ");
 }
 
+function resolveWorkerAutohealBlockOptions(env = process.env) {
+  const baseMs = Math.max(5 * 60_000, toPositiveInt(env.WORKER_AUTOHEAL_BLOCK_MS, 30 * 60_000));
+  const maxMs = Math.max(baseMs, toPositiveInt(env.WORKER_AUTOHEAL_BLOCK_MAX_MS, 6 * 60 * 60_000));
+  return { baseMs, maxMs };
+}
+
+function applyWorkerAutohealRecoveryBlock(runtime, stuckGuilds = [], env = process.env, nowMs = Date.now()) {
+  const options = resolveWorkerAutohealBlockOptions(env);
+  const applied = [];
+
+  for (const row of stuckGuilds) {
+    const guildId = String(row?.guildId || "").trim();
+    if (!guildId) continue;
+    const state = runtime?.guildState?.get?.(guildId);
+    if (!hasRecoverablePlaybackTarget(state)) continue;
+
+    const nextCount = Math.max(1, (Number(state?.restoreBlockCount || 0) || 0) + 1);
+    const delayMs = Math.min(options.maxMs, options.baseMs * Math.pow(2, Math.max(0, nextCount - 1)));
+    state.restoreBlockedAt = nowMs;
+    state.restoreBlockedUntil = nowMs + delayMs;
+    state.restoreBlockCount = nextCount;
+    state.restoreBlockReason = "worker-autoheal";
+    state.shouldReconnect = false;
+    state.reconnectInFlight = false;
+    state.voiceConnectInFlight = false;
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
+    }
+    if (state.streamRestartTimer) {
+      clearTimeout(state.streamRestartTimer);
+      state.streamRestartTimer = null;
+    }
+
+    applied.push({
+      guildId,
+      delayMs,
+      blockedUntil: state.restoreBlockedUntil,
+      blockCount: nextCount,
+    });
+  }
+
+  return applied;
+}
+
 function resolveWorkerAutohealOptions(env = process.env, runtime = null) {
   const workerIndex = Number.parseInt(
     String(runtime?.config?.index || env.BOT_PROCESS_INDEX || "0"),
@@ -179,7 +224,8 @@ function startWorkerAutohealMonitor({
   let stopping = false;
 
   const tick = async () => {
-    const evaluation = evaluateWorkerAutohealState(runtime, unhealthySinceByGuild, options, Date.now());
+    const nowMs = Date.now();
+    const evaluation = evaluateWorkerAutohealState(runtime, unhealthySinceByGuild, options, nowMs);
     unhealthySinceByGuild = evaluation.unhealthySinceByGuild;
 
     if (!evaluation.shouldExit || stopping) {
@@ -187,12 +233,18 @@ function startWorkerAutohealMonitor({
     }
 
     stopping = true;
-    const details = evaluation.stuckGuilds.map((row) => formatRecoveringGuildLog(row, Date.now())).join(" | ");
+    const blockedTargets = applyWorkerAutohealRecoveryBlock(runtime, evaluation.stuckGuilds, env, nowMs);
+    const details = evaluation.stuckGuilds.map((row) => formatRecoveringGuildLog(row, nowMs)).join(" | ");
+    const blockedDetails = blockedTargets
+      .map((row) => `cooldown=${Math.round((Number(row.delayMs || 0) || 0) / 1000)}s guild=${row.guildId} block=${row.blockCount}`)
+      .join(" | ");
     log(
       "ERROR",
       `[${runtime?.config?.name || "Worker"}] Worker-Autoheal ausgeloest: ` +
       `${evaluation.stuckGuilds.length} Recovery-Ziel(e) seit >=${Math.round(options.unhealthyMs / 1000)}s ohne aktive Voice-Verbindung. ` +
-      `Neustart des Workers wird angefordert.${details ? ` ${details}` : ""}`
+      `Neustart des Workers wird angefordert.` +
+      `${details ? ` ${details}` : ""}` +
+      `${blockedDetails ? ` ${blockedDetails}` : ""}`
     );
 
     try {
@@ -236,6 +288,7 @@ function startWorkerAutohealMonitor({
 }
 
 export {
+  applyWorkerAutohealRecoveryBlock,
   evaluateWorkerAutohealState,
   resolveWorkerAutohealOptions,
   startWorkerAutohealMonitor,
