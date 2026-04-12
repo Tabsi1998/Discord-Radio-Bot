@@ -3806,6 +3806,14 @@ class BotRuntime {
       const lastProcessExitAt = Number(state.lastProcessExitAt || 0) || 0;
       if (lastProcessExitAt > 0) detail.lastProcessExitAt = lastProcessExitAt;
 
+      if (state.lastStreamEndReason) detail.lastStreamEndReason = state.lastStreamEndReason;
+
+      const lastNetworkFailureAt = Number(state.lastNetworkFailureAt || 0) || 0;
+      if (lastNetworkFailureAt > 0) detail.lastNetworkFailureAt = lastNetworkFailureAt;
+
+      const voiceDisconnectObservedAt = Number(state.voiceDisconnectObservedAt || 0) || 0;
+      if (voiceDisconnectObservedAt > 0) detail.voiceDisconnectObservedAt = voiceDisconnectObservedAt;
+
       if (state.lastStreamStartAt) {
         detail.lastStreamStartAt = new Date(Number(state.lastStreamStartAt)).toISOString();
       }
@@ -3822,6 +3830,17 @@ class BotRuntime {
 
       const reconnectCircuitOpenUntil = Number(state.reconnectCircuitOpenUntil || 0) || 0;
       if (reconnectCircuitOpenUntil > 0) detail.reconnectCircuitOpenUntil = reconnectCircuitOpenUntil;
+
+      const restoreBlockedUntil = Number(state.restoreBlockedUntil || 0) || 0;
+      if (restoreBlockedUntil > 0) detail.restoreBlockedUntil = restoreBlockedUntil;
+
+      const restoreBlockedAt = Number(state.restoreBlockedAt || 0) || 0;
+      if (restoreBlockedAt > 0) detail.restoreBlockedAt = restoreBlockedAt;
+
+      const restoreBlockCount = Number(state.restoreBlockCount || 0) || 0;
+      if (restoreBlockCount > 0) detail.restoreBlockCount = restoreBlockCount;
+
+      if (state.restoreBlockReason) detail.restoreBlockReason = state.restoreBlockReason;
 
       const getNetworkRecoveryDelayMs =
         typeof this.getNetworkRecoveryDelayMs === "function"

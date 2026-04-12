@@ -1655,6 +1655,28 @@ function buildDerivedDashboardGuildDetail(runtime, guildId) {
     streamErrorCount,
     shouldReconnect: state?.shouldReconnect === true,
     meta: state?.currentMeta || null,
+    reconnectPending: Boolean(state?.reconnectTimer),
+    reconnectInFlight: state?.reconnectInFlight === true,
+    streamRestartPending: Boolean(state?.streamRestartTimer),
+    voiceConnectInFlight: state?.voiceConnectInFlight === true,
+    reconnectCount: Number(state?.reconnectCount || 0) || 0,
+    lastReconnectAt: toDashboardIsoTime(state?.lastReconnectAt),
+    lastStreamErrorAt: toDashboardIsoTime(state?.lastStreamErrorAt),
+    lastProcessExitCode: state?.lastProcessExitCode ?? null,
+    lastProcessExitDetail: state?.lastProcessExitDetail || null,
+    lastProcessExitAt: toDashboardIsoTime(state?.lastProcessExitAt),
+    lastStreamEndReason: state?.lastStreamEndReason || null,
+    lastNetworkFailureAt: toDashboardIsoTime(state?.lastNetworkFailureAt),
+    voiceDisconnectObservedAt: toDashboardIsoTime(state?.voiceDisconnectObservedAt),
+    restoreBlockedUntil: toDashboardIsoTime(state?.restoreBlockedUntil),
+    restoreBlockedAt: toDashboardIsoTime(state?.restoreBlockedAt),
+    restoreBlockCount: Number(state?.restoreBlockCount || 0) || 0,
+    restoreBlockReason: state?.restoreBlockReason || null,
+    reconnectCircuitTripCount: Number(state?.reconnectCircuitTripCount || 0) || 0,
+    reconnectCircuitOpenUntil: toDashboardIsoTime(state?.reconnectCircuitOpenUntil),
+    networkRecoveryDelayMs: typeof runtime?.getNetworkRecoveryDelayMs === "function"
+      ? Number(runtime.getNetworkRecoveryDelayMs(guildId) || 0) || 0
+      : 0,
   };
 }
 
@@ -1679,6 +1701,32 @@ function resolveRuntimeForGuild(runtimes, guildId) {
   }
 
   return { runtime: sorted[0] || null, guild: null };
+}
+
+function toDashboardTimeMs(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  const text = String(value || "").trim();
+  if (/^\d+$/.test(text)) {
+    const parsedNumeric = Number.parseInt(text, 10);
+    if (Number.isFinite(parsedNumeric) && parsedNumeric > 0) {
+      return parsedNumeric;
+    }
+  }
+  const parsedDate = Date.parse(text);
+  return Number.isFinite(parsedDate) && parsedDate > 0 ? parsedDate : 0;
+}
+
+function toDashboardIsoTime(value) {
+  const timestampMs = toDashboardTimeMs(value);
+  return timestampMs > 0 ? new Date(timestampMs).toISOString() : null;
+}
+
+function getDashboardRemainingMs(value) {
+  const timestampMs = toDashboardTimeMs(value);
+  if (timestampMs <= 0) return 0;
+  return Math.max(0, timestampMs - Date.now());
 }
 
 function collectGuildLiveDetails(runtimes, guildId) {
@@ -1746,6 +1794,28 @@ function collectGuildBotHealthRows(runtimes, guildId) {
       channelName: detail?.channelName || detail?.channelId || null,
       stationKey: detail?.stationKey || null,
       stationName: detail?.stationName || detail?.stationKey || null,
+      reconnectPending: detail?.reconnectPending === true,
+      reconnectInFlight: detail?.reconnectInFlight === true,
+      streamRestartPending: detail?.streamRestartPending === true,
+      voiceConnectInFlight: detail?.voiceConnectInFlight === true,
+      reconnectCount: Number(detail?.reconnectCount || 0) || 0,
+      lastReconnectAt: toDashboardIsoTime(detail?.lastReconnectAt),
+      lastStreamErrorAt: toDashboardIsoTime(detail?.lastStreamErrorAt),
+      lastProcessExitCode: detail?.lastProcessExitCode ?? null,
+      lastProcessExitDetail: detail?.lastProcessExitDetail || null,
+      lastProcessExitAt: toDashboardIsoTime(detail?.lastProcessExitAt),
+      lastStreamEndReason: detail?.lastStreamEndReason || null,
+      lastNetworkFailureAt: toDashboardIsoTime(detail?.lastNetworkFailureAt),
+      voiceDisconnectObservedAt: toDashboardIsoTime(detail?.voiceDisconnectObservedAt),
+      restoreBlockedUntil: toDashboardIsoTime(detail?.restoreBlockedUntil),
+      restoreBlockedAt: toDashboardIsoTime(detail?.restoreBlockedAt),
+      restoreBlockCount: Number(detail?.restoreBlockCount || 0) || 0,
+      restoreBlockReason: detail?.restoreBlockReason || null,
+      restoreCooldownMs: getDashboardRemainingMs(detail?.restoreBlockedUntil),
+      reconnectCircuitTripCount: Number(detail?.reconnectCircuitTripCount || 0) || 0,
+      reconnectCircuitOpenUntil: toDashboardIsoTime(detail?.reconnectCircuitOpenUntil),
+      reconnectCircuitRemainingMs: getDashboardRemainingMs(detail?.reconnectCircuitOpenUntil),
+      networkRecoveryDelayMs: Number(detail?.networkRecoveryDelayMs || 0) || 0,
     });
   }
   return rows;

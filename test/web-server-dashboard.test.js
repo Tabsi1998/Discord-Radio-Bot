@@ -2258,6 +2258,15 @@ test("dashboard stats keep recovering workers visible even without an active voi
         shouldReconnect: true,
         reconnectAttempts: 3,
         reconnectTimer: { pending: true },
+        restoreBlockedUntil: Date.now() + (20 * 60_000),
+        restoreBlockedAt: Date.now() - (5 * 60_000),
+        restoreBlockCount: 2,
+        restoreBlockReason: "worker-autoheal",
+        lastProcessExitCode: 1,
+        lastProcessExitDetail: "broken-pipe",
+        lastProcessExitAt: Date.now() - (3 * 60_000),
+        lastStreamEndReason: "stream-health-stalled",
+        voiceDisconnectObservedAt: Date.now() - (2 * 60_000),
         streamErrorCount: 0,
         currentMeta: null,
         connection: null,
@@ -2341,4 +2350,9 @@ test("dashboard stats keep recovering workers visible even without an active voi
   assert.equal(workerRow.status, "offline");
   assert.equal(workerRow.recovering, true);
   assert.equal(workerRow.stationName, "Rock FM");
+  assert.equal(workerRow.restoreBlockReason, "worker-autoheal");
+  assert.equal(workerRow.restoreBlockCount, 2);
+  assert.equal(workerRow.lastProcessExitDetail, "broken-pipe");
+  assert.equal(workerRow.lastStreamEndReason, "stream-health-stalled");
+  assert.ok(Number(workerRow.restoreCooldownMs || 0) > 0);
 });

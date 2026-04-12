@@ -6,6 +6,7 @@ import {
 import { RotateCcw } from 'lucide-react';
 import {
   buildDashboardAnalyticsUpgradeHint,
+  buildDashboardHealthBotDebug,
   buildDashboardHealthAlerts,
   buildDashboardHealthIncidentCounts,
   buildDashboardHealthIncidentRows,
@@ -673,6 +674,7 @@ export default function DashboardOverview({
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
                 {healthBots.map((bot) => {
                   const botStatus = getBotStatusPresentation(bot.status, t);
+                  const botDebug = buildDashboardHealthBotDebug(bot, { t, formatDate });
                   return (
                     <div key={bot.botId || bot.botName} data-testid={`dashboard-health-bot-${bot.botId || bot.botName}`} style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px', display: 'grid', gap: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
@@ -701,6 +703,36 @@ export default function DashboardOverview({
                       {(bot.stationName || bot.channelName) && (
                         <div style={{ color: '#A1A1AA', fontSize: 12 }}>
                           {[bot.stationName, bot.channelName ? `#${bot.channelName}` : ''].filter(Boolean).join(' | ')}
+                        </div>
+                      )}
+                      {botDebug.summary && (
+                        <div style={{ color: bot.status === 'recovering' ? '#FCD34D' : bot.status === 'degraded' ? '#FCA5A5' : '#A1A1AA', fontSize: 12, lineHeight: 1.6 }}>
+                          {botDebug.summary}
+                        </div>
+                      )}
+                      {botDebug.detailLines.length > 0 && (
+                        <div style={{ display: 'grid', gap: 4 }}>
+                          {botDebug.detailLines.map((line) => (
+                            <div key={line} style={{ color: '#71717A', fontSize: 11, lineHeight: 1.6 }}>
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {botDebug.flags.length > 0 && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {botDebug.flags.map((flag) => (
+                            <span key={flag} style={{
+                              border: '1px solid #27272A',
+                              background: '#0A0A0A',
+                              color: '#A1A1AA',
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              letterSpacing: '0.04em',
+                            }}>
+                              {flag}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>

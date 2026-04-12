@@ -94,6 +94,172 @@ function buildConnectionEventEntryId(event = {}) {
   ]);
 }
 
+function normalizeDashboardTimestamp(value) {
+  if (!value) return null;
+  const parsedMs = typeof value === "number"
+    ? value
+    : Date.parse(String(value || ""));
+  return Number.isFinite(parsedMs) && parsedMs > 0 ? new Date(parsedMs).toISOString() : null;
+}
+
+function formatDashboardTimestampLabel(value, formatDate = null) {
+  const normalized = normalizeDashboardTimestamp(value);
+  if (!normalized) return "";
+  if (typeof formatDate === "function") {
+    return formatDate(normalized, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return new Date(normalized).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function normalizeDashboardHealthBot(source = {}) {
+  const input = source && typeof source === "object" ? source : {};
+  const restoreCooldownMs = Math.max(0, Number(input.restoreCooldownMs || 0) || 0);
+  const reconnectCircuitRemainingMs = Math.max(0, Number(input.reconnectCircuitRemainingMs || 0) || 0);
+  return {
+    botId: String(input.botId || "").trim() || null,
+    botName: String(input.botName || "").trim() || null,
+    role: String(input.role || "").trim() || null,
+    ready: input.ready === true,
+    status: String(input.status || "").trim() || "idle",
+    playing: input.playing === true,
+    recovering: input.recovering === true,
+    shouldReconnect: input.shouldReconnect === true,
+    listeners: Math.max(0, Number(input.listeners || 0) || 0),
+    reconnectAttempts: Math.max(0, Number(input.reconnectAttempts || 0) || 0),
+    reconnectCount: Math.max(0, Number(input.reconnectCount || 0) || 0),
+    streamErrorCount: Math.max(0, Number(input.streamErrorCount || 0) || 0),
+    channelId: String(input.channelId || "").trim() || null,
+    channelName: String(input.channelName || "").trim() || null,
+    stationKey: String(input.stationKey || "").trim() || null,
+    stationName: String(input.stationName || "").trim() || null,
+    reconnectPending: input.reconnectPending === true,
+    reconnectInFlight: input.reconnectInFlight === true,
+    streamRestartPending: input.streamRestartPending === true,
+    voiceConnectInFlight: input.voiceConnectInFlight === true,
+    lastReconnectAt: normalizeDashboardTimestamp(input.lastReconnectAt),
+    lastStreamErrorAt: normalizeDashboardTimestamp(input.lastStreamErrorAt),
+    lastProcessExitCode: input.lastProcessExitCode ?? null,
+    lastProcessExitDetail: String(input.lastProcessExitDetail || "").trim() || null,
+    lastProcessExitAt: normalizeDashboardTimestamp(input.lastProcessExitAt),
+    lastStreamEndReason: String(input.lastStreamEndReason || "").trim() || null,
+    lastNetworkFailureAt: normalizeDashboardTimestamp(input.lastNetworkFailureAt),
+    voiceDisconnectObservedAt: normalizeDashboardTimestamp(input.voiceDisconnectObservedAt),
+    restoreBlockedUntil: normalizeDashboardTimestamp(input.restoreBlockedUntil),
+    restoreBlockedAt: normalizeDashboardTimestamp(input.restoreBlockedAt),
+    restoreBlockCount: Math.max(0, Number(input.restoreBlockCount || 0) || 0),
+    restoreBlockReason: String(input.restoreBlockReason || "").trim() || null,
+    restoreCooldownMs,
+    reconnectCircuitTripCount: Math.max(0, Number(input.reconnectCircuitTripCount || 0) || 0),
+    reconnectCircuitOpenUntil: normalizeDashboardTimestamp(input.reconnectCircuitOpenUntil),
+    reconnectCircuitRemainingMs,
+    networkRecoveryDelayMs: Math.max(0, Number(input.networkRecoveryDelayMs || 0) || 0),
+  };
+}
+
+function buildDashboardHealthBotDebug(source = {}, {
+  t = (de, en) => de,
+  formatDate = null,
+} = {}) {
+  const bot = normalizeDashboardHealthBot(source);
+  const flags = [];
+  if (bot.reconnectPending) flags.push(t("Reconnect-Timer", "Reconnect timer"));
+  if (bot.reconnectInFlight) flags.push(t("Reconnect laeuft", "Reconnect in progress"));
+  if (bot.streamRestartPending) flags.push(t("Stream-Retry", "Stream retry"));
+  if (bot.voiceConnectInFlight) flags.push(t("Voice-Connect", "Voice connect"));
+  if (bot.restoreBlockCount > 0) {
+    flags.push(t(`${bot.restoreBlockCount} Restore-Blocks`, `${bot.restoreBlockCount} restore blocks`));
+  }
+  if (bot.networkRecoveryDelayMs > 0) {
+    flags.push(t(
+      `Netzwerk-Backoff ${formatDashboardDuration(bot.networkRecoveryDelayMs, { short: true })}`,
+      `Network backoff ${formatDashboardDuration(bot.networkRecoveryDelayMs, { short: true })}`
+    ));
+  }
+
+  let summary = "";
+  if (!bot.ready && bot.recovering) {
+    summary = t(
+      "Worker offline mit aktivem Recovery-Ziel",
+      "Worker offline with an active recovery target"
+    );
+  } else if (bot.restoreCooldownMs > 0) {
+    summary = t("Restore-Cooldown aktiv", "Restore cooldown active");
+  } else if (bot.reconnectCircuitRemainingMs > 0) {
+    summary = t("Reconnect-Circuit pausiert", "Reconnect circuit paused");
+  } else if (bot.voiceConnectInFlight) {
+    summary = t("Voice-Verbindung wird aufgebaut", "Voice connection is being established");
+  } else if (bot.reconnectInFlight) {
+    summary = t("Reconnect laeuft gerade", "Reconnect is currently in progress");
+  } else if (bot.streamRestartPending) {
+    summary = t("Stream-Neustart geplant", "Stream restart is scheduled");
+  } else if (bot.reconnectPending) {
+    summary = t("Reconnect-Retry geplant", "Reconnect retry is scheduled");
+  } else if (bot.shouldReconnect && !bot.playing) {
+    summary = t("Wartet auf Wiederverbindung", "Waiting for reconnect");
+  } else if (bot.lastProcessExitDetail) {
+    summary = t(`Letzter Exit: ${bot.lastProcessExitDetail}`, `Last exit: ${bot.lastProcessExitDetail}`);
+  } else if (bot.lastStreamEndReason) {
+    summary = t(`Letztes Stream-Ende: ${bot.lastStreamEndReason}`, `Last stream end: ${bot.lastStreamEndReason}`);
+  }
+
+  const detailLines = [];
+  if (bot.restoreCooldownMs > 0) {
+    detailLines.push(t(
+      `Restore blockiert fuer ${formatDashboardDuration(bot.restoreCooldownMs)}${bot.restoreBlockReason ? ` | ${bot.restoreBlockReason}` : ""}`,
+      `Restore blocked for ${formatDashboardDuration(bot.restoreCooldownMs)}${bot.restoreBlockReason ? ` | ${bot.restoreBlockReason}` : ""}`
+    ));
+  }
+  if (bot.reconnectCircuitRemainingMs > 0) {
+    detailLines.push(t(
+      `Reconnect-Circuit offen fuer ${formatDashboardDuration(bot.reconnectCircuitRemainingMs)}${bot.reconnectCircuitTripCount > 0 ? ` | Trip ${bot.reconnectCircuitTripCount}` : ""}`,
+      `Reconnect circuit open for ${formatDashboardDuration(bot.reconnectCircuitRemainingMs)}${bot.reconnectCircuitTripCount > 0 ? ` | trip ${bot.reconnectCircuitTripCount}` : ""}`
+    ));
+  }
+  if (bot.lastProcessExitDetail || bot.lastProcessExitCode !== null) {
+    const exitLabel = [
+      bot.lastProcessExitDetail || "",
+      bot.lastProcessExitCode !== null && bot.lastProcessExitCode !== undefined
+        ? t(`Code ${bot.lastProcessExitCode}`, `Code ${bot.lastProcessExitCode}`)
+        : "",
+      bot.lastProcessExitAt ? formatDashboardTimestampLabel(bot.lastProcessExitAt, formatDate) : "",
+    ].filter(Boolean).join(" | ");
+    if (exitLabel) {
+      detailLines.push(t(`Prozess-Exit: ${exitLabel}`, `Process exit: ${exitLabel}`));
+    }
+  }
+  if (bot.lastStreamEndReason) {
+    detailLines.push(t(`Stream-Ende: ${bot.lastStreamEndReason}`, `Stream end: ${bot.lastStreamEndReason}`));
+  }
+  if (bot.lastNetworkFailureAt) {
+    detailLines.push(t(
+      `Letzter Netzwerkfehler: ${formatDashboardTimestampLabel(bot.lastNetworkFailureAt, formatDate)}`,
+      `Last network failure: ${formatDashboardTimestampLabel(bot.lastNetworkFailureAt, formatDate)}`
+    ));
+  }
+  if (bot.voiceDisconnectObservedAt) {
+    detailLines.push(t(
+      `Voice-Disconnect gesehen: ${formatDashboardTimestampLabel(bot.voiceDisconnectObservedAt, formatDate)}`,
+      `Voice disconnect observed: ${formatDashboardTimestampLabel(bot.voiceDisconnectObservedAt, formatDate)}`
+    ));
+  }
+
+  return {
+    summary,
+    detailLines: detailLines.slice(0, 4),
+    flags: flags.slice(0, 4),
+  };
+}
+
 function normalizeDashboardHealthIncidentStatusFilter(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "open" || normalized === "acknowledged") return normalized;
@@ -177,7 +343,7 @@ function normalizeDashboardHealth(source = {}) {
     nextEventTitle: String(input.nextEventTitle || "").trim() || null,
     alerts: Array.isArray(input.alerts) ? input.alerts : [],
     incidents: Array.isArray(input.incidents) ? input.incidents.map((incident) => normalizeDashboardHealthIncident(incident)).filter(Boolean) : [],
-    bots: Array.isArray(input.bots) ? input.bots : [],
+    bots: Array.isArray(input.bots) ? input.bots.map((bot) => normalizeDashboardHealthBot(bot)).filter(Boolean) : [],
   };
 }
 
@@ -485,6 +651,7 @@ function buildSessionQualitySummary(sessionHistory = [], t = (de, en) => de) {
 
 export {
   buildDashboardAnalyticsUpgradeHint,
+  buildDashboardHealthBotDebug,
   buildDashboardHealthAlerts,
   buildDashboardHealthIncidentCounts,
   buildDashboardHealthIncidentRows,

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildDashboardAnalyticsUpgradeHint,
   buildConnectionTimelineRows,
+  buildDashboardHealthBotDebug,
   buildDashboardHealthAlerts,
   buildDashboardHealthIncidentCounts,
   buildDashboardHealthIncidentRows,
@@ -148,6 +149,33 @@ test("buildDashboardHealthIncidentRows formats recent runtime incidents for the 
   assert.equal(rows[0].timestampLabel, "2026-03-09T06:30");
   assert.ok(rows[0].chips.includes("OmniFM 1"));
   assert.ok(rows[0].chips.includes("4 listeners"));
+});
+
+test("buildDashboardHealthBotDebug exposes restore cooldowns and last exit details", () => {
+  const t = (_de, en) => en;
+  const now = Date.now();
+  const debug = buildDashboardHealthBotDebug({
+    ready: true,
+    status: "recovering",
+    recovering: true,
+    shouldReconnect: true,
+    restoreCooldownMs: 25 * 60_000,
+    restoreBlockReason: "worker-autoheal",
+    restoreBlockCount: 2,
+    lastProcessExitDetail: "broken-pipe",
+    lastProcessExitCode: 1,
+    lastProcessExitAt: new Date(now - (5 * 60_000)).toISOString(),
+    reconnectPending: true,
+  }, {
+    t,
+    formatDate: (value) => String(value).slice(0, 16),
+  });
+
+  assert.match(debug.summary, /Restore cooldown active/i);
+  assert.equal(debug.flags.includes("Reconnect timer"), true);
+  assert.equal(debug.flags.includes("2 restore blocks"), true);
+  assert.equal(debug.detailLines.some((line) => /worker-autoheal/i.test(line)), true);
+  assert.equal(debug.detailLines.some((line) => /broken-pipe/i.test(line)), true);
 });
 
 test("dashboard health incident helpers keep open and acknowledged incidents filterable", () => {
