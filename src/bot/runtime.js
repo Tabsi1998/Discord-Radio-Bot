@@ -347,6 +347,7 @@ class BotRuntime {
         );
       }
       this.updatePresence();
+      this.startPresenceRotation();
       if (this.role === "commander") {
         this.enforcePremiumGuildScope("startup").catch((err) => {
           log("ERROR", `[${this.config.name}] Premium-Guild-Scope Pruefung fehlgeschlagen: ${err?.message || err}`);
@@ -2251,9 +2252,6 @@ class BotRuntime {
     } catch (err) {
       log("ERROR", `[${this.config.name}] Presence update fehlgeschlagen: ${err?.message || err}`);
     }
-
-    // Presence no longer rotates by station names. Keep timer disabled.
-    this.stopPresenceRotation();
   }
 
   startPresenceRotation() {
