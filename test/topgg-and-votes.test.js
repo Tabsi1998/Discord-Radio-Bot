@@ -84,6 +84,9 @@ test("TopGG stats sync posts documented server_count payload", async (t) => {
     TOPGG_TOKEN: process.env.TOPGG_TOKEN,
     TOPGG_BOT_ID: process.env.TOPGG_BOT_ID,
     TOPGG_STATS_SCOPE: process.env.TOPGG_STATS_SCOPE,
+    TOPGG_REQUEST_MAX_RETRIES: process.env.TOPGG_REQUEST_MAX_RETRIES,
+    TOPGG_REQUEST_RETRY_BASE_MS: process.env.TOPGG_REQUEST_RETRY_BASE_MS,
+    TOPGG_REQUEST_RETRY_MAX_MS: process.env.TOPGG_REQUEST_RETRY_MAX_MS,
   };
   const topGGSnapshot = snapshotFile(topGGStatePath);
 
@@ -154,6 +157,156 @@ test("TopGG stats sync posts documented server_count payload", async (t) => {
   assert.equal(result.shardCount, 2);
   assert.equal(result.shardId, 0);
   assert.equal(fs.existsSync(topGGStatePath), true);
+});
+
+test("TopGG stats sync retries transient 500 responses before succeeding", async (t) => {
+  const originalFetch = global.fetch;
+  const originalEnv = {
+    TOPGG_ENABLED: process.env.TOPGG_ENABLED,
+    TOPGG_TOKEN: process.env.TOPGG_TOKEN,
+    TOPGG_BOT_ID: process.env.TOPGG_BOT_ID,
+    TOPGG_STATS_SCOPE: process.env.TOPGG_STATS_SCOPE,
+    TOPGG_REQUEST_MAX_RETRIES: process.env.TOPGG_REQUEST_MAX_RETRIES,
+    TOPGG_REQUEST_RETRY_BASE_MS: process.env.TOPGG_REQUEST_RETRY_BASE_MS,
+    TOPGG_REQUEST_RETRY_MAX_MS: process.env.TOPGG_REQUEST_RETRY_MAX_MS,
+  };
+  const topGGSnapshot = snapshotFile(topGGStatePath);
+
+  t.after(() => {
+    global.fetch = originalFetch;
+    restoreEnvSnapshot(originalEnv);
+    restoreFile(topGGStatePath, topGGSnapshot);
+  });
+
+  process.env.TOPGG_ENABLED = "1";
+  process.env.TOPGG_TOKEN = "test-topgg-token";
+  process.env.TOPGG_BOT_ID = "1476192449721274472";
+  process.env.TOPGG_STATS_SCOPE = "aggregate";
+  process.env.TOPGG_REQUEST_MAX_RETRIES = "2";
+  process.env.TOPGG_REQUEST_RETRY_BASE_MS = "0";
+  process.env.TOPGG_REQUEST_RETRY_MAX_MS = "0";
+
+  const runtimes = [{
+    role: "commander",
+    getApplicationId: () => "1476192449721274472",
+    config: { clientId: "1476192449721274472" },
+    client: {
+      isReady: () => true,
+      guilds: {
+        cache: new Map([["1", { id: "1", memberCount: 10 }]]),
+      },
+      shard: {
+        count: 1,
+        ids: [0],
+      },
+    },
+    collectStats: () => ({ servers: 1, users: 10 }),
+  }];
+
+  let callCount = 0;
+  global.fetch = async () => {
+    callCount += 1;
+    if (callCount === 1) {
+      return {
+        ok: false,
+        status: 500,
+        headers: {
+          get() {
+            return null;
+          },
+        },
+        async text() {
+          return JSON.stringify({ message: "HTTP 500" });
+        },
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get() {
+          return null;
+        },
+      },
+      async text() {
+        return JSON.stringify({ success: true });
+      },
+    };
+  };
+
+  const result = await syncTopGGStats(runtimes);
+
+  assert.equal(callCount, 2);
+  assert.equal(result.ok, true);
+  assert.equal(result.guildCount, 1);
+});
+
+test("TopGG stats sync does not retry authentication failures", async (t) => {
+  const originalFetch = global.fetch;
+  const originalEnv = {
+    TOPGG_ENABLED: process.env.TOPGG_ENABLED,
+    TOPGG_TOKEN: process.env.TOPGG_TOKEN,
+    TOPGG_BOT_ID: process.env.TOPGG_BOT_ID,
+    TOPGG_STATS_SCOPE: process.env.TOPGG_STATS_SCOPE,
+    TOPGG_REQUEST_MAX_RETRIES: process.env.TOPGG_REQUEST_MAX_RETRIES,
+    TOPGG_REQUEST_RETRY_BASE_MS: process.env.TOPGG_REQUEST_RETRY_BASE_MS,
+    TOPGG_REQUEST_RETRY_MAX_MS: process.env.TOPGG_REQUEST_RETRY_MAX_MS,
+  };
+  const topGGSnapshot = snapshotFile(topGGStatePath);
+
+  t.after(() => {
+    global.fetch = originalFetch;
+    restoreEnvSnapshot(originalEnv);
+    restoreFile(topGGStatePath, topGGSnapshot);
+  });
+
+  process.env.TOPGG_ENABLED = "1";
+  process.env.TOPGG_TOKEN = "test-topgg-token";
+  process.env.TOPGG_BOT_ID = "1476192449721274472";
+  process.env.TOPGG_STATS_SCOPE = "aggregate";
+  process.env.TOPGG_REQUEST_MAX_RETRIES = "3";
+  process.env.TOPGG_REQUEST_RETRY_BASE_MS = "0";
+  process.env.TOPGG_REQUEST_RETRY_MAX_MS = "0";
+
+  const runtimes = [{
+    role: "commander",
+    getApplicationId: () => "1476192449721274472",
+    config: { clientId: "1476192449721274472" },
+    client: {
+      isReady: () => true,
+      guilds: {
+        cache: new Map([["1", { id: "1", memberCount: 10 }]]),
+      },
+      shard: {
+        count: 1,
+        ids: [0],
+      },
+    },
+    collectStats: () => ({ servers: 1, users: 10 }),
+  }];
+
+  let callCount = 0;
+  global.fetch = async () => {
+    callCount += 1;
+    return {
+      ok: false,
+      status: 401,
+      headers: {
+        get() {
+          return null;
+        },
+      },
+      async text() {
+        return JSON.stringify({ message: "Unauthorized" });
+      },
+    };
+  };
+
+  await assert.rejects(
+    () => syncTopGGStats(runtimes),
+    /failed \(401\): Unauthorized/
+  );
+  assert.equal(callCount, 1);
 });
 
 test("TopGG commands sync uses the v1 projects API with Bearer auth", async (t) => {

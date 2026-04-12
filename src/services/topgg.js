@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 import { buildCommandsJson } from "../commands.js";
 import { safeTokenEquals } from "../lib/api-helpers.js";
-import { clipText } from "../lib/helpers.js";
+import { clipText, waitMs } from "../lib/helpers.js";
 import { log } from "../lib/logging.js";
 import { getVoteEventsState, mergeVoteEvents, recordVoteEvent } from "../vote-events-store.js";
 import {
@@ -20,6 +20,75 @@ function parseEnvInt(name, fallback, min = 0) {
   const parsed = Number.parseInt(String(process.env[name] ?? ""), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, parsed);
+}
+
+class TopGGRequestError extends Error {
+  constructor(message, {
+    status = null,
+    retryable = false,
+    retryAfterMs = 0,
+    cause = null,
+  } = {}) {
+    super(message);
+    this.name = "TopGGRequestError";
+    this.status = Number.isInteger(status) ? status : null;
+    this.retryable = retryable === true;
+    this.retryAfterMs = Math.max(0, Number(retryAfterMs || 0) || 0);
+    if (cause) this.cause = cause;
+  }
+}
+
+function getHeaderValue(headers, headerName) {
+  if (!headers || !headerName) return "";
+  if (typeof headers.get === "function") {
+    return String(headers.get(headerName) || "").trim();
+  }
+  const direct = headers[headerName] ?? headers[String(headerName).toLowerCase()] ?? headers[String(headerName).toUpperCase()];
+  return String(direct || "").trim();
+}
+
+function parseRetryAfterMs(headers) {
+  const raw = getHeaderValue(headers, "retry-after");
+  if (!raw) return 0;
+
+  const seconds = Number.parseFloat(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+
+  const retryAtMs = Date.parse(raw);
+  if (Number.isFinite(retryAtMs)) {
+    return Math.max(0, retryAtMs - Date.now());
+  }
+  return 0;
+}
+
+function isRetryableTopGGStatus(status) {
+  return status === 429 || status >= 500;
+}
+
+function getTopGGRequestRetryOptions() {
+  return {
+    maxRetries: parseEnvInt("TOPGG_REQUEST_MAX_RETRIES", 2, 0),
+    baseDelayMs: parseEnvInt("TOPGG_REQUEST_RETRY_BASE_MS", 2_000, 0),
+    maxDelayMs: parseEnvInt("TOPGG_REQUEST_RETRY_MAX_MS", 30_000, 0),
+  };
+}
+
+function computeTopGGRetryDelayMs(error, attemptIndex, retryOptions) {
+  const retryAfterMs = Math.max(0, Number(error?.retryAfterMs || 0) || 0);
+  if (retryAfterMs > 0) {
+    return retryOptions.maxDelayMs > 0
+      ? Math.min(retryOptions.maxDelayMs, retryAfterMs)
+      : retryAfterMs;
+  }
+
+  const baseDelayMs = Math.max(0, Number(retryOptions?.baseDelayMs || 0) || 0);
+  const exponentialDelayMs = baseDelayMs * Math.pow(2, Math.max(0, attemptIndex));
+  if (retryOptions.maxDelayMs > 0) {
+    return Math.min(retryOptions.maxDelayMs, exponentialDelayMs);
+  }
+  return exponentialDelayMs;
 }
 
 function resolveCommanderRuntime(runtimes = []) {
@@ -149,6 +218,7 @@ async function topGGRequest(method, path, {
   const headers = {
     Accept: "application/json",
   };
+  const retryOptions = getTopGGRequestRetryOptions();
 
   if (token) {
     headers.Authorization = authMode === "raw" ? token : `Bearer ${token}`;
@@ -158,33 +228,70 @@ async function topGGRequest(method, path, {
     headers["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(endpoint, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let lastError = null;
 
-  const rawText = await response.text();
-  let parsed = null;
-  if (rawText.trim()) {
+  for (let attemptIndex = 0; attemptIndex <= retryOptions.maxRetries; attemptIndex += 1) {
     try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      parsed = { raw: rawText };
+      const response = await fetch(endpoint, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+
+      const rawText = await response.text();
+      let parsed = null;
+      if (rawText.trim()) {
+        try {
+          parsed = JSON.parse(rawText);
+        } catch {
+          parsed = { raw: rawText };
+        }
+      }
+
+      if (!response.ok) {
+        const message = parsed?.error?.message
+          || parsed?.detail
+          || parsed?.error
+          || parsed?.message
+          || clipText(rawText, 240)
+          || `HTTP ${response.status}`;
+        throw new TopGGRequestError(`${method} ${path} failed (${response.status}): ${message}`, {
+          status: response.status,
+          retryable: isRetryableTopGGStatus(response.status),
+          retryAfterMs: parseRetryAfterMs(response.headers),
+        });
+      }
+
+      return parsed || { success: true };
+    } catch (err) {
+      const normalizedError = err instanceof TopGGRequestError
+        ? err
+        : new TopGGRequestError(`${method} ${path} failed: ${err?.message || err}`, {
+          retryable: true,
+          cause: err,
+        });
+
+      lastError = normalizedError;
+      const shouldRetry = normalizedError.retryable === true && attemptIndex < retryOptions.maxRetries;
+      if (!shouldRetry) {
+        throw normalizedError;
+      }
+
+      const delayMs = computeTopGGRetryDelayMs(normalizedError, attemptIndex, retryOptions);
+      const nextAttempt = attemptIndex + 2;
+      const totalAttempts = retryOptions.maxRetries + 1;
+      log(
+        "WARN",
+        `[TopGG] ${method} ${path} retry in ${Math.round(delayMs)}ms ` +
+        `(attempt ${nextAttempt}/${totalAttempts}, status=${normalizedError.status || "network"}).`
+      );
+      if (delayMs > 0) {
+        await waitMs(delayMs);
+      }
     }
   }
 
-  if (!response.ok) {
-    const message = parsed?.error?.message
-      || parsed?.detail
-      || parsed?.error
-      || parsed?.message
-      || clipText(rawText, 240)
-      || `HTTP ${response.status}`;
-    throw new Error(`${method} ${path} failed (${response.status}): ${message}`);
-  }
-
-  return parsed || { success: true };
+  throw lastError || new TopGGRequestError(`${method} ${path} failed`);
 }
 
 function normalizeTopGGProjectSummary(rawProject, fallbackBotId = null) {
