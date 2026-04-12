@@ -103,6 +103,8 @@ export default function DashboardOverview({
   const connectionWindowDays = Number(detailStats?.connectionWindowDays || detailStats?.days || 0) || 0;
   const reliabilitySummary = buildReliabilitySummary({
     connects: connectionHealth?.connects ?? basic.totalConnections ?? 0,
+    reconnects: connectionHealth?.reconnects ?? basic.totalReconnects ?? 0,
+    disconnects: connectionHealth?.disconnects ?? basic.totalConnectionDisconnects ?? 0,
     errors: connectionHealth?.errors ?? basic.totalConnectionErrors ?? 0,
     t,
   });

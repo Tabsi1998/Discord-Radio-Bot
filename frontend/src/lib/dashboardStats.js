@@ -24,11 +24,21 @@ function formatDashboardDuration(ms, { short = false } = {}) {
   return `${minutes}m`;
 }
 
-function buildReliabilitySummary({ connects = 0, errors = 0, t = (de, en) => de } = {}) {
+function buildReliabilitySummary({
+  connects = 0,
+  reconnects = 0,
+  disconnects = 0,
+  errors = 0,
+  t = (de, en) => de,
+} = {}) {
   const totalConnects = Math.max(0, Number(connects) || 0);
+  const totalReconnects = Math.max(0, Number(reconnects) || 0);
+  const totalDisconnects = Math.max(0, Number(disconnects) || 0);
   const totalErrors = Math.max(0, Number(errors) || 0);
+  const totalSuccessfulConnections = totalConnects + totalReconnects;
+  const totalDisruptions = totalDisconnects + totalErrors;
 
-  if (totalConnects <= 0) {
+  if ((totalSuccessfulConnections + totalDisruptions) <= 0) {
     return {
       value: "\u2014",
       accent: "#71717A",
@@ -36,11 +46,15 @@ function buildReliabilitySummary({ connects = 0, errors = 0, t = (de, en) => de 
     };
   }
 
-  const reliability = Math.max(0, Math.min(100, Math.round(((totalConnects - totalErrors) / totalConnects) * 100)));
+  const reliability = totalSuccessfulConnections > 0
+    ? Math.max(0, Math.min(100, Math.round((totalSuccessfulConnections / (totalSuccessfulConnections + totalDisruptions)) * 100)))
+    : 0;
   return {
     value: `${reliability}%`,
     accent: reliability >= 95 ? "#10B981" : reliability >= 80 ? "#F59E0B" : "#EF4444",
-    sub: `${totalConnects} ${t("Verbindungen", "connections")}`,
+    sub: totalSuccessfulConnections > 0
+      ? `${totalSuccessfulConnections} ${t("erfolgreiche Verbindungen", "successful connections")}`
+      : `${totalDisruptions} ${t("Stoerungen", "disruptions")}`,
   };
 }
 
@@ -391,17 +405,23 @@ function buildConnectionTimelineRows(connectionHealth = {}, formatDate = null) {
       : String(row?.date || "");
     const connects = Math.max(0, Number(row?.connects || 0) || 0);
     const reconnects = Math.max(0, Number(row?.reconnects || 0) || 0);
+    const retries = Math.max(0, Number(row?.retries || 0) || 0);
+    const disconnects = Math.max(0, Number(row?.disconnects || 0) || 0);
     const errors = Math.max(0, Number(row?.errors || 0) || 0);
+    const successfulConnections = connects + reconnects;
+    const disruptions = disconnects + errors;
 
     return {
       date: row?.date || "",
       label,
       connects,
       reconnects,
+      retries,
+      disconnects,
       errors,
-      issues: reconnects + errors,
-      reliability: connects > 0
-        ? Math.max(0, Math.min(100, Math.round(((connects - errors) / connects) * 100)))
+      issues: retries + disconnects + errors,
+      reliability: successfulConnections > 0
+        ? Math.max(0, Math.min(100, Math.round((successfulConnections / (successfulConnections + disruptions)) * 100)))
         : null,
     };
   });

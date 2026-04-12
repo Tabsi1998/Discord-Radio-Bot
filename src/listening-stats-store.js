@@ -141,6 +141,8 @@ function normalizeGuildStats(raw, guildId) {
     // Connection health
     totalConnections: normalizeCount(s.totalConnections),
     totalReconnects: normalizeCount(s.totalReconnects),
+    totalReconnectRetries: normalizeCount(s.totalReconnectRetries),
+    totalConnectionDisconnects: normalizeCount(s.totalConnectionDisconnects),
     totalConnectionErrors: normalizeCount(s.totalConnectionErrors),
     avgSessionMs: normalizeCount(s.avgSessionMs),
     longestSessionMs: normalizeCount(s.longestSessionMs),
@@ -398,15 +400,17 @@ function appendFallbackListenerSnapshot(guildId, snapshot) {
 
 function getFallbackConnectionHealth(guildId, days = 7) {
   const gid = normalizeGuildId(guildId);
-  if (!gid) return { connects: 0, reconnects: 0, errors: 0, events: [], timeline: [] };
+  if (!gid) return { connects: 0, reconnects: 0, retries: 0, disconnects: 0, errors: 0, events: [], timeline: [] };
   const events = (ensureState().connectionEvents?.[gid] || []).filter((entry) => {
     const at = Date.parse(entry.timestamp);
     return at >= (Date.now() - (days * 86400_000));
   });
-  const counts = { connects: 0, reconnects: 0, errors: 0 };
+  const counts = { connects: 0, reconnects: 0, retries: 0, disconnects: 0, errors: 0 };
   for (const ev of events) {
     if (ev.eventType === "connect") counts.connects += 1;
     else if (ev.eventType === "reconnect") counts.reconnects += 1;
+    else if (ev.eventType === "retry") counts.retries += 1;
+    else if (ev.eventType === "disconnect") counts.disconnects += 1;
     else if (ev.eventType === "error") counts.errors += 1;
   }
   return {
@@ -427,6 +431,8 @@ function buildConnectionTimelineBuckets(rows = [], days = 7, nowMs = Date.now())
       date,
       connects: 0,
       reconnects: 0,
+      retries: 0,
+      disconnects: 0,
       errors: 0,
     };
     buckets.push(bucket);
@@ -442,6 +448,8 @@ function buildConnectionTimelineBuckets(rows = [], days = 7, nowMs = Date.now())
     const count = normalizeCount(row?.count ?? 1);
     if (row?.eventType === "connect") bucket.connects += count;
     else if (row?.eventType === "reconnect") bucket.reconnects += count;
+    else if (row?.eventType === "retry") bucket.retries += count;
+    else if (row?.eventType === "disconnect") bucket.disconnects += count;
     else if (row?.eventType === "error") bucket.errors += count;
   }
 
@@ -1019,6 +1027,8 @@ export function recordConnectionEvent(guildId, {
   if (stats) {
     if (eventType === "connect") stats.totalConnections = (stats.totalConnections || 0) + 1;
     else if (eventType === "reconnect") stats.totalReconnects = (stats.totalReconnects || 0) + 1;
+    else if (eventType === "retry") stats.totalReconnectRetries = (stats.totalReconnectRetries || 0) + 1;
+    else if (eventType === "disconnect") stats.totalConnectionDisconnects = (stats.totalConnectionDisconnects || 0) + 1;
     else if (eventType === "error") stats.totalConnectionErrors = (stats.totalConnectionErrors || 0) + 1;
     appendFallbackConnectionEvent(gid, {
       guildId: gid,
@@ -1201,7 +1211,7 @@ export async function getGuildSessionHistory(guildId, limit = 20) {
 
 export async function getGuildConnectionHealth(guildId, days = 7) {
   const gid = normalizeGuildId(guildId);
-  if (!gid) return { connects: 0, reconnects: 0, errors: 0, events: [], timeline: [] };
+  if (!gid) return { connects: 0, reconnects: 0, retries: 0, disconnects: 0, errors: 0, events: [], timeline: [] };
 
   const result = await mongoSafe(async (db) => {
     const since = new Date(Date.now() - days * 86400_000);
@@ -1247,10 +1257,12 @@ export async function getGuildConnectionHealth(guildId, days = 7) {
       ]).toArray(),
     ]);
 
-    const summary = { connects: 0, reconnects: 0, errors: 0 };
+    const summary = { connects: 0, reconnects: 0, retries: 0, disconnects: 0, errors: 0 };
     for (const row of counts) {
       if (row._id === "connect") summary.connects = normalizeCount(row.count);
       else if (row._id === "reconnect") summary.reconnects = normalizeCount(row.count);
+      else if (row._id === "retry") summary.retries = normalizeCount(row.count);
+      else if (row._id === "disconnect") summary.disconnects = normalizeCount(row.count);
       else if (row._id === "error") summary.errors = normalizeCount(row.count);
     }
 

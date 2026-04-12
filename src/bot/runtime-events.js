@@ -637,8 +637,8 @@ export async function syncDiscordScheduledEvent(runtime, event, station, { runAt
   return scheduledEvent || null;
 }
 
-export async function ensureVoiceConnectionForChannel(runtime, guildId, channelId, state) {
-  return ensureRuntimeVoiceConnectionForChannel(runtime, guildId, channelId, state);
+export async function ensureVoiceConnectionForChannel(runtime, guildId, channelId, state, options = {}) {
+  return ensureRuntimeVoiceConnectionForChannel(runtime, guildId, channelId, state, options);
 }
 
 export async function postScheduledEventAnnouncement(runtime, event, station, language = "de") {
@@ -759,7 +759,7 @@ export async function executeScheduledEvent(runtime, event) {
       }
       startedBy = delegatedResult.workerName || worker.config.name;
     } else {
-      const connectionInfo = await runtime.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state);
+      const connectionInfo = await runtime.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state, { source: "event" });
       if (connectionInfo?.channel?.type === ChannelType.GuildStageVoice) {
         const rawStageTopic = renderStageTopic(event.stageTopic, {
           event: event.name,

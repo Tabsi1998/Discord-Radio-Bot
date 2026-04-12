@@ -488,7 +488,7 @@ test("reconnect circuit breaker pauses retries after too many failed attempts", 
     scheduleRuntimeReconnect(runtime, "guild-1", { reason: "retry" });
 
     assert.equal(state.reconnectAttempts, 0);
-    assert.equal(state.reconnectCount, 1);
+    assert.equal(state.reconnectCount, 0);
     assert.equal(scheduled.length, 1);
     assert.ok(scheduled[0].delay >= 15 * 60 * 1000);
     assert.equal(state.reconnectTimer, scheduled[0]);
@@ -1196,6 +1196,117 @@ test("tryReconnect keeps playback target while bot member or permissions are tra
 
   assert.equal(resetCount, 0);
   assert.equal(state.transientVoiceIssues["reconnect-permissions-missing"].count, 3);
+});
+
+test("tryReconnect stops auto-reconnect after repeated permission failures", async () => {
+  let resetArgs = null;
+  const state = {
+    shouldReconnect: true,
+    lastChannelId: "voice-1",
+    currentStationKey: "station-a",
+    activeScheduledEventStopAtMs: 0,
+    reconnectAttempts: 0,
+    reconnectTimer: null,
+    transientVoiceIssues: {},
+    connection: null,
+  };
+  const guild = {
+    channels: {
+      cache: new Map([["voice-1", {
+        id: "voice-1",
+        isVoiceBased: () => true,
+        type: 2,
+        permissionsFor: () => ({ has: () => false }),
+      }]]),
+      fetch: async () => null,
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Recover" },
+    getState() {
+      return state;
+    },
+    isScheduledEventStopDue() {
+      return false;
+    },
+    client: {
+      guilds: {
+        cache: new Map([["guild-1", guild]]),
+        fetch: async () => guild,
+      },
+    },
+    resolveBotMember: async () => ({ id: "bot" }),
+    resetVoiceSession(guildId, passedState, options) {
+      resetArgs = { guildId, passedState, options };
+    },
+  };
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await tryRuntimeReconnect(runtime, "guild-1");
+  }
+
+  assert.deepEqual(resetArgs, {
+    guildId: "guild-1",
+    passedState: state,
+    options: {
+      preservePlaybackTarget: false,
+      clearLastChannel: true,
+    },
+  });
+});
+
+test("reconnect circuit exhaustion stops auto-reconnect entirely", () => {
+  const originalSetTimeout = global.setTimeout;
+  let scheduled = 0;
+  global.setTimeout = () => {
+    scheduled += 1;
+    return { unref() {} };
+  };
+
+  try {
+    let resetArgs = null;
+    const state = {
+      shouldReconnect: true,
+      lastChannelId: "voice-1",
+      currentStationKey: "station-a",
+      activeScheduledEventStopAtMs: 0,
+      reconnectAttempts: 30,
+      reconnectCircuitTripCount: 2,
+      reconnectTimer: null,
+      reconnectCount: 0,
+      lastReconnectAt: null,
+      connection: null,
+    };
+    const runtime = {
+      config: { name: "OmniFM 6", id: "bot-6" },
+      getState() {
+        return state;
+      },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      stopInGuild() {
+        throw new Error("stopInGuild should not be called");
+      },
+      resetVoiceSession(guildId, passedState, options) {
+        resetArgs = { guildId, passedState, options };
+      },
+    };
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "retry" });
+
+    assert.equal(scheduled, 0);
+    assert.deepEqual(resetArgs, {
+      guildId: "guild-1",
+      passedState: state,
+      options: {
+        preservePlaybackTarget: false,
+        clearLastChannel: true,
+      },
+    });
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
 });
 
 test("voice reconcile keeps the reconnect target until a channel mismatch is confirmed", async () => {

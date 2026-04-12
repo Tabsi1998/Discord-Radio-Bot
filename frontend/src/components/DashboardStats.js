@@ -189,7 +189,7 @@ export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = 
       )}
 
       {connectionTimelineData.length > 0 && (
-        <Section title={t(`Reliability-Trend (${detailDays} Tage)`, `Reliability trend (${detailDays} days)`)} testId="stats-reliability-trend">
+        <Section title={t(`Verbindungs-Trend (${detailDays} Tage)`, `Connection trend (${detailDays} days)`)} testId="stats-reliability-trend">
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={connectionTimelineData}>
               <XAxis dataKey="label" tick={{ fill: '#52525B', fontSize: 10 }} />
@@ -197,6 +197,8 @@ export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = 
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="connects" fill="#10B981" radius={[2, 2, 0, 0]} name={t('Connects', 'Connects')} />
               <Bar dataKey="reconnects" fill="#F59E0B" radius={[2, 2, 0, 0]} name="Reconnects" />
+              <Bar dataKey="retries" fill="#06B6D4" radius={[2, 2, 0, 0]} name={t('Retries', 'Retries')} />
+              <Bar dataKey="disconnects" fill="#A1A1AA" radius={[2, 2, 0, 0]} name={t('Disconnects', 'Disconnects')} />
               <Bar dataKey="errors" fill="#EF4444" radius={[2, 2, 0, 0]} name={t('Errors', 'Errors')} />
             </BarChart>
           </ResponsiveContainer>
@@ -405,7 +407,7 @@ export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = 
 
       {/* Connection health */}
       <Section title={t(`Verbindungsgesundheit (${detailDays} Tage)`, `Connection health (${detailDays} days)`)} testId="stats-connection-health">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 12 }}>
           <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
             <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('Verbindungen', 'Connects')}</div>
             <strong style={{ fontSize: 24, color: '#10B981' }}>{connHealth.connects || 0}</strong>
@@ -413,6 +415,14 @@ export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = 
           <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
             <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Reconnects</div>
             <strong style={{ fontSize: 24, color: '#F59E0B' }}>{connHealth.reconnects || 0}</strong>
+          </div>
+          <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
+            <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('Retries', 'Retries')}</div>
+            <strong style={{ fontSize: 24, color: '#06B6D4' }}>{connHealth.retries || 0}</strong>
+          </div>
+          <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
+            <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('Disconnects', 'Disconnects')}</div>
+            <strong style={{ fontSize: 24, color: '#A1A1AA' }}>{connHealth.disconnects || 0}</strong>
           </div>
           <div style={{ background: '#050505', border: '1px solid #1A1A2E', padding: '12px', textAlign: 'center' }}>
             <div style={{ color: '#71717A', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('Fehler', 'Errors')}</div>
@@ -426,14 +436,27 @@ export default function DashboardStatsPanel({ stats, detailStats, inviteLinks = 
                 padding: '6px 8px', borderBottom: '1px solid #0F0F1A', fontSize: 12, display: 'flex', gap: 10,
               }}>
                 <span style={{
-                  color: ev.eventType === 'connect' ? '#10B981' : ev.eventType === 'error' ? '#EF4444' : '#F59E0B',
-                  minWidth: 70, fontFamily: "'JetBrains Mono', monospace",
+                  color: ev.eventType === 'connect'
+                    ? '#10B981'
+                    : ev.eventType === 'reconnect'
+                      ? '#F59E0B'
+                      : ev.eventType === 'retry'
+                        ? '#06B6D4'
+                        : ev.eventType === 'disconnect'
+                          ? '#A1A1AA'
+                          : '#EF4444',
+                  minWidth: 80, fontFamily: "'JetBrains Mono', monospace",
                 }}>
                   {ev.eventType}
                 </span>
                 <span style={{ color: '#71717A' }}>
                   {ev.timestamp ? formatDate(ev.timestamp, { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
                 </span>
+                {(ev.botId || ev.channelId) && (
+                  <span style={{ color: '#A1A1AA' }}>
+                    {[ev.botId ? `bot=${ev.botId}` : '', ev.channelId ? `channel=${ev.channelId}` : ''].filter(Boolean).join(' ')}
+                  </span>
+                )}
                 {ev.details && <span style={{ color: '#52525B' }}>{ev.details}</span>}
               </div>
             ))}

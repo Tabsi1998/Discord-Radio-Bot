@@ -1244,9 +1244,11 @@ class BotRuntime {
     // Connection health
     const totalConnections = stats?.totalConnections || 0;
     const totalReconnects = stats?.totalReconnects || 0;
+    const totalDisconnects = stats?.totalConnectionDisconnects || 0;
     const totalErrors = stats?.totalConnectionErrors || 0;
-    const reliability = totalConnections > 0
-      ? Math.round(((totalConnections - totalErrors) / totalConnections) * 100)
+    const successfulConnections = totalConnections + totalReconnects;
+    const reliability = (successfulConnections + totalDisconnects + totalErrors) > 0
+      ? Math.round((successfulConnections / (successfulConnections + totalDisconnects + totalErrors)) * 100)
       : 100;
 
     // Session stats
@@ -3522,7 +3524,12 @@ class BotRuntime {
         this.clearScheduledEventPlayback(state);
       }
 
-      const connectionInfo = await this.ensureVoiceConnectionForChannel(guildId, channelId, state);
+      const connectionInfo = await this.ensureVoiceConnectionForChannel(
+        guildId,
+        channelId,
+        state,
+        { source: options?.scheduledEventId ? "event" : "play" }
+      );
       const { channel } = connectionInfo;
 
       // Stage channel handling

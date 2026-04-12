@@ -95,10 +95,11 @@ export async function ensureRuntimeStageChannelReady(
   return stageInstance;
 }
 
-export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, channelId, state) {
+export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, channelId, state, { source = "play" } = {}) {
   if (!state) {
     state = runtime.getState(guildId);
   }
+  const connectSource = String(source || "play").trim() || "play";
   if (state.voiceConnectInFlight) {
     await waitForVoiceConnectToSettle(state);
     const settledChannelId = String(state.connection?.joinConfig?.channelId || "").trim();
@@ -236,7 +237,7 @@ export async function ensureRuntimeVoiceConnectionForChannel(runtime, guildId, c
     botId: runtime.config.id || "",
     eventType: "connect",
     channelId: channel.id || "",
-    details: "Voice connection ready (restore)",
+    details: `Voice connection ready (${connectSource})`,
   });
 
   if (channel.type === ChannelType.GuildStageVoice) {

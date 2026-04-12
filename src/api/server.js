@@ -2144,6 +2144,8 @@ async function buildDashboardStatsForGuild(serverId, tier, runtimes) {
     longestSessionMs: Number(listeningStats.longestSessionMs || 0),
     totalConnections: Number(listeningStats.totalConnections || 0),
     totalReconnects: Number(listeningStats.totalReconnects || 0),
+    totalReconnectRetries: Number(listeningStats.totalReconnectRetries || 0),
+    totalConnectionDisconnects: Number(listeningStats.totalConnectionDisconnects || 0),
     totalConnectionErrors: Number(listeningStats.totalConnectionErrors || 0),
     updatedAt: telemetry.updatedAt || new Date().toISOString(),
     setupStatus: buildDashboardSetupStatus(serverId, tier, runtimes, { liveRows }),

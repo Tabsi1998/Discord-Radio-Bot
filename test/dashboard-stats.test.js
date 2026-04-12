@@ -38,12 +38,14 @@ test("buildReliabilitySummary reports missing connection basis clearly", () => {
 test("buildReliabilitySummary calculates percentages from connection events", () => {
   const summary = buildReliabilitySummary({
     connects: 10,
+    reconnects: 2,
+    disconnects: 2,
     errors: 1,
     t: (de, en) => en,
   });
 
-  assert.equal(summary.value, "90%");
-  assert.equal(summary.sub, "10 connections");
+  assert.equal(summary.value, "80%");
+  assert.equal(summary.sub, "12 successful connections");
   assert.equal(summary.accent, "#F59E0B");
 });
 
@@ -203,14 +205,16 @@ test("buildDashboardAnalyticsUpgradeHint only targets non-ultimate overview user
 test("buildConnectionTimelineRows formats daily connection trend rows", () => {
   const rows = buildConnectionTimelineRows({
     timeline: [
-      { date: "2026-03-07", connects: 4, reconnects: 1, errors: 1 },
-      { date: "2026-03-08", connects: 2, reconnects: 0, errors: 0 },
+      { date: "2026-03-07", connects: 4, reconnects: 1, retries: 3, disconnects: 1, errors: 1 },
+      { date: "2026-03-08", connects: 2, reconnects: 1, retries: 0, disconnects: 0, errors: 0 },
     ],
   });
 
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].issues, 2);
-  assert.equal(rows[0].reliability, 75);
+  assert.equal(rows[0].issues, 5);
+  assert.equal(rows[0].retries, 3);
+  assert.equal(rows[0].disconnects, 1);
+  assert.equal(rows[0].reliability, 71);
   assert.equal(rows[1].reliability, 100);
 });
 

@@ -262,6 +262,8 @@ test("fallback detail data survives session writes and reset removes all guild d
     await endListeningSession(TEST_GUILD_ID, { botId: "bot-1" });
     recordGuildListenerSample(TEST_GUILD_ID, 1, Date.now());
     recordConnectionEvent(TEST_GUILD_ID, { botId: "bot-1", eventType: "reconnect", channelId: "voice-1" });
+    recordConnectionEvent(TEST_GUILD_ID, { botId: "bot-1", eventType: "retry", channelId: "voice-1" });
+    recordConnectionEvent(TEST_GUILD_ID, { botId: "bot-1", eventType: "disconnect", channelId: "voice-1" });
 
     const sessionHistory = await getGuildSessionHistory(TEST_GUILD_ID, 5);
     const dailyStats = await getGuildDailyStats(TEST_GUILD_ID, 5);
@@ -274,8 +276,12 @@ test("fallback detail data survives session writes and reset removes all guild d
     assert.equal(dailyStats[0].totalListeningMs, 10 * 60 * 1000);
     assert.equal(timeline.length, 1);
     assert.equal(health.reconnects, 1);
+    assert.equal(health.retries, 1);
+    assert.equal(health.disconnects, 1);
     assert.equal(health.timeline.length, 7);
     assert.equal(health.timeline.reduce((sum, day) => sum + day.reconnects, 0), 1);
+    assert.equal(health.timeline.reduce((sum, day) => sum + day.retries, 0), 1);
+    assert.equal(health.timeline.reduce((sum, day) => sum + day.disconnects, 0), 1);
 
     resetGuildStats(TEST_GUILD_ID);
 
@@ -285,9 +291,14 @@ test("fallback detail data survives session writes and reset removes all guild d
     const emptyHealth = await getGuildConnectionHealth(TEST_GUILD_ID, 7);
     assert.equal(emptyHealth.connects, 0);
     assert.equal(emptyHealth.reconnects, 0);
+    assert.equal(emptyHealth.retries, 0);
+    assert.equal(emptyHealth.disconnects, 0);
     assert.equal(emptyHealth.errors, 0);
     assert.deepEqual(emptyHealth.events, []);
     assert.equal(emptyHealth.timeline.length, 7);
-    assert.equal(emptyHealth.timeline.reduce((sum, day) => sum + day.connects + day.reconnects + day.errors, 0), 0);
+    assert.equal(
+      emptyHealth.timeline.reduce((sum, day) => sum + day.connects + day.reconnects + day.retries + day.disconnects + day.errors, 0),
+      0
+    );
   });
 });

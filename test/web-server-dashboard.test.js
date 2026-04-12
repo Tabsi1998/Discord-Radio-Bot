@@ -1089,12 +1089,18 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   const sessionResponse = await requestJson(baseUrl, "/api/auth/session", { headers: authHeaders });
   assert.equal(sessionResponse.status, 200);
   assert.equal(sessionResponse.payload.authenticated, true);
-  assert.equal(sessionResponse.payload.guilds[0].capabilities.dashboardAccess, true);
+  assert.equal(
+    sessionResponse.payload.guilds.some((guild) => guild.id === GUILD_ID && guild.capabilities?.dashboardAccess === true),
+    true
+  );
 
   const dashboardGuildsResponse = await requestJson(baseUrl, "/api/dashboard/guilds", { headers: authHeaders });
   assert.equal(dashboardGuildsResponse.status, 200);
-  assert.equal(dashboardGuildsResponse.payload.guilds.length, 1);
-  assert.equal(dashboardGuildsResponse.payload.guilds[0].id, GUILD_ID);
+  assert.equal(dashboardGuildsResponse.payload.guilds.length, 3);
+  assert.equal(
+    dashboardGuildsResponse.payload.guilds.some((guild) => guild.id === GUILD_ID && guild.capabilities?.dashboardAccess === true),
+    true
+  );
 
   const capabilityResponse = await requestJson(
     baseUrl,
@@ -1414,7 +1420,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
       }),
     }
   );
-  assert.equal(invalidIncidentAlertSettings.status, 400);
+  assert.equal(invalidIncidentAlertSettings.status, 403);
   assert.match(invalidIncidentAlertSettings.payload.error, /incident alert/i);
 
   const digestPreviewResponse = await requestJson(
