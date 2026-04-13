@@ -2,9 +2,17 @@
 
 ## Goal
 
-Run the bot, API, and website locally for development and testing.
+Run the canonical Node.js bot, API, and website locally and test real Discord flows without deploying a container first.
 
-## Minimum setup
+## Prerequisites
+
+- Node.js 22+ for the app runtime
+- npm
+- At least one Discord bot token and client ID
+- `ffmpeg` recommended for real playback tests
+- MongoDB optional
+
+## Minimum `.env`
 
 Create `.env` from `.env.example` and fill at least:
 
@@ -13,14 +21,18 @@ Create `.env` from `.env.example` and fill at least:
 
 Recommended local defaults:
 
-- `PUBLIC_WEB_URL=http://localhost:8081`
+- `BOT_1_NAME=OmniFM Commander`
+- `BOT_1_TIER=free`
+- `COMMANDER_BOT_INDEX=1`
+- `OMNIFM_DEPLOYMENT_MODE=monolith`
 - `WEB_PORT=8081`
 - `WEB_INTERNAL_PORT=8080`
+- `PUBLIC_WEB_URL=http://localhost:8081`
 - `MONGO_ENABLED=0`
 
-## Full dashboard login setup
+## Optional Dashboard OAuth
 
-If you also want to test Discord OAuth for the dashboard, add:
+If you want to test dashboard login, also set:
 
 - `DISCORD_CLIENT_ID`
 - `DISCORD_CLIENT_SECRET`
@@ -28,62 +40,117 @@ If you also want to test Discord OAuth for the dashboard, add:
 
 Your Discord application must allow that redirect URI.
 
-## Start commands
-
-Install dependencies once:
+## Install Dependencies
 
 ```bash
 npm install
 npm --prefix frontend install
 ```
 
-Terminal 1: bot + API + integrated website
+## Run The Monolith Locally
+
+Start the bot, API, and integrated website:
 
 ```bash
 npm start
 ```
 
-Terminal 2: optional frontend hot reload
+Open:
+
+- `http://localhost:8081`
+- `http://localhost:8081/api/health`
+
+## Optional React Hot Reload
+
+Start the frontend dev server in a second terminal:
 
 ```bash
 npm run frontend:start
 ```
 
-## Local URLs
+Then open:
 
-- Integrated site from the Node backend: `http://localhost:8081`
-- API health check: `http://localhost:8081/api/health`
-- React dev server with hot reload: `http://localhost:3000`
+- `http://localhost:3000`
 
-When the React dev server runs on `localhost:3000`, it automatically targets the backend at `localhost:8081`.
+By default the React dev server talks to `http://localhost:8081` when it detects the browser is running on `localhost:3000`.
 
-## First local Discord test
+Frontend overrides:
 
-Once `npm start` is running and your bot token is valid, test the real product flow in Discord:
+- `REACT_APP_BACKEND_URL`
+- `REACT_APP_BACKEND_PORT`
 
-1. Invite the commander bot to your test server
-2. Use `/workers` or `/invite` to add at least one worker bot
-3. Join a voice or stage channel and run `/play`
+Those are frontend dev-server variables and are typically set in `frontend/.env` or the shell that starts `npm run frontend:start`.
 
-Without an invited worker, the commander can answer commands, but no radio stream can start.
+## Run Split Mode Locally Without Docker
 
-## What works without extra services
+This is only useful when you want to debug commander and worker processes separately.
 
-- public website
-- station directory
-- pricing display
-- most public API routes
-- bot presence and runtime, if a valid Discord bot token is configured
+Required:
 
-## What needs more environment variables
+- Configure at least two bots in `.env`, for example `BOT_1_*` and `BOT_2_*`
+- Set `COMMANDER_BOT_INDEX=1`
 
-- Dashboard Discord login: `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`
-- Stripe checkout: Stripe keys and webhook secret
-- SMTP mail: SMTP host and credentials
+Terminal 1, commander:
+
+```bash
+npm run start:commander
+```
+
+Terminal 2, worker 2:
+
+```powershell
+$env:BOT_PROCESS_INDEX='2'
+npm run start:worker
+```
+
+Each additional worker needs its own terminal and its own `BOT_PROCESS_INDEX`.
+
+## Local Docker Alternative
+
+If you want the production-style path locally:
+
+```bash
+bash ./scripts/compose.sh up -d --build
+bash ./scripts/compose.sh logs -f omnifm
+```
+
+PowerShell helper for split Docker startup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-split.ps1 -Build
+```
+
+## First Local Discord Test
+
+1. Invite the commander bot to a test guild.
+2. Use `/setup` or `/workers`.
+3. Invite at least one worker with `/invite`.
+4. Join a voice or stage channel.
+5. Run `/play`.
+
+Without an invited worker, the commander can answer commands, but playback cannot start.
+
+## What Works Without Extra Services
+
+- Website
+- Public API routes
+- Station browsing
+- Core Discord playback/runtime
+- Slash command handling
+- File-based persistence
+
+## What Needs More Configuration
+
+- Dashboard login: `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`
+- Stripe checkout: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+- SMTP mail: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
 - Mongo-backed persistence: `MONGO_URL` or `MONGO_ENABLED=1`
+- Audio recognition: `NOW_PLAYING_RECOGNITION_ENABLED=1`, `ACOUSTID_API_KEY`
 
-## Common local blockers
+## Common Local Blockers
 
-- Empty `.env`: OmniFM exits because no bot config can be loaded.
-- Missing `ffmpeg`: the process can start, but actual audio streaming features are limited or unavailable.
-- Missing OAuth redirect setup in Discord: dashboard login fails even if the website itself loads.
+- Empty `.env`: OmniFM exits with `No bot configuration found. Set BOT_1_TOKEN/BOT_1_CLIENT_ID.`
+- Missing `ffmpeg`: the process can start, but real playback and metadata tooling are limited.
+- Missing OAuth redirect configuration: the dashboard loads, but login fails.
+- Missing worker invite: the commander responds, but no stream starts.
+- Missing `frontend/build`: the monolith serves the integrated site only after `npm --prefix frontend run build`, unless you use the React dev server.

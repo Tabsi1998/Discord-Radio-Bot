@@ -1,0 +1,239 @@
+# OmniFM Operations And Deployment
+
+## Recommended Production Path
+
+1. Prepare `.env` from `.env.example`.
+2. Run `./install.sh` on a Linux host with Docker.
+3. Start or rebuild with `bash ./scripts/compose.sh up -d --build`.
+4. Inspect logs with `bash ./scripts/compose.sh logs -f omnifm`.
+5. Run the live acceptance check after important changes.
+
+## Compose Selection
+
+`scripts/compose.sh` is the normal entry point for Docker Compose commands.
+
+It exports the effective compose environment from `scripts/runtime-compose.sh` and then runs:
+
+```bash
+docker compose ...
+```
+
+Selection logic:
+
+- `OMNIFM_DEPLOYMENT_MODE=monolith` -> `docker-compose.yml`
+- `OMNIFM_DEPLOYMENT_MODE=split` -> `docker-compose.split.yml`
+- `OMNIFM_DEPLOYMENT_MODE=auto` -> split when more than one bot is configured, otherwise monolith
+
+Useful examples:
+
+```bash
+bash ./scripts/compose.sh ps
+bash ./scripts/compose.sh up -d --build
+bash ./scripts/compose.sh logs -f omnifm
+bash ./scripts/compose.sh down
+```
+
+## Compose Files
+
+### `docker-compose.yml`
+
+- `mongodb`
+- `omnifm`
+
+The `omnifm` container runs `docker-entrypoint.sh`, which then starts `src/index.js`.
+
+### `docker-compose.split.yml`
+
+- `mongodb`
+- `omnifm` as the commander service
+- `omnifm-worker-N` services for every configured worker profile
+
+The commander runs `src/entrypoints/commander.js`. Workers run `src/entrypoints/worker.js`.
+
+## Install Script
+
+`./install.sh` is the intended first-run setup for production.
+
+It can:
+
+- install Docker on supported Linux hosts
+- create or extend `.env`
+- configure one or more bots
+- set commander vs worker layout
+- set web URL/ports
+- set Stripe
+- set SMTP
+- set DiscordBotList, Top.gg, and discord.bots.gg values
+- set audio recognition values
+- build and start the container(s)
+
+## Update Script
+
+`./update.sh` is the operational admin tool for deployed environments.
+
+Common modes:
+
+| Command | Purpose |
+| --- | --- |
+| `./update.sh --update` | Pull/update/rebuild full deployment |
+| `./update.sh --update-rolling` | Rolling worker restarts in split mode |
+| `./update.sh --update-commander` | Rebuild only commander container in split mode |
+| `./update.sh --bots` | Bot management submenu |
+| `./update.sh --stripe` | Stripe secret/public key setup |
+| `./update.sh --premium` | Premium CLI through the running container |
+| `./update.sh --offers` | Offer/coupon/direct-grant management |
+| `./update.sh --email` | SMTP setup |
+| `./update.sh --settings` | Main settings menu |
+| `./update.sh --settings commands` | Slash-command settings directly |
+| `./update.sh --dashboard-settings` | Dashboard OAuth setup shortcut |
+| `./update.sh --status` | Interactive admin cockpit |
+| `./update.sh --status quick` | Non-interactive status summary |
+| `./update.sh --status live` | Live Docker logs |
+| `./update.sh --status local-live` | Live local log tail |
+| `./update.sh --doctor` | System/runtime diagnostics |
+| `./update.sh --recognition-test <URL>` | Direct audio-recognition test |
+| `./update.sh --cleanup` | Cleanup logs, backups, Docker cache |
+
+Important warning:
+
+- `./update.sh --update*` is intended for deployed checkouts.
+- The script resets the local repository to the configured remote branch during the update path.
+- Do not use it on a development checkout with uncommitted work.
+
+## Split Mode Notes
+
+Split mode becomes useful when you have multiple bots and want isolated worker processes.
+
+Important variables:
+
+- `OMNIFM_DEPLOYMENT_MODE=split`
+- `COMMANDER_BOT_INDEX=<bot number>`
+- `BOT_N_TOKEN`, `BOT_N_CLIENT_ID`, `BOT_N_NAME`, `BOT_N_TIER`
+
+Windows helper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-split.ps1 -Build
+```
+
+That helper:
+
+- reads `.env`
+- resolves the commander bot
+- enables only the worker profiles that actually exist
+- starts the split compose file with Docker
+
+## Container Boot Behavior
+
+`docker-entrypoint.sh` does some runtime preparation before launching OmniFM:
+
+- ensures JSON files exist and contain valid JSON
+- creates `logs/`, `bot-state/`, and `song-history/`
+- waits for MongoDB when `MONGO_URL` is set
+- checks `ffmpeg` and `fpcalc`
+- deploys slash commands when `REGISTER_COMMANDS_ON_BOOT=1`
+- starts `src/index.js`
+
+## Live Acceptance Check
+
+The repository ships with `scripts/phase6-live-check.mjs`.
+
+Example:
+
+```bash
+node scripts/phase6-live-check.mjs --base-url https://example.com --admin-token "$API_ADMIN_TOKEN" --docker-service omnifm --log-since 30m
+```
+
+It checks:
+
+- DiscordBotList status
+- discord.bots.gg status
+- Top.gg status
+- unified vote-event status
+- recent Docker logs for failure patterns
+
+Supported admin token inputs:
+
+- `--admin-token`
+- `OMNIFM_ADMIN_TOKEN`
+- `API_ADMIN_TOKEN`
+- `ADMIN_API_TOKEN`
+
+## Logs And Status
+
+Fast status overview:
+
+```bash
+./update.sh --status quick
+```
+
+Live container logs:
+
+```bash
+./update.sh --status live
+```
+
+Direct compose logs:
+
+```bash
+bash ./scripts/compose.sh logs -f omnifm
+```
+
+## Persisted Runtime Data
+
+The compose files bind-mount these state files from the repository root:
+
+- `stations.json`
+- `premium.json`
+- `bot-state.json`
+- `custom-stations.json`
+- `command-permissions.json`
+- `guild-languages.json`
+- `song-history.json`
+- `dashboard.json`
+- `listening-stats.json`
+- `scheduled-events.json`
+- `coupons.json`
+- `discordbotlist.json`
+- `botsgg.json`
+- `topgg.json`
+- `vote-events.json`
+- `logs/`
+
+Split mode additionally mounts:
+
+- `bot-state/`
+- `song-history/`
+
+## Common Tasks
+
+Rebuild after code changes:
+
+```bash
+bash ./scripts/compose.sh up -d --build
+```
+
+Open Premium CLI inside the running container:
+
+```bash
+./update.sh --premium
+```
+
+Open offer manager inside the running container:
+
+```bash
+./update.sh --offers
+```
+
+Show configured bots:
+
+```bash
+./update.sh --bots
+```
+
+## Operational Notes
+
+- `frontend/build` must exist for the production website unless you explicitly allow the legacy fallback.
+- `WEB_ALLOW_LEGACY_FALLBACK=1` is an emergency switch, not the normal frontend path.
+- Recognition support depends on `ffmpeg`, `fpcalc`, and the recognition env values.
+- The backend can continue with file-based stores when MongoDB is unavailable.
