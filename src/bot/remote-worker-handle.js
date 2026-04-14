@@ -8,7 +8,7 @@ function toDateMs(value, fallbackValue = 0) {
 
 function buildRemoteConnection(detail) {
   const channelId = String(detail?.channelId || "").trim();
-  if (!channelId || detail?.playing !== true) return null;
+  if (!channelId || detail?.voiceConnected !== true) return null;
   return {
     joinConfig: {
       channelId,
@@ -80,7 +80,7 @@ function buildRemoteGuildObject(summary = {}, detail = null) {
     });
   }
 
-  const me = channelId
+  const me = detail?.voiceConnected === true && channelId
     ? { voice: { channelId } }
     : null;
 
@@ -250,6 +250,7 @@ class RemoteWorkerHandle {
       reconnectCount: Number(detail?.reconnectCount || 0) || 0,
       lastReconnectAt: detail?.lastReconnectAt || null,
       shouldReconnect: detail?.shouldReconnect === true,
+      voiceConnected: detail?.voiceConnected === true,
       recovering: detail?.recovering === true,
       streamErrorCount: Number(detail?.streamErrorCount || 0) || 0,
       lastStreamErrorAt: detail?.lastStreamErrorAt || null,

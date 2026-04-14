@@ -126,6 +126,28 @@ function noteRuntimeRecoverySuccess(runtime, guildId, source) {
   networkRecoveryCoordinator.noteSuccess(source);
 }
 
+function getRuntimeStreamSnapshot(runtime, guildId, state = null, extra = {}) {
+  const detail = [
+    `guild=${guildId || "-"}`,
+    `station=${state?.currentStationKey || "-"}`,
+    `channel=${state?.lastChannelId || state?.connection?.joinConfig?.channelId || "-"}`,
+    `voiceLocal=${state?.connection ? 1 : 0}`,
+    `player=${String(state?.player?.state?.status || "").trim() || "unknown"}`,
+    `process=${state?.currentProcess ? 1 : 0}`,
+    `errors=${Number(state?.streamErrorCount || 0) || 0}`,
+  ];
+  if (state?.streamRestartTimer) detail.push("stream=1");
+  if (state?.reconnectTimer) detail.push("reconnect=1");
+  if (state?.reconnectInFlight === true) detail.push("reconnectFlight=1");
+  if (state?.voiceConnectInFlight === true) detail.push("voiceFlight=1");
+  if (extra?.reason) detail.push(`reason=${extra.reason}`);
+  if (extra?.detail) detail.push(`detail=${extra.detail}`);
+  if (Number.isFinite(Number(extra?.delayMs)) && Number(extra.delayMs) > 0) {
+    detail.push(`delay=${Math.round(Number(extra.delayMs))}ms`);
+  }
+  return detail.join(" ");
+}
+
 function getRuntimeRecoveryScope(runtime, guildId) {
   if (typeof runtime?.getNetworkRecoveryScope === "function") {
     return runtime.getNetworkRecoveryScope(guildId);
@@ -459,6 +481,7 @@ export function scheduleRuntimeStreamRestart(runtime, guildId, state, delayMs, r
   }
 
   const delay = applyJitter(Math.max(250, Number(delayMs) || 0), 0.15);
+  log("INFO", `[${runtime.config.name}] Stream-Restart geplant ${getRuntimeStreamSnapshot(runtime, guildId, state, { reason, delayMs: delay })}`);
   state.streamRestartTimer = setTimeout(() => {
     state.streamRestartTimer = null;
     runtime.restartCurrentStation(state, guildId).catch((err) => {
@@ -590,7 +613,8 @@ export function armRuntimePlaybackRecovery(
   if (state.connection) {
     log(
       "WARN",
-      `[${runtime.config.name}] Stream-Start fehlgeschlagen guild=${guildId} station=${key}: ${errorMessage}. Voice bleibt verbunden, Retry in ${Math.round(delay)}ms (reason=${reason}).`
+      `[${runtime.config.name}] Stream-Start fehlgeschlagen: ${errorMessage}. ` +
+      `${getRuntimeStreamSnapshot(runtime, guildId, state, { reason, delayMs: delay })}`
     );
     runtime.scheduleStreamRestart(guildId, state, delay, reason);
     return { scheduled: true, delayMs: delay, message: errorMessage, stationName };
@@ -599,7 +623,8 @@ export function armRuntimePlaybackRecovery(
   if (state.lastChannelId) {
     log(
       "WARN",
-      `[${runtime.config.name}] Stream-Start fehlgeschlagen guild=${guildId} station=${key}: ${errorMessage}. Voice fehlt, Reconnect wird geplant (reason=${reason}).`
+      `[${runtime.config.name}] Stream-Start fehlgeschlagen ohne lokale Voice-Verbindung: ${errorMessage}. ` +
+      `${getRuntimeStreamSnapshot(runtime, guildId, state, { reason, delayMs: delay })}`
     );
     runtime.scheduleReconnect(guildId, { resetAttempts: true, reason });
     return { scheduled: true, delayMs: delay, message: errorMessage, stationName };
@@ -726,6 +751,10 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
 
   const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
   if (networkCooldownMs > 0) {
+    log("INFO", `[${runtime.config.name}] Stream-Restart wegen Netz-Cooldown verschoben ${getRuntimeStreamSnapshot(runtime, guildId, state, {
+      reason: "network-cooldown",
+      delayMs: Math.max(1_000, networkCooldownMs),
+    })}`);
     runtime.scheduleStreamRestart(guildId, state, Math.max(1_000, networkCooldownMs), "network-cooldown");
     return;
   }
@@ -734,6 +763,9 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
     runtime.clearCurrentProcess(state);
     state.currentStationKey = resolvedStation.key;
     state.currentStationName = resolvedStation.station.name || resolvedStation.key;
+    log("INFO", `[${runtime.config.name}] Stream-Restart startet ${getRuntimeStreamSnapshot(runtime, guildId, state, {
+      reason: previousRestartReason || "restart",
+    })}`);
     await runtime.playStation(state, resolvedStation.stations, resolvedStation.key, guildId);
     log("INFO", `[${runtime.config.name}] Stream restarted: ${resolvedStation.key}`);
     if (shouldEmitRecoveredAlert({

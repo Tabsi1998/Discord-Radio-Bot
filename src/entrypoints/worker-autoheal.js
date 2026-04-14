@@ -241,6 +241,37 @@ function evaluateWorkerAutohealState(runtime, unhealthySinceByGuild = new Map(),
   };
 }
 
+async function observeRecoveringGuildVoicePresence(runtime, guildRows = []) {
+  if (!Array.isArray(guildRows) || guildRows.length === 0) return [];
+  if (typeof runtime?.fetchBotVoiceState !== "function") return [];
+
+  const observed = [];
+  for (const row of guildRows) {
+    const guildId = String(row?.guildId || "").trim();
+    if (!guildId) continue;
+    try {
+      // Confirm against Discord before treating a missing local connection as a dead worker.
+      const voiceState = await runtime.fetchBotVoiceState(guildId);
+      const actualChannelId = String(voiceState?.channelId || "").trim();
+      if (!actualChannelId) continue;
+
+      const state = runtime?.guildState?.get?.(guildId);
+      if (state && state.lastChannelId !== actualChannelId) {
+        runtime?.markNowPlayingTargetDirty?.(state, actualChannelId);
+        state.lastChannelId = actualChannelId;
+      }
+      runtime?.queueVoiceStateReconcile?.(guildId, "worker-autoheal-observed-voice", 1200);
+      observed.push({
+        guildId,
+        channelId: actualChannelId,
+      });
+    } catch {
+      // ignore voice-state fetch errors; autoheal may still be needed
+    }
+  }
+  return observed;
+}
+
 function startWorkerAutohealMonitor({
   runtime,
   shutdown = null,
@@ -269,6 +300,32 @@ function startWorkerAutohealMonitor({
 
     if (!evaluation.shouldExit || stopping) {
       return evaluation;
+    }
+
+    const observedVoiceGuilds = await observeRecoveringGuildVoicePresence(runtime, evaluation.stuckGuilds);
+    if (observedVoiceGuilds.length > 0) {
+      try {
+        runtime?.persistState?.();
+      } catch {
+        // ignore persistence issues during voice-state confirmation
+      }
+      const lines = [
+        `[${runtime?.config?.name || "Worker"}] Worker-Autoheal verworfen: ` +
+        `${observedVoiceGuilds.length} Recovery-Ziel(e) zeigen weiterhin einen Discord-Voice-State. ` +
+        `Reconcile wird erneut angestossen.`,
+        `summary workerIndex=${options.workerIndex} uptime=${Math.round((Number(evaluation.uptimeMs || 0) || 0) / 1000)}s ` +
+        `recoverableTargets=${evaluation.recoverableTargetCount} activeVoice=${evaluation.activeVoiceCount} ` +
+        `grace=${Math.round(options.graceMs / 1000)}s check=${Math.round(options.checkMs / 1000)}s`,
+      ];
+      observedVoiceGuilds.forEach((row, index) => {
+        lines.push(`observed[${index + 1}] guild=${row.guildId} channel=${row.channelId}`);
+      });
+      log("WARN", lines.join("\n"));
+      return {
+        ...evaluation,
+        shouldExit: false,
+        observedVoiceGuilds,
+      };
     }
 
     stopping = true;

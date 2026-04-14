@@ -23,6 +23,7 @@ import { shouldLogFfmpegStderrLine } from "../src/lib/logging.js";
 import {
   applyWorkerAutohealRecoveryBlock,
   evaluateWorkerAutohealState,
+  startWorkerAutohealMonitor,
 } from "../src/entrypoints/worker-autoheal.js";
 import {
   attachRuntimeConnectionHandlers,
@@ -639,6 +640,71 @@ test("scheduleReconnect persists a recoverable playback target for restart resto
 
     assert.equal(scheduled.length, 1);
     assert.equal(persistCount, 1);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
+});
+
+test("scheduleReconnect keeps the attempt counter stable when reconnect work was only deferred", async () => {
+  const originalSetTimeout = global.setTimeout;
+  const scheduled = [];
+  global.setTimeout = (fn, delay) => {
+    const timer = { fn, delay, unref() {} };
+    scheduled.push(timer);
+    return timer;
+  };
+
+  try {
+    let reconnectCalls = 0;
+    const state = {
+      shouldReconnect: true,
+      currentStationKey: "station-a",
+      lastChannelId: "voice-1",
+      activeScheduledEventStopAtMs: 0,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      reconnectCount: 0,
+      lastReconnectAt: null,
+      connection: null,
+      reconnectInFlight: false,
+      voiceConnectInFlight: false,
+    };
+    const runtime = {
+      config: { name: "OmniFM 6", id: "bot-6" },
+      getState() {
+        return state;
+      },
+      getNetworkRecoveryDelayMs() {
+        return 0;
+      },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      stopInGuild() {
+        throw new Error("stopInGuild should not be called");
+      },
+      async tryReconnect() {
+        reconnectCalls += 1;
+        return {
+          attempted: false,
+          retryRecommended: true,
+          minDelayMs: 5_000,
+          reason: "network-cooldown",
+        };
+      },
+      persistState() {},
+    };
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "retry" });
+    assert.equal(state.reconnectAttempts, 1);
+    assert.equal(scheduled.length, 1);
+
+    await scheduled[0].fn();
+
+    assert.equal(reconnectCalls, 1);
+    assert.equal(state.reconnectAttempts, 1);
+    assert.equal(scheduled.length, 2);
+    assert.ok(scheduled[1].delay >= 5_000);
   } finally {
     global.setTimeout = originalSetTimeout;
   }
@@ -1458,6 +1524,123 @@ test("voice reconcile syncs the remembered channel when active connection and vo
   assert.equal(dirtyCount, 1);
   assert.equal(persistCount, 1);
   assert.equal(state.transientVoiceIssues["voice-channel-mismatch"], undefined);
+});
+
+test("voice reconcile treats a missing local handle as stale state while playback is still active", async () => {
+  const queued = [];
+  let reconnectCount = 0;
+  const state = {
+    connection: null,
+    currentStationKey: "station-a",
+    currentStationName: "Station A",
+    currentProcess: { pid: 42 },
+    lastChannelId: "voice-1",
+    shouldReconnect: true,
+    player: { state: { status: "playing" } },
+    transientVoiceIssues: {},
+    voiceConnectInFlight: false,
+    reconnectInFlight: false,
+    reconnectTimer: null,
+  };
+  const runtime = {
+    config: { name: "OmniFM Test" },
+    client: {
+      isReady: () => true,
+    },
+    guildState: new Map([["guild-1", state]]),
+    fetchBotVoiceState: async () => ({ guild: {}, voiceState: {}, channelId: "voice-1" }),
+    markNowPlayingTargetDirty() {},
+    persistState() {},
+    queueVoiceStateReconcile(guildId, reason, delayMs) {
+      queued.push({ guildId, reason, delayMs });
+    },
+    resetVoiceSession() {
+      throw new Error("resetVoiceSession should not run");
+    },
+    scheduleReconnect() {
+      reconnectCount += 1;
+    },
+    scheduleStreamRestart() {
+      throw new Error("scheduleStreamRestart should not run");
+    },
+    syncVoiceChannelStatus() {
+      throw new Error("syncVoiceChannelStatus should not run");
+    },
+  };
+
+  await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+  assert.equal(reconnectCount, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].reason, "voice-local-connection-confirm-timer");
+  assert.equal(state.transientVoiceIssues["voice-local-connection-missing"].count, 1);
+
+  await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+  assert.equal(reconnectCount, 0);
+  assert.equal(queued.length, 2);
+  assert.equal(queued[1].reason, "voice-local-stale-timer");
+  assert.ok(queued[1].delayMs >= 8_000);
+  assert.equal(state.transientVoiceIssues["voice-local-connection-missing"].count, 2);
+});
+
+test("voice reconcile forces a reconnect when the local handle is missing and playback is idle", async () => {
+  const queued = [];
+  const reconnectCalls = [];
+  const state = {
+    connection: null,
+    currentStationKey: "station-a",
+    currentStationName: "Station A",
+    currentProcess: null,
+    lastChannelId: "voice-1",
+    shouldReconnect: true,
+    player: { state: { status: "idle" } },
+    transientVoiceIssues: {},
+    voiceConnectInFlight: false,
+    reconnectInFlight: false,
+    reconnectTimer: null,
+  };
+  const runtime = {
+    config: { name: "OmniFM Test" },
+    client: {
+      isReady: () => true,
+    },
+    guildState: new Map([["guild-1", state]]),
+    fetchBotVoiceState: async () => ({ guild: {}, voiceState: {}, channelId: "voice-1" }),
+    markNowPlayingTargetDirty() {},
+    persistState() {},
+    queueVoiceStateReconcile(guildId, reason, delayMs) {
+      queued.push({ guildId, reason, delayMs });
+    },
+    resetVoiceSession() {
+      throw new Error("resetVoiceSession should not run");
+    },
+    scheduleReconnect(guildId, options = {}) {
+      reconnectCalls.push({ guildId, options });
+    },
+    scheduleStreamRestart() {
+      throw new Error("scheduleStreamRestart should not run");
+    },
+    syncVoiceChannelStatus() {
+      throw new Error("syncVoiceChannelStatus should not run");
+    },
+  };
+
+  await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+  assert.equal(reconnectCalls.length, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].reason, "voice-local-connection-confirm-timer");
+  assert.equal(state.transientVoiceIssues["voice-local-connection-missing"].count, 1);
+
+  await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+  assert.equal(reconnectCalls.length, 1);
+  assert.deepEqual(reconnectCalls[0], {
+    guildId: "guild-1",
+    options: {
+      resetAttempts: true,
+      reason: "voice-local-stale-timer",
+    },
+  });
+  assert.equal(queued.length, 1);
+  assert.equal(state.transientVoiceIssues["voice-local-connection-missing"], undefined);
 });
 
 test("voice state update without auto reconnect resets the voice session exactly once", () => {
@@ -2305,6 +2488,36 @@ test("remote worker handle preserves zero volume in guild details", () => {
 
   assert.equal(worker.getState("guild-1")?.volume, 0);
   assert.equal(worker.getGuildInfo("guild-1")?.volume, 0);
+});
+
+test("remote worker handle does not fabricate a live voice member for recovering guilds", () => {
+  const worker = new RemoteWorkerHandle({ id: "bot-remote-recovering", name: "OmniFM Remote" });
+  worker.applyRemoteStatus({
+    heartbeatAt: new Date().toISOString(),
+    status: {
+      ready: true,
+      guildDetails: [{
+        guildId: "guild-1",
+        guildName: "Guild One",
+        channelId: "voice-1",
+        channelName: "Radio",
+        playing: false,
+        voiceConnected: false,
+        recovering: true,
+        shouldReconnect: true,
+        stationKey: "station-a",
+        stationName: "Station A",
+      }],
+    },
+    guilds: [{
+      guildId: "guild-1",
+      guildName: "Guild One",
+    }],
+  });
+
+  const guild = worker.client.guilds.cache.get("guild-1");
+  assert.equal(worker.getState("guild-1")?.connection, null);
+  assert.equal(guild?.members?.me || null, null);
 });
 
 test("buildNowPlayingEmbed shows the current worker volume", () => {
@@ -3653,5 +3866,72 @@ test("worker autoheal blocks stuck recovery targets before a restart", () => {
   } finally {
     clearTimeout(reconnectTimer);
     clearTimeout(streamRestartTimer);
+  }
+});
+
+test("worker autoheal skips the forced restart when Discord still reports an active voice channel", async () => {
+  const originalDateNow = Date.now;
+  let queued = 0;
+  let persistCalls = 0;
+  let exitCode = null;
+  const now = Date.now();
+  const runtime = {
+    config: { name: "OmniFM 9", index: 9 },
+    startedAt: now - (50 * 60 * 1000),
+    client: {
+      isReady: () => true,
+    },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "station-a",
+        currentStationName: "Station A",
+        shouldReconnect: true,
+        lastChannelId: "voice-1",
+        connection: null,
+        reconnectAttempts: 8,
+        reconnectTimer: { active: true },
+      }],
+    ]),
+    async fetchBotVoiceState() {
+      return { guild: {}, voiceState: {}, channelId: "voice-1" };
+    },
+    queueVoiceStateReconcile() {
+      queued += 1;
+    },
+    persistState() {
+      persistCalls += 1;
+    },
+  };
+
+  const monitor = startWorkerAutohealMonitor({
+    runtime,
+    exit(code) {
+      exitCode = code;
+    },
+    env: {
+      WORKER_AUTOHEAL_ENABLED: "1",
+      WORKER_AUTOHEAL_CHECK_MS: "30000",
+      WORKER_AUTOHEAL_GRACE_MS: "600000",
+      WORKER_AUTOHEAL_RECOVERING_MS: "1200000",
+    },
+  });
+
+  try {
+    Date.now = () => now;
+    const firstPass = await monitor.tick();
+    assert.equal(firstPass.shouldExit, false);
+
+    Date.now = () => now + (21 * 60 * 1000);
+    const secondPass = await monitor.tick();
+
+    assert.equal(secondPass.shouldExit, false);
+    assert.equal(Array.isArray(secondPass.observedVoiceGuilds), true);
+    assert.equal(secondPass.observedVoiceGuilds.length, 1);
+    assert.equal(queued, 1);
+    assert.equal(persistCalls >= 1, true);
+    assert.equal(exitCode, null);
+  } finally {
+    Date.now = originalDateNow;
+    monitor.stop();
   }
 });

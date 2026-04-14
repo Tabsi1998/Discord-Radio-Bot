@@ -3771,6 +3771,7 @@ class BotRuntime {
         channelName: state.lastChannelId ? guild.channels.cache.get(state.lastChannelId)?.name || null : null,
         listenerCount: this.getCurrentListenerCount(guildId, state),
         volume: state.volume,
+        voiceConnected: Boolean(state.connection),
         playing: Boolean(state.connection && state.currentStationKey),
         recovering: Boolean(
           state.currentStationKey
