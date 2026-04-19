@@ -754,6 +754,54 @@ test("syncVoiceChannelStatus reapplies the status after reconnect invalidation",
   assert.equal(state.voiceStatusChannelId, "123456789012345678");
 });
 
+test("syncVoiceChannelStatus uses the observed voice channel when the local handle is missing", async () => {
+  let putCalls = 0;
+  const runtime = Object.create(BotRuntime.prototype);
+  runtime.config = { name: "OmniFM Status" };
+  runtime.client = {
+    guilds: {
+      cache: new Map([["guild-1", {
+        members: {
+          me: {
+            voice: {
+              channelId: "123456789012345678",
+            },
+          },
+        },
+        channels: {
+          cache: new Map([["123456789012345678", {
+            id: "123456789012345678",
+            type: ChannelType.GuildVoice,
+          }]]),
+          fetch: async () => null,
+        },
+      }]]),
+    },
+  };
+  runtime.rest = {
+    put: async () => {
+      putCalls += 1;
+    },
+    delete: async () => {},
+  };
+  const state = {
+    connection: null,
+    lastChannelId: null,
+    voiceStatusText: "",
+    voiceStatusChannelId: "",
+    voiceStatusNeedsSync: true,
+    lastVoiceStatusSyncAt: 0,
+    lastVoiceStatusErrorAt: 0,
+  };
+  runtime.guildState = new Map([["guild-1", state]]);
+
+  await BotRuntime.prototype.syncVoiceChannelStatus.call(runtime, "guild-1", "Station B");
+
+  assert.equal(putCalls, 1);
+  assert.equal(state.voiceStatusNeedsSync, false);
+  assert.equal(state.voiceStatusChannelId, "123456789012345678");
+});
+
 test("scheduleReconnect skips when a connect or reconnect is already in flight", () => {
   const originalSetTimeout = global.setTimeout;
   let scheduled = 0;
@@ -2246,6 +2294,157 @@ test("setVolumeInGuild refreshes the now-playing embed and keeps zero volume int
   assert.equal(saved["guild-1"]?.volumePreference, true);
 });
 
+test("setVolumeInGuild refreshes the now-playing embed when Discord still reports active voice playback", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({});
+
+  const nowPlayingUpdates = [];
+  const runtime = {
+    config: { id: "bot-live-volume-observed", name: "OmniFM Live" },
+    client: {
+      guilds: {
+        cache: new Map([["guild-1", {
+          members: {
+            me: {
+              voice: {
+                channelId: "voice-1",
+              },
+            },
+          },
+        }]]),
+      },
+    },
+    guildState: new Map([[
+      "guild-1",
+      {
+        player: {
+          state: {
+            status: "playing",
+            resource: {
+              volume: {
+                setVolume(value) {
+                  return value;
+                },
+              },
+            },
+          },
+        },
+        currentProcess: { pid: 42 },
+        currentStationKey: "station-a",
+        currentStationName: "Station A",
+        connection: null,
+        lastChannelId: null,
+        volume: 55,
+      },
+    ]]),
+    getState: BotRuntime.prototype.getState,
+    persistState() {},
+    updateNowPlayingEmbed: async (guildId, state, options = {}) => {
+      nowPlayingUpdates.push({
+        guildId,
+        volume: state.volume,
+        force: options.force === true,
+      });
+    },
+  };
+
+  const result = BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 12);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.playing, true);
+  assert.deepEqual(nowPlayingUpdates, [{ guildId: "guild-1", volume: 12, force: true }]);
+});
+
+test("updateNowPlayingEmbed keeps refreshing when Discord still reports the worker in voice", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    headers: {
+      get() {
+        return null;
+      },
+    },
+    body: null,
+  });
+
+  try {
+    let payloadContext = null;
+    let upsertCalls = 0;
+
+    const runtime = Object.create(BotRuntime.prototype);
+    runtime.config = { id: "bot-now-observed", name: "OmniFM Now" };
+    runtime.client = {
+      user: {
+        id: "bot-now-observed",
+        displayAvatarURL: () => null,
+      },
+      guilds: {
+        cache: new Map([["guild-1", {
+          members: {
+            me: {
+              voice: {
+                channelId: "voice-77",
+              },
+            },
+          },
+          voiceStates: {
+            cache: new Map(),
+          },
+        }]]),
+      },
+    };
+    runtime.getResolvedCurrentStation = () => ({
+      station: {
+        name: "Tomorrowland One World Radio",
+        url: "https://example.com/live",
+      },
+    });
+    runtime.resolveNowPlayingChannel = async () => ({ id: "text-1" });
+    runtime.recordSongHistory = () => {};
+    runtime.getCurrentListenerCount = () => 2;
+    runtime.buildNowPlayingMessagePayload = (guildId, station, meta, context = {}) => {
+      payloadContext = context;
+      return { embeds: [], components: [] };
+    };
+    runtime.upsertNowPlayingMessage = async () => {
+      upsertCalls += 1;
+      return true;
+    };
+    runtime.logNowPlayingIssue = () => {};
+
+    const state = {
+      currentStationKey: "station-a",
+      currentStationName: "Tomorrowland One World Radio",
+      currentMeta: null,
+      currentProcess: { pid: 1 },
+      player: {
+        state: {
+          status: "playing",
+        },
+      },
+      connection: null,
+      lastChannelId: null,
+      nowPlayingSignature: null,
+      volume: 25,
+    };
+
+    await BotRuntime.prototype.updateNowPlayingEmbed.call(runtime, "guild-1", state, { force: true });
+
+    assert.equal(upsertCalls, 1);
+    assert.equal(payloadContext?.channelId, "voice-77");
+    assert.equal(payloadContext?.volume, 25);
+    assert.ok(state.currentMeta);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("applyVolumeTransformerLevel prefers logarithmic scaling for perceived volume", () => {
   const calls = [];
   const transformer = {
@@ -2872,6 +3071,82 @@ test("dashboard snapshot treats pending stream restarts as recovering", () => {
   assert.equal(detail.playing, true);
   assert.equal(detail.recovering, true);
   assert.equal(detail.streamRestartPending, true);
+});
+
+test("dashboard snapshot keeps the observed live voice channel when the local connection handle is gone", () => {
+  const voiceChannel = {
+    id: "voice-1",
+    name: "tomorrowland-live",
+    isVoiceBased() {
+      return true;
+    },
+    members: new Map(),
+  };
+  const guild = {
+    id: "guild-1",
+    name: "OmniFM Test Guild",
+    memberCount: 12,
+    members: {
+      me: {
+        voice: {
+          channelId: "voice-1",
+        },
+      },
+    },
+    voiceStates: {
+      cache: new Map(),
+    },
+    channels: { cache: new Map([["voice-1", voiceChannel]]) },
+  };
+  const fakeRuntime = {
+    config: { id: "bot-test-2", index: 2, name: "OmniFM Test 2", requiredTier: "free", clientId: "client-2" },
+    role: "worker",
+    client: {
+      isReady: () => true,
+      user: null,
+      guilds: { cache: new Map([["guild-1", guild]]) },
+    },
+    startedAt: Date.now() - 5_000,
+    startError: null,
+    guildState: new Map([["guild-1", {
+      currentStationKey: "tomorrowland",
+      currentStationName: "Tomorrowland One World Radio",
+      lastChannelId: null,
+      connection: null,
+      currentProcess: { pid: 22 },
+      player: {
+        state: {
+          status: "playing",
+        },
+      },
+      shouldReconnect: false,
+      reconnectTimer: null,
+      reconnectAttempts: 0,
+      streamRestartTimer: null,
+      streamErrorCount: 0,
+      currentMeta: null,
+      volume: 25,
+    }]]),
+    collectStats() {
+      return { servers: 1, users: 12, connections: 1, listeners: 0 };
+    },
+    getApplicationId() {
+      return "client-2";
+    },
+    getCurrentListenerCount: BotRuntime.prototype.getCurrentListenerCount,
+    getVoiceListenerCount: BotRuntime.prototype.getVoiceListenerCount,
+    buildStatusSnapshot: BotRuntime.prototype.buildStatusSnapshot,
+    getDashboardStatus: BotRuntime.prototype.getDashboardStatus,
+  };
+
+  const snapshot = BotRuntime.prototype.getDashboardStatus.call(fakeRuntime);
+  const detail = snapshot.guildDetails[0];
+
+  assert.ok(detail);
+  assert.equal(detail.playing, true);
+  assert.equal(detail.voiceConnected, true);
+  assert.equal(detail.channelId, "voice-1");
+  assert.equal(detail.channelName, "tomorrowland-live");
 });
 
 test("worker manager reuses the worker already streaming in the requested channel", () => {

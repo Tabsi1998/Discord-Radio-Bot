@@ -1965,7 +1965,7 @@ class BotRuntime {
   async updateNowPlayingEmbed(guildId, state, { force = false } = {}) {
     if (!NOW_PLAYING_ENABLED) return;
     if (!state.currentStationKey) return;
-    if (!state.connection) return;
+    if (!isRuntimePlaybackActive(this, guildId, state)) return;
     const channel = await this.resolveNowPlayingChannel(guildId, state);
     if (!channel) {
       this.logNowPlayingIssue(guildId, state, "Kein geeigneter Kanal fuer die Live-Einbettung gefunden.");
@@ -2031,8 +2031,12 @@ class BotRuntime {
       }
 
       const listenerCount = this.getCurrentListenerCount(guildId, state);
+      const voiceChannelId = getRuntimeConnectedChannelId(this, guildId, state, {
+        includeObserved: true,
+        includeLastKnown: true,
+      }) || null;
       const payload = this.buildNowPlayingMessagePayload(guildId, station, nextMeta, {
-        channelId: state.connection?.joinConfig?.channelId || state.lastChannelId || null,
+        channelId: voiceChannelId,
         listenerCount,
         volume: state.volume,
         workerName: this.config.name,
@@ -2207,7 +2211,10 @@ class BotRuntime {
     const state = this.guildState.get(guildId);
     if (!state) return;
 
-    const channelId = String(state.connection?.joinConfig?.channelId || state.lastChannelId || "").trim();
+    const channelId = String(getRuntimeConnectedChannelId(this, guildId, state, {
+      includeObserved: true,
+      includeLastKnown: true,
+    }) || "").trim();
     if (!/^\d{17,22}$/.test(channelId)) return;
     const desired = stationName ? this.renderVoiceStatusText(stationName) : "";
     if (!this.shouldRefreshVoiceStatus(state, desired, channelId, { force })) return;
@@ -3663,7 +3670,7 @@ class BotRuntime {
     appliedLive = applyVolumeTransformerLevel(resource?.volume, normalizedValue);
 
     this.persistState({ forceLog: false });
-    if (state.currentStationKey && state.connection && typeof this.updateNowPlayingEmbed === "function") {
+    if (state.currentStationKey && isRuntimePlaybackActive(this, guildId, state) && typeof this.updateNowPlayingEmbed === "function") {
       setTimeout(() => {
         this.updateNowPlayingEmbed(guildId, state, { force: true }).catch((err) => {
           log("WARN", `[${this.config.name}] Now-Playing-Update nach Lautstaerkewechsel fehlgeschlagen: ${err?.message || err}`);
@@ -3674,7 +3681,7 @@ class BotRuntime {
       ok: true,
       value: normalizedValue,
       appliedLive,
-      playing: Boolean(state.currentStationKey && state.connection),
+      playing: isRuntimePlaybackActive(this, guildId, state),
     };
   }
 
@@ -3684,13 +3691,18 @@ class BotRuntime {
   getGuildInfo(guildId) {
     const state = this.guildState.get(guildId);
     if (!state) return null;
+    const normalizedGuildId = String(guildId || "").trim();
+    const connectedChannelId = getRuntimeConnectedChannelId(this, normalizedGuildId, state, {
+      includeObserved: true,
+      includeLastKnown: true,
+    }) || null;
     return {
-      playing: Boolean(state.currentStationKey),
+      playing: isRuntimePlaybackActive(this, normalizedGuildId, state),
       stationKey: state.currentStationKey,
       stationName: state.currentStationName,
       meta: state.currentMeta,
       volume: state.volume,
-      channelId: state.lastChannelId,
+      channelId: connectedChannelId,
       listenerCount: this.getCurrentListenerCount(guildId, state),
       reconnectAttempts: state.reconnectAttempts || 0,
       shouldReconnect: state.shouldReconnect,
@@ -3772,13 +3784,17 @@ class BotRuntime {
       if (!guild) continue;
       const playing = isRuntimePlaybackActive(this, guildId, state);
       const voiceConnected = isRuntimeVoiceConnected(this, guildId, state, { includeObserved: true });
+      const connectedChannelId = getRuntimeConnectedChannelId(this, guildId, state, {
+        includeObserved: true,
+        includeLastKnown: true,
+      }) || null;
       const detail = {
         guildId,
         guildName: guild.name,
         stationKey: state.currentStationKey || null,
         stationName: state.currentStationName || null,
-        channelId: state.lastChannelId || null,
-        channelName: state.lastChannelId ? guild.channels.cache.get(state.lastChannelId)?.name || null : null,
+        channelId: connectedChannelId,
+        channelName: connectedChannelId ? guild.channels.cache.get(connectedChannelId)?.name || null : null,
         listenerCount: this.getCurrentListenerCount(guildId, state),
         volume: state.volume,
         voiceConnected,
