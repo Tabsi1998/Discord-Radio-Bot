@@ -2,6 +2,7 @@ import { ActivityType } from "discord.js";
 
 import { clipText } from "../lib/helpers.js";
 import { WEBSITE_URL } from "./runtime-links.js";
+import { isRuntimePlaybackActive } from "./runtime-live-state.js";
 
 function countLabel(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -28,7 +29,7 @@ function resolvePresenceStationLabel(activeStates = []) {
 
 export function buildRuntimePresenceActivity(runtime) {
   const activeStates = [...runtime.guildState.entries()]
-    .filter(([, state]) => state.currentStationKey && state.connection);
+    .filter(([guildId, state]) => isRuntimePlaybackActive(runtime, guildId, state));
   const activeStreams = activeStates.length;
   const connectedGuilds = Number(runtime.client?.guilds?.cache?.size || 0) || 0;
   const publicUrlRaw = String(process.env.PUBLIC_WEB_URL || WEBSITE_URL || "").trim();

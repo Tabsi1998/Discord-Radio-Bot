@@ -581,7 +581,7 @@ test("recoverable voice connection errors stay on reconnect flow", () => {
     attachRuntimeConnectionHandlers(runtime, "guild-1", connection);
     handlers.get("error")(new Error("Unexpected server response: 521"));
 
-    assert.equal(state.connection, null);
+    assert.equal(state.connection, connection);
     assert.deepEqual(scheduled, [{
       guildId: "guild-1",
       options: { reason: "voice-network-error", minDelayMs: 15000, jitterFactor: 0.6 },
@@ -691,6 +691,9 @@ test("scheduleReconnect keeps the attempt counter stable when reconnect work was
           minDelayMs: 5_000,
           reason: "network-cooldown",
         };
+      },
+      scheduleReconnect(guildId, options = {}) {
+        return scheduleRuntimeReconnect(this, guildId, options);
       },
       persistState() {},
     };
@@ -3081,6 +3084,7 @@ test("public bot status omits guild details while dashboard status keeps them", 
     channelName: "Radio",
     listenerCount: 7,
     volume: 80,
+    voiceConnected: true,
     playing: true,
     recovering: false,
     reconnectAttempts: 0,
@@ -3088,6 +3092,87 @@ test("public bot status omits guild details while dashboard status keeps them", 
     shouldReconnect: true,
     meta: { title: "Hidden Track" },
   });
+});
+
+test("dashboard status and stats stay live when Discord voice state survives a stale local connection handle", () => {
+  const guildCache = new Map([[
+    "guild-1",
+    {
+      name: "Guild One",
+      memberCount: 24,
+      channels: {
+        cache: new Map([
+          ["voice-1", { name: "Radio" }],
+        ]),
+      },
+      members: {
+        me: {
+          voice: {
+            channelId: "voice-1",
+          },
+        },
+      },
+    },
+  ]]);
+  guildCache.reduce = function reduce(reducer, initialValue) {
+    let current = initialValue;
+    for (const value of this.values()) {
+      current = reducer(current, value);
+    }
+    return current;
+  };
+
+  const fakeRuntime = {
+    config: {
+      id: "bot-7",
+      index: 7,
+      name: "OmniFM 7",
+      clientId: "client-7",
+      requiredTier: "free",
+    },
+    role: "worker",
+    client: {
+      isReady: () => true,
+      user: {
+        tag: "OmniFM7#0007",
+        displayAvatarURL: () => null,
+      },
+      guilds: {
+        cache: guildCache,
+      },
+    },
+    guildState: new Map([
+      ["guild-1", {
+        currentStationKey: "tomorrowland",
+        currentStationName: "Tomorrowland - Anthems",
+        lastChannelId: "voice-1",
+        connection: null,
+        currentProcess: { pid: 777 },
+        player: { state: { status: "playing" } },
+        shouldReconnect: true,
+        volume: 90,
+      }],
+    ]),
+    getCurrentListenerCount() {
+      return 3;
+    },
+    getApplicationId() {
+      return "client-7";
+    },
+    collectStats: BotRuntime.prototype.collectStats,
+    buildStatusSnapshot: BotRuntime.prototype.buildStatusSnapshot,
+    startedAt: Date.now() - 30_000,
+    startError: null,
+  };
+
+  const stats = BotRuntime.prototype.collectStats.call(fakeRuntime);
+  const dashboardStatus = BotRuntime.prototype.getDashboardStatus.call(fakeRuntime);
+
+  assert.equal(stats.connections, 1);
+  assert.equal(stats.listeners, 3);
+  assert.equal(dashboardStatus.guildDetails[0]?.voiceConnected, true);
+  assert.equal(dashboardStatus.guildDetails[0]?.playing, true);
+  assert.equal(dashboardStatus.guildDetails[0]?.listenerCount, 3);
 });
 
 test("help payload exposes dashboard, website, support and premium links", () => {
@@ -3226,6 +3311,47 @@ test("presence shows dynamic commander and worker activity with listener totals"
   assert.equal(workerPresence?.type, ActivityType.Playing);
   assert.match(String(workerPresence?.name || ""), /^1 server live \| 2 listeners$/);
   assert.doesNotMatch(String(workerPresence?.name || ""), /OmniFM 7|House Beats/);
+});
+
+test("presence keeps workers live when Discord still sees voice playback but the local handle is stale", () => {
+  const workerRuntime = {
+    role: "worker",
+    config: { index: 5, name: "OmniFM 5" },
+    client: {
+      guilds: {
+        cache: new Map([[
+          "g1",
+          {
+            members: {
+              me: {
+                voice: {
+                  channelId: "voice-9",
+                },
+              },
+            },
+          },
+        ]]),
+      },
+    },
+    guildState: new Map([
+      ["g1", {
+        currentStationKey: "uptempo",
+        currentStationName: "Uptempo Radio",
+        lastChannelId: "voice-9",
+        connection: null,
+        currentProcess: { pid: 1234 },
+        player: { state: { status: "playing" } },
+      }],
+    ]),
+    getCurrentListenerCount() {
+      return 6;
+    },
+  };
+
+  const workerPresence = BotRuntime.prototype.buildPresenceActivity.call(workerRuntime);
+
+  assert.equal(workerPresence?.type, ActivityType.Playing);
+  assert.match(String(workerPresence?.name || ""), /^1 server live \| 6 listeners$/);
 });
 
 test("presence keeps commander and worker idle copy clean with /play and website", () => {
@@ -3921,7 +4047,7 @@ test("worker autoheal skips the forced restart when Discord still reports an act
     const firstPass = await monitor.tick();
     assert.equal(firstPass.shouldExit, false);
 
-    Date.now = () => now + (21 * 60 * 1000);
+    Date.now = () => now + (22 * 60 * 1000);
     const secondPass = await monitor.tick();
 
     assert.equal(secondPass.shouldExit, false);

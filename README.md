@@ -78,6 +78,17 @@ Optional integrations:
 
 The maintained operator-facing template is [`.env.example`](.env.example). The grouped runtime reference is [docs/configuration-reference.md](docs/configuration-reference.md).
 
+## GitHub Automation
+
+This repository ships with GitHub automation for CI, nightly recovery smoke checks, CodeQL, Dependabot, CODEOWNERS, and issue/PR templates.
+
+Recommended required checks for `main`:
+
+- `ci`
+- `codeql`
+
+Operational reminder: the voice/channel status system is part of the maintained runtime surface. Keep the documented `.env.example` toggles in sync, especially `VOICE_CHANNEL_STATUS_ENABLED`, `VOICE_CHANNEL_STATUS_TEMPLATE`, `VOICE_CHANNEL_STATUS_REFRESH_MS`, `VOICE_STATE_RECONCILE_ENABLED`, and `VOICE_STATE_RECONCILE_MS`.
+
 ## Deployment Modes
 
 ### Monolith

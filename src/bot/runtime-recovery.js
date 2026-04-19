@@ -21,6 +21,7 @@ import {
   recordStationStop,
   recordConnectionEvent,
 } from "../listening-stats-store.js";
+import { isRuntimeVoiceConnected } from "./runtime-live-state.js";
 
 function toPositiveInt(rawValue, fallbackValue) {
   const parsed = Number.parseInt(String(rawValue ?? fallbackValue), 10);
@@ -146,7 +147,7 @@ function buildRuntimeLogContext(runtime, guildId, state = null, extra = {}) {
     channel: state?.lastChannelId || null,
     station: state?.currentStationKey || null,
     stationName: state?.currentStationName || null,
-    voiceConnected: Boolean(state?.connection),
+    voiceConnected: isRuntimeVoiceConnected(runtime, guildId, state, { includeObserved: true }),
     voiceConnectionStatus: String(state?.connection?.state?.status || "").trim() || "none",
     playerStatus: String(state?.player?.state?.status || "").trim() || "unknown",
     processAlive: Boolean(state?.currentProcess),
@@ -932,7 +933,9 @@ export function attachRuntimeConnectionHandlers(runtime, guildId, connection) {
       channelId: state.lastChannelId || "",
       details: errorMessage.slice(0, 200),
     });
-    markDisconnected();
+    if (!recoverableNetworkError || !state.shouldReconnect) {
+      markDisconnected();
+    }
     if (!state.shouldReconnect) return;
     runtime.scheduleReconnect(
       guildId,

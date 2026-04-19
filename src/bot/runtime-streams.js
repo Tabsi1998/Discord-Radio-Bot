@@ -20,6 +20,7 @@ import { recordStationStart } from "../listening-stats-store.js";
 import { dispatchRuntimeReliabilityWebhook } from "../lib/runtime-alerts.js";
 import { dispatchRuntimeIncidentAlert } from "../lib/runtime-discord-alerts.js";
 import { recordRuntimeIncident } from "../runtime-incidents-store.js";
+import { isRuntimeVoiceConnected } from "./runtime-live-state.js";
 
 function toPositiveInt(rawValue, fallbackValue) {
   const parsed = Number.parseInt(String(rawValue ?? fallbackValue), 10);
@@ -228,7 +229,7 @@ export async function evaluateRuntimeStreamHealth(runtime, guildId, state, proce
   if (!state || !process || state.currentProcess !== process) {
     return { ok: false, skipped: "process" };
   }
-  if (!state.shouldReconnect || !state.currentStationKey || !state.connection) {
+  if (!state.shouldReconnect || !state.currentStationKey || !isRuntimeVoiceConnected(runtime, guildId, state, { includeObserved: true })) {
     return { ok: false, skipped: "inactive" };
   }
   if (state.streamRestartTimer || state.reconnectTimer || state.reconnectInFlight || state.voiceConnectInFlight) {
@@ -492,7 +493,7 @@ export function scheduleRuntimeStreamRestart(runtime, guildId, state, delayMs, r
 
 export function handleRuntimeStreamEnd(runtime, guildId, state, reason) {
   if (!state.shouldReconnect || !state.currentStationKey) return;
-  if (!state.connection) return;
+  if (!isRuntimeVoiceConnected(runtime, guildId, state, { includeObserved: true })) return;
 
   const now = Date.now();
   if (runtime.isScheduledEventStopDue(state.activeScheduledEventStopAtMs, now)) {
@@ -610,7 +611,7 @@ export function armRuntimePlaybackRecovery(
   const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
   const delay = Math.max(1_000, networkCooldownMs || STREAM_RESTART_BASE_MS);
 
-  if (state.connection) {
+  if (isRuntimeVoiceConnected(runtime, guildId, state, { includeObserved: true })) {
     log(
       "WARN",
       `[${runtime.config.name}] Stream-Start fehlgeschlagen: ${errorMessage}. ` +
@@ -870,7 +871,7 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
     }
 
     const retryDelay = Math.max(STREAM_RESTART_BASE_MS, getRuntimeRecoveryDelayMs(runtime, guildId));
-    if (state.connection) {
+    if (isRuntimeVoiceConnected(runtime, guildId, state, { includeObserved: true })) {
       log(
         "INFO",
         `[${runtime.config.name}] Stream-Retry nach Restart-Fehler fuer ${resolvedStation.key} in ${Math.round(retryDelay)}ms`

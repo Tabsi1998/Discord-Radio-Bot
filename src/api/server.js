@@ -29,6 +29,10 @@ import { createPremiumBillingRoutesHandler } from "./routes/premium-billing-rout
 import { createPremiumOffersRoutesHandler } from "./routes/premium-offers-routes.js";
 import { createPremiumReadRoutesHandler } from "./routes/premium-read-routes.js";
 import { createPublicRoutesHandler } from "./routes/public-routes.js";
+import {
+  isRuntimePlaybackActive,
+  isRuntimeVoiceConnected,
+} from "../bot/runtime-live-state.js";
 
 import { log, webDir, webRootSource, frontendBuildStamp, rootDir } from "../lib/logging.js";
 import {
@@ -1622,11 +1626,12 @@ function buildDerivedDashboardGuildDetail(runtime, guildId) {
   const guild = runtime?.client?.guilds?.cache?.get?.(guildId) || null;
   const reconnectAttempts = Number(state?.reconnectAttempts || 0) || 0;
   const streamErrorCount = Number(state?.streamErrorCount || 0) || 0;
-  const playing = Boolean(state?.connection && state?.currentStationKey);
+  const playing = isRuntimePlaybackActive(runtime, guildId, state);
+  const voiceConnected = isRuntimeVoiceConnected(runtime, guildId, state, { includeObserved: true });
   const recovering = Boolean(
     state?.currentStationKey
     && state?.shouldReconnect === true
-    && (!state?.connection || state?.reconnectTimer || reconnectAttempts > 0)
+    && (!playing || state?.reconnectTimer || reconnectAttempts > 0)
   );
   if (!playing && !recovering && !state?.currentStationKey && !state?.lastChannelId) {
     return null;
@@ -1649,6 +1654,7 @@ function buildDerivedDashboardGuildDetail(runtime, guildId) {
     channelId: state?.lastChannelId || null,
     channelName: state?.lastChannelId ? guild?.channels?.cache?.get?.(state.lastChannelId)?.name || null : null,
     listenerCount,
+    voiceConnected,
     playing,
     recovering,
     reconnectAttempts,

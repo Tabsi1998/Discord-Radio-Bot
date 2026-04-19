@@ -210,6 +210,11 @@ import {
 } from "./runtime-message-builders.js";
 import { buildRuntimePresenceActivity } from "./runtime-presence.js";
 import {
+  getRuntimeConnectedChannelId,
+  isRuntimePlaybackActive,
+  isRuntimeVoiceConnected,
+} from "./runtime-live-state.js";
+import {
   normalizeStationReference,
   resolveStationForGuild,
   getResolvedCurrentStation,
@@ -879,7 +884,7 @@ class BotRuntime {
     const normalizedGuildId = String(guildId || "").trim();
     if (!normalizedGuildId) return [];
     const state = this.guildState.get(normalizedGuildId);
-    if (!state?.currentStationKey || !state?.connection) return [];
+    if (!state?.currentStationKey || !isRuntimePlaybackActive(this, normalizedGuildId, state)) return [];
     const info = this.getGuildInfo(normalizedGuildId) || {};
     return [{
       runtime: this,
@@ -895,7 +900,7 @@ class BotRuntime {
     const guildIds = new Set();
 
     for (const [guildId, state] of this.guildState.entries()) {
-      if (state?.currentStationKey && state?.connection) {
+      if (isRuntimePlaybackActive(this, guildId, state)) {
         guildIds.add(guildId);
       }
     }
@@ -903,7 +908,7 @@ class BotRuntime {
     if (this.role === "commander" && this.workerManager) {
       for (const worker of this.workerManager.workers || []) {
         for (const [guildId, state] of worker.guildState.entries()) {
-          if (state?.currentStationKey && state?.connection) {
+          if (isRuntimePlaybackActive(worker, guildId, state)) {
             guildIds.add(guildId);
           }
         }
@@ -1158,7 +1163,10 @@ class BotRuntime {
   }
 
   getCurrentListenerCount(guildId, state) {
-    const channelId = String(state?.connection?.joinConfig?.channelId || state?.lastChannelId || "").trim();
+    const channelId = getRuntimeConnectedChannelId(this, guildId, state, {
+      includeObserved: true,
+      includeLastKnown: true,
+    });
     return this.getVoiceListenerCount(guildId, channelId);
   }
 
@@ -3708,8 +3716,8 @@ class BotRuntime {
     let connections = 0;
     let listeners = 0;
     for (const [guildId, state] of this.guildState.entries()) {
-      if (state.connection) connections += 1;
-      if (state.connection && state.currentStationKey) {
+      if (isRuntimeVoiceConnected(this, guildId, state, { includeObserved: true })) connections += 1;
+      if (isRuntimePlaybackActive(this, guildId, state)) {
         listeners += this.getCurrentListenerCount(guildId, state);
       }
     }
@@ -3719,8 +3727,8 @@ class BotRuntime {
 
   getPlayingGuildCount() {
     let count = 0;
-    for (const state of this.guildState.values()) {
-      if (state.currentStationKey && state.connection) count += 1;
+    for (const [guildId, state] of this.guildState.entries()) {
+      if (isRuntimePlaybackActive(this, guildId, state)) count += 1;
     }
     return count;
   }
@@ -3762,6 +3770,8 @@ class BotRuntime {
     for (const [guildId, state] of this.guildState.entries()) {
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) continue;
+      const playing = isRuntimePlaybackActive(this, guildId, state);
+      const voiceConnected = isRuntimeVoiceConnected(this, guildId, state, { includeObserved: true });
       const detail = {
         guildId,
         guildName: guild.name,
@@ -3771,13 +3781,13 @@ class BotRuntime {
         channelName: state.lastChannelId ? guild.channels.cache.get(state.lastChannelId)?.name || null : null,
         listenerCount: this.getCurrentListenerCount(guildId, state),
         volume: state.volume,
-        voiceConnected: Boolean(state.connection),
-        playing: Boolean(state.connection && state.currentStationKey),
+        voiceConnected,
+        playing,
         recovering: Boolean(
           state.currentStationKey
           && state.shouldReconnect === true
           && (
-            !state.connection
+            !playing
             || state.reconnectTimer
             || state.streamRestartTimer
             || (Number(state.reconnectAttempts || 0) || 0) > 0
@@ -3873,7 +3883,7 @@ class BotRuntime {
       ([_, s]) => isPersistableGuildState(s)
     ).length;
     const activeCount = [...this.guildState.entries()].filter(
-      ([_, s]) => isPersistableGuildState(s) && s.connection
+      ([guildId, s]) => isPersistableGuildState(s) && isRuntimeVoiceConnected(this, guildId, s, { includeObserved: true })
     ).length;
     saveBotState(this.config.id, this.guildState);
     const previousPersistableCount = Number.isFinite(this.lastPersistLoggedPersistableCount)
