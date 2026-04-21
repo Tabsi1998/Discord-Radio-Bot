@@ -211,6 +211,53 @@ test("logging respects LOGS_DIR override for file output", async () => {
   }
 });
 
+test("serialized guild operations run sequentially for the same guild", async () => {
+  const fakeRuntime = {
+    guildOperationLocks: new Map(),
+  };
+  const events = [];
+
+  const first = BotRuntime.prototype.runSerializedGuildOperation.call(fakeRuntime, "guild-1", "play", async () => {
+    events.push("first:start");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    events.push("first:end");
+    return "first";
+  });
+
+  const second = BotRuntime.prototype.runSerializedGuildOperation.call(fakeRuntime, "guild-1", "stop", async () => {
+    events.push("second:start");
+    events.push("second:end");
+    return "second";
+  });
+
+  const results = await Promise.all([first, second]);
+  assert.deepEqual(results, ["first", "second"]);
+  assert.deepEqual(events, [
+    "first:start",
+    "first:end",
+    "second:start",
+    "second:end",
+  ]);
+  assert.equal(fakeRuntime.guildOperationLocks.size, 0);
+});
+
+test("serialized guild operations release the lock after failures", async () => {
+  const fakeRuntime = {
+    guildOperationLocks: new Map(),
+  };
+
+  await assert.rejects(
+    BotRuntime.prototype.runSerializedGuildOperation.call(fakeRuntime, "guild-1", "play", async () => {
+      throw new Error("boom");
+    }),
+    /boom/
+  );
+
+  const result = await BotRuntime.prototype.runSerializedGuildOperation.call(fakeRuntime, "guild-1", "stop", async () => "ok");
+  assert.equal(result, "ok");
+  assert.equal(fakeRuntime.guildOperationLocks.size, 0);
+});
+
 test("logging prefixes every line of a multiline error in error.log", async () => {
   const tempLogsDir = path.join(repoRoot, "logs", "unit-multiline");
   const restoreEnv = setEnv({

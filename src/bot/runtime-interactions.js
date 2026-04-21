@@ -663,7 +663,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), flags: MessageFlags.Ephemeral });
       return;
     }
-    state.player.pause(true);
+    await runtime.pauseInGuild(interaction.guildId);
     await interaction.reply({ content: t("Pausiert.", "Paused."), flags: MessageFlags.Ephemeral });
     return;
   }
@@ -694,7 +694,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), flags: MessageFlags.Ephemeral });
       return;
     }
-    state.player.unpause();
+    await runtime.resumeInGuild(interaction.guildId);
     await interaction.reply({ content: t("Weiter gehts.", "Resumed."), flags: MessageFlags.Ephemeral });
     return;
   }
@@ -768,8 +768,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }
     
     // Worker/Legacy Mode: lokaler Stop
-    state.shouldReconnect = false;
-    runtime.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+    await runtime.stopInGuild(guildId);
 
     await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), flags: MessageFlags.Ephemeral });
     return;
@@ -902,7 +901,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       });
       return;
     }
-    const result = runtime.setVolumeInGuild(interaction.guildId, value);
+    const result = await runtime.setVolumeInGuild(interaction.guildId, value);
     if (!result?.ok) {
       await interaction.reply({
         content: t(`Fehler: ${result?.error || "setvolume_failed"}`, `Error: ${result?.error || "setvolume_failed"}`),
@@ -1760,73 +1759,75 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
     const selectedStation = playStations.stations[key];
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    runtime.clearRestoreRetry(guildId);
-    const { connection, error: connectError } = await runtime.connectToVoice(interaction, requestedChannel, { silent: true });
-    if (!connection) {
-      await interaction.editReply(connectError || t("Konnte keine Voice-Verbindung herstellen.", "Could not establish a voice connection."));
-      return;
-    }
-    state.shouldReconnect = true;
-    runtime.clearScheduledEventPlayback(state);
-
-    try {
-      await runtime.playStation(state, playStations, key, guildId);
-      const tierConfig = getTierConfig(guildId);
-      const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
-      await interaction.editReply(t(`Starte: ${selectedStation?.name || key}${tierLabel}`, `Starting: ${selectedStation?.name || key}${tierLabel}`));
-    } catch (err) {
-      log("ERROR", `[${runtime.config.name}] Play error: ${err.message}`);
-      state.lastStreamErrorAt = new Date().toISOString();
-
-      const fallbackKey = getFallbackKey(playStations, key);
-      if (fallbackKey && fallbackKey !== key && playStations.stations[fallbackKey]) {
-        try {
-          await runtime.playStation(state, playStations, fallbackKey, guildId);
-          await interaction.editReply(
-            t(
-              `Fehler bei ${selectedStation?.name || key}. Fallback: ${playStations.stations[fallbackKey].name}`,
-              `Error on ${selectedStation?.name || key}. Fallback: ${playStations.stations[fallbackKey].name}`
-            )
-          );
-          return;
-        } catch (fallbackErr) {
-          log("ERROR", `[${runtime.config.name}] Fallback error: ${fallbackErr.message}`);
-          state.lastStreamErrorAt = new Date().toISOString();
-        }
-      }
-
-      const recovery = runtime.armPlaybackRecovery(
-        guildId,
-        state,
-        playStations,
-        key,
-        err,
-        { reason: "local-play-start-failed" }
-      );
-      if (recovery.scheduled) {
-        await interaction.editReply(t(
-          `Verbunden. Quelle aktuell instabil, Retry aktiv: ${selectedStation?.name || key}`,
-          `Connected. Source is unstable, retry active: ${selectedStation?.name || key}`
-        ));
+    await runtime.runSerializedGuildOperation(guildId, "slash-play", async () => {
+      runtime.clearRestoreRetry(guildId);
+      const { connection, error: connectError } = await runtime.connectToVoice(interaction, requestedChannel, { silent: true });
+      if (!connection) {
+        await interaction.editReply(connectError || t("Konnte keine Voice-Verbindung herstellen.", "Could not establish a voice connection."));
         return;
       }
+      state.shouldReconnect = true;
+      runtime.clearScheduledEventPlayback(state);
 
-      state.shouldReconnect = false;
-      runtime.invalidateVoiceStatus?.(state, { clearText: true });
-      runtime.syncVoiceChannelStatus(guildId, "").catch(() => null);
-      runtime.clearNowPlayingTimer(state);
-      state.player.stop();
-      runtime.clearCurrentProcess(state);
-      if (state.connection) {
-        state.connection.destroy();
-        state.connection = null;
+      try {
+        await runtime.playStation(state, playStations, key, guildId);
+        const tierConfig = getTierConfig(guildId);
+        const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
+        await interaction.editReply(t(`Starte: ${selectedStation?.name || key}${tierLabel}`, `Starting: ${selectedStation?.name || key}${tierLabel}`));
+      } catch (err) {
+        log("ERROR", `[${runtime.config.name}] Play error: ${err.message}`);
+        state.lastStreamErrorAt = new Date().toISOString();
+
+        const fallbackKey = getFallbackKey(playStations, key);
+        if (fallbackKey && fallbackKey !== key && playStations.stations[fallbackKey]) {
+          try {
+            await runtime.playStation(state, playStations, fallbackKey, guildId);
+            await interaction.editReply(
+              t(
+                `Fehler bei ${selectedStation?.name || key}. Fallback: ${playStations.stations[fallbackKey].name}`,
+                `Error on ${selectedStation?.name || key}. Fallback: ${playStations.stations[fallbackKey].name}`
+              )
+            );
+            return;
+          } catch (fallbackErr) {
+            log("ERROR", `[${runtime.config.name}] Fallback error: ${fallbackErr.message}`);
+            state.lastStreamErrorAt = new Date().toISOString();
+          }
+        }
+
+        const recovery = runtime.armPlaybackRecovery(
+          guildId,
+          state,
+          playStations,
+          key,
+          err,
+          { reason: "local-play-start-failed" }
+        );
+        if (recovery.scheduled) {
+          await interaction.editReply(t(
+            `Verbunden. Quelle aktuell instabil, Retry aktiv: ${selectedStation?.name || key}`,
+            `Connected. Source is unstable, retry active: ${selectedStation?.name || key}`
+          ));
+          return;
+        }
+
+        state.shouldReconnect = false;
+        runtime.invalidateVoiceStatus?.(state, { clearText: true });
+        runtime.syncVoiceChannelStatus(guildId, "").catch(() => null);
+        runtime.clearNowPlayingTimer(state);
+        state.player.stop();
+        runtime.clearCurrentProcess(state);
+        if (state.connection) {
+          state.connection.destroy();
+          state.connection = null;
+        }
+        state.currentStationKey = null;
+        state.currentStationName = null;
+        state.currentMeta = null;
+        state.nowPlayingSignature = null;
+        runtime.updatePresence();
+        await interaction.editReply(t(`Fehler beim Starten: ${err.message}`, `Error while starting: ${err.message}`));
       }
-      state.currentStationKey = null;
-      state.currentStationName = null;
-      state.currentMeta = null;
-      state.nowPlayingSignature = null;
-      runtime.updatePresence();
-      await interaction.editReply(t(`Fehler beim Starten: ${err.message}`, `Error while starting: ${err.message}`));
-    }
+    });
   }
 }

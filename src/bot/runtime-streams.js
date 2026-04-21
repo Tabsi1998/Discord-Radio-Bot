@@ -501,7 +501,7 @@ export function handleRuntimeStreamEnd(runtime, guildId, state, reason) {
       "INFO",
       `[${runtime.config.name}] Geplantes Event-Ende erreicht, Stream wird gestoppt (guild=${guildId}, event=${state.activeScheduledEventId || "-"})`
     );
-    runtime.stopInGuild(guildId);
+    await runtime.stopInGuild(guildId);
     return;
   }
   const streamLifetimeMs = state.lastStreamStartAt ? (now - state.lastStreamStartAt) : 0;
@@ -728,7 +728,7 @@ export async function playRuntimeStation(runtime, state, stations, key, guildId)
 export async function restartRuntimeCurrentStation(runtime, state, guildId) {
   if (!state.shouldReconnect || !state.currentStationKey) return;
   if (runtime.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
-    runtime.stopInGuild(guildId);
+    await runtime.stopInGuild(guildId);
     return;
   }
 

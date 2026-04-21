@@ -759,26 +759,31 @@ export async function executeScheduledEvent(runtime, event) {
       }
       startedBy = delegatedResult.workerName || worker.config.name;
     } else {
-      const connectionInfo = await runtime.ensureVoiceConnectionForChannel(event.guildId, event.voiceChannelId, state, { source: "event" });
-      if (connectionInfo?.channel?.type === ChannelType.GuildStageVoice) {
-        const rawStageTopic = renderStageTopic(event.stageTopic, {
-          event: event.name,
-          station: stationResult.station?.name || event.stationKey,
-          time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
-          end: eventEndLabel,
-          timeZone: eventTimeZone,
-        });
-        const stageTopic = clipText(await runtime.resolveGuildEmojiAliases(rawStageTopic, connectionInfo.guild), 120);
-        await runtime.ensureStageChannelReady(connectionInfo.guild, connectionInfo.channel, {
-          topic: stageTopic,
+      const rawStageTopic = renderStageTopic(event.stageTopic, {
+        event: event.name,
+        station: stationResult.station?.name || event.stationKey,
+        time: formatDateTime(event.runAtMs, eventLanguage, event.timeZone),
+        end: eventEndLabel,
+        timeZone: eventTimeZone,
+      });
+      const stageTopic = clipText(await runtime.resolveGuildEmojiAliases(rawStageTopic, eventGuild), 120);
+      const localResult = await runtime.playInGuild(
+        event.guildId,
+        event.voiceChannelId,
+        stationResult.key,
+        stationResult.stations,
+        undefined,
+        {
+          stageTopic,
           guildScheduledEventId: event.discordScheduledEventId || null,
-          createInstance: true,
-          ensureSpeaker: true,
-        });
+          createStageInstance: true,
+          scheduledEventId: event.id,
+          scheduledEventStopAtMs: scheduledStopAtMs,
+        }
+      );
+      if (!localResult.ok) {
+        throw new Error(localResult.error || "Event konnte lokal nicht gestartet werden.");
       }
-
-      await runtime.playStation(state, stationResult.stations, stationResult.key, event.guildId);
-      runtime.markScheduledEventPlayback(state, event.id, scheduledStopAtMs);
       runtime.persistState();
     }
 
@@ -846,7 +851,7 @@ export async function executeScheduledEventStop(runtime, event) {
 
   const localState = runtime.guildState.get(event.guildId);
   if (localState?.activeScheduledEventId === event.id) {
-    const result = runtime.stopInGuild(event.guildId);
+    const result = await runtime.stopInGuild(event.guildId);
     stopped = Boolean(result?.ok);
     stoppedBy = runtime.config.name;
   }

@@ -1201,7 +1201,7 @@ export async function tryRuntimeReconnect(runtime, guildId) {
     return { attempted: false, retryRecommended: false, reason: "inactive" };
   }
   if (runtime.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
-    runtime.stopInGuild(guildId);
+    await runtime.stopInGuild(guildId);
     return { attempted: false, retryRecommended: false, reason: "scheduled-stop" };
   }
 
@@ -1493,7 +1493,7 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   const state = runtime.getState(guildId);
   if (!state.shouldReconnect || !state.lastChannelId) return;
   if (runtime.isScheduledEventStopDue(state.activeScheduledEventStopAtMs)) {
-    runtime.stopInGuild(guildId);
+    runtime.stopInGuild(guildId).catch(() => null);
     return;
   }
   if (options.resetAttempts) {

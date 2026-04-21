@@ -341,6 +341,7 @@ class BotRuntime {
     this.voiceHealthTimer = null;
     this.listenerStatsTimer = null;
     this.pendingVoiceReconcileTimers = new Map();
+    this.guildOperationLocks = new Map();
     this.guildSettingsCache = new Map();
     this.scheduledEventInFlight = new Set();
     this.lastPersistLoggedActiveCount = null;
@@ -537,6 +538,34 @@ class BotRuntime {
     }
 
     return this.guildState.get(guildId);
+  }
+
+  async runSerializedGuildOperation(guildId, _action, handler) {
+    const normalizedGuildId = String(guildId || "").trim();
+    if (!normalizedGuildId || typeof handler !== "function") {
+      return typeof handler === "function" ? handler() : null;
+    }
+
+    const previous = this.guildOperationLocks.get(normalizedGuildId) || Promise.resolve();
+    let releaseCurrent = null;
+    const current = new Promise((resolve) => {
+      releaseCurrent = resolve;
+    });
+    this.guildOperationLocks.set(normalizedGuildId, current);
+
+    try {
+      await previous.catch(() => null);
+      return await handler();
+    } finally {
+      if (this.guildOperationLocks.get(normalizedGuildId) === current) {
+        this.guildOperationLocks.delete(normalizedGuildId);
+      }
+      try {
+        releaseCurrent?.();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   getNetworkRecoveryScope(guildId = null) {
@@ -3725,161 +3754,166 @@ class BotRuntime {
    * Returns { ok, error? }
    */
   async playInGuild(guildId, channelId, stationKey, stationsData, volume = undefined, options = {}) {
-    const state = this.getState(guildId);
-    try {
-      const guild = this.client.guilds.cache.get(guildId);
-      if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
+    return this.runSerializedGuildOperation(guildId, "play", async () => {
+      const state = this.getState(guildId);
+      try {
+        const guild = this.client.guilds.cache.get(guildId);
+        if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
 
-      await this.refreshVoiceGuardSettings(guildId).catch(() => null);
-      this.clearRestoreRetry(guildId);
-      const parsedVolume = Number.parseInt(String(volume ?? ""), 10);
-      const resolvedVolume = Number.isFinite(parsedVolume)
-        ? Math.max(0, Math.min(100, parsedVolume))
-        : (Number.isFinite(Number(state.volume)) ? Math.max(0, Math.min(100, Number(state.volume))) : 100);
-      state.volume = resolvedVolume;
-      state.volumePreferenceSet = true;
-      state.shouldReconnect = true;
-      state.lastChannelId = channelId;
-      if (options?.scheduledEventId) {
-        this.markScheduledEventPlayback(state, options.scheduledEventId, options?.scheduledEventStopAtMs || 0);
-      } else {
-        this.clearScheduledEventPlayback(state);
-      }
-
-      const connectionInfo = await this.ensureVoiceConnectionForChannel(
-        guildId,
-        channelId,
-        state,
-        { source: options?.scheduledEventId ? "event" : "play" }
-      );
-      const { channel } = connectionInfo;
-
-      // Stage channel handling
-      if (channel.type === ChannelType.GuildStageVoice) {
-        await this.ensureStageChannelReady(guild, channel, {
-          topic: options?.stageTopic || null,
-          guildScheduledEventId: options?.guildScheduledEventId || null,
-          createInstance: options?.createStageInstance !== false,
-          ensureSpeaker: true,
-        });
-      }
-
-      // Play the station
-      await this.playStation(state, stationsData, stationKey, guildId);
-      this.updatePresence();
-
-      return { ok: true, workerName: this.config.name };
-    } catch (err) {
-      const isVoiceTimeout = String(err?.message || "").includes("Voice-Verbindung");
-      if (isVoiceTimeout && state.lastChannelId) {
-        // Transient voice error - preserve reconnect state so auto-reconnect can try later
-        log("WARN", `[${this.config.name}] playInGuild voice timeout: guild=${guildId} channel=${channelId} - scheduling reconnect`);
+        await this.refreshVoiceGuardSettings(guildId).catch(() => null);
+        this.clearRestoreRetry(guildId);
+        const parsedVolume = Number.parseInt(String(volume ?? ""), 10);
+        const resolvedVolume = Number.isFinite(parsedVolume)
+          ? Math.max(0, Math.min(100, parsedVolume))
+          : (Number.isFinite(Number(state.volume)) ? Math.max(0, Math.min(100, Number(state.volume))) : 100);
+        state.volume = resolvedVolume;
+        state.volumePreferenceSet = true;
         state.shouldReconnect = true;
-        state.currentStationKey = stationKey;
-        state.currentStationName = stationsData?.stations?.[stationKey]?.name || stationKey;
-        if (state.connection) {
-          try { state.connection.destroy(); } catch {}
-          state.connection = null;
+        state.lastChannelId = channelId;
+        if (options?.scheduledEventId) {
+          this.markScheduledEventPlayback(state, options.scheduledEventId, options?.scheduledEventStopAtMs || 0);
+        } else {
+          this.clearScheduledEventPlayback(state);
         }
-        this.scheduleReconnect(guildId, { resetAttempts: true, reason: "play-voice-timeout" });
-        return {
-          ok: true,
-          workerName: this.config.name,
-          recovering: true,
-          error: err?.message || String(err),
-        };
-      }
 
-      const recovery = this.armPlaybackRecovery(
-        guildId,
-        state,
-        stationsData,
-        stationKey,
-        err,
-        { reason: "play-start-failed" }
-      );
-      if (recovery.scheduled) {
-        return {
-          ok: true,
-          workerName: this.config.name,
-          recovering: true,
-          error: recovery.message,
-        };
-      } else {
+        const connectionInfo = await this.ensureVoiceConnectionForChannel(
+          guildId,
+          channelId,
+          state,
+          { source: options?.scheduledEventId ? "event" : "play" }
+        );
+        const { channel } = connectionInfo;
+
+        if (channel.type === ChannelType.GuildStageVoice) {
+          await this.ensureStageChannelReady(guild, channel, {
+            topic: options?.stageTopic || null,
+            guildScheduledEventId: options?.guildScheduledEventId || null,
+            createInstance: options?.createStageInstance !== false,
+            ensureSpeaker: true,
+          });
+        }
+
+        await this.playStation(state, stationsData, stationKey, guildId);
+        this.updatePresence();
+
+        return { ok: true, workerName: this.config.name };
+      } catch (err) {
+        const isVoiceTimeout = String(err?.message || "").includes("Voice-Verbindung");
+        if (isVoiceTimeout && state.lastChannelId) {
+          log("WARN", `[${this.config.name}] playInGuild voice timeout: guild=${guildId} channel=${channelId} - scheduling reconnect`);
+          state.shouldReconnect = true;
+          state.currentStationKey = stationKey;
+          state.currentStationName = stationsData?.stations?.[stationKey]?.name || stationKey;
+          if (state.connection) {
+            try { state.connection.destroy(); } catch {}
+            state.connection = null;
+          }
+          this.scheduleReconnect(guildId, { resetAttempts: true, reason: "play-voice-timeout" });
+          return {
+            ok: true,
+            workerName: this.config.name,
+            recovering: true,
+            error: err?.message || String(err),
+          };
+        }
+
+        const recovery = this.armPlaybackRecovery(
+          guildId,
+          state,
+          stationsData,
+          stationKey,
+          err,
+          { reason: "play-start-failed" }
+        );
+        if (recovery.scheduled) {
+          return {
+            ok: true,
+            workerName: this.config.name,
+            recovering: true,
+            error: recovery.message,
+          };
+        }
         this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+        log("ERROR", `[${this.config.name}] playInGuild error: ${err?.message || err}`);
+        return { ok: false, error: err?.message || String(err) };
       }
-      log("ERROR", `[${this.config.name}] playInGuild error: ${err?.message || err}`);
-      return { ok: false, error: err?.message || String(err) };
-    }
+    });
   }
 
   /**
    * Programmatic stop - used by Commander to stop a Worker in a guild.
    */
-  stopInGuild(guildId) {
-    const state = this.guildState.get(guildId);
-    if (!state) return { ok: false, error: "Kein State für diesen Server." };
+  async stopInGuild(guildId) {
+    return this.runSerializedGuildOperation(guildId, "stop", async () => {
+      const state = this.guildState.get(guildId);
+      if (!state) return { ok: false, error: "Kein State für diesen Server." };
 
-    this.clearRestoreRetry(guildId);
-    state.shouldReconnect = false;
-    this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
+      this.clearRestoreRetry(guildId);
+      state.shouldReconnect = false;
+      this.resetVoiceSession(guildId, state, { preservePlaybackTarget: false, clearLastChannel: true });
 
-    return { ok: true };
+      return { ok: true };
+    });
   }
 
   /**
    * Programmatic pause.
    */
-  pauseInGuild(guildId) {
-    const state = this.guildState.get(guildId);
-    if (!state?.currentStationKey) return { ok: false, error: "Es laeuft nichts." };
-    state.player.pause(true);
-    return { ok: true };
+  async pauseInGuild(guildId) {
+    return this.runSerializedGuildOperation(guildId, "pause", async () => {
+      const state = this.guildState.get(guildId);
+      if (!state?.currentStationKey) return { ok: false, error: "Es laeuft nichts." };
+      state.player.pause(true);
+      return { ok: true };
+    });
   }
 
   /**
    * Programmatic resume.
    */
-  resumeInGuild(guildId) {
-    const state = this.guildState.get(guildId);
-    if (!state?.currentStationKey) return { ok: false, error: "Es laeuft nichts." };
-    state.player.unpause();
-    return { ok: true };
+  async resumeInGuild(guildId) {
+    return this.runSerializedGuildOperation(guildId, "resume", async () => {
+      const state = this.guildState.get(guildId);
+      if (!state?.currentStationKey) return { ok: false, error: "Es laeuft nichts." };
+      state.player.unpause();
+      return { ok: true };
+    });
   }
 
   /**
    * Programmatic volume set.
    */
-  setVolumeInGuild(guildId, value) {
-    const parsedValue = Number.parseInt(String(value ?? ""), 10);
-    if (!Number.isFinite(parsedValue)) {
-      return { ok: false, error: "Ungueltige Lautstaerke." };
-    }
+  async setVolumeInGuild(guildId, value) {
+    return this.runSerializedGuildOperation(guildId, "set-volume", async () => {
+      const parsedValue = Number.parseInt(String(value ?? ""), 10);
+      if (!Number.isFinite(parsedValue)) {
+        return { ok: false, error: "Ungueltige Lautstaerke." };
+      }
 
-    const normalizedValue = Math.max(0, Math.min(100, parsedValue));
-    const state = this.getState(guildId);
-    state.volume = normalizedValue;
-    state.volumePreferenceSet = true;
-    setBotGuildVolume(this.config.id, guildId, normalizedValue);
+      const normalizedValue = Math.max(0, Math.min(100, parsedValue));
+      const state = this.getState(guildId);
+      state.volume = normalizedValue;
+      state.volumePreferenceSet = true;
+      setBotGuildVolume(this.config.id, guildId, normalizedValue);
 
-    let appliedLive = false;
-    const resource = state.player.state.resource;
-    appliedLive = applyVolumeTransformerLevel(resource?.volume, normalizedValue);
+      const resource = state.player.state.resource;
+      const appliedLive = applyVolumeTransformerLevel(resource?.volume, normalizedValue);
 
-    this.persistState({ forceLog: false });
-    if (state.currentStationKey && isRuntimePlaybackActive(this, guildId, state) && typeof this.updateNowPlayingEmbed === "function") {
-      setTimeout(() => {
-        this.updateNowPlayingEmbed(guildId, state, { force: true }).catch((err) => {
-          log("WARN", `[${this.config.name}] Now-Playing-Update nach Lautstaerkewechsel fehlgeschlagen: ${err?.message || err}`);
-        });
-      }, 0);
-    }
-    return {
-      ok: true,
-      value: normalizedValue,
-      appliedLive,
-      playing: isRuntimePlaybackActive(this, guildId, state),
-    };
+      this.persistState({ forceLog: false });
+      if (state.currentStationKey && isRuntimePlaybackActive(this, guildId, state) && typeof this.updateNowPlayingEmbed === "function") {
+        setTimeout(() => {
+          this.updateNowPlayingEmbed(guildId, state, { force: true }).catch((err) => {
+            log("WARN", `[${this.config.name}] Now-Playing-Update nach Lautstaerkewechsel fehlgeschlagen: ${err?.message || err}`);
+          });
+        }, 0);
+      }
+      return {
+        ok: true,
+        value: normalizedValue,
+        appliedLive,
+        playing: isRuntimePlaybackActive(this, guildId, state),
+      };
+    });
   }
 
   /**
