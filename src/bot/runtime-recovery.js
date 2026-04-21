@@ -91,7 +91,7 @@ function getRuntimeVoiceGuardConfig(state) {
   );
   if (!hasExplicitVoiceGuardState) {
     return {
-      policy: "allow",
+      policy: getVoiceMovePolicy(),
       configuredPolicy: "default",
       moveConfirmations: Math.max(1, VOICE_GUARD_MOVE_CONFIRMATIONS),
       returnCooldownMs: Math.max(0, VOICE_GUARD_RETURN_COOLDOWN_MS),

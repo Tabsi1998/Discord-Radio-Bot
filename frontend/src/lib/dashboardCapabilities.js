@@ -23,7 +23,7 @@ export const DASHBOARD_CAPABILITY_REQUIRED_TIERS = Object.freeze({
   failoverRules: 'ultimate',
   licenseWorkspace: 'ultimate',
   exportsWebhooks: 'ultimate',
-  voiceGuard: 'ultimate',
+  voiceGuard: 'free',
 });
 
 const DASHBOARD_CAPABILITY_LABELS = Object.freeze({

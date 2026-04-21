@@ -1363,10 +1363,10 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(settingsResponse.payload.exportsWebhook.enabled, false);
   assert.equal(settingsResponse.payload.exportsWebhook.url, "");
   assert.deepEqual(settingsResponse.payload.exportsWebhook.events, []);
-  assert.equal(settingsResponse.payload.capabilities.voiceGuard, false);
+  assert.equal(settingsResponse.payload.capabilities.voiceGuard, true);
   assert.equal(settingsResponse.payload.voiceGuard.policy, "default");
-  assert.equal(settingsResponse.payload.voiceGuard.available, false);
-  assert.equal(settingsResponse.payload.voiceGuard.effectivePolicy, "allow");
+  assert.equal(settingsResponse.payload.voiceGuard.available, true);
+  assert.equal(settingsResponse.payload.voiceGuard.effectivePolicy, "return");
 
   if (mongoAvailable && getDb()) {
     await getDb().collection("guild_settings").updateOne(
@@ -1428,7 +1428,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
     assert.equal(normalizedSettingsResponse.payload.exportsWebhook.url, "https://example.com/hook");
     assert.deepEqual(normalizedSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "stream_recovered", "stream_failover_activated"]);
     assert.equal(normalizedSettingsResponse.payload.voiceGuard.policy, "default");
-    assert.equal(normalizedSettingsResponse.payload.voiceGuard.effectivePolicy, "allow");
+    assert.equal(normalizedSettingsResponse.payload.voiceGuard.effectivePolicy, "return");
 
     const repairedSettings = await getDb().collection("guild_settings").findOne(
       { guildId: GUILD_ID },
@@ -1518,8 +1518,13 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
       }),
     }
   );
-  assert.equal(voiceGuardSettingsResponse.status, 403);
-  assert.match(voiceGuardSettingsResponse.payload.error, /voice guard/i);
+  if (mongoAvailable && getDb()) {
+    assert.equal(voiceGuardSettingsResponse.status, 200);
+    assert.equal(voiceGuardSettingsResponse.payload.voiceGuard.policy, "disconnect");
+    assert.equal(voiceGuardSettingsResponse.payload.voiceGuard.effectivePolicy, "disconnect");
+  } else {
+    assert.equal(voiceGuardSettingsResponse.status, 503);
+  }
 
   const digestPreviewResponse = await requestJson(
     baseUrl,

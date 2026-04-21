@@ -24,11 +24,12 @@ test("plan capabilities preserve free, pro, and ultimate package boundaries", ()
   assert.equal(proCapabilities.dashboardAccess, true);
   assert.equal(proCapabilities.customStationUrls, false);
   assert.equal(proCapabilities.advancedAnalytics, false);
-  assert.equal(proCapabilities.voiceGuard, false);
+  assert.equal(proCapabilities.voiceGuard, true);
   assert.equal(ultimateCapabilities.customStationUrls, true);
   assert.equal(ultimateCapabilities.advancedAnalytics, true);
   assert.equal(ultimateCapabilities.failoverRules, true);
   assert.equal(ultimateCapabilities.voiceGuard, true);
+  assert.equal(freeCapabilities.voiceGuard, true);
 });
 
 test("server capability payload derives seats from the active license", (t) => {
@@ -86,5 +87,5 @@ test("dashboard capability required tiers keep pro and ultimate package boundari
   assert.equal(getDashboardCapabilityRequiredTier("eventScheduler"), "pro");
   assert.equal(getDashboardCapabilityRequiredTier("customStationUrls"), "ultimate");
   assert.equal(getDashboardCapabilityRequiredTier("advancedAnalytics"), "ultimate");
-  assert.equal(getDashboardCapabilityRequiredTier("voiceGuard"), "ultimate");
+  assert.equal(getDashboardCapabilityRequiredTier("voiceGuard"), "free");
 });

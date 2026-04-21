@@ -99,7 +99,7 @@ export const PLANS = {
       failover_rules: false,
       license_workspace: false,
       exports_webhooks: false,
-      voice_guard: false,
+      voice_guard: true,
     },
     limits: {
       maxBots: 2,
@@ -136,7 +136,7 @@ export const PLANS = {
       failover_rules: false,
       license_workspace: false,
       exports_webhooks: false,
-      voice_guard: false,
+      voice_guard: true,
     },
     limits: {
       maxBots: 8,

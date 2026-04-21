@@ -802,7 +802,7 @@ export default function DashboardSettings({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <Shield size={18} color="#10B981" />
           <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Voice Guard', 'Voice guard')}</h3>
-          {!canManageVoiceGuard && <span style={{ fontSize: 11, color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.3)', padding: '2px 8px' }}>ULTIMATE</span>}
+          {!canManageVoiceGuard && <span style={{ fontSize: 11, color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.3)', padding: '2px 8px' }}>LOCKED</span>}
         </div>
         <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
           {canManageVoiceGuard
@@ -811,8 +811,8 @@ export default function DashboardSettings({
               'Controls how OmniFM reacts to foreign moves into other voice channels. For intentional moves you can additionally use `/voiceguard unlock`.'
             )
             : t(
-              'Voice Guard ist nur im Ultimate-Abo verfuegbar. Erst dann kann OmniFM aktive Voice-Sessions gegen Fremdverschiebungen schuetzen.',
-              'Voice guard is only available on Ultimate. Only then can OmniFM protect active voice sessions against foreign moves.'
+              'Voice Guard konnte fuer diesen Server gerade nicht freigeschaltet werden. Bitte pruefe den Capability-Status oder lade das Dashboard neu.',
+              'Voice guard could not be enabled for this server right now. Please verify the capability status or reload the dashboard.'
             )}
         </p>
 
