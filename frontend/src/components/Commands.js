@@ -14,7 +14,7 @@ const COMMAND_TIERS = {
     label: 'Free',
     color: '#39FF14',
     icon: Shield,
-    commands: ['help', 'play', 'pause', 'resume', 'stop', 'stations', 'list', 'setvolume', 'status', 'health', 'diag', 'premium', 'language', 'license', 'invite', 'workers', 'stats'],
+    commands: ['help', 'play', 'pause', 'resume', 'stop', 'stations', 'list', 'setvolume', 'status', 'health', 'diag', 'premium', 'language', 'license', 'invite', 'workers', 'stats', 'voiceguard'],
   },
   pro: {
     label: 'Pro',

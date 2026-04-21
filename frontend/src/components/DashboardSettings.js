@@ -26,6 +26,10 @@ import {
   buildDashboardFailoverHint,
   buildDashboardWeeklyDigestHint,
 } from '../lib/dashboardOnboarding.js';
+import {
+  buildDashboardVoiceGuardSummary,
+  normalizeDashboardVoiceGuardConfig,
+} from '../lib/dashboardVoiceGuard.js';
 import DashboardOnboardingHint from './DashboardOnboardingHint.js';
 
 const DAYS = [
@@ -129,6 +133,7 @@ export default function DashboardSettings({
         ...(settingsResult || {}),
         incidentAlerts: normalizeDashboardIncidentAlertsConfig(settingsResult?.incidentAlerts),
         exportsWebhook: normalizeDashboardExportsWebhookConfig(settingsResult?.exportsWebhook),
+        voiceGuard: normalizeDashboardVoiceGuardConfig(settingsResult?.voiceGuard),
       };
       setSettings(nextSettings);
       setTextChannels(channelsResult.textChannels || []);
@@ -162,6 +167,7 @@ export default function DashboardSettings({
       if (capabilities.failoverRules === true) body.failoverChain = getConfiguredFailoverChain(settings);
       if (capabilities.exportsWebhooks === true && settings?.incidentAlerts) body.incidentAlerts = settings.incidentAlerts;
       if (capabilities.exportsWebhooks === true && settings?.exportsWebhook) body.exportsWebhook = settings.exportsWebhook;
+      if (settings?.voiceGuard) body.voiceGuard = settings.voiceGuard;
       const result = await apiRequest(`/api/dashboard/settings?serverId=${encodeURIComponent(selectedGuildId)}`, {
         method: 'PUT',
         body: JSON.stringify(body),
@@ -171,6 +177,7 @@ export default function DashboardSettings({
         ...(result || {}),
         incidentAlerts: normalizeDashboardIncidentAlertsConfig(result?.incidentAlerts || current?.incidentAlerts),
         exportsWebhook: normalizeDashboardExportsWebhookConfig(result?.exportsWebhook || current?.exportsWebhook),
+        voiceGuard: normalizeDashboardVoiceGuardConfig(result?.voiceGuard || current?.voiceGuard),
       }));
       if (capabilities.weeklyDigest === true) {
         await loadDigestPreview(result?.weeklyDigest || settings?.weeklyDigest || {}, { silent: true });
@@ -186,6 +193,8 @@ export default function DashboardSettings({
   const wd = settings?.weeklyDigest || { enabled: false, channelId: '', dayOfWeek: 1, hour: 9, language: 'de' };
   const incidentAlerts = normalizeDashboardIncidentAlertsConfig(settings?.incidentAlerts);
   const exportsWebhook = normalizeDashboardExportsWebhookConfig(settings?.exportsWebhook);
+  const voiceGuard = normalizeDashboardVoiceGuardConfig(settings?.voiceGuard);
+  const voiceGuardSummary = buildDashboardVoiceGuardSummary(voiceGuard, t);
   const canManageWeeklyDigest = capabilities.weeklyDigest === true;
   const canManageFallbackStation = capabilities.failoverRules === true;
   const canManageExports = capabilities.exportsWebhooks === true;
@@ -785,6 +794,68 @@ export default function DashboardSettings({
           >
             <Plus size={14} /> {t('Hinzufuegen', 'Add')}
           </button>
+        </div>
+      </div>
+
+      <div data-testid="settings-voice-guard" style={{ background: '#0A0A0A', border: '1px solid #1A1A2E', padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <Shield size={18} color="#10B981" />
+          <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 20 }}>{t('Voice Guard', 'Voice guard')}</h3>
+        </div>
+        <p style={{ color: '#52525B', fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>
+          {t(
+            'Steuert, wie OmniFM auf Fremdverschiebungen in andere Voice-Channels reagiert. Für bewusstes Umziehen gibt es zusätzlich `/voiceguard unlock`.',
+            'Controls how OmniFM reacts to foreign moves into other voice channels. For intentional moves you can additionally use `/voiceguard unlock`.'
+          )}
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 14 }}>
+          <div data-testid="voice-guard-status-card" style={{ border: `1px solid ${voiceGuardSummary.statusAccent}33`, background: `${voiceGuardSummary.statusAccent}14`, padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: voiceGuardSummary.statusAccent }}>
+              {t('Status', 'Status')}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 18, fontWeight: 700, color: '#fff' }}>{voiceGuardSummary.statusLabel}</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: '#A1A1AA', lineHeight: 1.6 }}>{voiceGuardSummary.description}</div>
+          </div>
+
+          <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>
+              {t('Policy', 'Policy')}
+            </div>
+            <div data-testid="voice-guard-policy-summary" style={{ marginTop: 6, fontSize: 16, fontWeight: 600, color: '#D4D4D8' }}>
+              {voiceGuardSummary.policyLabel}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, color: '#71717A' }}>
+              {t('Aktiv', 'Active')}: {voiceGuardSummary.effectiveLabel}
+            </div>
+          </div>
+
+          <div style={{ border: '1px solid #1A1A2E', background: '#050505', padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>
+              {t('Guard-Regeln', 'Guard rules')}
+            </div>
+            <div data-testid="voice-guard-thresholds" style={{ marginTop: 6, fontSize: 13, color: '#D4D4D8', lineHeight: 1.7 }}>
+              {voiceGuardSummary.thresholdsLabel}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, color: '#71717A' }}>
+              {voiceGuardSummary.escalationLabel}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 280 }}>
+          <label style={{ display: 'block', fontSize: 11, color: '#71717A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Server-Policy', 'Server policy')}</label>
+          <select
+            data-testid="voice-guard-policy-select"
+            value={voiceGuard.policy}
+            onChange={(e) => setSettings((current) => ({ ...(current || {}), voiceGuard: normalizeDashboardVoiceGuardConfig({ ...(current?.voiceGuard || {}), policy: e.target.value }) }))}
+            style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid #1A1A2E', background: '#050505', color: '#fff', boxSizing: 'border-box', fontSize: 13 }}
+          >
+            <option value="default">{t('Standard (globale Env)', 'Default (global env)')}</option>
+            <option value="allow">{t('Erlauben', 'Allow')}</option>
+            <option value="return">{t('Zurueckspringen', 'Return')}</option>
+            <option value="disconnect">Disconnect</option>
+          </select>
         </div>
       </div>
 

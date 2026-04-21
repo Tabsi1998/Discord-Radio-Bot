@@ -219,6 +219,12 @@ Additional recognition tuning variables:
 | `VOICE_STATE_RECONCILE_ENABLED` | Voice-state reconciliation |
 | `VOICE_STATE_RECONCILE_MS` | Voice-state reconciliation interval |
 | `VOICE_MOVE_POLICY` | How OmniFM reacts to foreign voice-channel moves: `allow`, `return`, or `disconnect` |
+| `VOICE_MOVE_CONFIRMATIONS` | Confirmed mismatches before a foreign move counts as real |
+| `VOICE_MOVE_RETURN_COOLDOWN_MS` | Cooldown between protected return attempts |
+| `VOICE_MOVE_WINDOW_MS` | Time window for repeated foreign-move escalation |
+| `VOICE_MOVE_MAX_EVENTS_PER_WINDOW` | Max confirmed foreign moves inside the escalation window |
+| `VOICE_MOVE_ESCALATION` | Escalation after repeated foreign moves: `disconnect` or `cooldown` |
+| `VOICE_MOVE_ESCALATION_COOLDOWN_MS` | Cooldown applied when escalation mode is `cooldown` |
 | `VOICE_TRANSIENT_RECHECK_MS` | Recheck delay for transient mismatches |
 | `VOICE_STATE_MISSING_CONFIRMATIONS` | Missing-state confirmation threshold |
 | `VOICE_RECONNECT_RESOURCE_CONFIRMATIONS` | Resource confirmation threshold before clearing reconnect targets |
@@ -246,6 +252,12 @@ Additional voice/runtime guard rails used by code:
 - `STREAM_IDLE_RESTART_EXP_STEPS`
 - `EVENT_DEFAULT_TIMEZONE`
 - `EVENT_SCHEDULER_ENABLED`
+
+Voice guard resolution order:
+
+- Global defaults come from the `VOICE_MOVE_*` env values.
+- A guild can override only the move policy through dashboard settings or `/voiceguard policy`.
+- Temporary admin unlocks via `/voiceguard unlock` only affect the currently active runtime session.
 
 ## Provider Integrations
 

@@ -179,6 +179,11 @@ import { premiumStationEmbed, customStationEmbed, botLimitEmbed } from "../ui/up
 import { syncGuildCommandsSafe } from "../discord/syncGuildCommandsSafe.js";
 import { buildCommandBuilders } from "../commands.js";
 import { buildInviteUrl } from "../bot-config.js";
+import { loadGuildSettings } from "../lib/guild-settings.js";
+import {
+  buildResolvedVoiceGuardConfig,
+  formatVoiceGuardDurationMs,
+} from "../lib/voice-guard.js";
 import {
   getLicenseById,
   linkServerToLicense,
@@ -335,6 +340,7 @@ class BotRuntime {
     this.voiceHealthTimer = null;
     this.listenerStatsTimer = null;
     this.pendingVoiceReconcileTimers = new Map();
+    this.guildSettingsCache = new Map();
     this.scheduledEventInFlight = new Set();
     this.lastPersistLoggedActiveCount = null;
     this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered((event) => {
@@ -433,6 +439,7 @@ class BotRuntime {
       const player = createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Play }
       });
+      const defaultVoiceGuardConfig = buildResolvedVoiceGuardConfig({});
       const state = {
         player,
         connection: null,
@@ -487,6 +494,27 @@ class BotRuntime {
         restoreBlockedAt: 0,
         restoreBlockCount: 0,
         restoreBlockReason: null,
+        voiceGuardPolicy: "default",
+        voiceGuardEffectivePolicy: defaultVoiceGuardConfig.effectivePolicy,
+        voiceGuardMoveConfirmations: defaultVoiceGuardConfig.defaults.moveConfirmations,
+        voiceGuardReturnCooldownMs: defaultVoiceGuardConfig.defaults.returnCooldownMs,
+        voiceGuardMoveWindowMs: defaultVoiceGuardConfig.defaults.moveWindowMs,
+        voiceGuardMaxMovesPerWindow: defaultVoiceGuardConfig.defaults.maxMovesPerWindow,
+        voiceGuardEscalation: defaultVoiceGuardConfig.defaults.escalation,
+        voiceGuardEscalationCooldownMs: defaultVoiceGuardConfig.defaults.escalationCooldownMs,
+        voiceGuardUnlockUntil: 0,
+        voiceGuardCooldownUntil: 0,
+        voiceGuardWindowStartedAt: 0,
+        voiceGuardWindowMoveCount: 0,
+        voiceGuardMoveCount: 0,
+        voiceGuardReturnCount: 0,
+        voiceGuardDisconnectCount: 0,
+        voiceGuardEscalationCount: 0,
+        voiceGuardLastAction: null,
+        voiceGuardLastActionAt: 0,
+        voiceGuardLastActionReason: null,
+        voiceGuardLastExpectedChannelId: null,
+        voiceGuardLastActualChannelId: null,
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
@@ -515,6 +543,135 @@ class BotRuntime {
     return normalizedGuildId
       ? `${runtimeKey}:guild:${normalizedGuildId}`
       : `${runtimeKey}:global`;
+  }
+
+  getCachedGuildSettings(guildId) {
+    const key = String(guildId || "").trim();
+    if (!key) return {};
+    const cached = this.guildSettingsCache.get(key);
+    return cached?.value && typeof cached.value === "object" ? cached.value : {};
+  }
+
+  async loadGuildSettingsCached(guildId, { force = false, maxAgeMs = 30_000 } = {}) {
+    const key = String(guildId || "").trim();
+    if (!key) return {};
+    const cached = this.guildSettingsCache.get(key);
+    if (!force && cached && (Date.now() - cached.loadedAt) <= Math.max(0, Number(maxAgeMs || 0) || 0)) {
+      return cached.value;
+    }
+    const value = await loadGuildSettings(key);
+    this.guildSettingsCache.set(key, {
+      loadedAt: Date.now(),
+      value: value && typeof value === "object" ? value : {},
+    });
+    return this.guildSettingsCache.get(key)?.value || {};
+  }
+
+  invalidateGuildSettingsCache(guildId) {
+    const key = String(guildId || "").trim();
+    if (!key) return;
+    this.guildSettingsCache.delete(key);
+  }
+
+  async refreshVoiceGuardSettings(guildId, { force = false } = {}) {
+    const state = this.getState(guildId);
+    const settings = await this.loadGuildSettingsCached(guildId, { force });
+    const resolved = buildResolvedVoiceGuardConfig(settings?.voiceGuard || {});
+    state.voiceGuardPolicy = resolved.policy;
+    state.voiceGuardEffectivePolicy = resolved.effectivePolicy;
+    state.voiceGuardMoveConfirmations = resolved.defaults.moveConfirmations;
+    state.voiceGuardReturnCooldownMs = resolved.defaults.returnCooldownMs;
+    state.voiceGuardMoveWindowMs = resolved.defaults.moveWindowMs;
+    state.voiceGuardMaxMovesPerWindow = resolved.defaults.maxMovesPerWindow;
+    state.voiceGuardEscalation = resolved.defaults.escalation;
+    state.voiceGuardEscalationCooldownMs = resolved.defaults.escalationCooldownMs;
+    return resolved;
+  }
+
+  async refreshVoiceGuardSettingsForGuild(guildId, { force = false } = {}) {
+    const runtimes = new Set([this]);
+    if (this.workerManager?.workers?.length) {
+      for (const worker of this.workerManager.workers) {
+        runtimes.add(worker);
+      }
+    }
+    const results = [];
+    for (const runtime of runtimes) {
+      runtime.invalidateGuildSettingsCache(guildId);
+      // eslint-disable-next-line no-await-in-loop
+      results.push(await runtime.refreshVoiceGuardSettings(guildId, { force }).catch(() => null));
+    }
+    return results;
+  }
+
+  getVoiceGuardRuntimeSummary(guildId) {
+    const state = this.getState(guildId);
+    const now = Date.now();
+    const defaultVoiceGuardConfig = buildResolvedVoiceGuardConfig({});
+    return {
+      policy: state.voiceGuardPolicy || "default",
+      effectivePolicy: state.voiceGuardEffectivePolicy || defaultVoiceGuardConfig.effectivePolicy,
+      unlocked: Number(state.voiceGuardUnlockUntil || 0) > now,
+      unlockUntil: Number(state.voiceGuardUnlockUntil || 0) > 0 ? Number(state.voiceGuardUnlockUntil || 0) : 0,
+      cooldownUntil: Number(state.voiceGuardCooldownUntil || 0) > 0 ? Number(state.voiceGuardCooldownUntil || 0) : 0,
+      moveWindowCount: Math.max(0, Number(state.voiceGuardWindowMoveCount || 0) || 0),
+      moveCount: Math.max(0, Number(state.voiceGuardMoveCount || 0) || 0),
+      returnCount: Math.max(0, Number(state.voiceGuardReturnCount || 0) || 0),
+      disconnectCount: Math.max(0, Number(state.voiceGuardDisconnectCount || 0) || 0),
+      escalationCount: Math.max(0, Number(state.voiceGuardEscalationCount || 0) || 0),
+      lastAction: state.voiceGuardLastAction || null,
+      lastActionAt: Number(state.voiceGuardLastActionAt || 0) || 0,
+      lastActionReason: state.voiceGuardLastActionReason || null,
+      lastExpectedChannelId: state.voiceGuardLastExpectedChannelId || null,
+      lastActualChannelId: state.voiceGuardLastActualChannelId || null,
+      moveConfirmations: Math.max(1, Number(state.voiceGuardMoveConfirmations || 0) || 1),
+      returnCooldownMs: Math.max(0, Number(state.voiceGuardReturnCooldownMs || 0) || 0),
+      moveWindowMs: Math.max(0, Number(state.voiceGuardMoveWindowMs || 0) || 0),
+      maxMovesPerWindow: Math.max(0, Number(state.voiceGuardMaxMovesPerWindow || 0) || 0),
+      escalation: state.voiceGuardEscalation || null,
+      escalationCooldownMs: Math.max(0, Number(state.voiceGuardEscalationCooldownMs || 0) || 0),
+    };
+  }
+
+  setVoiceGuardTemporaryUnlock(guildId, durationMs, reason = "manual-unlock") {
+    const state = this.getState(guildId);
+    const safeDurationMs = Math.max(60_000, Math.min(24 * 60 * 60_000, Number(durationMs || 0) || 0));
+    state.voiceGuardUnlockUntil = Date.now() + safeDurationMs;
+    state.voiceGuardLastAction = "manual-unlock";
+    state.voiceGuardLastActionAt = Date.now();
+    state.voiceGuardLastActionReason = String(reason || "manual-unlock").trim() || "manual-unlock";
+    this.persistState({ forceLog: false });
+    return {
+      unlockUntil: state.voiceGuardUnlockUntil,
+      durationMs: safeDurationMs,
+      label: formatVoiceGuardDurationMs(safeDurationMs),
+    };
+  }
+
+  clearVoiceGuardTemporaryUnlock(guildId, reason = "manual-lock") {
+    const state = this.getState(guildId);
+    state.voiceGuardUnlockUntil = 0;
+    state.voiceGuardLastAction = "manual-lock";
+    state.voiceGuardLastActionAt = Date.now();
+    state.voiceGuardLastActionReason = String(reason || "manual-lock").trim() || "manual-lock";
+    this.persistState({ forceLog: false });
+    return {
+      unlockUntil: 0,
+    };
+  }
+
+  clearVoiceGuardTemporaryUnlockForGuild(guildId, reason = "manual-lock") {
+    const runtimes = new Set([this]);
+    if (this.workerManager?.workers?.length) {
+      for (const worker of this.workerManager.workers) {
+        runtimes.add(worker);
+      }
+    }
+    const results = [];
+    for (const runtime of runtimes) {
+      results.push(runtime.clearVoiceGuardTemporaryUnlock(guildId, reason));
+    }
+    return results;
   }
 
   noteNetworkRecoveryFailure(guildId, source, detail = "") {
@@ -3366,6 +3523,7 @@ class BotRuntime {
     }
 
     const guildId = interaction.guildId;
+    await this.refreshVoiceGuardSettings(guildId).catch(() => null);
     const state = this.getState(guildId);
     state.lastChannelId = channel.id;
     this.clearReconnectTimer(state);
@@ -3534,6 +3692,7 @@ class BotRuntime {
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
 
+      await this.refreshVoiceGuardSettings(guildId).catch(() => null);
       this.clearRestoreRetry(guildId);
       const parsedVolume = Number.parseInt(String(volume ?? ""), 10);
       const resolvedVolume = Number.isFinite(parsedVolume)
@@ -3707,6 +3866,7 @@ class BotRuntime {
       reconnectAttempts: state.reconnectAttempts || 0,
       shouldReconnect: state.shouldReconnect,
       streamErrorCount: state.streamErrorCount || 0,
+      voiceGuard: this.getVoiceGuardRuntimeSummary(normalizedGuildId),
     };
   }
 
@@ -3782,6 +3942,7 @@ class BotRuntime {
     for (const [guildId, state] of this.guildState.entries()) {
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) continue;
+      const defaultVoiceGuardConfig = buildResolvedVoiceGuardConfig({});
       const playing = isRuntimePlaybackActive(this, guildId, state);
       const voiceConnected = isRuntimeVoiceConnected(this, guildId, state, { includeObserved: true });
       const connectedChannelId = getRuntimeConnectedChannelId(this, guildId, state, {
@@ -3813,6 +3974,8 @@ class BotRuntime {
         streamErrorCount: Number(state.streamErrorCount || 0) || 0,
         shouldReconnect: state.shouldReconnect === true,
         meta: state.currentMeta || null,
+        voiceGuardPolicy: state.voiceGuardPolicy || "default",
+        voiceGuardEffectivePolicy: state.voiceGuardEffectivePolicy || defaultVoiceGuardConfig.effectivePolicy,
       };
 
       const reconnectCount = Number(state.reconnectCount || 0) || 0;
@@ -3875,6 +4038,19 @@ class BotRuntime {
           : null;
       const networkRecoveryDelayMs = getNetworkRecoveryDelayMs ? (Number(getNetworkRecoveryDelayMs(guildId)) || 0) : 0;
       if (networkRecoveryDelayMs > 0) detail.networkRecoveryDelayMs = networkRecoveryDelayMs;
+      if (state.voiceGuardUnlockUntil > 0) detail.voiceGuardUnlockUntil = state.voiceGuardUnlockUntil;
+      if (state.voiceGuardCooldownUntil > 0) detail.voiceGuardCooldownUntil = state.voiceGuardCooldownUntil;
+      if (state.voiceGuardWindowStartedAt > 0) detail.voiceGuardWindowStartedAt = state.voiceGuardWindowStartedAt;
+      if ((Number(state.voiceGuardWindowMoveCount || 0) || 0) > 0) detail.voiceGuardWindowMoveCount = Number(state.voiceGuardWindowMoveCount || 0) || 0;
+      if ((Number(state.voiceGuardMoveCount || 0) || 0) > 0) detail.voiceGuardMoveCount = Number(state.voiceGuardMoveCount || 0) || 0;
+      if ((Number(state.voiceGuardReturnCount || 0) || 0) > 0) detail.voiceGuardReturnCount = Number(state.voiceGuardReturnCount || 0) || 0;
+      if ((Number(state.voiceGuardDisconnectCount || 0) || 0) > 0) detail.voiceGuardDisconnectCount = Number(state.voiceGuardDisconnectCount || 0) || 0;
+      if ((Number(state.voiceGuardEscalationCount || 0) || 0) > 0) detail.voiceGuardEscalationCount = Number(state.voiceGuardEscalationCount || 0) || 0;
+      if (state.voiceGuardLastAction) detail.voiceGuardLastAction = state.voiceGuardLastAction;
+      if ((Number(state.voiceGuardLastActionAt || 0) || 0) > 0) detail.voiceGuardLastActionAt = Number(state.voiceGuardLastActionAt || 0) || 0;
+      if (state.voiceGuardLastActionReason) detail.voiceGuardLastActionReason = state.voiceGuardLastActionReason;
+      if (state.voiceGuardLastExpectedChannelId) detail.voiceGuardLastExpectedChannelId = state.voiceGuardLastExpectedChannelId;
+      if (state.voiceGuardLastActualChannelId) detail.voiceGuardLastActualChannelId = state.voiceGuardLastActualChannelId;
 
       guildDetails.push(detail);
     }

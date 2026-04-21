@@ -398,6 +398,34 @@ export function buildCommandBuilders() {
       choice("Server panel", "panel", "Server-Panel")
     ));
 
+  const voiceguard = describe(
+    new SlashCommandBuilder().setName("voiceguard"),
+    "Manage the voice move guard for this server",
+    "Voice-Move-Guard für diesen Server verwalten"
+  )
+    .addSubcommand((sub) => describe(sub.setName("status"), "Show the current voice guard status", "Aktuellen Voice-Guard-Status anzeigen"))
+    .addSubcommand((sub) => {
+      describe(sub.setName("policy"), "Set the server policy for foreign voice moves", "Server-Policy für Fremdverschiebungen setzen");
+      sub.addStringOption((option) => option
+        .setName("value")
+        .setDescription("Policy")
+        .setDescriptionLocalizations(de("Policy"))
+        .setRequired(true)
+        .addChoices(
+          choice("Default", "default", "Standard"),
+          choice("Allow", "allow", "Erlauben"),
+          choice("Return", "return", "Zurückspringen"),
+          choice("Disconnect", "disconnect", "Disconnect")
+        ));
+      return sub;
+    })
+    .addSubcommand((sub) => {
+      describe(sub.setName("unlock"), "Temporarily allow intentional voice moves", "Bewusste Voice-Moves temporär erlauben");
+      withIntegerOption(sub, "minutes", "Unlock duration in minutes", "Unlock-Dauer in Minuten", { required: false });
+      return sub;
+    })
+    .addSubcommand((sub) => describe(sub.setName("lock"), "End a temporary unlock immediately", "Temporären Unlock sofort beenden"));
+
   return [
     help,
     setup,
@@ -424,6 +452,7 @@ export function buildCommandBuilders() {
     perm,
     invite,
     workers,
+    voiceguard,
   ];
 }
 

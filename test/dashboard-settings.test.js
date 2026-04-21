@@ -9,6 +9,10 @@ import {
   getConfiguredFailoverChain,
   normalizeFailoverChain,
 } from "../frontend/src/lib/dashboardSettings.js";
+import {
+  buildDashboardVoiceGuardSummary,
+  normalizeDashboardVoiceGuardConfig,
+} from "../frontend/src/lib/dashboardVoiceGuard.js";
 
 test("computeWeeklyDigestNextRun follows the next matching weekly slot", () => {
   const nextRunAt = computeWeeklyDigestNextRun(
@@ -120,4 +124,40 @@ test("buildFallbackStationSummary reflects additional failover steps", () => {
   assert.equal(summary.chainLength, 3);
   assert.equal(summary.chainLabel, "+2 more steps");
   assert.match(summary.description, /additional failover steps/i);
+});
+
+test("normalizeDashboardVoiceGuardConfig keeps default policy and threshold defaults", () => {
+  const config = normalizeDashboardVoiceGuardConfig({
+    policy: "default",
+    effectivePolicy: "return",
+  });
+
+  assert.equal(config.policy, "default");
+  assert.equal(config.effectivePolicy, "return");
+  assert.equal(config.defaults.moveConfirmations >= 1, true);
+  assert.equal(config.defaults.maxMovesPerWindow >= 2, true);
+});
+
+test("buildDashboardVoiceGuardSummary explains disconnect policy clearly", () => {
+  const summary = buildDashboardVoiceGuardSummary(
+    {
+      policy: "disconnect",
+      effectivePolicy: "disconnect",
+      defaults: {
+        policy: "return",
+        moveConfirmations: 2,
+        returnCooldownMs: 15000,
+        moveWindowMs: 120000,
+        maxMovesPerWindow: 4,
+        escalation: "disconnect",
+        escalationCooldownMs: 600000,
+      },
+    },
+    (_de, en) => en
+  );
+
+  assert.equal(summary.statusLabel, "Disconnect");
+  assert.equal(summary.policyLabel, "Disconnect");
+  assert.match(summary.description, /confirmed foreign moves/i);
+  assert.match(summary.thresholdsLabel, /confirmations/i);
 });

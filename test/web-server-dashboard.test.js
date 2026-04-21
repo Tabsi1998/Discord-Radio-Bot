@@ -1363,6 +1363,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(settingsResponse.payload.exportsWebhook.enabled, false);
   assert.equal(settingsResponse.payload.exportsWebhook.url, "");
   assert.deepEqual(settingsResponse.payload.exportsWebhook.events, []);
+  assert.equal(settingsResponse.payload.voiceGuard.policy, "default");
+  assert.equal(typeof settingsResponse.payload.voiceGuard.effectivePolicy, "string");
 
   const settingsAcceptLanguageResponse = await requestJson(
     baseUrl,
@@ -1422,6 +1424,29 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   );
   assert.equal(invalidIncidentAlertSettings.status, 403);
   assert.match(invalidIncidentAlertSettings.payload.error, /incident alert/i);
+
+  const voiceGuardSettingsResponse = await requestJson(
+    baseUrl,
+    `/api/dashboard/settings?serverId=${GUILD_ID}`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "X-OmniFM-Language": "en",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        voiceGuard: {
+          policy: "disconnect",
+        },
+      }),
+    }
+  );
+  assert.equal(voiceGuardSettingsResponse.status, mongoAvailable ? 200 : 503);
+  if (mongoAvailable) {
+    assert.equal(voiceGuardSettingsResponse.payload.voiceGuard.policy, "disconnect");
+    assert.equal(voiceGuardSettingsResponse.payload.voiceGuard.effectivePolicy, "disconnect");
+  }
 
   const digestPreviewResponse = await requestJson(
     baseUrl,

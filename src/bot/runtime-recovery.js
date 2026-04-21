@@ -18,6 +18,15 @@ import { clearBotGuild, getBotState } from "../bot-state.js";
 import { getServerPlanConfig } from "../core/entitlements.js";
 import { networkRecoveryCoordinator } from "../core/network-recovery.js";
 import {
+  VOICE_GUARD_DEFAULT_POLICY,
+  VOICE_GUARD_MOVE_CONFIRMATIONS,
+  VOICE_GUARD_RETURN_COOLDOWN_MS,
+  VOICE_GUARD_WINDOW_MS,
+  VOICE_GUARD_MAX_EVENTS_PER_WINDOW,
+  VOICE_GUARD_ESCALATION,
+  VOICE_GUARD_ESCALATION_COOLDOWN_MS,
+} from "../lib/voice-guard.js";
+import {
   recordStationStop,
   recordConnectionEvent,
 } from "../listening-stats-store.js";
@@ -63,11 +72,7 @@ const PERMANENT_RESTORE_GUILD_ERROR_CODES = new Set([10004, 50001]);
 const PERMANENT_RESTORE_CHANNEL_ERROR_CODES = new Set([10003]);
 
 function getVoiceMovePolicy() {
-  const rawPolicy = String(process.env.VOICE_MOVE_POLICY || "return").trim().toLowerCase();
-  if (rawPolicy === "allow" || rawPolicy === "disconnect") {
-    return rawPolicy;
-  }
-  return "return";
+  return VOICE_GUARD_DEFAULT_POLICY;
 }
 
 function getExpectedRuntimeChannelId(state) {
@@ -77,10 +82,86 @@ function getExpectedRuntimeChannelId(state) {
   return lastChannelId || null;
 }
 
-function shouldProtectRuntimeVoiceChannel(state, expectedChannelId = getExpectedRuntimeChannelId(state)) {
+function getRuntimeVoiceGuardConfig(state) {
+  const policy = String(state?.voiceGuardEffectivePolicy || getVoiceMovePolicy()).trim().toLowerCase();
+  return {
+    policy: policy === "allow" || policy === "disconnect" ? policy : "return",
+    configuredPolicy: String(state?.voiceGuardPolicy || "default").trim().toLowerCase() || "default",
+    moveConfirmations: Math.max(1, Number(state?.voiceGuardMoveConfirmations || VOICE_GUARD_MOVE_CONFIRMATIONS) || VOICE_GUARD_MOVE_CONFIRMATIONS),
+    returnCooldownMs: Math.max(0, Number(state?.voiceGuardReturnCooldownMs || VOICE_GUARD_RETURN_COOLDOWN_MS) || VOICE_GUARD_RETURN_COOLDOWN_MS),
+    moveWindowMs: Math.max(5_000, Number(state?.voiceGuardMoveWindowMs || VOICE_GUARD_WINDOW_MS) || VOICE_GUARD_WINDOW_MS),
+    maxMovesPerWindow: Math.max(2, Number(state?.voiceGuardMaxMovesPerWindow || VOICE_GUARD_MAX_EVENTS_PER_WINDOW) || VOICE_GUARD_MAX_EVENTS_PER_WINDOW),
+    escalation: String(state?.voiceGuardEscalation || VOICE_GUARD_ESCALATION).trim().toLowerCase() === "cooldown"
+      ? "cooldown"
+      : "disconnect",
+    escalationCooldownMs: Math.max(
+      60_000,
+      Number(state?.voiceGuardEscalationCooldownMs || VOICE_GUARD_ESCALATION_COOLDOWN_MS) || VOICE_GUARD_ESCALATION_COOLDOWN_MS
+    ),
+  };
+}
+
+function isRuntimeVoiceGuardUnlocked(state, nowMs = Date.now()) {
+  return (Number(state?.voiceGuardUnlockUntil || 0) || 0) > nowMs;
+}
+
+function isRuntimeVoiceGuardCooldownActive(state, nowMs = Date.now()) {
+  return (Number(state?.voiceGuardCooldownUntil || 0) || 0) > nowMs;
+}
+
+function recordRuntimeVoiceGuardAction(state, action, {
+  reason = null,
+  expectedChannelId = null,
+  actualChannelId = null,
+  atMs = Date.now(),
+} = {}) {
+  if (!state) return;
+  state.voiceGuardLastAction = String(action || "").trim() || null;
+  state.voiceGuardLastActionAt = Number(atMs || Date.now()) || Date.now();
+  state.voiceGuardLastActionReason = String(reason || "").trim() || null;
+  state.voiceGuardLastExpectedChannelId = String(expectedChannelId || "").trim() || null;
+  state.voiceGuardLastActualChannelId = String(actualChannelId || "").trim() || null;
+}
+
+function noteRuntimeVoiceGuardMove(state, config, {
+  expectedChannelId = null,
+  actualChannelId = null,
+  nowMs = Date.now(),
+} = {}) {
+  if (!state) {
+    return { countInWindow: 0, exceededWindow: false };
+  }
+  const windowMs = Math.max(5_000, Number(config?.moveWindowMs || VOICE_GUARD_WINDOW_MS) || VOICE_GUARD_WINDOW_MS);
+  const windowStartedAt = Number(state.voiceGuardWindowStartedAt || 0) || 0;
+  if (!windowStartedAt || (nowMs - windowStartedAt) > windowMs) {
+    state.voiceGuardWindowStartedAt = nowMs;
+    state.voiceGuardWindowMoveCount = 0;
+  }
+  state.voiceGuardWindowMoveCount = (Number(state.voiceGuardWindowMoveCount || 0) || 0) + 1;
+  state.voiceGuardMoveCount = (Number(state.voiceGuardMoveCount || 0) || 0) + 1;
+  recordRuntimeVoiceGuardAction(state, "move-detected", {
+    reason: "foreign-move-confirmed",
+    expectedChannelId,
+    actualChannelId,
+    atMs: nowMs,
+  });
+  return {
+    countInWindow: Number(state.voiceGuardWindowMoveCount || 0) || 0,
+    exceededWindow: (Number(state.voiceGuardWindowMoveCount || 0) || 0) >= Math.max(2, Number(config?.maxMovesPerWindow || VOICE_GUARD_MAX_EVENTS_PER_WINDOW) || VOICE_GUARD_MAX_EVENTS_PER_WINDOW),
+  };
+}
+
+function clearRuntimeVoiceGuardWindow(state) {
+  if (!state) return;
+  state.voiceGuardWindowStartedAt = 0;
+  state.voiceGuardWindowMoveCount = 0;
+}
+
+function shouldProtectRuntimeVoiceChannel(state, expectedChannelId = getExpectedRuntimeChannelId(state), config = getRuntimeVoiceGuardConfig(state)) {
   const normalizedExpectedChannelId = String(expectedChannelId || "").trim();
   if (!normalizedExpectedChannelId) return false;
-  if (getVoiceMovePolicy() === "allow") return false;
+  if (config.policy === "allow") return false;
+  if (isRuntimeVoiceGuardUnlocked(state)) return false;
   return Boolean(
     state?.shouldReconnect
     && normalizedExpectedChannelId
@@ -499,10 +580,11 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
   const oldChannelId = oldState.channelId;
   const newChannelId = newState.channelId;
   const expectedChannelId = getExpectedRuntimeChannelId(state);
+  const voiceGuardConfig = getRuntimeVoiceGuardConfig(state);
 
   if (newChannelId) {
     if (
-      shouldProtectRuntimeVoiceChannel(state, expectedChannelId)
+      shouldProtectRuntimeVoiceChannel(state, expectedChannelId, voiceGuardConfig)
       && expectedChannelId
       && newChannelId !== expectedChannelId
     ) {
@@ -514,7 +596,7 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
       if (issue.count === 1 || (issue.count % 5) === 0) {
         log(
           "WARN",
-          `[${runtime.config.name}] Unerwarteter Voice-Move erkannt guild=${guildId} expected=${expectedChannelId} actual=${newChannelId} - Kanal wird geschuetzt (${getVoiceMovePolicy()}).`
+          `[${runtime.config.name}] Unerwarteter Voice-Move erkannt guild=${guildId} expected=${expectedChannelId} actual=${newChannelId} - Kanal wird geschuetzt (${voiceGuardConfig.policy}).`
         );
       }
       runtime.queueVoiceStateReconcile(guildId, "voice-state-update-mismatch", 900);
@@ -523,6 +605,12 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
 
     clearTransientVoiceIssues(state);
     state.voiceDisconnectObservedAt = 0;
+    if (expectedChannelId && newChannelId === expectedChannelId) {
+      clearRuntimeVoiceGuardWindow(state);
+      if (isRuntimeVoiceGuardCooldownActive(state)) {
+        state.voiceGuardCooldownUntil = 0;
+      }
+    }
     if (state.lastChannelId !== newChannelId) {
       runtime.markNowPlayingTargetDirty(state, newChannelId);
       runtime.invalidateVoiceStatus?.(state);
@@ -713,6 +801,7 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
   const state = runtime.guildState.get(guildId);
   if (!state) return;
   if (!state.connection && !state.currentStationKey && !state.lastChannelId) return;
+  const voiceGuardConfig = getRuntimeVoiceGuardConfig(state);
 
   const { channelId: actualChannelId } = await runtime.fetchBotVoiceState(guildId);
   const connectionChannelId = String(state.connection?.joinConfig?.channelId || "").trim() || null;
@@ -778,6 +867,7 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
   state.voiceDisconnectObservedAt = 0;
 
   if (expectedChannelId && actualChannelId !== expectedChannelId) {
+    const protectedMove = shouldProtectRuntimeVoiceChannel(state, expectedChannelId, voiceGuardConfig);
     const issue = confirmTransientVoiceIssue(
       runtime,
       guildId,
@@ -785,7 +875,7 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
       "voice-channel-mismatch",
       `${expectedChannelId}:${actualChannelId}:${reason}`,
       {
-        threshold: VOICE_STATE_MISSING_CONFIRMATIONS,
+        threshold: protectedMove ? voiceGuardConfig.moveConfirmations : VOICE_STATE_MISSING_CONFIRMATIONS,
         recheckReason: `voice-channel-mismatch-confirm-${reason}`,
         logMessage: `Voice-Channel-Mismatch erkannt (expected=${expectedChannelId}, actual=${actualChannelId}, reason=${reason})`,
       }
@@ -794,14 +884,57 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
       return;
     }
     clearTransientVoiceIssue(state, "voice-channel-mismatch");
-    if (shouldProtectRuntimeVoiceChannel(state, expectedChannelId)) {
-      const movePolicy = getVoiceMovePolicy();
+    if (protectedMove) {
+      const movePolicy = voiceGuardConfig.policy;
+      const nowMs = Date.now();
+      const remainingGuardCooldownMs = Math.max(0, (Number(state.voiceGuardCooldownUntil || 0) || 0) - nowMs);
+      const moveSummary = noteRuntimeVoiceGuardMove(state, voiceGuardConfig, {
+        expectedChannelId,
+        actualChannelId,
+        nowMs,
+      });
       log(
         "WARN",
         `[${runtime.config.name}] Fremdverschiebung bestaetigt guild=${guildId} expected=${expectedChannelId} actual=${actualChannelId} - Policy=${movePolicy}.`
       );
-      if (movePolicy === "disconnect") {
+      if (moveSummary.exceededWindow) {
+        state.voiceGuardEscalationCount = (Number(state.voiceGuardEscalationCount || 0) || 0) + 1;
+        if (voiceGuardConfig.escalation === "cooldown") {
+          state.voiceGuardCooldownUntil = nowMs + voiceGuardConfig.escalationCooldownMs;
+          recordRuntimeVoiceGuardAction(state, "cooldown", {
+            reason: "foreign-move-escalated",
+            expectedChannelId,
+            actualChannelId,
+            atMs: nowMs,
+          });
+          runtime.persistState?.();
+          runtime.queueVoiceStateReconcile(guildId, "voice-guard-cooldown", voiceGuardConfig.escalationCooldownMs);
+          return;
+        }
+
+        state.voiceGuardDisconnectCount = (Number(state.voiceGuardDisconnectCount || 0) || 0) + 1;
         state.shouldReconnect = false;
+        recordRuntimeVoiceGuardAction(state, "disconnect", {
+          reason: "foreign-move-escalated",
+          expectedChannelId,
+          actualChannelId,
+          atMs: nowMs,
+        });
+        runtime.resetVoiceSession(guildId, state, {
+          preservePlaybackTarget: false,
+          clearLastChannel: true,
+        });
+        return;
+      }
+      if (movePolicy === "disconnect") {
+        state.voiceGuardDisconnectCount = (Number(state.voiceGuardDisconnectCount || 0) || 0) + 1;
+        state.shouldReconnect = false;
+        recordRuntimeVoiceGuardAction(state, "disconnect", {
+          reason: "foreign-move-policy",
+          expectedChannelId,
+          actualChannelId,
+          atMs: nowMs,
+        });
         runtime.resetVoiceSession(guildId, state, {
           preservePlaybackTarget: false,
           clearLastChannel: true,
@@ -809,13 +942,25 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
         return;
       }
 
+      state.voiceGuardReturnCount = (Number(state.voiceGuardReturnCount || 0) || 0) + 1;
+      state.voiceGuardCooldownUntil = nowMs + voiceGuardConfig.returnCooldownMs;
+      recordRuntimeVoiceGuardAction(state, "return", {
+        reason: "foreign-move-policy",
+        expectedChannelId,
+        actualChannelId,
+        atMs: nowMs,
+      });
       if (state.connection) {
         try { state.connection.destroy(); } catch {}
       }
-      runtime.scheduleReconnect(guildId, {
+      const reconnectOptions = {
         resetAttempts: true,
         reason: "voice-channel-mismatch-guard",
-      });
+      };
+      if (remainingGuardCooldownMs > 0) {
+        reconnectOptions.minDelayMs = remainingGuardCooldownMs;
+      }
+      runtime.scheduleReconnect(guildId, reconnectOptions);
       return;
     }
 
@@ -826,6 +971,12 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
     }
   } else {
     clearTransientVoiceIssue(state, "voice-channel-mismatch");
+    if (expectedChannelId && actualChannelId === expectedChannelId) {
+      clearRuntimeVoiceGuardWindow(state);
+      if (isRuntimeVoiceGuardCooldownActive(state)) {
+        state.voiceGuardCooldownUntil = 0;
+      }
+    }
   }
 
   if (

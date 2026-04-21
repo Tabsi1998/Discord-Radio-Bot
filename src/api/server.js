@@ -114,6 +114,10 @@ import {
   validateDashboardIncidentAlertsConfig,
 } from "../lib/dashboard-incident-alerts.js";
 import {
+  buildResolvedVoiceGuardConfig,
+  validateVoiceGuardSettings,
+} from "../lib/voice-guard.js";
+import {
   getPrimaryFailoverStation,
   normalizeFailoverChain,
 } from "../lib/failover-chain.js";
@@ -805,6 +809,7 @@ const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
   buildDashboardExportsWebhookResponse,
   buildDashboardFailoverChainPreview,
   buildDashboardFallbackStationPreview,
+  buildResolvedVoiceGuardConfig,
   buildServerCapabilityPayload,
   buildWeeklyDigestMeta,
   clipText,
@@ -822,6 +827,7 @@ const handleDashboardSettingsRoute = createDashboardSettingsRouteHandler({
   serverHasCapability,
   validateDashboardIncidentAlertsConfig,
   validateDashboardExportsWebhookConfig,
+  validateVoiceGuardSettings,
 });
 
 const handleDashboardStatsRoute = createDashboardStatsRouteHandler({
@@ -1755,6 +1761,13 @@ function collectGuildLiveDetails(runtimes, guildId) {
       streamErrorCount: Number(detail.streamErrorCount || 0) || 0,
       recovering: detail?.recovering === true,
       shouldReconnect: detail.shouldReconnect === true,
+      voiceGuardPolicy: detail?.voiceGuardPolicy || "default",
+      voiceGuardEffectivePolicy: detail?.voiceGuardEffectivePolicy || null,
+      voiceGuardLastAction: detail?.voiceGuardLastAction || null,
+      voiceGuardLastActionAt: toDashboardIsoTime(detail?.voiceGuardLastActionAt),
+      voiceGuardMoveCount: Number(detail?.voiceGuardMoveCount || 0) || 0,
+      voiceGuardReturnCount: Number(detail?.voiceGuardReturnCount || 0) || 0,
+      voiceGuardDisconnectCount: Number(detail?.voiceGuardDisconnectCount || 0) || 0,
     });
   }
   return rows;
@@ -1822,6 +1835,22 @@ function collectGuildBotHealthRows(runtimes, guildId) {
       reconnectCircuitOpenUntil: toDashboardIsoTime(detail?.reconnectCircuitOpenUntil),
       reconnectCircuitRemainingMs: getDashboardRemainingMs(detail?.reconnectCircuitOpenUntil),
       networkRecoveryDelayMs: Number(detail?.networkRecoveryDelayMs || 0) || 0,
+      voiceGuardPolicy: detail?.voiceGuardPolicy || "default",
+      voiceGuardEffectivePolicy: detail?.voiceGuardEffectivePolicy || null,
+      voiceGuardUnlockUntil: toDashboardIsoTime(detail?.voiceGuardUnlockUntil),
+      voiceGuardCooldownUntil: toDashboardIsoTime(detail?.voiceGuardCooldownUntil),
+      voiceGuardUnlockRemainingMs: getDashboardRemainingMs(detail?.voiceGuardUnlockUntil),
+      voiceGuardCooldownRemainingMs: getDashboardRemainingMs(detail?.voiceGuardCooldownUntil),
+      voiceGuardMoveCount: Number(detail?.voiceGuardMoveCount || 0) || 0,
+      voiceGuardWindowMoveCount: Number(detail?.voiceGuardWindowMoveCount || 0) || 0,
+      voiceGuardReturnCount: Number(detail?.voiceGuardReturnCount || 0) || 0,
+      voiceGuardDisconnectCount: Number(detail?.voiceGuardDisconnectCount || 0) || 0,
+      voiceGuardEscalationCount: Number(detail?.voiceGuardEscalationCount || 0) || 0,
+      voiceGuardLastAction: detail?.voiceGuardLastAction || null,
+      voiceGuardLastActionAt: toDashboardIsoTime(detail?.voiceGuardLastActionAt),
+      voiceGuardLastActionReason: detail?.voiceGuardLastActionReason || null,
+      voiceGuardLastExpectedChannelId: detail?.voiceGuardLastExpectedChannelId || null,
+      voiceGuardLastActualChannelId: detail?.voiceGuardLastActualChannelId || null,
     });
   }
   return rows;
@@ -3110,7 +3139,7 @@ function startWebServer(runtimes) {
       return;
     }
 
-    if (await handleDashboardSettingsRoute({ req, res, requestUrl, readJsonBody })) {
+    if (await handleDashboardSettingsRoute({ req, res, requestUrl, readJsonBody, runtimes })) {
       return;
     }
 

@@ -163,6 +163,20 @@ function normalizeDashboardHealthBot(source = {}) {
     reconnectCircuitOpenUntil: normalizeDashboardTimestamp(input.reconnectCircuitOpenUntil),
     reconnectCircuitRemainingMs,
     networkRecoveryDelayMs: Math.max(0, Number(input.networkRecoveryDelayMs || 0) || 0),
+    voiceGuardPolicy: String(input.voiceGuardPolicy || "").trim() || "default",
+    voiceGuardEffectivePolicy: String(input.voiceGuardEffectivePolicy || "").trim() || null,
+    voiceGuardUnlockUntil: normalizeDashboardTimestamp(input.voiceGuardUnlockUntil),
+    voiceGuardCooldownUntil: normalizeDashboardTimestamp(input.voiceGuardCooldownUntil),
+    voiceGuardUnlockRemainingMs: Math.max(0, Number(input.voiceGuardUnlockRemainingMs || 0) || 0),
+    voiceGuardCooldownRemainingMs: Math.max(0, Number(input.voiceGuardCooldownRemainingMs || 0) || 0),
+    voiceGuardMoveCount: Math.max(0, Number(input.voiceGuardMoveCount || 0) || 0),
+    voiceGuardWindowMoveCount: Math.max(0, Number(input.voiceGuardWindowMoveCount || 0) || 0),
+    voiceGuardReturnCount: Math.max(0, Number(input.voiceGuardReturnCount || 0) || 0),
+    voiceGuardDisconnectCount: Math.max(0, Number(input.voiceGuardDisconnectCount || 0) || 0),
+    voiceGuardEscalationCount: Math.max(0, Number(input.voiceGuardEscalationCount || 0) || 0),
+    voiceGuardLastAction: String(input.voiceGuardLastAction || "").trim() || null,
+    voiceGuardLastActionAt: normalizeDashboardTimestamp(input.voiceGuardLastActionAt),
+    voiceGuardLastActionReason: String(input.voiceGuardLastActionReason || "").trim() || null,
   };
 }
 
@@ -185,6 +199,18 @@ function buildDashboardHealthBotDebug(source = {}, {
       `Network backoff ${formatDashboardDuration(bot.networkRecoveryDelayMs, { short: true })}`
     ));
   }
+  if (bot.voiceGuardUnlockRemainingMs > 0) {
+    flags.push(t(
+      `Voice-Guard Unlock ${formatDashboardDuration(bot.voiceGuardUnlockRemainingMs, { short: true })}`,
+      `Voice guard unlock ${formatDashboardDuration(bot.voiceGuardUnlockRemainingMs, { short: true })}`
+    ));
+  }
+  if (bot.voiceGuardCooldownRemainingMs > 0) {
+    flags.push(t(
+      `Voice-Guard Cooldown ${formatDashboardDuration(bot.voiceGuardCooldownRemainingMs, { short: true })}`,
+      `Voice guard cooldown ${formatDashboardDuration(bot.voiceGuardCooldownRemainingMs, { short: true })}`
+    ));
+  }
 
   let summary = "";
   if (!bot.ready && bot.recovering) {
@@ -204,6 +230,12 @@ function buildDashboardHealthBotDebug(source = {}, {
     summary = t("Stream-Neustart geplant", "Stream restart is scheduled");
   } else if (bot.reconnectPending) {
     summary = t("Reconnect-Retry geplant", "Reconnect retry is scheduled");
+  } else if (bot.voiceGuardLastAction === "disconnect") {
+    summary = t("Voice Guard hat die Session beendet", "Voice guard ended the session");
+  } else if (bot.voiceGuardLastAction === "return") {
+    summary = t("Voice Guard plant Rueckkehr in den Ziel-Channel", "Voice guard is returning to the target channel");
+  } else if (bot.voiceGuardLastAction === "cooldown") {
+    summary = t("Voice Guard pausiert weitere Rueckspruenge", "Voice guard is pausing further returns");
   } else if (bot.shouldReconnect && !bot.playing) {
     summary = t("Wartet auf Wiederverbindung", "Waiting for reconnect");
   } else if (bot.lastProcessExitDetail) {
@@ -250,6 +282,20 @@ function buildDashboardHealthBotDebug(source = {}, {
     detailLines.push(t(
       `Voice-Disconnect gesehen: ${formatDashboardTimestampLabel(bot.voiceDisconnectObservedAt, formatDate)}`,
       `Voice disconnect observed: ${formatDashboardTimestampLabel(bot.voiceDisconnectObservedAt, formatDate)}`
+    ));
+  }
+  if (bot.voiceGuardLastAction) {
+    const actionParts = [
+      bot.voiceGuardLastAction,
+      bot.voiceGuardLastActionReason || "",
+      bot.voiceGuardLastActionAt ? formatDashboardTimestampLabel(bot.voiceGuardLastActionAt, formatDate) : "",
+    ].filter(Boolean).join(" | ");
+    detailLines.push(t(`Voice Guard: ${actionParts}`, `Voice guard: ${actionParts}`));
+  }
+  if (bot.voiceGuardMoveCount > 0 || bot.voiceGuardReturnCount > 0 || bot.voiceGuardDisconnectCount > 0) {
+    detailLines.push(t(
+      `Moves: ${bot.voiceGuardMoveCount} | Returns: ${bot.voiceGuardReturnCount} | Disconnects: ${bot.voiceGuardDisconnectCount}`,
+      `Moves: ${bot.voiceGuardMoveCount} | Returns: ${bot.voiceGuardReturnCount} | Disconnects: ${bot.voiceGuardDisconnectCount}`
     ));
   }
 

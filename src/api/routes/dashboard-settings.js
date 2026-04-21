@@ -7,6 +7,7 @@ export function createDashboardSettingsRouteHandler(deps) {
     buildDashboardExportsWebhookResponse,
     buildDashboardFailoverChainPreview,
     buildDashboardFallbackStationPreview,
+    buildResolvedVoiceGuardConfig,
     buildServerCapabilityPayload,
     buildWeeklyDigestMeta,
     clipText,
@@ -24,10 +25,11 @@ export function createDashboardSettingsRouteHandler(deps) {
     serverHasCapability,
     validateDashboardIncidentAlertsConfig,
     validateDashboardExportsWebhookConfig,
+    validateVoiceGuardSettings,
   } = deps;
 
   return async function handleDashboardSettingsRoute(context) {
-    const { req, res, requestUrl, readJsonBody } = context;
+    const { req, res, requestUrl, readJsonBody, runtimes } = context;
 
     if (requestUrl.pathname !== "/api/dashboard/settings") {
       return false;
@@ -54,6 +56,7 @@ export function createDashboardSettingsRouteHandler(deps) {
       const weeklyDigest = normalizeWeeklyDigestConfig(settings.weeklyDigest || {}, language);
       const failoverChain = resolveDashboardFailoverChain(settings);
       const fallbackStation = getPrimaryFailoverStation(failoverChain, settings.fallbackStation || "");
+      const voiceGuard = buildResolvedVoiceGuardConfig(settings.voiceGuard || {});
       sendJson(res, 200, {
         guildId: guildInfo.id,
         tier: guildInfo.tier,
@@ -68,6 +71,7 @@ export function createDashboardSettingsRouteHandler(deps) {
         fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
         incidentAlerts: buildDashboardIncidentAlertsResponse(settings.incidentAlerts || {}),
         exportsWebhook: buildDashboardExportsWebhookResponse(settings.exportsWebhook || {}),
+        voiceGuard,
       });
       return true;
     }
@@ -168,6 +172,15 @@ export function createDashboardSettingsRouteHandler(deps) {
           updates.incidentAlerts = validatedIncidentAlerts.config;
         }
 
+        if (body?.voiceGuard && typeof body.voiceGuard === "object") {
+          const validatedVoiceGuard = validateVoiceGuardSettings(body.voiceGuard);
+          if (!validatedVoiceGuard.ok) {
+            sendJson(res, 400, { error: validatedVoiceGuard.error });
+            return true;
+          }
+          updates.voiceGuard = validatedVoiceGuard.config;
+        }
+
         if (!isConnected() || !getDb()) {
           sendLocalizedError(res, 503, language, "MongoDB nicht verbunden.", "MongoDB is not connected.");
           return true;
@@ -179,6 +192,13 @@ export function createDashboardSettingsRouteHandler(deps) {
           { $set: updates },
           { upsert: true }
         );
+        if (Object.prototype.hasOwnProperty.call(updates, "voiceGuard") && Array.isArray(runtimes)) {
+          for (const runtime of runtimes) {
+            if (typeof runtime?.refreshVoiceGuardSettingsForGuild !== "function") continue;
+            // eslint-disable-next-line no-await-in-loop
+            await runtime.refreshVoiceGuardSettingsForGuild(guildInfo.id, { force: true }).catch(() => null);
+          }
+        }
 
         const weeklyDigest = updates.weeklyDigest
           || normalizeWeeklyDigestConfig(currentSettings.weeklyDigest || {}, language);
@@ -194,6 +214,9 @@ export function createDashboardSettingsRouteHandler(deps) {
         const exportsWebhook = Object.prototype.hasOwnProperty.call(updates, "exportsWebhook")
           ? buildDashboardExportsWebhookResponse(updates.exportsWebhook)
           : buildDashboardExportsWebhookResponse(currentSettings.exportsWebhook || {});
+        const voiceGuard = Object.prototype.hasOwnProperty.call(updates, "voiceGuard")
+          ? buildResolvedVoiceGuardConfig(updates.voiceGuard)
+          : buildResolvedVoiceGuardConfig(currentSettings.voiceGuard || {});
 
         sendJson(res, 200, {
           success: true,
@@ -210,6 +233,7 @@ export function createDashboardSettingsRouteHandler(deps) {
           fallbackStationPreview: buildDashboardFallbackStationPreview(guildInfo.id, fallbackStation),
           incidentAlerts,
           exportsWebhook,
+          voiceGuard,
         });
       } catch (err) {
         sendJson(res, 400, { error: err?.message || languagePick(language, "Ungueltige Anfrage.", "Invalid request.") });

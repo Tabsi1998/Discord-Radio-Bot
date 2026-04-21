@@ -1039,6 +1039,7 @@ test("voiceStateUpdate keeps the locked voice target when the bot is moved unexp
       reconnectInFlight: false,
       reconnectTimer: null,
       voiceDisconnectObservedAt: 0,
+      voiceGuardEffectivePolicy: "return",
     };
     const runtime = {
       client: {
@@ -1659,6 +1660,8 @@ test("voice reconcile schedules a return to the locked channel after a confirmed
       voiceConnectInFlight: false,
       reconnectInFlight: false,
       reconnectTimer: null,
+      voiceGuardEffectivePolicy: "return",
+      voiceGuardMoveConfirmations: 2,
     };
     const runtime = {
       config: { name: "OmniFM Test" },
@@ -1730,6 +1733,8 @@ test("voice reconcile can disconnect instead of accepting a confirmed foreign mo
       voiceConnectInFlight: false,
       reconnectInFlight: false,
       reconnectTimer: null,
+      voiceGuardEffectivePolicy: "disconnect",
+      voiceGuardMoveConfirmations: 2,
     };
     const runtime = {
       config: { name: "OmniFM Test" },
@@ -1765,6 +1770,136 @@ test("voice reconcile can disconnect instead of accepting a confirmed foreign mo
 
     assert.equal(state.shouldReconnect, false);
     assert.equal(state.transientVoiceIssues["voice-channel-mismatch"], undefined);
+    assert.deepEqual(resetArgs, {
+      guildId: "guild-1",
+      passedState: state,
+      options: {
+        preservePlaybackTarget: false,
+        clearLastChannel: true,
+      },
+    });
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("voiceStateUpdate accepts a foreign move while the voice guard is temporarily unlocked", () => {
+  const queued = [];
+  let persistCount = 0;
+  const state = {
+    shouldReconnect: true,
+    currentStationKey: "station-a",
+    lastChannelId: "voice-1",
+    connection: { joinConfig: { channelId: "voice-1" } },
+    transientVoiceIssues: {},
+    voiceConnectInFlight: false,
+    reconnectInFlight: false,
+    reconnectTimer: null,
+    voiceDisconnectObservedAt: 0,
+    voiceGuardEffectivePolicy: "return",
+    voiceGuardUnlockUntil: Date.now() + 60_000,
+  };
+  const runtime = {
+    client: {
+      user: { id: "bot-1" },
+    },
+    config: { name: "OmniFM Test" },
+    getState() {
+      return state;
+    },
+    markNowPlayingTargetDirty() {},
+    invalidateVoiceStatus() {},
+    persistState() {
+      persistCount += 1;
+    },
+    queueVoiceStateReconcile(guildId, reason) {
+      queued.push({ guildId, reason });
+    },
+    clearReconnectTimer() {},
+    syncVoiceChannelStatus() {
+      return Promise.resolve();
+    },
+  };
+
+  handleRuntimeBotVoiceStateUpdate(
+    runtime,
+    { channelId: "voice-1" },
+    { id: "bot-1", guild: { id: "guild-1" }, channelId: "voice-2" }
+  );
+
+  assert.equal(state.lastChannelId, "voice-2");
+  assert.equal(persistCount, 1);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].reason, "voice-state-update");
+});
+
+test("voice reconcile escalates repeated foreign moves to a disconnect", async () => {
+  const restoreEnv = setEnv({ VOICE_MOVE_POLICY: "return" });
+  try {
+    let resetArgs = null;
+    const nowMs = Date.now();
+    const state = {
+      connection: { joinConfig: { channelId: "voice-1" } },
+      currentStationKey: "station-a",
+      currentProcess: { pid: 1 },
+      lastChannelId: "voice-1",
+      shouldReconnect: true,
+      player: { state: { status: "playing" } },
+      transientVoiceIssues: {
+        "voice-channel-mismatch": {
+          count: 1,
+          firstSeenAt: nowMs - 1000,
+          lastSeenAt: nowMs - 500,
+          lastDetail: "voice-1:voice-2:test",
+        },
+      },
+      voiceConnectInFlight: false,
+      reconnectInFlight: false,
+      reconnectTimer: null,
+      voiceGuardEffectivePolicy: "return",
+      voiceGuardMoveConfirmations: 2,
+      voiceGuardMoveWindowMs: 120000,
+      voiceGuardMaxMovesPerWindow: 2,
+      voiceGuardEscalation: "disconnect",
+      voiceGuardWindowStartedAt: nowMs - 20_000,
+      voiceGuardWindowMoveCount: 1,
+      voiceGuardMoveCount: 1,
+    };
+    const runtime = {
+      config: { name: "OmniFM Test" },
+      client: {
+        isReady: () => true,
+      },
+      guildState: new Map([["guild-1", state]]),
+      fetchBotVoiceState: async () => ({ guild: {}, voiceState: {}, channelId: "voice-2" }),
+      markNowPlayingTargetDirty() {
+        throw new Error("markNowPlayingTargetDirty should not run");
+      },
+      persistState() {},
+      queueVoiceStateReconcile() {
+        throw new Error("queueVoiceStateReconcile should not run");
+      },
+      resetVoiceSession(guildId, passedState, options) {
+        resetArgs = { guildId, passedState, options };
+      },
+      scheduleReconnect() {
+        throw new Error("scheduleReconnect should not run");
+      },
+      scheduleStreamRestart() {
+        throw new Error("scheduleStreamRestart should not run");
+      },
+      syncVoiceChannelStatus() {
+        throw new Error("syncVoiceChannelStatus should not run");
+      },
+    };
+
+    await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+
+    assert.equal(state.shouldReconnect, false);
+    assert.equal(state.voiceGuardMoveCount, 2);
+    assert.equal(state.voiceGuardEscalationCount, 1);
+    assert.equal(state.voiceGuardDisconnectCount, 1);
+    assert.equal(state.voiceGuardLastAction, "disconnect");
     assert.deepEqual(resetArgs, {
       guildId: "guild-1",
       passedState: state,

@@ -46,6 +46,12 @@ import { listScheduledEvents } from "../scheduled-events-store.js";
 import { getDefaultLanguage } from "../i18n.js";
 import { premiumStationEmbed, customStationEmbed } from "../ui/upgradeEmbeds.js";
 import { buildInviteUrl } from "../bot-config.js";
+import { updateGuildSettings } from "../lib/guild-settings.js";
+import {
+  buildResolvedVoiceGuardConfig,
+  formatVoiceGuardDurationMs,
+  validateVoiceGuardSettings,
+} from "../lib/voice-guard.js";
 import {
   getLicenseById,
   linkServerToLicense,
@@ -68,6 +74,14 @@ function getTierConfig(guildId) {
 
 function getLicense(guildId) {
   return getServerLicense(guildId);
+}
+
+function formatVoiceGuardPolicyLabel(policy, t) {
+  const normalized = String(policy || "default").trim().toLowerCase();
+  if (normalized === "allow") return t("Erlauben", "Allow");
+  if (normalized === "disconnect") return t("Disconnect", "Disconnect");
+  if (normalized === "return") return t("Zurueckspringen", "Return");
+  return t("Standard", "Default");
 }
 
 export async function handleRuntimeAutocomplete(runtime, interaction) {
@@ -1334,6 +1348,177 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         content: t(
           "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann fÃ¼r einen anderen Server genutzt werden.\nNutze `/license activate <key>`, um eine neue Lizenz zu aktivieren.",
           "Server was unlinked from the license. The seat is now free and can be used for another server.\nUse `/license activate <key>` to activate a new license."
+        ),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  }
+
+  if (interaction.commandName === "voiceguard") {
+    const sub = interaction.options.getSubcommand();
+    const guildId = interaction.guildId;
+    if (!runtime.hasGuildManagePermissions(interaction)) {
+      await interaction.reply({
+        content: t(
+          "Du brauchst die Berechtigung `Server verwalten`, um den Voice-Guard zu aendern.",
+          "You need the `Manage Server` permission to manage the voice guard."
+        ),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "policy") {
+      const rawValue = interaction.options.getString("value", true);
+      const validated = validateVoiceGuardSettings({ policy: rawValue });
+      if (!validated.ok) {
+        await interaction.reply({ content: t(validated.error, validated.error), flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const persisted = await updateGuildSettings(guildId, { voiceGuard: validated.config });
+      if (!persisted.ok) {
+        await interaction.reply({
+          content: t(
+            "Voice-Guard-Policy konnte nicht gespeichert werden. MongoDB ist vermutlich nicht verfuegbar.",
+            "The voice guard policy could not be saved. MongoDB is likely unavailable."
+          ),
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await runtime.refreshVoiceGuardSettingsForGuild(guildId, { force: true }).catch(() => null);
+      const resolved = buildResolvedVoiceGuardConfig(validated.config);
+      await interaction.reply({
+        content: t(
+          `Voice-Guard-Policy gespeichert: **${formatVoiceGuardPolicyLabel(resolved.policy, t)}** | Aktiv: **${formatVoiceGuardPolicyLabel(resolved.effectivePolicy, t)}**`,
+          `Voice guard policy saved: **${formatVoiceGuardPolicyLabel(resolved.policy, t)}** | Active: **${formatVoiceGuardPolicyLabel(resolved.effectivePolicy, t)}**`
+        ),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "status") {
+      await runtime.refreshVoiceGuardSettings(guildId).catch(() => null);
+      const configured = runtime.getVoiceGuardRuntimeSummary(guildId);
+      const { runtime: activeRuntime, state: activeState } = await runtime.resolveStreamingRuntimeForInteraction(interaction);
+      const liveSummary = activeRuntime && activeState
+        ? activeRuntime.getVoiceGuardRuntimeSummary(guildId)
+        : configured;
+      const unlockLabel = liveSummary.unlockUntil
+        ? new Date(Number(liveSummary.unlockUntil)).toLocaleString(language === "de" ? "de-DE" : "en-US")
+        : "-";
+      const cooldownLabel = liveSummary.cooldownUntil
+        ? new Date(Number(liveSummary.cooldownUntil)).toLocaleString(language === "de" ? "de-DE" : "en-US")
+        : "-";
+      await interaction.reply({
+        embeds: [{
+          color: liveSummary.unlocked ? 0xF59E0B : liveSummary.effectivePolicy === "disconnect" ? 0xEF4444 : liveSummary.effectivePolicy === "return" ? 0x10B981 : 0x71717A,
+          title: t("Voice Guard", "Voice guard"),
+          fields: [
+            {
+              name: t("Policy", "Policy"),
+              value: `${formatVoiceGuardPolicyLabel(liveSummary.policy, t)} -> ${formatVoiceGuardPolicyLabel(liveSummary.effectivePolicy, t)}`,
+              inline: true,
+            },
+            {
+              name: t("Unlock", "Unlock"),
+              value: liveSummary.unlocked
+                ? t(`aktiv bis ${unlockLabel}`, `active until ${unlockLabel}`)
+                : t("nicht aktiv", "inactive"),
+              inline: true,
+            },
+            {
+              name: t("Cooldown", "Cooldown"),
+              value: liveSummary.cooldownUntil
+                ? cooldownLabel
+                : "-",
+              inline: true,
+            },
+            {
+              name: t("Bewegungen", "Moves"),
+              value: t(
+                `Gesamt: ${liveSummary.moveCount} | Fenster: ${liveSummary.moveWindowCount}/${liveSummary.maxMovesPerWindow}`,
+                `Total: ${liveSummary.moveCount} | Window: ${liveSummary.moveWindowCount}/${liveSummary.maxMovesPerWindow}`
+              ),
+              inline: false,
+            },
+            {
+              name: t("Aktionen", "Actions"),
+              value: t(
+                `Returns: ${liveSummary.returnCount} | Disconnects: ${liveSummary.disconnectCount} | Eskalationen: ${liveSummary.escalationCount}`,
+                `Returns: ${liveSummary.returnCount} | Disconnects: ${liveSummary.disconnectCount} | Escalations: ${liveSummary.escalationCount}`
+              ),
+              inline: false,
+            },
+            {
+              name: t("Letzte Aktion", "Last action"),
+              value: liveSummary.lastAction
+                ? `${liveSummary.lastAction}${liveSummary.lastActionReason ? ` | ${liveSummary.lastActionReason}` : ""}`
+                : "-",
+              inline: false,
+            },
+            {
+              name: t("Guard-Regeln", "Guard rules"),
+              value: t(
+                `Confirm: ${liveSummary.moveConfirmations} | Return-Cooldown: ${formatVoiceGuardDurationMs(liveSummary.returnCooldownMs)} | Fenster: ${formatVoiceGuardDurationMs(liveSummary.moveWindowMs)} | Eskalation: ${liveSummary.escalation}`,
+                `Confirm: ${liveSummary.moveConfirmations} | Return cooldown: ${formatVoiceGuardDurationMs(liveSummary.returnCooldownMs)} | Window: ${formatVoiceGuardDurationMs(liveSummary.moveWindowMs)} | Escalation: ${liveSummary.escalation}`
+              ),
+              inline: false,
+            },
+          ],
+          footer: {
+            text: activeRuntime
+              ? t(`Live-Runtime: ${activeRuntime.config.name}`, `Live runtime: ${activeRuntime.config.name}`)
+              : t("Keine aktive Stream-Runtime erkannt", "No active stream runtime detected"),
+          },
+        }],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "unlock") {
+      const resolved = await runtime.resolveStreamingRuntimeForInteraction(interaction);
+      if (!resolved.runtime || !resolved.state) {
+        await interaction.reply({
+          content: runtime.buildRuntimeSelectionHint(resolved.reason, language),
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const minutes = Math.max(1, Math.min(180, Number(interaction.options.getInteger("minutes") || 10) || 10));
+      const result = resolved.runtime.setVoiceGuardTemporaryUnlock(guildId, minutes * 60_000, "slash-unlock");
+      await interaction.reply({
+        content: t(
+          `Voice Guard ist jetzt fuer ${result.label} entsperrt. Du kannst den Bot in dieser Zeit bewusst verschieben.`,
+          `Voice guard is unlocked for ${result.label}. You can intentionally move the bot during that time.`
+        ),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "lock") {
+      const resolved = await runtime.resolveStreamingRuntimeForInteraction(interaction);
+      if (!resolved.runtime || !resolved.state) {
+        runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
+        await interaction.reply({
+          content: t(
+            "Keine aktive Stream-Runtime gefunden. Temporaere Unlocks wurden fuer diesen Server zurueckgesetzt, falls vorhanden.",
+            "No active stream runtime found. Temporary unlocks were reset for this server where present."
+          ),
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      resolved.runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
+      await interaction.reply({
+        content: t(
+          "Voice Guard ist wieder sofort aktiv.",
+          "Voice guard is active again immediately."
         ),
         flags: MessageFlags.Ephemeral,
       });
