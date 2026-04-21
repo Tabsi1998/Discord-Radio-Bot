@@ -12,6 +12,7 @@ const OPERATOR_INCIDENT_REPEAT_COOLDOWN_MS = Math.max(
   10_000,
   Number.parseInt(String(process.env.OPERATOR_INCIDENT_REPEAT_COOLDOWN_MS || "300000"), 10) || 300000
 );
+const OPERATOR_INCIDENT_SUMMARY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function emptyState() {
   return {
@@ -208,6 +209,92 @@ export async function getRecentOperatorIncidents(limit = 50) {
 
   const state = ensureState();
   return deepClone((state.incidents || []).slice(0, safeLimit));
+}
+
+function sortCountEntries(mapLike) {
+  return [...mapLike.entries()]
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+    .map(([key, count]) => ({ key, count }));
+}
+
+export async function summarizeRecentOperatorIncidents({
+  sinceMs = OPERATOR_INCIDENT_SUMMARY_WINDOW_MS,
+  limit = 200,
+} = {}) {
+  const incidents = await getRecentOperatorIncidents(limit);
+  const now = Date.now();
+  const cutoff = Math.max(0, now - Math.max(0, Number(sinceMs || 0) || 0));
+  const relevant = incidents.filter((incident) => {
+    const ts = Date.parse(String(incident?.timestamp || ""));
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
+
+  const byLevel = new Map();
+  const bySource = new Map();
+  const bySummary = new Map();
+
+  for (const incident of relevant) {
+    const level = normalizeLevel(incident?.level);
+    const source = sanitizeText(incident?.source, 120) || "unknown";
+    const summary = sanitizeText(incident?.summary, 240) || "unknown";
+    byLevel.set(level, (byLevel.get(level) || 0) + 1);
+    bySource.set(source, (bySource.get(source) || 0) + 1);
+    bySummary.set(summary, (bySummary.get(summary) || 0) + 1);
+  }
+
+  return {
+    windowMs: Math.max(0, Number(sinceMs || 0) || 0),
+    total: relevant.length,
+    latestAt: relevant[0]?.timestamp || null,
+    levels: sortCountEntries(byLevel),
+    sources: sortCountEntries(bySource),
+    summaries: sortCountEntries(bySummary),
+  };
+}
+
+function formatSummaryBucket(entries = [], maxItems = 3) {
+  return entries
+    .slice(0, Math.max(1, Number.parseInt(String(maxItems || 3), 10) || 3))
+    .map((entry) => `${entry.key}=${entry.count}`)
+    .join(", ");
+}
+
+export function buildOperatorIncidentSummaryLines(summary, {
+  label = "Recent operator incidents",
+  maxItems = 3,
+} = {}) {
+  const safeSummary = summary && typeof summary === "object" ? summary : {};
+  const total = Math.max(0, Number(safeSummary.total || 0) || 0);
+  if (total <= 0) return [];
+
+  const windowHours = Math.max(1, Math.round((Number(safeSummary.windowMs || 0) || 0) / 3600000));
+  const lines = [
+    `[operator-incidents] ${label}: total=${total} window=${windowHours}h latest=${safeSummary.latestAt || "-"}`,
+  ];
+
+  const levels = formatSummaryBucket(Array.isArray(safeSummary.levels) ? safeSummary.levels : [], maxItems);
+  const sources = formatSummaryBucket(Array.isArray(safeSummary.sources) ? safeSummary.sources : [], maxItems);
+  const summaries = formatSummaryBucket(Array.isArray(safeSummary.summaries) ? safeSummary.summaries : [], maxItems);
+
+  if (levels) lines.push(`[operator-incidents] levels ${levels}`);
+  if (sources) lines.push(`[operator-incidents] sources ${sources}`);
+  if (summaries) lines.push(`[operator-incidents] summaries ${summaries}`);
+  return lines;
+}
+
+export async function logRecentOperatorIncidentSummary({
+  sinceMs = OPERATOR_INCIDENT_SUMMARY_WINDOW_MS,
+  limit = 200,
+  label = "Recent operator incidents",
+  logger = log,
+  level = "INFO",
+} = {}) {
+  const summary = await summarizeRecentOperatorIncidents({ sinceMs, limit });
+  const lines = buildOperatorIncidentSummaryLines(summary, { label });
+  for (const line of lines) {
+    logger(level, line);
+  }
+  return summary;
 }
 
 function shouldRecordOperatorIncident(event) {

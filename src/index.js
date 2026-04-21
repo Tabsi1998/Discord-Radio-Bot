@@ -18,7 +18,7 @@ import { BotRuntime } from "./bot/runtime.js";
 import { WorkerManager } from "./bot/worker-manager.js";
 import { startWebServer } from "./api/server.js";
 import { loadStations, initStationsStore } from "./stations-store.js";
-import { installOperatorIncidentRecorder } from "./operator-incidents-store.js";
+import { installOperatorIncidentRecorder, logRecentOperatorIncidentSummary } from "./operator-incidents-store.js";
 import {
   listLicenses,
   patchLicenseById,
@@ -88,6 +88,9 @@ if (mongoEnabled) {
 }
 await initPremiumStore();
 await initStationsStore();
+await logRecentOperatorIncidentSummary({
+  label: "Owner summary on startup",
+}).catch(() => null);
 
 // ---- Lizenz-Provider fuer Entitlements verbinden ----
 setLicenseProvider((serverId) => {

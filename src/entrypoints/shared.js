@@ -12,7 +12,7 @@ import {
   initPremiumStore,
 } from "../premium-store.js";
 import { setLicenseProvider } from "../core/entitlements.js";
-import { installOperatorIncidentRecorder } from "../operator-incidents-store.js";
+import { installOperatorIncidentRecorder, logRecentOperatorIncidentSummary } from "../operator-incidents-store.js";
 
 const entryDir = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.resolve(entryDir, "..", "..", ".env");
@@ -72,6 +72,9 @@ async function initializeSharedServices({ requireMongo = false } = {}) {
 
   await initPremiumStore();
   await initStationsStore();
+  await logRecentOperatorIncidentSummary({
+    label: "Owner summary on startup",
+  }).catch(() => null);
 
   setLicenseProvider((serverId) => {
     const license = getServerLicense(serverId);

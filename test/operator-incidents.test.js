@@ -6,10 +6,13 @@ import { fileURLToPath } from "node:url";
 
 import { logError } from "../src/lib/logging.js";
 import {
+  buildOperatorIncidentSummaryLines,
   getRecentOperatorIncidents,
   installOperatorIncidentRecorder,
+  logRecentOperatorIncidentSummary,
   recordOperatorIncident,
   resetOperatorIncidentStateForTests,
+  summarizeRecentOperatorIncidents,
 } from "../src/operator-incidents-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -105,6 +108,80 @@ test("operator incident recorder subscribes to logError and deduplicates repeate
     assert.equal(incidents[0].entry, "operator-test.js");
   } finally {
     unsubscribe();
+    resetOperatorIncidentStateForTests();
+    restoreOptionalFile(storePath, storeSnapshot);
+    restoreOptionalFile(backupPath, backupSnapshot);
+  }
+});
+
+test("operator incident summaries aggregate recent incidents for owner-facing logs", async () => {
+  const storeSnapshot = snapshotOptionalFile(storePath);
+  const backupSnapshot = snapshotOptionalFile(backupPath);
+
+  try {
+    resetOperatorIncidentStateForTests();
+
+    await recordOperatorIncident({
+      timestamp: "2026-04-21T09:00:00.000Z",
+      level: "error",
+      summary: "Mongo ping failed",
+      source: "db",
+    });
+    await recordOperatorIncident({
+      timestamp: "2026-04-21T09:30:00.000Z",
+      level: "warn",
+      summary: "Mongo ping failed",
+      source: "db",
+    });
+    await recordOperatorIncident({
+      timestamp: "2026-04-21T10:00:00.000Z",
+      level: "critical",
+      summary: "Worker queue stalled",
+      source: "worker-manager",
+    });
+
+    const summary = await summarizeRecentOperatorIncidents({
+      sinceMs: 7 * 24 * 60 * 60 * 1000,
+      limit: 20,
+    });
+
+    assert.equal(summary.total, 3);
+    assert.equal(summary.levels[0].key, "CRITICAL");
+    assert.equal(summary.sources[0].key, "db");
+    assert.equal(summary.sources[0].count, 2);
+    assert.equal(summary.summaries[0].key, "Mongo ping failed");
+    assert.equal(summary.summaries[0].count, 2);
+
+    const lines = buildOperatorIncidentSummaryLines(summary, { label: "Owner summary" });
+    assert.equal(lines.length >= 3, true);
+    assert.match(lines[0], /Owner summary/);
+    assert.match(lines[1], /levels/i);
+    assert.match(lines[2], /sources/i);
+  } finally {
+    resetOperatorIncidentStateForTests();
+    restoreOptionalFile(storePath, storeSnapshot);
+    restoreOptionalFile(backupPath, backupSnapshot);
+  }
+});
+
+test("operator incident summary logger writes nothing when there are no recent incidents", async () => {
+  const storeSnapshot = snapshotOptionalFile(storePath);
+  const backupSnapshot = snapshotOptionalFile(backupPath);
+
+  try {
+    resetOperatorIncidentStateForTests();
+    const lines = [];
+
+    const summary = await logRecentOperatorIncidentSummary({
+      sinceMs: 60_000,
+      logger(level, message) {
+        lines.push({ level, message });
+      },
+    });
+
+    assert.equal(summary.total, 0);
+    assert.deepEqual(lines, []);
+  } finally {
     resetOperatorIncidentStateForTests();
     restoreOptionalFile(storePath, storeSnapshot);
     restoreOptionalFile(backupPath, backupSnapshot);
