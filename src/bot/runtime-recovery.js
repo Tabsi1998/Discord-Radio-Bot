@@ -62,6 +62,39 @@ const VOICE_NETWORK_ERROR_RETRY_JITTER = 0.6;
 const PERMANENT_RESTORE_GUILD_ERROR_CODES = new Set([10004, 50001]);
 const PERMANENT_RESTORE_CHANNEL_ERROR_CODES = new Set([10003]);
 
+function getVoiceMovePolicy() {
+  const rawPolicy = String(process.env.VOICE_MOVE_POLICY || "return").trim().toLowerCase();
+  if (rawPolicy === "allow" || rawPolicy === "disconnect") {
+    return rawPolicy;
+  }
+  return "return";
+}
+
+function getExpectedRuntimeChannelId(state) {
+  const connectionChannelId = String(state?.connection?.joinConfig?.channelId || "").trim();
+  if (connectionChannelId) return connectionChannelId;
+  const lastChannelId = String(state?.lastChannelId || "").trim();
+  return lastChannelId || null;
+}
+
+function shouldProtectRuntimeVoiceChannel(state, expectedChannelId = getExpectedRuntimeChannelId(state)) {
+  const normalizedExpectedChannelId = String(expectedChannelId || "").trim();
+  if (!normalizedExpectedChannelId) return false;
+  if (getVoiceMovePolicy() === "allow") return false;
+  return Boolean(
+    state?.shouldReconnect
+    && normalizedExpectedChannelId
+    && (
+      state?.currentStationKey
+      || state?.currentProcess
+      || state?.connection
+      || state?.reconnectTimer
+      || state?.reconnectInFlight
+      || state?.voiceConnectInFlight
+    )
+  );
+}
+
 function parseStoredTimestampMs(value) {
   if (!value) return 0;
   const numeric = Number.parseInt(String(value ?? ""), 10);
@@ -465,8 +498,29 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
   const state = runtime.getState(guildId);
   const oldChannelId = oldState.channelId;
   const newChannelId = newState.channelId;
+  const expectedChannelId = getExpectedRuntimeChannelId(state);
 
   if (newChannelId) {
+    if (
+      shouldProtectRuntimeVoiceChannel(state, expectedChannelId)
+      && expectedChannelId
+      && newChannelId !== expectedChannelId
+    ) {
+      const issue = noteTransientVoiceIssue(
+        state,
+        "voice-channel-mismatch",
+        `${expectedChannelId}:${newChannelId}:voice-state-update`
+      );
+      if (issue.count === 1 || (issue.count % 5) === 0) {
+        log(
+          "WARN",
+          `[${runtime.config.name}] Unerwarteter Voice-Move erkannt guild=${guildId} expected=${expectedChannelId} actual=${newChannelId} - Kanal wird geschuetzt (${getVoiceMovePolicy()}).`
+        );
+      }
+      runtime.queueVoiceStateReconcile(guildId, "voice-state-update-mismatch", 900);
+      return;
+    }
+
     clearTransientVoiceIssues(state);
     state.voiceDisconnectObservedAt = 0;
     if (state.lastChannelId !== newChannelId) {
@@ -740,6 +794,31 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
       return;
     }
     clearTransientVoiceIssue(state, "voice-channel-mismatch");
+    if (shouldProtectRuntimeVoiceChannel(state, expectedChannelId)) {
+      const movePolicy = getVoiceMovePolicy();
+      log(
+        "WARN",
+        `[${runtime.config.name}] Fremdverschiebung bestaetigt guild=${guildId} expected=${expectedChannelId} actual=${actualChannelId} - Policy=${movePolicy}.`
+      );
+      if (movePolicy === "disconnect") {
+        state.shouldReconnect = false;
+        runtime.resetVoiceSession(guildId, state, {
+          preservePlaybackTarget: false,
+          clearLastChannel: true,
+        });
+        return;
+      }
+
+      if (state.connection) {
+        try { state.connection.destroy(); } catch {}
+      }
+      runtime.scheduleReconnect(guildId, {
+        resetAttempts: true,
+        reason: "voice-channel-mismatch-guard",
+      });
+      return;
+    }
+
     syncObservedRuntimeChannel(runtime, state, actualChannelId);
     if (!state.currentProcess && state.player.state.status === AudioPlayerStatus.Idle && !state.reconnectTimer) {
       runtime.scheduleReconnect(guildId, { resetAttempts: true, reason: "voice-channel-mismatch" });

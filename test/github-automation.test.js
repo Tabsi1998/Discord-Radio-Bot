@@ -115,6 +115,7 @@ test("github automation files and docs stay in sync", async () => {
   expectIncludes(envExample, "VOICE_CHANNEL_STATUS_REFRESH_MS=900000", "voice channel status refresh missing");
   expectIncludes(envExample, "VOICE_STATE_RECONCILE_ENABLED=1", "voice reconcile flag missing");
   expectIncludes(envExample, "VOICE_STATE_RECONCILE_MS=30000", "voice reconcile interval missing");
+  expectIncludes(envExample, "VOICE_MOVE_POLICY=return", "voice move policy missing");
   expectIncludes(envExample, "STREAM_RESTART_BASE_MS=1000", "stream restart base missing");
   expectIncludes(envExample, "STREAM_RESTART_MAX_MS=120000", "stream restart max missing");
   expectIncludes(envExample, "STREAM_ERROR_COOLDOWN_THRESHOLD=8", "stream cooldown threshold missing");

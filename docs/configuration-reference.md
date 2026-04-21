@@ -218,6 +218,7 @@ Additional recognition tuning variables:
 | `VOICE_CHANNEL_STATUS_MAX_LENGTH` | Voice channel status max length |
 | `VOICE_STATE_RECONCILE_ENABLED` | Voice-state reconciliation |
 | `VOICE_STATE_RECONCILE_MS` | Voice-state reconciliation interval |
+| `VOICE_MOVE_POLICY` | How OmniFM reacts to foreign voice-channel moves: `allow`, `return`, or `disconnect` |
 | `VOICE_TRANSIENT_RECHECK_MS` | Recheck delay for transient mismatches |
 | `VOICE_STATE_MISSING_CONFIRMATIONS` | Missing-state confirmation threshold |
 | `VOICE_RECONNECT_RESOURCE_CONFIRMATIONS` | Resource confirmation threshold before clearing reconnect targets |

@@ -87,7 +87,7 @@ Recommended required checks for `main`:
 - `ci`
 - `codeql`
 
-Operational reminder: the voice/channel status system is part of the maintained runtime surface. Keep the documented `.env.example` toggles in sync, especially `VOICE_CHANNEL_STATUS_ENABLED`, `VOICE_CHANNEL_STATUS_TEMPLATE`, `VOICE_CHANNEL_STATUS_REFRESH_MS`, `VOICE_STATE_RECONCILE_ENABLED`, and `VOICE_STATE_RECONCILE_MS`.
+Operational reminder: the voice/channel status system is part of the maintained runtime surface. Keep the documented `.env.example` toggles in sync, especially `VOICE_CHANNEL_STATUS_ENABLED`, `VOICE_CHANNEL_STATUS_TEMPLATE`, `VOICE_CHANNEL_STATUS_REFRESH_MS`, `VOICE_STATE_RECONCILE_ENABLED`, `VOICE_STATE_RECONCILE_MS`, and `VOICE_MOVE_POLICY`.
 
 ## Deployment Modes
 
