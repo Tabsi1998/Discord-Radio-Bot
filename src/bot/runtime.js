@@ -175,6 +175,7 @@ import {
 } from "../scheduled-events-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
 import { normalizeLanguage, getDefaultLanguage } from "../i18n.js";
+import { buildVoiceChannelAccessMessage } from "../lib/user-facing-setup.js";
 import { premiumStationEmbed, customStationEmbed, botLimitEmbed } from "../ui/upgradeEmbeds.js";
 import { syncGuildCommandsSafe } from "../discord/syncGuildCommandsSafe.js";
 import { buildCommandBuilders } from "../commands.js";
@@ -2317,6 +2318,56 @@ class BotRuntime {
     return guild.members.fetchMe().catch(() => null);
   }
 
+  async validateVoiceChannelAccess(guild, channel, { language = null, workerName = "" } = {}) {
+    const resolvedLanguage = normalizeLanguage(language || this.resolveGuildLanguage(guild?.id), getDefaultLanguage());
+    const isDe = resolvedLanguage === "de";
+    const t = (de, en) => (isDe ? de : en);
+
+    if (!guild || !channel) {
+      return {
+        ok: false,
+        message: buildVoiceChannelAccessMessage({ issue: "channel_unavailable", t, workerName }),
+      };
+    }
+
+    const me = await this.resolveBotMember(guild);
+    if (!me) {
+      return {
+        ok: false,
+        message: t(
+          "OmniFM konnte sein Bot-Mitglied auf diesem Server gerade nicht laden. Bitte versuche es erneut.",
+          "OmniFM could not load its bot member on this server right now. Please try again."
+        ),
+      };
+    }
+
+    const perms = channel.permissionsFor(me);
+    if (!perms?.has(PermissionFlagsBits.Connect)) {
+      return {
+        ok: false,
+        message: buildVoiceChannelAccessMessage({
+          issue: "connect_missing",
+          channelLabel: channel.toString(),
+          workerName,
+          t,
+        }),
+      };
+    }
+    if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
+      return {
+        ok: false,
+        message: buildVoiceChannelAccessMessage({
+          issue: "speak_missing",
+          channelLabel: channel.toString(),
+          workerName,
+          t,
+        }),
+      };
+    }
+
+    return { ok: true, me };
+  }
+
   async listVoiceChannels(guild) {
     let channels = [...guild.channels.cache.values()];
     if (!channels.length) {
@@ -2876,7 +2927,7 @@ class BotRuntime {
   }
 
   async handleInviteComponentInteraction(interaction) {
-    const { t } = this.createInteractionTranslator(interaction);
+    const { t, language } = this.createInteractionTranslator(interaction);
     if (this.role !== "commander" || !this.workerManager) {
       if (interaction.isRepliable?.()) {
         await interaction.reply({ content: t("Nur der Commander kann dieses Menue bedienen.", "Only the commander can use this menu."), flags: MessageFlags.Ephemeral });
@@ -3489,10 +3540,7 @@ class BotRuntime {
     const channel = targetChannel || member?.voice?.channel;
     if (!channel) {
       return sendError(
-        t(
-          "Wähle einen Voice-Channel im Command oder trete selbst einem Voice-Channel bei.",
-          "Select a voice channel in the command or join one yourself."
-        )
+        buildVoiceChannelAccessMessage({ issue: "select_channel", t })
       );
     }
     if (!channel.isVoiceBased()) {
@@ -3507,27 +3555,9 @@ class BotRuntime {
       return sendError(t("Guild konnte nicht ermittelt werden.", "Could not resolve guild."));
     }
 
-    const me = await this.resolveBotMember(guild);
-    if (!me) {
-      return sendError(t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load bot member in this server."));
-    }
-
-    const perms = channel.permissionsFor(me);
-    if (!perms?.has(PermissionFlagsBits.Connect)) {
-      return sendError(
-        t(
-          `Ich habe keine Berechtigung für ${channel.toString()} (Connect fehlt).`,
-          `I don't have permission for ${channel.toString()} (Connect missing).`
-        )
-      );
-    }
-    if (channel.type !== ChannelType.GuildStageVoice && !perms?.has(PermissionFlagsBits.Speak)) {
-      return sendError(
-        t(
-          `Ich habe keine Berechtigung für ${channel.toString()} (Speak fehlt).`,
-          `I don't have permission for ${channel.toString()} (Speak missing).`
-        )
-      );
+    const accessCheck = await this.validateVoiceChannelAccess(guild, channel, { language });
+    if (!accessCheck.ok) {
+      return sendError(accessCheck.message);
     }
 
     const guildId = interaction.guildId;

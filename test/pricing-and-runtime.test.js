@@ -3811,11 +3811,40 @@ test("help payload exposes dashboard, website, support and premium links", () =>
 test("setup payload exposes worker actions and useful links", () => {
   const fakeRuntime = Object.create(BotRuntime.prototype);
   fakeRuntime.resolveInteractionLanguage = () => "en";
+  fakeRuntime.workerManager = {
+    getMaxWorkerIndex() {
+      return 8;
+    },
+    getInvitedWorkers() {
+      return [];
+    },
+  };
 
   const payload = fakeRuntime.buildSetupMessage({
     guildId: "guild-1",
-    guild: { name: "Guild One" },
+    guild: {
+      name: "Guild One",
+      channels: {
+        cache: {
+          filter(callback) {
+            const channels = [
+              { type: 2, isVoiceBased() { return true; } },
+              { type: 0, isVoiceBased() { return false; } },
+            ];
+            return {
+              size: channels.filter(callback).length,
+            };
+          },
+        },
+      },
+    },
   });
+
+  const firstEmbed = payload.embeds?.[0]?.data || {};
+  const fieldNames = Array.isArray(firstEmbed.fields) ? firstEmbed.fields.map((field) => field.name) : [];
+  assert.ok(fieldNames.includes("Current status"));
+  assert.ok(fieldNames.includes("Next step"));
+  assert.ok(fieldNames.includes("Before the first /play"));
 
   const actionButtons = payload.components?.[0]?.components?.map((button) => button?.data || {}) || [];
   assert.equal(actionButtons.length, 2);

@@ -2,6 +2,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   EmbedBuilder,
 } from "discord.js";
 
@@ -9,6 +10,7 @@ import { clipText } from "../lib/helpers.js";
 import { getTier, getServerPlanConfig } from "../core/entitlements.js";
 import { PLANS, BRAND } from "../config/plans.js";
 import { normalizeLanguage, getDefaultLanguage } from "../i18n.js";
+import { buildSetupStatusSummary } from "../lib/user-facing-setup.js";
 import {
   DASHBOARD_URL,
   WEBSITE_URL,
@@ -25,6 +27,16 @@ function getTierConfig(guildId) {
   return { ...config, tier: config.plan };
 }
 
+function countVoiceChannels(guild) {
+  const cache = guild?.channels?.cache;
+  if (!cache?.filter) return 0;
+  return cache.filter((channel) =>
+    channel
+    && channel.isVoiceBased?.() === true
+    && (channel.type === ChannelType.GuildVoice || channel.type === ChannelType.GuildStageVoice)
+  ).size || 0;
+}
+
 export function buildRuntimeSetupMessagePayload(
   runtime,
   { guild = null, language = null, guildId = null } = {}
@@ -38,39 +50,50 @@ export function buildRuntimeSetupMessagePayload(
   const isDe = resolvedLanguage === "de";
   const dashboardUrl = withLanguageParam(DASHBOARD_URL, resolvedLanguage);
   const websiteUrl = withLanguageParam(WEBSITE_URL, resolvedLanguage);
+  const guildTier = resolvedGuildId ? getTier(resolvedGuildId) : "free";
+  const maxWorkerSlots = runtime.workerManager?.getMaxWorkerIndex?.(guildTier) || getTierConfig(resolvedGuildId).maxBots || 0;
+  const invitedWorkerCount = resolvedGuildId && runtime.workerManager?.getInvitedWorkers
+    ? runtime.workerManager.getInvitedWorkers(resolvedGuildId, guildTier).length
+    : 0;
+  const voiceChannelCount = countVoiceChannels(guild);
+  const setupSummary = buildSetupStatusSummary({
+    commanderReady: Boolean(guild || resolvedGuildId),
+    invitedWorkerCount,
+    maxWorkerSlots,
+    voiceChannelCount,
+    t: (de, en) => (isDe ? de : en),
+  });
 
   const embed = new EmbedBuilder()
     .setColor(BRAND.color)
     .setTitle(isDe ? `${BRAND.name}: Erste Schritte` : `${BRAND.name}: First steps`)
     .setDescription(
       isDe
-        ? `Danke für den Invite auf **${guildName || "deinen Server"}**.\nDer Commander ist bereit. Als Nächstes: mindestens einen Worker einladen und dann \`/play\` ausführen.`
-        : `Thanks for inviting me to **${guildName || "your server"}**.\nThe commander is ready. Next: invite at least one worker and then run \`/play\`.`
+        ? `Danke für den Invite auf **${guildName || "deinen Server"}**.\n${setupSummary.nextTitle}: ${setupSummary.nextBody}`
+        : `Thanks for inviting me to **${guildName || "your server"}**.\n${setupSummary.nextTitle}: ${setupSummary.nextBody}`
     )
     .addFields(
       {
-        name: isDe ? "1) Worker prüfen" : "1) Check workers",
-        value: isDe
-          ? "`/workers` zeigt verfügbare, eingeladene und gesperrte Worker-Slots."
-          : "`/workers` shows available, invited, and locked worker slots.",
+        name: isDe ? "Aktueller Status" : "Current status",
+        value: setupSummary.checklist.join("\n"),
       },
       {
-        name: isDe ? "2) Worker einladen" : "2) Invite worker",
+        name: isDe ? "Nächster Schritt" : "Next step",
         value: isDe
-          ? "`/invite` öffnet ein Menü für freie Worker-Slots. Lade mindestens einen Worker ein."
-          : "`/invite` opens a menu for free worker slots. Invite at least one worker.",
+          ? `Starte mit **${setupSummary.command}**.\n${setupSummary.nextBody}`
+          : `Start with **${setupSummary.command}**.\n${setupSummary.nextBody}`,
       },
       {
-        name: isDe ? "3) Stream starten" : "3) Start stream",
+        name: isDe ? "Vor dem ersten /play" : "Before the first /play",
         value: isDe
-          ? "`/play [station] [voice]` startet Radio im Voice-/Stage-Channel, sobald ein Worker auf dem Server ist."
-          : "`/play [station] [voice]` starts radio in your voice/stage channel once a worker is on the server.",
+          ? "Der Ziel-Channel braucht für OmniFM mindestens `Connect` und außerhalb von Stage zusätzlich `Speak`."
+          : "The target channel needs at least `Connect` for OmniFM and also `Speak` outside of stage channels.",
       },
       {
-        name: isDe ? "4) Hilfe & Setup" : "4) Help & setup",
+        name: isDe ? "Wichtige Commands" : "Important commands",
         value: isDe
-          ? "`/setup` zeigt diesen Guide erneut. `/help` liefert die komplette Befehlsliste."
-          : "`/setup` shows this guide again. `/help` gives you the full command list.",
+          ? "`/workers` zeigt Worker-Slots, `/invite` lädt Worker ein, `/play station:<sender> voice:<channel>` startet den ersten Stream."
+          : "`/workers` shows worker slots, `/invite` adds workers, `/play station:<station> voice:<channel>` starts the first stream.",
       }
     );
 

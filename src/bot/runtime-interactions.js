@@ -59,6 +59,7 @@ import {
 } from "../premium-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
 import { buildUserFacingRuntimeStatus } from "../lib/user-facing-status.js";
+import { buildVoiceChannelAccessMessage } from "../lib/user-facing-setup.js";
 import {
   DASHBOARD_URL,
   WEBSITE_URL,
@@ -1645,7 +1646,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       }
       if (!channelId) {
         await interaction.reply({
-          content: t("Du musst in einem Voice-Channel sein oder einen angeben.", "You must be in a voice channel or specify one."),
+          content: buildVoiceChannelAccessMessage({ issue: "select_channel", t }),
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -1703,6 +1704,33 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       }
 
       const selectedStation = playStations.stations[key];
+      const workerGuildFetch = typeof worker.client?.guilds?.fetch === "function"
+        ? worker.client.guilds.fetch(guildId).catch(() => null)
+        : Promise.resolve(null);
+      const workerGuild = worker.client?.guilds?.cache?.get?.(guildId)
+        || await workerGuildFetch;
+      const workerChannelFetch = workerGuild && typeof workerGuild.channels?.fetch === "function"
+        ? workerGuild.channels.fetch(channelId).catch(() => null)
+        : Promise.resolve(null);
+      const workerChannel = workerGuild?.channels?.cache?.get?.(channelId)
+        || await workerChannelFetch;
+      const workerAccess = workerGuild && workerChannel
+        ? await worker.validateVoiceChannelAccess(workerGuild, workerChannel, {
+          language,
+          workerName: worker.config?.name || "Worker",
+        })
+        : {
+          ok: false,
+          message: t(
+            "Der Ziel-Channel konnte für den ausgewählten Worker gerade nicht geladen werden. Bitte versuche es erneut oder wähle den Channel direkt im Command.",
+            "The target channel could not be loaded for the selected worker right now. Please try again or choose the channel directly in the command."
+          ),
+        };
+      if (!workerAccess.ok) {
+        await interaction.editReply(workerAccess.message);
+        return;
+      }
+
       log("INFO", `[${runtime.config.name}] /play guild=${guildId} station=${key} -> delegating to ${worker.config.name}`);
       worker.clearScheduledEventPlaybackInGuild(guildId);
       const result = await worker.playInGuild(guildId, channelId, key, playStations, undefined);
