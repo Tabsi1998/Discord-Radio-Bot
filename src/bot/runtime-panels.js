@@ -713,22 +713,25 @@ export async function executeRuntimePlay(runtime, interaction, {
     }
 
     const selectedStation = playable.playStations.stations[playable.key];
-    const workerGuild = worker.client?.guilds?.cache?.get?.(guildId)
-      || await worker.client?.guilds?.fetch?.(guildId).catch(() => null);
-    const workerChannel = workerGuild?.channels?.cache?.get?.(channelId)
-      || await workerGuild?.channels?.fetch?.(channelId).catch(() => null);
-    const workerAccess = workerGuild && workerChannel
-      ? await worker.validateVoiceChannelAccess(workerGuild, workerChannel, {
-        language,
-        workerName: worker.config?.name || "Worker",
-      })
-      : {
-        ok: false,
-        message: t(
-          "Der Ziel-Channel konnte fuer den ausgewaehlten Worker gerade nicht geladen werden. Bitte versuche es erneut.",
-          "The target channel could not be loaded for the selected worker right now. Please try again."
-        ),
-      };
+    let workerAccess = { ok: true };
+    if (worker?.remote !== true) {
+      const workerGuild = worker.client?.guilds?.cache?.get?.(guildId)
+        || await worker.client?.guilds?.fetch?.(guildId).catch(() => null);
+      const workerChannel = workerGuild?.channels?.cache?.get?.(channelId)
+        || await workerGuild?.channels?.fetch?.(channelId).catch(() => null);
+      workerAccess = workerGuild && workerChannel
+        ? await worker.validateVoiceChannelAccess(workerGuild, workerChannel, {
+          language,
+          workerName: worker.config?.name || "Worker",
+        })
+        : {
+          ok: false,
+          message: t(
+            "Der Ziel-Channel konnte fuer den ausgewaehlten Worker gerade nicht geladen werden. Bitte versuche es erneut.",
+            "The target channel could not be loaded for the selected worker right now. Please try again."
+          ),
+        };
+    }
     if (!workerAccess.ok) {
       await runtime.respondInteraction(interaction, { content: workerAccess.message });
       return;

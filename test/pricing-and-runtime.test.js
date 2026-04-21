@@ -67,6 +67,7 @@ import {
 import { getDefaultLanguage } from "../src/i18n.js";
 import { getBotState, saveBotState, saveState } from "../src/bot-state.js";
 import {
+  executeRuntimePlay,
   openRuntimePlayWizard,
   openRuntimeStationsBrowser,
 } from "../src/bot/runtime-panels.js";
@@ -4313,6 +4314,103 @@ test("stations browser payload exposes paging and quick-start actions", async ()
   const actionLabels = payload.components?.[1]?.components?.map((component) => component?.data?.label) || [];
   assert.ok(actionLabels.includes("🎛 Quick start"));
   assert.ok(actionLabels.includes("🔄 Refresh"));
+});
+
+test("executeRuntimePlay does not block explicit remote workers on a synthetic channel precheck", async () => {
+  const replies = [];
+  const remoteWorker = {
+    remote: true,
+    config: { name: "Worker 2" },
+    client: {
+      guilds: {
+        cache: new Map(),
+        async fetch() {
+          return null;
+        },
+      },
+    },
+    clearScheduledEventPlaybackInGuild() {
+      return { ok: true };
+    },
+    async playInGuild(guildId, channelId, stationKey) {
+      return {
+        ok: true,
+        workerName: "Worker 2",
+        guildId,
+        channelId,
+        stationKey,
+      };
+    },
+  };
+
+  const fakeRuntime = Object.create(BotRuntime.prototype);
+  fakeRuntime.config = { name: "Commander" };
+  fakeRuntime.role = "commander";
+  fakeRuntime.client = {
+    guilds: {
+      cache: new Map(),
+    },
+  };
+  fakeRuntime.workerManager = {
+    canUseWorker(index) {
+      if (index === 2) {
+        return { ok: true, worker: remoteWorker };
+      }
+      return { ok: false, reason: "not_configured", maxIndex: 2 };
+    },
+  };
+  fakeRuntime.respondInteraction = async (_interaction, payload) => {
+    replies.push(payload);
+    return payload;
+  };
+  fakeRuntime.createInteractionTranslator = () => ({
+    language: "en",
+    t: (_de, en) => en,
+  });
+  fakeRuntime.resolveInteractionLanguage = () => "en";
+
+  const voiceChannel = {
+    id: "voice-1",
+    guildId: "guild-1",
+    name: "Radio",
+    type: ChannelType.GuildVoice,
+    rawPosition: 1,
+    isVoiceBased() {
+      return true;
+    },
+    toString() {
+      return "<#voice-1>";
+    },
+  };
+  const guild = {
+    id: "guild-1",
+    name: "Guild One",
+    channels: {
+      cache: new Map([["voice-1", voiceChannel]]),
+    },
+    members: {
+      async fetch() {
+        return { voice: { channelId: "voice-1" } };
+      },
+    },
+  };
+  fakeRuntime.client.guilds.cache.set("guild-1", guild);
+
+  await executeRuntimePlay(fakeRuntime, {
+    guildId: "guild-1",
+    guild,
+    user: { id: "user-1" },
+  }, {
+    station: "groovesalad",
+    requestedVoiceChannel: voiceChannel,
+    requestedBotIndex: 2,
+    openWizardWhenIncomplete: false,
+  });
+
+  const finalReply = replies.at(-1);
+  assert.equal(replies.length >= 2, true);
+  assert.equal(finalReply?.embeds?.[0]?.data?.title, "✅ Stream started");
+  assert.match(String(finalReply?.embeds?.[0]?.data?.description || ""), /Worker 2/);
 });
 
 test("workers status payload paginates and exposes page controls", async () => {
