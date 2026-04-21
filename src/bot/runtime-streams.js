@@ -38,6 +38,7 @@ const STREAM_HEALTHCHECK_STALL_MS = Math.max(
   toPositiveInt(process.env.STREAM_HEALTHCHECK_STALL_MS, 45_000)
 );
 const STREAM_HEALTHCHECK_RESTART_MS = Math.max(750, toPositiveInt(process.env.STREAM_HEALTHCHECK_RESTART_MS, 1_250));
+const STREAM_RESTART_RESCHEDULE_SLACK_MS = 1_000;
 
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
@@ -477,21 +478,41 @@ export function trackRuntimeProcessLifecycle(runtime, guildId, state, process) {
 }
 
 export function scheduleRuntimeStreamRestart(runtime, guildId, state, delayMs, reason = "restart") {
+  const delay = applyJitter(Math.max(250, Number(delayMs) || 0), 0.15);
+  const scheduledForAt = Date.now() + delay;
+  const pendingScheduledAt = Number(state?.streamRestartScheduledAt || 0) || 0;
+  const hasPendingTimer = Boolean(state?.streamRestartTimer && pendingScheduledAt > Date.now());
+  if (hasPendingTimer && pendingScheduledAt <= (scheduledForAt + STREAM_RESTART_RESCHEDULE_SLACK_MS)) {
+    log(
+      "INFO",
+      `[${runtime.config.name}] Stream-Restart beibehalten ${getRuntimeStreamSnapshot(runtime, guildId, state, {
+        reason: `${String(reason || "restart")}:deduped`,
+        delayMs: Math.max(0, pendingScheduledAt - Date.now()),
+      })}`
+    );
+    return;
+  }
+
   if (state.streamRestartTimer) {
     clearTimeout(state.streamRestartTimer);
   }
 
-  const delay = applyJitter(Math.max(250, Number(delayMs) || 0), 0.15);
+  state.streamRestartScheduledAt = scheduledForAt;
+  state.streamRestartScheduledReason = String(reason || "restart");
+  state.streamRestartScheduledDelayMs = delay;
   log("INFO", `[${runtime.config.name}] Stream-Restart geplant ${getRuntimeStreamSnapshot(runtime, guildId, state, { reason, delayMs: delay })}`);
   state.streamRestartTimer = setTimeout(() => {
     state.streamRestartTimer = null;
+    state.streamRestartScheduledAt = 0;
+    state.streamRestartScheduledReason = null;
+    state.streamRestartScheduledDelayMs = 0;
     runtime.restartCurrentStation(state, guildId).catch((err) => {
       log("ERROR", `[${runtime.config.name}] Stream restart failed (${reason}): ${err?.message || err}`);
     });
   }, delay);
 }
 
-export function handleRuntimeStreamEnd(runtime, guildId, state, reason) {
+export async function handleRuntimeStreamEnd(runtime, guildId, state, reason) {
   if (!state.shouldReconnect || !state.currentStationKey) return;
   if (!isRuntimeVoiceConnected(runtime, guildId, state, { includeObserved: true })) return;
 

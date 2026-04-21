@@ -39,6 +39,7 @@ import {
   armRuntimePlaybackRecovery,
   evaluateRuntimeStreamHealth,
   restartRuntimeCurrentStation,
+  scheduleRuntimeStreamRestart,
 } from "../src/bot/runtime-streams.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
@@ -256,6 +257,114 @@ test("serialized guild operations release the lock after failures", async () => 
   const result = await BotRuntime.prototype.runSerializedGuildOperation.call(fakeRuntime, "guild-1", "stop", async () => "ok");
   assert.equal(result, "ok");
   assert.equal(fakeRuntime.guildOperationLocks.size, 0);
+});
+
+test("stream restart scheduler keeps an earlier pending restart instead of delaying it", () => {
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+  const scheduled = [];
+  let clearCalls = 0;
+
+  global.setTimeout = ((handler, delay, ...args) => {
+    const timer = { handler, delay, args };
+    scheduled.push(timer);
+    return timer;
+  });
+  global.clearTimeout = (() => {
+    clearCalls += 1;
+  });
+
+  try {
+    const runtime = {
+      config: { name: "OmniFM Test" },
+      restartCurrentStation() {
+        return Promise.resolve();
+      },
+    };
+    const state = {
+      streamRestartTimer: null,
+      streamRestartScheduledAt: 0,
+      currentStationKey: "nightwave",
+      lastChannelId: "123",
+      player: { state: { status: "idle" } },
+    };
+
+    scheduleRuntimeStreamRestart(runtime, "guild-1", state, 1000, "first");
+    const firstTimer = state.streamRestartTimer;
+    const firstScheduledAt = state.streamRestartScheduledAt;
+
+    scheduleRuntimeStreamRestart(runtime, "guild-1", state, 5000, "later");
+
+    assert.equal(state.streamRestartTimer, firstTimer);
+    assert.equal(state.streamRestartScheduledAt, firstScheduledAt);
+    assert.equal(scheduled.length, 1);
+    assert.equal(clearCalls, 0);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+  }
+});
+
+test("reconnect scheduler can replace a pending timer when a materially earlier retry is needed", () => {
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+  const scheduled = [];
+  let clearCalls = 0;
+
+  global.setTimeout = ((handler, delay, ...args) => {
+    const timer = { handler, delay, args };
+    scheduled.push(timer);
+    return timer;
+  });
+  global.clearTimeout = (() => {
+    clearCalls += 1;
+  });
+
+  try {
+    const runtime = {
+      config: { name: "OmniFM Test", id: "bot-1" },
+      getState() {
+        return state;
+      },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      getNetworkRecoveryDelayMs() {
+        return 0;
+      },
+      persistState() {},
+      tryReconnect() {
+        return Promise.resolve({ attempted: false, retryRecommended: false });
+      },
+    };
+    const state = {
+      shouldReconnect: true,
+      lastChannelId: "123",
+      reconnectAttempts: 0,
+      reconnectCircuitTripCount: 0,
+      reconnectCircuitOpenUntil: 0,
+      reconnectTimer: null,
+      reconnectScheduledAt: 0,
+      reconnectScheduledReason: null,
+      reconnectScheduledDelayMs: 0,
+      reconnectInFlight: false,
+      voiceConnectInFlight: false,
+    };
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "slow", minDelayMs: 5000, jitterFactor: 0 });
+    const firstTimer = state.reconnectTimer;
+    const firstScheduledAt = state.reconnectScheduledAt;
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "fast", minDelayMs: 1000, jitterFactor: 0, countAttempt: false });
+
+    assert.notEqual(state.reconnectTimer, firstTimer);
+    assert.ok(state.reconnectScheduledAt < firstScheduledAt);
+    assert.equal(scheduled.length, 2);
+    assert.equal(clearCalls, 1);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+  }
 });
 
 test("logging prefixes every line of a multiline error in error.log", async () => {

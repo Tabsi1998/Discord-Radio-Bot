@@ -67,6 +67,7 @@ const RESTORE_RETRY_BASE_MS = Math.max(5_000, toPositiveInt(process.env.RESTORE_
 const RESTORE_RETRY_MAX_MS = Math.max(30_000, toPositiveInt(process.env.RESTORE_RETRY_MAX_MS, 5 * 60_000));
 const VOICE_NETWORK_ERROR_RETRY_MIN_MS = 15_000;
 const VOICE_NETWORK_ERROR_RETRY_JITTER = 0.6;
+const VOICE_RECONNECT_RESCHEDULE_SLACK_MS = 1_000;
 
 const PERMANENT_RESTORE_GUILD_ERROR_CODES = new Set([10004, 50001]);
 const PERMANENT_RESTORE_CHANNEL_ERROR_CODES = new Set([10003]);
@@ -1501,7 +1502,7 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
     state.reconnectCircuitTripCount = 0;
     state.reconnectCircuitOpenUntil = 0;
   }
-  if (state.reconnectTimer || state.reconnectInFlight || state.voiceConnectInFlight) return;
+  if (state.reconnectInFlight || state.voiceConnectInFlight) return;
 
   const shouldCountAttempt = options.countAttempt !== false;
   const currentAttempts = Number(state.reconnectAttempts || 0) || 0;
@@ -1534,44 +1535,74 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   const delayFloorMs = Math.max(networkCooldownMs, minDelayMs);
 
   const reason = String(options.reason || "auto");
+  const nowMs = Date.now();
+  let nextReconnectAttempts = Number(state.reconnectAttempts || 0) || 0;
+  let nextCircuitTripCount = Number(state.reconnectCircuitTripCount || 0) || 0;
+  let nextCircuitOpenUntil = Number(state.reconnectCircuitOpenUntil || 0) || 0;
+  let shouldAbortReconnect = false;
   if (shouldCountAttempt && displayAttempt > VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS) {
-    const circuitTripCount = Number(state.reconnectCircuitTripCount || 0) + 1;
+    const circuitTripCount = nextCircuitTripCount + 1;
     if (circuitTripCount >= VOICE_RECONNECT_MAX_CIRCUIT_TRIPS) {
-      state.reconnectAttempts = 0;
-      state.reconnectCircuitTripCount = circuitTripCount;
-      state.reconnectCircuitOpenUntil = 0;
-      abortRuntimeReconnectTarget(
-        runtime,
-        guildId,
-        state,
-        `reconnect circuit exhausted after ${circuitTripCount} trips (reason=${reason})`,
-        { logLevel: "ERROR" }
-      );
-      return;
+      nextReconnectAttempts = 0;
+      nextCircuitTripCount = circuitTripCount;
+      nextCircuitOpenUntil = 0;
+      shouldAbortReconnect = true;
+    } else {
+      const circuitMultiplier = Math.min(4, Math.pow(2, Math.max(0, circuitTripCount - 1)));
+      nextReconnectAttempts = 0;
+      nextCircuitTripCount = circuitTripCount;
+      delay = Math.max(delay, VOICE_RECONNECT_CIRCUIT_BREAKER_MS * circuitMultiplier);
+      nextCircuitOpenUntil = nowMs + delay;
+      logLevel = "WARN";
+      logMessage =
+        `[${runtime.config.name}] Reconnect-Circuit aktiv fuer guild=${guildId}: ` +
+        `${displayAttempt - 1} Fehlversuche erreicht. Pausiere weitere Retries fuer ${Math.round(delay)}ms ` +
+        `(reason=${reason}, trip=${circuitTripCount}).`;
+      eventDetails =
+        `attempt>${VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS} reason=${reason} ` +
+        `circuit=open trip=${circuitTripCount}`;
     }
-    const circuitMultiplier = Math.min(4, Math.pow(2, Math.max(0, circuitTripCount - 1)));
-    state.reconnectAttempts = 0;
-    state.reconnectCircuitTripCount = circuitTripCount;
-    delay = Math.max(delay, VOICE_RECONNECT_CIRCUIT_BREAKER_MS * circuitMultiplier);
-    state.reconnectCircuitOpenUntil = Date.now() + delay;
-    logLevel = "WARN";
-    logMessage =
-      `[${runtime.config.name}] Reconnect-Circuit aktiv fuer guild=${guildId}: ` +
-      `${displayAttempt - 1} Fehlversuche erreicht. Pausiere weitere Retries fuer ${Math.round(delay)}ms ` +
-      `(reason=${reason}, trip=${circuitTripCount}).`;
-    eventDetails =
-      `attempt>${VOICE_RECONNECT_CIRCUIT_BREAKER_ATTEMPTS} reason=${reason} ` +
-      `circuit=open trip=${circuitTripCount}`;
   } else {
-    if (shouldCountAttempt) {
-      state.reconnectAttempts = displayAttempt;
-    }
+    nextReconnectAttempts = shouldCountAttempt ? displayAttempt : nextReconnectAttempts;
     delay = Math.max(delayFloorMs, applyJitter(delay, jitterFactor));
     logMessage = shouldCountAttempt
       ? `[${runtime.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms ` +
         `(attempt ${displayAttempt}, plan=${tierConfig.tier}, reason=${reason})`
       : `[${runtime.config.name}] Reconnect-Pruefung guild=${guildId} in ${Math.round(delay)}ms ` +
         `(attempt ${Math.max(0, currentAttempts)}, plan=${tierConfig.tier}, reason=${reason})`;
+  }
+
+  const scheduledForAt = nowMs + delay;
+  const pendingScheduledAt = Number(state.reconnectScheduledAt || 0) || 0;
+  const hasPendingTimer = Boolean(state.reconnectTimer && pendingScheduledAt > nowMs);
+  if (hasPendingTimer && pendingScheduledAt <= (scheduledForAt + VOICE_RECONNECT_RESCHEDULE_SLACK_MS)) {
+    log(
+      "INFO",
+      `[${runtime.config.name}] Reconnect-Timer beibehalten guild=${guildId} ` +
+      `(reason=${reason}, pendingIn=${Math.max(0, Math.round(pendingScheduledAt - nowMs))}ms)`
+    );
+    runtime.persistState?.();
+    return;
+  }
+
+  state.reconnectAttempts = nextReconnectAttempts;
+  state.reconnectCircuitTripCount = nextCircuitTripCount;
+  state.reconnectCircuitOpenUntil = nextCircuitOpenUntil;
+
+  if (shouldAbortReconnect) {
+    abortRuntimeReconnectTarget(
+      runtime,
+      guildId,
+      state,
+      `reconnect circuit exhausted after ${nextCircuitTripCount} trips (reason=${reason})`,
+      { logLevel: "ERROR" }
+    );
+    return;
+  }
+
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
   }
 
   recordConnectionEvent(guildId, {
@@ -1582,8 +1613,14 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
   });
 
   log(logLevel, logMessage);
+  state.reconnectScheduledAt = scheduledForAt;
+  state.reconnectScheduledReason = reason;
+  state.reconnectScheduledDelayMs = delay;
   state.reconnectTimer = setTimeout(async () => {
     state.reconnectTimer = null;
+    state.reconnectScheduledAt = 0;
+    state.reconnectScheduledReason = null;
+    state.reconnectScheduledDelayMs = 0;
     if (!state.shouldReconnect) return;
 
     let result = null;

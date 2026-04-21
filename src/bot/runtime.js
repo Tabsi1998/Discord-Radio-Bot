@@ -462,7 +462,13 @@ class BotRuntime {
         reconnectCircuitTripCount: 0,
         reconnectCircuitOpenUntil: 0,
         reconnectTimer: null,
+        reconnectScheduledAt: 0,
+        reconnectScheduledReason: null,
+        reconnectScheduledDelayMs: 0,
         streamRestartTimer: null,
+        streamRestartScheduledAt: 0,
+        streamRestartScheduledReason: null,
+        streamRestartScheduledDelayMs: 0,
         shouldReconnect: false,
         streamErrorCount: 0,
         idleRestartStreak: 0,
@@ -525,13 +531,17 @@ class BotRuntime {
           state.ignoreNextIdleEvent = false;
           return;
         }
-        this.handleStreamEnd(guildId, state, "idle");
+        this.handleStreamEnd(guildId, state, "idle").catch((err) => {
+          log("ERROR", `[${this.config.name}] handleStreamEnd idle failed: ${err?.message || err}`);
+        });
       });
 
       player.on("error", (err) => {
         state.lastStreamErrorAt = new Date().toISOString();
         log("ERROR", `[${this.config.name}] AudioPlayer error: ${err?.message || err}`);
-        this.handleStreamEnd(guildId, state, "error");
+        this.handleStreamEnd(guildId, state, "error").catch((streamErr) => {
+          log("ERROR", `[${this.config.name}] handleStreamEnd error failed: ${streamErr?.message || streamErr}`);
+        });
       });
 
       this.guildState.set(guildId, state);
@@ -1047,10 +1057,16 @@ class BotRuntime {
       clearTimeout(state.reconnectTimer);
       state.reconnectTimer = null;
     }
+    state.reconnectScheduledAt = 0;
+    state.reconnectScheduledReason = null;
+    state.reconnectScheduledDelayMs = 0;
     if (state.streamRestartTimer) {
       clearTimeout(state.streamRestartTimer);
       state.streamRestartTimer = null;
     }
+    state.streamRestartScheduledAt = 0;
+    state.streamRestartScheduledReason = null;
+    state.streamRestartScheduledDelayMs = 0;
     this.clearStreamStabilityTimer(state);
   }
 
@@ -2296,7 +2312,7 @@ class BotRuntime {
     return armRuntimePlaybackRecovery(this, guildId, state, stations, key, err, options);
   }
 
-  handleStreamEnd(guildId, state, reason) {
+  async handleStreamEnd(guildId, state, reason) {
     return handleRuntimeStreamEnd(this, guildId, state, reason);
   }
 
