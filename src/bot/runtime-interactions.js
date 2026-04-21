@@ -39,7 +39,7 @@ import {
   buildCustomStationReference,
   validateCustomStationUrl,
 } from "../custom-stations.js";
-import { getTier, requireFeature, getServerPlanConfig } from "../core/entitlements.js";
+import { getTier, requireFeature, getServerPlanConfig, serverHasCapability } from "../core/entitlements.js";
 import { getSongHistory } from "../song-history-store.js";
 import { recordCommandUsage } from "../listening-stats-store.js";
 import { listScheduledEvents } from "../scheduled-events-store.js";
@@ -1358,6 +1358,16 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   if (interaction.commandName === "voiceguard") {
     const sub = interaction.options.getSubcommand();
     const guildId = interaction.guildId;
+    if (!serverHasCapability(guildId, "voice_guard")) {
+      await interaction.reply({
+        content: t(
+          "Voice Guard ist nur fuer Ultimate verfuegbar.",
+          "Voice guard is only available on Ultimate."
+        ),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
     if (!runtime.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
         content: t(

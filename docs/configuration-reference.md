@@ -255,6 +255,7 @@ Additional voice/runtime guard rails used by code:
 
 Voice guard resolution order:
 
+- Voice guard itself is only active on guilds with the `Ultimate` capability tier.
 - Global defaults come from the `VOICE_MOVE_*` env values.
 - A guild can override only the move policy through dashboard settings or `/voiceguard policy`.
 - Temporary admin unlocks via `/voiceguard unlock` only affect the currently active runtime session.

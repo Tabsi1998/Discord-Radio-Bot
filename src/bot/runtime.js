@@ -121,7 +121,7 @@ import {
   parseCustomStationReference,
   validateCustomStationUrl,
 } from "../custom-stations.js";
-import { getTier, checkFeatureAccess, getMaxBots, requireFeature, getServerPlanConfig } from "../core/entitlements.js";
+import { getTier, checkFeatureAccess, getMaxBots, requireFeature, getServerPlanConfig, serverHasCapability } from "../core/entitlements.js";
 import {
   getCommandPermission,
   setCommandPermission,
@@ -494,8 +494,9 @@ class BotRuntime {
         restoreBlockedAt: 0,
         restoreBlockCount: 0,
         restoreBlockReason: null,
+        voiceGuardAvailable: false,
         voiceGuardPolicy: "default",
-        voiceGuardEffectivePolicy: defaultVoiceGuardConfig.effectivePolicy,
+        voiceGuardEffectivePolicy: "allow",
         voiceGuardMoveConfirmations: defaultVoiceGuardConfig.defaults.moveConfirmations,
         voiceGuardReturnCooldownMs: defaultVoiceGuardConfig.defaults.returnCooldownMs,
         voiceGuardMoveWindowMs: defaultVoiceGuardConfig.defaults.moveWindowMs,
@@ -576,7 +577,9 @@ class BotRuntime {
   async refreshVoiceGuardSettings(guildId, { force = false } = {}) {
     const state = this.getState(guildId);
     const settings = await this.loadGuildSettingsCached(guildId, { force });
-    const resolved = buildResolvedVoiceGuardConfig(settings?.voiceGuard || {});
+    const featureEnabled = serverHasCapability(guildId, "voice_guard");
+    const resolved = buildResolvedVoiceGuardConfig(settings?.voiceGuard || {}, { featureEnabled });
+    state.voiceGuardAvailable = resolved.available === true;
     state.voiceGuardPolicy = resolved.policy;
     state.voiceGuardEffectivePolicy = resolved.effectivePolicy;
     state.voiceGuardMoveConfirmations = resolved.defaults.moveConfirmations;
@@ -585,6 +588,10 @@ class BotRuntime {
     state.voiceGuardMaxMovesPerWindow = resolved.defaults.maxMovesPerWindow;
     state.voiceGuardEscalation = resolved.defaults.escalation;
     state.voiceGuardEscalationCooldownMs = resolved.defaults.escalationCooldownMs;
+    if (resolved.available !== true) {
+      state.voiceGuardUnlockUntil = 0;
+      state.voiceGuardCooldownUntil = 0;
+    }
     return resolved;
   }
 
@@ -609,6 +616,7 @@ class BotRuntime {
     const now = Date.now();
     const defaultVoiceGuardConfig = buildResolvedVoiceGuardConfig({});
     return {
+      available: state.voiceGuardAvailable === true,
       policy: state.voiceGuardPolicy || "default",
       effectivePolicy: state.voiceGuardEffectivePolicy || defaultVoiceGuardConfig.effectivePolicy,
       unlocked: Number(state.voiceGuardUnlockUntil || 0) > now,
@@ -3974,6 +3982,7 @@ class BotRuntime {
         streamErrorCount: Number(state.streamErrorCount || 0) || 0,
         shouldReconnect: state.shouldReconnect === true,
         meta: state.currentMeta || null,
+        voiceGuardAvailable: state.voiceGuardAvailable === true,
         voiceGuardPolicy: state.voiceGuardPolicy || "default",
         voiceGuardEffectivePolicy: state.voiceGuardEffectivePolicy || defaultVoiceGuardConfig.effectivePolicy,
       };
@@ -4038,6 +4047,7 @@ class BotRuntime {
           : null;
       const networkRecoveryDelayMs = getNetworkRecoveryDelayMs ? (Number(getNetworkRecoveryDelayMs(guildId)) || 0) : 0;
       if (networkRecoveryDelayMs > 0) detail.networkRecoveryDelayMs = networkRecoveryDelayMs;
+      detail.voiceGuardAvailable = state.voiceGuardAvailable === true;
       if (state.voiceGuardUnlockUntil > 0) detail.voiceGuardUnlockUntil = state.voiceGuardUnlockUntil;
       if (state.voiceGuardCooldownUntil > 0) detail.voiceGuardCooldownUntil = state.voiceGuardCooldownUntil;
       if (state.voiceGuardWindowStartedAt > 0) detail.voiceGuardWindowStartedAt = state.voiceGuardWindowStartedAt;

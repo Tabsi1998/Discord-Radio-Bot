@@ -62,17 +62,18 @@ export function validateVoiceGuardSettings(rawConfig) {
   return { ok: true, config };
 }
 
-export function buildResolvedVoiceGuardConfig(rawConfig) {
+export function buildResolvedVoiceGuardConfig(rawConfig, { featureEnabled = true } = {}) {
   const normalized = normalizeVoiceGuardSettings(rawConfig);
   const configuredPolicy = normalizeVoiceGuardPolicy(normalized.policy, {
     allowDefault: true,
     fallback: "default",
   });
-  const effectivePolicy = configuredPolicy === "default"
-    ? VOICE_GUARD_DEFAULT_POLICY
-    : configuredPolicy;
+  const effectivePolicy = featureEnabled
+    ? (configuredPolicy === "default" ? VOICE_GUARD_DEFAULT_POLICY : configuredPolicy)
+    : "allow";
 
   return {
+    available: featureEnabled === true,
     policy: configuredPolicy,
     effectivePolicy,
     defaults: {

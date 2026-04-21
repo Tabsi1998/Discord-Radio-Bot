@@ -56,7 +56,9 @@ export function createDashboardSettingsRouteHandler(deps) {
       const weeklyDigest = normalizeWeeklyDigestConfig(settings.weeklyDigest || {}, language);
       const failoverChain = resolveDashboardFailoverChain(settings);
       const fallbackStation = getPrimaryFailoverStation(failoverChain, settings.fallbackStation || "");
-      const voiceGuard = buildResolvedVoiceGuardConfig(settings.voiceGuard || {});
+      const voiceGuard = buildResolvedVoiceGuardConfig(settings.voiceGuard || {}, {
+        featureEnabled: serverHasCapability(guildInfo.id, "voice_guard"),
+      });
       sendJson(res, 200, {
         guildId: guildInfo.id,
         tier: guildInfo.tier,
@@ -173,6 +175,10 @@ export function createDashboardSettingsRouteHandler(deps) {
         }
 
         if (body?.voiceGuard && typeof body.voiceGuard === "object") {
+          if (!serverHasCapability(guildInfo.id, "voice_guard")) {
+            sendLocalizedError(res, 403, language, "Voice Guard ist nur fuer Ultimate verfuegbar.", "Voice guard is only available for Ultimate.");
+            return true;
+          }
           const validatedVoiceGuard = validateVoiceGuardSettings(body.voiceGuard);
           if (!validatedVoiceGuard.ok) {
             sendJson(res, 400, { error: validatedVoiceGuard.error });
@@ -215,8 +221,12 @@ export function createDashboardSettingsRouteHandler(deps) {
           ? buildDashboardExportsWebhookResponse(updates.exportsWebhook)
           : buildDashboardExportsWebhookResponse(currentSettings.exportsWebhook || {});
         const voiceGuard = Object.prototype.hasOwnProperty.call(updates, "voiceGuard")
-          ? buildResolvedVoiceGuardConfig(updates.voiceGuard)
-          : buildResolvedVoiceGuardConfig(currentSettings.voiceGuard || {});
+          ? buildResolvedVoiceGuardConfig(updates.voiceGuard, {
+            featureEnabled: serverHasCapability(guildInfo.id, "voice_guard"),
+          })
+          : buildResolvedVoiceGuardConfig(currentSettings.voiceGuard || {}, {
+            featureEnabled: serverHasCapability(guildInfo.id, "voice_guard"),
+          });
 
         sendJson(res, 200, {
           success: true,

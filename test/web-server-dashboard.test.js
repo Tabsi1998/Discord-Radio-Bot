@@ -1363,8 +1363,10 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(settingsResponse.payload.exportsWebhook.enabled, false);
   assert.equal(settingsResponse.payload.exportsWebhook.url, "");
   assert.deepEqual(settingsResponse.payload.exportsWebhook.events, []);
+  assert.equal(settingsResponse.payload.capabilities.voiceGuard, false);
   assert.equal(settingsResponse.payload.voiceGuard.policy, "default");
-  assert.equal(typeof settingsResponse.payload.voiceGuard.effectivePolicy, "string");
+  assert.equal(settingsResponse.payload.voiceGuard.available, false);
+  assert.equal(settingsResponse.payload.voiceGuard.effectivePolicy, "allow");
 
   const settingsAcceptLanguageResponse = await requestJson(
     baseUrl,
@@ -1442,11 +1444,8 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
       }),
     }
   );
-  assert.equal(voiceGuardSettingsResponse.status, mongoAvailable ? 200 : 503);
-  if (mongoAvailable) {
-    assert.equal(voiceGuardSettingsResponse.payload.voiceGuard.policy, "disconnect");
-    assert.equal(voiceGuardSettingsResponse.payload.voiceGuard.effectivePolicy, "disconnect");
-  }
+  assert.equal(voiceGuardSettingsResponse.status, 403);
+  assert.match(voiceGuardSettingsResponse.payload.error, /voice guard/i);
 
   const digestPreviewResponse = await requestJson(
     baseUrl,

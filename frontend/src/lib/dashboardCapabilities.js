@@ -9,6 +9,7 @@ export const DASHBOARD_CAPABILITY_DEFAULTS = Object.freeze({
   failoverRules: false,
   licenseWorkspace: false,
   exportsWebhooks: false,
+  voiceGuard: false,
 });
 
 export const DASHBOARD_CAPABILITY_REQUIRED_TIERS = Object.freeze({
@@ -22,6 +23,7 @@ export const DASHBOARD_CAPABILITY_REQUIRED_TIERS = Object.freeze({
   failoverRules: 'ultimate',
   licenseWorkspace: 'ultimate',
   exportsWebhooks: 'ultimate',
+  voiceGuard: 'ultimate',
 });
 
 const DASHBOARD_CAPABILITY_LABELS = Object.freeze({
@@ -35,6 +37,7 @@ const DASHBOARD_CAPABILITY_LABELS = Object.freeze({
   failoverRules: { de: 'Failover-Regeln', en: 'Failover rules' },
   licenseWorkspace: { de: 'Lizenz-Workspace', en: 'License workspace' },
   exportsWebhooks: { de: 'Exporte & Webhooks', en: 'Exports & webhooks' },
+  voiceGuard: { de: 'Voice Guard', en: 'Voice guard' },
 });
 
 export function getDashboardCapabilityRequiredTier(capabilityKey) {

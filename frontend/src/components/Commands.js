@@ -14,7 +14,7 @@ const COMMAND_TIERS = {
     label: 'Free',
     color: '#39FF14',
     icon: Shield,
-    commands: ['help', 'play', 'pause', 'resume', 'stop', 'stations', 'list', 'setvolume', 'status', 'health', 'diag', 'premium', 'language', 'license', 'invite', 'workers', 'stats', 'voiceguard'],
+    commands: ['help', 'play', 'pause', 'resume', 'stop', 'stations', 'list', 'setvolume', 'status', 'health', 'diag', 'premium', 'language', 'license', 'invite', 'workers', 'stats'],
   },
   pro: {
     label: 'Pro',
@@ -26,7 +26,7 @@ const COMMAND_TIERS = {
     label: 'Ultimate',
     color: '#BD00FF',
     icon: Crown,
-    commands: ['addstation', 'removestation', 'mystations'],
+    commands: ['addstation', 'removestation', 'mystations', 'voiceguard'],
   },
 };
 

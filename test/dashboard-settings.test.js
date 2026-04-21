@@ -13,6 +13,7 @@ import {
   buildDashboardVoiceGuardSummary,
   normalizeDashboardVoiceGuardConfig,
 } from "../frontend/src/lib/dashboardVoiceGuard.js";
+import { buildResolvedVoiceGuardConfig } from "../src/lib/voice-guard.js";
 
 test("computeWeeklyDigestNextRun follows the next matching weekly slot", () => {
   const nextRunAt = computeWeeklyDigestNextRun(
@@ -160,4 +161,15 @@ test("buildDashboardVoiceGuardSummary explains disconnect policy clearly", () =>
   assert.equal(summary.policyLabel, "Disconnect");
   assert.match(summary.description, /confirmed foreign moves/i);
   assert.match(summary.thresholdsLabel, /confirmations/i);
+});
+
+test("buildResolvedVoiceGuardConfig disables voice guard cleanly when the feature is unavailable", () => {
+  const config = buildResolvedVoiceGuardConfig(
+    { policy: "disconnect" },
+    { featureEnabled: false }
+  );
+
+  assert.equal(config.available, false);
+  assert.equal(config.policy, "disconnect");
+  assert.equal(config.effectivePolicy, "allow");
 });

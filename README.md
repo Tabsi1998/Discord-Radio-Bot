@@ -89,7 +89,7 @@ Recommended required checks for `main`:
 
 Operational reminder: the voice/channel status system is part of the maintained runtime surface. Keep the documented `.env.example` toggles in sync, especially `VOICE_CHANNEL_STATUS_ENABLED`, `VOICE_CHANNEL_STATUS_TEMPLATE`, `VOICE_CHANNEL_STATUS_REFRESH_MS`, `VOICE_STATE_RECONCILE_ENABLED`, `VOICE_STATE_RECONCILE_MS`, `VOICE_MOVE_POLICY`, `VOICE_MOVE_CONFIRMATIONS`, `VOICE_MOVE_RETURN_COOLDOWN_MS`, `VOICE_MOVE_WINDOW_MS`, `VOICE_MOVE_MAX_EVENTS_PER_WINDOW`, `VOICE_MOVE_ESCALATION`, and `VOICE_MOVE_ESCALATION_COOLDOWN_MS`.
 
-Voice guard can now be controlled globally through env defaults and per guild through the dashboard or `/voiceguard`. The per-guild layer currently overrides the move policy, while repeated foreign moves are still governed by the documented global guard thresholds.
+Voice guard can now be controlled globally through env defaults and per guild through the dashboard or `/voiceguard`. The feature itself is only active on Ultimate servers. The per-guild layer currently overrides the move policy, while repeated foreign moves are still governed by the documented global guard thresholds.
 
 ## Deployment Modes
 

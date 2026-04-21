@@ -83,6 +83,18 @@ function getExpectedRuntimeChannelId(state) {
 }
 
 function getRuntimeVoiceGuardConfig(state) {
+  if (state?.voiceGuardAvailable !== true) {
+    return {
+      policy: "allow",
+      configuredPolicy: "default",
+      moveConfirmations: Math.max(1, VOICE_GUARD_MOVE_CONFIRMATIONS),
+      returnCooldownMs: Math.max(0, VOICE_GUARD_RETURN_COOLDOWN_MS),
+      moveWindowMs: Math.max(5_000, VOICE_GUARD_WINDOW_MS),
+      maxMovesPerWindow: Math.max(2, VOICE_GUARD_MAX_EVENTS_PER_WINDOW),
+      escalation: String(VOICE_GUARD_ESCALATION).trim().toLowerCase() === "cooldown" ? "cooldown" : "disconnect",
+      escalationCooldownMs: Math.max(60_000, VOICE_GUARD_ESCALATION_COOLDOWN_MS),
+    };
+  }
   const policy = String(state?.voiceGuardEffectivePolicy || getVoiceMovePolicy()).trim().toLowerCase();
   return {
     policy: policy === "allow" || policy === "disconnect" ? policy : "return",

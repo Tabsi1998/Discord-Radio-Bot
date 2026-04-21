@@ -55,6 +55,11 @@ export const CAPABILITIES = {
     minPlan: "ultimate",
     label: "Exporte und Webhooks",
   },
+  voice_guard: {
+    apiKey: "voiceGuard",
+    minPlan: "ultimate",
+    label: "Voice Guard",
+  },
 };
 
 export const CAPABILITY_KEYS = Object.freeze(Object.keys(CAPABILITIES));
@@ -94,6 +99,7 @@ export const PLANS = {
       failover_rules: false,
       license_workspace: false,
       exports_webhooks: false,
+      voice_guard: false,
     },
     limits: {
       maxBots: 2,
@@ -130,6 +136,7 @@ export const PLANS = {
       failover_rules: false,
       license_workspace: false,
       exports_webhooks: false,
+      voice_guard: false,
     },
     limits: {
       maxBots: 8,
@@ -166,6 +173,7 @@ export const PLANS = {
       failover_rules: true,
       license_workspace: true,
       exports_webhooks: true,
+      voice_guard: true,
     },
     limits: {
       maxBots: 16,
