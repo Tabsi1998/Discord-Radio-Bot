@@ -640,6 +640,9 @@ export async function executeRuntimePlay(runtime, interaction, {
   }
 
   if (runtime.role === "commander" && runtime.workerManager) {
+    if (typeof runtime.workerManager.refreshRemoteStates === "function") {
+      await runtime.workerManager.refreshRemoteStates().catch(() => null);
+    }
     let channelId = explicitVoiceChannel?.id;
     if (!channelId) {
       const member = await guild.members.fetch(interaction.user.id).catch(() => null);
