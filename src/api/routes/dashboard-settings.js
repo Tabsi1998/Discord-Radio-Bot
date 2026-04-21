@@ -1,5 +1,6 @@
 import { getDb, isConnected } from "../../lib/db.js";
 import { loadDashboardGuildSettings } from "./dashboard-guild-settings.js";
+import { resolveUserFacingErrorMessage } from "../../lib/user-facing-errors.js";
 
 export function createDashboardSettingsRouteHandler(deps) {
   const {
@@ -246,7 +247,12 @@ export function createDashboardSettingsRouteHandler(deps) {
           voiceGuard,
         });
       } catch (err) {
-        sendJson(res, 400, { error: err?.message || languagePick(language, "Ungueltige Anfrage.", "Invalid request.") });
+        sendJson(res, 400, {
+          error: resolveUserFacingErrorMessage(language, err, {
+            fallbackDe: "Die Einstellungen konnten gerade nicht gespeichert werden.",
+            fallbackEn: "The settings could not be saved right now.",
+          }),
+        });
       }
       return true;
     }

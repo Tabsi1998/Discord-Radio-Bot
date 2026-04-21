@@ -1,3 +1,5 @@
+import { resolveUserFacingErrorMessage } from "../../lib/user-facing-errors.js";
+
 export function createDashboardLicenseRouteHandler(deps) {
   const {
     BRAND,
@@ -101,7 +103,12 @@ export function createDashboardLicenseRouteHandler(deps) {
             sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
             return true;
           }
-          sendJson(res, 400, { error: err?.message || languagePick(language, "Ungueltige Anfrage.", "Invalid request.") });
+          sendJson(res, 400, {
+            error: resolveUserFacingErrorMessage(language, err, {
+              fallbackDe: "Die Lizenzdaten konnten gerade nicht aktualisiert werden.",
+              fallbackEn: "The license details could not be updated right now.",
+            }),
+          });
         }
         return true;
       }

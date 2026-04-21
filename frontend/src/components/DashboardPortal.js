@@ -15,6 +15,10 @@ import {
   getDashboardCapabilityRequiredTier,
   normalizeDashboardCapabilityPayload,
 } from '../lib/dashboardCapabilities.js';
+import {
+  resolveDashboardApiErrorMessage,
+  resolveDashboardClientErrorMessage,
+} from '../lib/dashboardErrors.js';
 import { buildDashboardPermissionsHint as buildPermissionsOnboardingHint } from '../lib/dashboardOnboarding.js';
 
 const PERMISSION_COMMANDS = [
@@ -101,18 +105,26 @@ function toEventFormState(event) {
 }
 
 async function apiRequestWithLanguage(path, language, options = {}) {
-  const response = await fetch(buildApiUrl(path), {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-OmniFM-Language': language,
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  let response;
+  try {
+    response = await fetch(buildApiUrl(path), {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-OmniFM-Language': language,
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+  } catch (error) {
+    throw new Error(resolveDashboardClientErrorMessage(error, language));
+  }
+
   let payload = {};
   try { payload = await response.json(); } catch { payload = {}; }
-  if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new Error(resolveDashboardApiErrorMessage(response.status, payload?.error, language));
+  }
   return payload;
 }
 
@@ -134,12 +146,10 @@ function resolveAuthErrorMessage(authError, t) {
 
 function normalizeOauthConfigured(v) { return v === true ? true : v === false ? false : null; }
 
-function resolveSessionLoadErrorMessage(err, t) {
-  const msg = String(err?.message || '').trim();
-  if (!msg) return t('Session konnte nicht geladen werden.', 'Session could not be loaded.');
-  if (/api route not found/i.test(msg) || msg === 'HTTP 404') return t('Dashboard-API nicht gefunden. Prüfe Backend.', 'Dashboard API not found. Check backend.');
-  if (/failed to fetch/i.test(msg)) return t('Dashboard-API nicht erreichbar.', 'Dashboard API unreachable.');
-  return msg;
+function resolveSessionLoadErrorMessage(err, language, t) {
+  return resolveDashboardClientErrorMessage(err, language, {
+    fallback: t('Session konnte nicht geladen werden.', 'Session could not be loaded.'),
+  });
 }
 
 function DashboardShell({ children, sidebar, topbar }) {
@@ -265,12 +275,12 @@ export default function DashboardPortal() {
       setSelectedGuildId(selected?.id || '');
       setError(payload.authenticated === true ? '' : authErrorMessage);
     } catch (err) {
-      setError(resolveSessionLoadErrorMessage(err, t));
+      setError(resolveSessionLoadErrorMessage(err, locale, t));
       setSession(EMPTY_SESSION);
     } finally {
       setLoadingSession(false);
     }
-  }, [apiRequest, authErrorMessage, t]);
+  }, [apiRequest, authErrorMessage, locale, t]);
 
   useEffect(() => { if (!session.authenticated) setError((c) => c || authErrorMessage); }, [authErrorMessage, session.authenticated]);
 
