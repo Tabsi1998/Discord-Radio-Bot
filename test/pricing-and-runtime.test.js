@@ -3490,6 +3490,114 @@ test("restoreState reconnects the saved radio in the same voice channel", async 
   assert.equal(restoredState.volume, 64);
 });
 
+test("restoreState refreshes voice guard settings before reconnecting restored playback", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-restore-guard": {
+      "guild-1": {
+        channelId: "voice-9",
+        stationKey: "station-a",
+        volume: 64,
+      },
+    },
+  });
+
+  const calls = [];
+  const guild = {
+    id: "guild-1",
+    name: "Guild One",
+    channels: {
+      cache: new Map([
+        ["voice-9", {
+          id: "voice-9",
+          name: "Radio",
+          isVoiceBased: () => true,
+        }],
+      ]),
+      fetch: async () => null,
+    },
+  };
+  const runtime = {
+    config: { name: "OmniFM Restore", id: "bot-restore-guard" },
+    guildState: new Map(),
+    pendingRestoreTimers: new Map(),
+    restoreRetryCounts: new Map(),
+    client: {
+      guilds: {
+        cache: new Map([
+          ["guild-1", guild],
+        ]),
+        fetch: async () => guild,
+      },
+    },
+    getState(guildId) {
+      if (!this.guildState.has(guildId)) {
+        this.guildState.set(guildId, {});
+      }
+      return this.guildState.get(guildId);
+    },
+    refreshVoiceGuardSettings: async (guildId) => {
+      calls.push({ type: "voice-guard", guildId });
+      const state = runtime.getState(guildId);
+      state.voiceGuardAvailable = true;
+      state.voiceGuardPolicy = "default";
+      state.voiceGuardEffectivePolicy = "return";
+    },
+    enforceGuildAccessForGuild: async () => true,
+    resolveGuildLanguage: () => "en",
+    resolveStationForGuild: () => ({
+      ok: true,
+      key: "station-a",
+      station: { name: "Station A" },
+      stations: {
+        stations: {
+          "station-a": { name: "Station A" },
+        },
+      },
+    }),
+    markScheduledEventPlayback() {},
+    ensureVoiceConnectionForChannel: async (guildId, channelId, state) => {
+      calls.push({
+        type: "connect",
+        guildId,
+        channelId,
+        voiceGuardAvailable: state.voiceGuardAvailable === true,
+        voiceGuardEffectivePolicy: state.voiceGuardEffectivePolicy || null,
+      });
+      state.connection = { joinConfig: { channelId } };
+      return {
+        guild,
+        channel: guild.channels.cache.get(channelId),
+      };
+    },
+    playStation: async (state, stations, key, guildId) => {
+      calls.push({ type: "play", guildId, key, stationName: stations?.stations?.[key]?.name || null });
+      state.currentStationKey = key;
+      state.currentStationName = stations?.stations?.[key]?.name || key;
+    },
+  };
+
+  await restoreRuntimeState(runtime, {});
+
+  assert.deepEqual(calls, [
+    { type: "voice-guard", guildId: "guild-1" },
+    {
+      type: "connect",
+      guildId: "guild-1",
+      channelId: "voice-9",
+      voiceGuardAvailable: true,
+      voiceGuardEffectivePolicy: "return",
+    },
+    { type: "play", guildId: "guild-1", key: "station-a", stationName: "Station A" },
+  ]);
+});
+
 test("restartCurrentStation retries after transient restart failures", async () => {
   const originalNoteFailure = networkRecoveryCoordinator.noteFailure;
   const originalGetRecoveryDelayMs = networkRecoveryCoordinator.getRecoveryDelayMs;

@@ -1753,6 +1753,9 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
   log("INFO", `[${runtime.config.name}] Reconnect: ${guild.name} / #${channel.name} / ${restoredStation.station.name}`);
 
   const state = runtime.getState(guildId);
+  if (typeof runtime.refreshVoiceGuardSettings === "function") {
+    await runtime.refreshVoiceGuardSettings(guildId).catch(() => null);
+  }
   state.restoreBlockCount = restoreBlockCount;
   state.restoreBlockedAt = restoreBlockedAt;
   state.restoreBlockedUntil = restoreBlockedUntil > nowMs ? restoreBlockedUntil : 0;
