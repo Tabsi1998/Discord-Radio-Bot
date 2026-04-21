@@ -1340,6 +1340,57 @@ test("voiceStateUpdate keeps the locked voice target when the bot is moved unexp
   }
 });
 
+test("voiceStateUpdate still protects an active session when shouldReconnect is false", () => {
+  const restoreEnv = setEnv({ VOICE_MOVE_POLICY: "return" });
+  try {
+    const queued = [];
+    const state = {
+      shouldReconnect: false,
+      currentStationKey: "station-a",
+      lastChannelId: "voice-1",
+      connection: { joinConfig: { channelId: "voice-1" } },
+      transientVoiceIssues: {},
+      voiceConnectInFlight: false,
+      reconnectInFlight: false,
+      reconnectTimer: null,
+      voiceDisconnectObservedAt: 0,
+      voiceGuardEffectivePolicy: "return",
+      player: { state: { status: "playing" } },
+    };
+    const runtime = {
+      client: {
+        user: { id: "bot-1" },
+      },
+      config: { name: "OmniFM Test" },
+      getState() {
+        return state;
+      },
+      markNowPlayingTargetDirty() {
+        throw new Error("markNowPlayingTargetDirty should not run");
+      },
+      persistState() {
+        throw new Error("persistState should not run");
+      },
+      queueVoiceStateReconcile(guildId, reason, delayMs) {
+        queued.push({ guildId, reason, delayMs });
+      },
+    };
+
+    handleRuntimeBotVoiceStateUpdate(
+      runtime,
+      { channelId: "voice-1" },
+      { id: "bot-1", guild: { id: "guild-1" }, channelId: "voice-2" }
+    );
+
+    assert.equal(state.lastChannelId, "voice-1");
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0].reason, "voice-state-update-mismatch");
+    assert.equal(state.transientVoiceIssues["voice-channel-mismatch"].count, 1);
+  } finally {
+    restoreEnv();
+  }
+});
+
 test("resolveStreamingRuntimeForInteraction honors explicit bot selection without requiring voice membership", async () => {
   const selectedRuntime = {
     getState(guildId) {
@@ -2205,6 +2256,76 @@ test("voice reconcile schedules a return to the locked channel after a confirmed
         reason: "voice-channel-mismatch-guard",
       },
     });
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("voice reconcile still returns an active session when shouldReconnect is false", async () => {
+  const restoreEnv = setEnv({ VOICE_MOVE_POLICY: "return" });
+  try {
+    let destroyed = 0;
+    let scheduledReconnect = null;
+    const state = {
+      connection: {
+        joinConfig: { channelId: "voice-1" },
+        destroy() {
+          destroyed += 1;
+        },
+      },
+      currentStationKey: "station-a",
+      currentProcess: { pid: 1 },
+      lastChannelId: "voice-1",
+      shouldReconnect: false,
+      player: { state: { status: "playing" } },
+      transientVoiceIssues: {
+        "voice-channel-mismatch": {
+          count: 1,
+          firstSeenAt: Date.now(),
+          lastSeenAt: Date.now(),
+          lastDetail: "voice-1:voice-2:test",
+        },
+      },
+      voiceConnectInFlight: false,
+      reconnectInFlight: false,
+      reconnectTimer: null,
+      voiceGuardEffectivePolicy: "return",
+      voiceGuardMoveConfirmations: 2,
+    };
+    const runtime = {
+      config: { name: "OmniFM Test" },
+      client: {
+        isReady: () => true,
+      },
+      guildState: new Map([["guild-1", state]]),
+      fetchBotVoiceState: async () => ({ guild: {}, voiceState: {}, channelId: "voice-2" }),
+      markNowPlayingTargetDirty() {
+        throw new Error("markNowPlayingTargetDirty should not run");
+      },
+      persistState() {},
+      queueVoiceStateReconcile() {
+        throw new Error("queueVoiceStateReconcile should not run");
+      },
+      resetVoiceSession() {
+        throw new Error("resetVoiceSession should not run");
+      },
+      scheduleReconnect(guildId, options) {
+        scheduledReconnect = { guildId, options };
+      },
+      scheduleStreamRestart() {
+        throw new Error("scheduleStreamRestart should not run");
+      },
+      syncVoiceChannelStatus() {
+        return Promise.resolve();
+      },
+    };
+
+    await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+
+    assert.equal(destroyed, 1);
+    assert.equal(state.voiceGuardReturnCount, 1);
+    assert.equal(scheduledReconnect.guildId, "guild-1");
+    assert.equal(scheduledReconnect.options.reason, "voice-channel-mismatch-guard");
   } finally {
     restoreEnv();
   }

@@ -180,17 +180,19 @@ function shouldProtectRuntimeVoiceChannel(state, expectedChannelId = getExpected
   if (!normalizedExpectedChannelId) return false;
   if (config.policy === "allow") return false;
   if (isRuntimeVoiceGuardUnlocked(state)) return false;
+  const playerStatus = String(state?.player?.state?.status || "").trim().toLowerCase();
+  const hasActiveOrReservedSession = Boolean(
+    state?.currentStationKey
+    || state?.currentProcess
+    || state?.connection
+    || state?.reconnectTimer
+    || state?.reconnectInFlight
+    || state?.voiceConnectInFlight
+    || (playerStatus && playerStatus !== String(AudioPlayerStatus.Idle).toLowerCase())
+  );
   return Boolean(
-    state?.shouldReconnect
-    && normalizedExpectedChannelId
-    && (
-      state?.currentStationKey
-      || state?.currentProcess
-      || state?.connection
-      || state?.reconnectTimer
-      || state?.reconnectInFlight
-      || state?.voiceConnectInFlight
-    )
+    normalizedExpectedChannelId
+    && hasActiveOrReservedSession
   );
 }
 

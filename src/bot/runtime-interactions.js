@@ -2099,9 +2099,10 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         });
         return;
       }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const persisted = await updateGuildSettings(guildId, { voiceGuard: validated.config });
       if (!persisted.ok) {
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             buildOmniEmbed({
               tone: "danger",
@@ -2120,7 +2121,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
       await runtime.refreshVoiceGuardSettingsForGuild(guildId, { force: true }).catch(() => null);
       const resolved = buildResolvedVoiceGuardConfig(validated.config);
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [
           buildOmniEmbed({
             tone: resolved.effectivePolicy === "disconnect" ? "warning" : "success",
