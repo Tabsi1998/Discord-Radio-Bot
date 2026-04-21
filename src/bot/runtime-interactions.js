@@ -2054,8 +2054,8 @@ export async function handleRuntimeInteraction(runtime, interaction) {
             tone: "info",
             title: t("🛡 Voice Guard gesperrt", "🛡 Voice guard locked"),
             description: t(
-              "Voice Guard ist nur fuer Ultimate verfuegbar.",
-              "Voice guard is only available on Ultimate."
+              "Voice Guard ist auf diesem Server aktuell nicht verfuegbar.",
+              "Voice guard is not currently available on this server."
             ),
           }),
         ],
@@ -2140,7 +2140,12 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     if (sub === "status") {
       await runtime.refreshVoiceGuardSettings(guildId).catch(() => null);
       const configured = runtime.getVoiceGuardRuntimeSummary(guildId);
-      const { runtime: activeRuntime, state: activeState } = await runtime.resolveStreamingRuntimeForInteraction(interaction);
+      const resolvedRuntime = await runtime.resolveStreamingRuntimeForInteraction(interaction);
+      const { runtime: activeRuntime, state: activeState } = resolvedRuntime;
+      if (!activeRuntime && resolvedRuntime.reason && resolvedRuntime.reason !== "none") {
+        await interaction.reply(buildStreamingRuntimeSelectionPayload(runtime, interaction, resolvedRuntime, language));
+        return;
+      }
       const liveSummary = activeRuntime && activeState
         ? activeRuntime.getVoiceGuardRuntimeSummary(guildId)
         : configured;
@@ -2221,6 +2226,10 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     if (sub === "unlock") {
       const resolved = await runtime.resolveStreamingRuntimeForInteraction(interaction);
       if (!resolved.runtime || !resolved.state) {
+        if (resolved.reason && resolved.reason !== "none") {
+          await interaction.reply(buildStreamingRuntimeSelectionPayload(runtime, interaction, resolved, language));
+          return;
+        }
         await interaction.reply({
           embeds: [
             buildOmniEmbed({
@@ -2238,7 +2247,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         return;
       }
       const minutes = Math.max(1, Math.min(180, Number(interaction.options.getInteger("minutes") || 10) || 10));
-      const result = resolved.runtime.setVoiceGuardTemporaryUnlock(guildId, minutes * 60_000, "slash-unlock");
+      const result = await resolved.runtime.setVoiceGuardTemporaryUnlock(guildId, minutes * 60_000, "slash-unlock");
       await interaction.reply({
         embeds: [
           buildOmniEmbed({
@@ -2259,6 +2268,10 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const resolved = await runtime.resolveStreamingRuntimeForInteraction(interaction);
       if (!resolved.runtime || !resolved.state) {
         runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
+        if (resolved.reason && resolved.reason !== "none") {
+          await interaction.reply(buildStreamingRuntimeSelectionPayload(runtime, interaction, resolved, language));
+          return;
+        }
         await interaction.reply({
           embeds: [
             buildOmniEmbed({
@@ -2275,7 +2288,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         });
         return;
       }
-      resolved.runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
+      await resolved.runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
       await interaction.reply({
         embeds: [
           buildOmniEmbed({

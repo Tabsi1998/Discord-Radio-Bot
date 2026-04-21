@@ -8,6 +8,7 @@ import {
   getServerSeats,
   setLicenseProvider,
   buildUpgradeHints,
+  getCapabilityRequirementPlan,
 } from "../src/core/entitlements.js";
 import {
   getDashboardBlockedFeatureLabels,
@@ -88,4 +89,5 @@ test("dashboard capability required tiers keep pro and ultimate package boundari
   assert.equal(getDashboardCapabilityRequiredTier("customStationUrls"), "ultimate");
   assert.equal(getDashboardCapabilityRequiredTier("advancedAnalytics"), "ultimate");
   assert.equal(getDashboardCapabilityRequiredTier("voiceGuard"), "free");
+  assert.equal(getCapabilityRequirementPlan("voice_guard"), "free");
 });

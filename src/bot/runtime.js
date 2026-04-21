@@ -2763,6 +2763,10 @@ class BotRuntime {
       return { runtime: this, state: this.getState(guildId), reason: null };
     }
 
+    if (typeof this.workerManager.refreshRemoteStates === "function") {
+      await this.workerManager.refreshRemoteStates().catch(() => null);
+    }
+
     const requestedWorkerIndex = this.getIntegerOptionFlexible(interaction, ["bot", "worker"]);
     if (requestedWorkerIndex !== null) {
       const resolvedWorker = this.workerManager.resolveWorker(requestedWorkerIndex);

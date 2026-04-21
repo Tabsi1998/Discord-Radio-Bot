@@ -86,6 +86,29 @@ class WorkerBridgeService {
         const parsedValue = Number.parseInt(String(payload.value ?? ""), 10);
         return this.runtime.setVolumeInGuild(guildId, Number.isFinite(parsedValue) ? parsedValue : payload.value);
       }
+      case "voiceGuardRefresh": {
+        await this.runtime.refreshVoiceGuardSettings(guildId, { force: payload.force === true }).catch(() => null);
+        return {
+          ok: true,
+          summary: this.runtime.getVoiceGuardRuntimeSummary(guildId),
+        };
+      }
+      case "voiceGuardUnlock": {
+        const result = this.runtime.setVoiceGuardTemporaryUnlock(guildId, payload.durationMs, payload.reason || "remote-unlock");
+        return {
+          ok: true,
+          ...result,
+          summary: this.runtime.getVoiceGuardRuntimeSummary(guildId),
+        };
+      }
+      case "voiceGuardLock": {
+        const result = this.runtime.clearVoiceGuardTemporaryUnlock(guildId, payload.reason || "remote-lock");
+        return {
+          ok: true,
+          ...result,
+          summary: this.runtime.getVoiceGuardRuntimeSummary(guildId),
+        };
+      }
       default:
         throw new Error(`Unbekannter Worker-Command: ${command?.type || "-"}`);
     }

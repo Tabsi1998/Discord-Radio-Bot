@@ -259,6 +259,7 @@ Voice guard resolution order:
 - Global defaults come from the `VOICE_MOVE_*` env values.
 - A guild can override only the move policy through dashboard settings or `/voiceguard policy`.
 - Temporary admin unlocks via `/voiceguard unlock` only affect the currently active runtime session.
+- In split mode, `/voiceguard status`, `/voiceguard unlock`, and `/voiceguard lock` accept an optional `bot` worker slot so the active worker can be targeted explicitly.
 
 ## Provider Integrations
 

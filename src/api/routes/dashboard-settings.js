@@ -181,7 +181,7 @@ export function createDashboardSettingsRouteHandler(deps) {
 
         if (body?.voiceGuard && typeof body.voiceGuard === "object") {
           if (!serverHasCapability(guildInfo.id, "voice_guard")) {
-            sendLocalizedError(res, 403, language, "Voice Guard ist nur fuer Ultimate verfuegbar.", "Voice guard is only available for Ultimate.");
+            sendLocalizedError(res, 403, language, "Voice Guard ist auf diesem Server aktuell nicht verfuegbar.", "Voice guard is not currently available on this server.");
             return true;
           }
           const validatedVoiceGuard = validateVoiceGuardSettings(body.voiceGuard);

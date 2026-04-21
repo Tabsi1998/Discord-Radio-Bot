@@ -408,7 +408,11 @@ export function buildCommandBuilders() {
     "Manage the voice move guard for this server",
     "Voice-Move-Guard für diesen Server verwalten"
   )
-    .addSubcommand((sub) => describe(sub.setName("status"), "Show the current voice guard status", "Aktuellen Voice-Guard-Status anzeigen"))
+    .addSubcommand((sub) => {
+      describe(sub.setName("status"), "Show the current voice guard status", "Aktuellen Voice-Guard-Status anzeigen");
+      withIntegerOption(sub, "bot", "Optional worker slot for split mode", "Optionaler Worker-Slot fuer Split-Mode", { required: false });
+      return sub;
+    })
     .addSubcommand((sub) => {
       describe(sub.setName("policy"), "Set the server policy for foreign voice moves", "Server-Policy für Fremdverschiebungen setzen");
       sub.addStringOption((option) => option
@@ -427,9 +431,14 @@ export function buildCommandBuilders() {
     .addSubcommand((sub) => {
       describe(sub.setName("unlock"), "Temporarily allow intentional voice moves", "Bewusste Voice-Moves temporär erlauben");
       withIntegerOption(sub, "minutes", "Unlock duration in minutes", "Unlock-Dauer in Minuten", { required: false });
+      withIntegerOption(sub, "bot", "Optional worker slot for split mode", "Optionaler Worker-Slot fuer Split-Mode", { required: false });
       return sub;
     })
-    .addSubcommand((sub) => describe(sub.setName("lock"), "End a temporary unlock immediately", "Temporären Unlock sofort beenden"));
+    .addSubcommand((sub) => {
+      describe(sub.setName("lock"), "End a temporary unlock immediately", "Temporären Unlock sofort beenden");
+      withIntegerOption(sub, "bot", "Optional worker slot for split mode", "Optionaler Worker-Slot fuer Split-Mode", { required: false });
+      return sub;
+    });
 
   return [
     help,

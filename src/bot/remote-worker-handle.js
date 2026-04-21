@@ -1,4 +1,5 @@
 import { sendWorkerCommandAndWait } from "../core/worker-bridge.js";
+import { buildResolvedVoiceGuardConfig } from "../lib/voice-guard.js";
 
 function toDateMs(value, fallbackValue = 0) {
   if (!value) return fallbackValue;
@@ -24,6 +25,7 @@ function normalizeRemoteVolume(value, fallback = 100) {
 
 function buildRemoteGuildState(detail = {}) {
   const channelId = String(detail?.channelId || "").trim();
+  const defaultVoiceGuardConfig = buildResolvedVoiceGuardConfig({});
   return {
     player: {
       state: {
@@ -64,6 +66,53 @@ function buildRemoteGuildState(detail = {}) {
     restoreBlockCount: Number(detail?.restoreBlockCount || 0) || 0,
     restoreBlockReason: detail?.restoreBlockReason || null,
     networkRecoveryDelayMs: Number(detail?.networkRecoveryDelayMs || 0) || 0,
+    voiceGuardAvailable: detail?.voiceGuardAvailable !== false,
+    voiceGuardPolicy: detail?.voiceGuardPolicy || "default",
+    voiceGuardEffectivePolicy: detail?.voiceGuardEffectivePolicy || defaultVoiceGuardConfig.effectivePolicy,
+    voiceGuardUnlockUntil: Number(detail?.voiceGuardUnlockUntil || 0) || 0,
+    voiceGuardCooldownUntil: Number(detail?.voiceGuardCooldownUntil || 0) || 0,
+    voiceGuardWindowMoveCount: Number(detail?.voiceGuardWindowMoveCount || 0) || 0,
+    voiceGuardMoveCount: Number(detail?.voiceGuardMoveCount || 0) || 0,
+    voiceGuardReturnCount: Number(detail?.voiceGuardReturnCount || 0) || 0,
+    voiceGuardDisconnectCount: Number(detail?.voiceGuardDisconnectCount || 0) || 0,
+    voiceGuardEscalationCount: Number(detail?.voiceGuardEscalationCount || 0) || 0,
+    voiceGuardLastAction: detail?.voiceGuardLastAction || null,
+    voiceGuardLastActionAt: Number(detail?.voiceGuardLastActionAt || 0) || 0,
+    voiceGuardLastActionReason: detail?.voiceGuardLastActionReason || null,
+    voiceGuardLastExpectedChannelId: detail?.voiceGuardLastExpectedChannelId || null,
+    voiceGuardLastActualChannelId: detail?.voiceGuardLastActualChannelId || null,
+  };
+}
+
+function buildRemoteVoiceGuardSummary(detail = {}) {
+  const defaultVoiceGuardConfig = buildResolvedVoiceGuardConfig({});
+  const unlockUntil = Number(detail?.voiceGuardUnlockUntil || 0) || 0;
+  const cooldownUntil = Number(detail?.voiceGuardCooldownUntil || 0) || 0;
+  return {
+    available: detail?.voiceGuardAvailable !== false,
+    policy: String(detail?.voiceGuardPolicy || "default").trim() || "default",
+    effectivePolicy: String(detail?.voiceGuardEffectivePolicy || defaultVoiceGuardConfig.effectivePolicy).trim() || defaultVoiceGuardConfig.effectivePolicy,
+    unlocked: unlockUntil > Date.now(),
+    unlockUntil,
+    cooldownUntil,
+    moveWindowCount: Math.max(0, Number(detail?.voiceGuardWindowMoveCount || 0) || 0),
+    moveCount: Math.max(0, Number(detail?.voiceGuardMoveCount || 0) || 0),
+    returnCount: Math.max(0, Number(detail?.voiceGuardReturnCount || 0) || 0),
+    disconnectCount: Math.max(0, Number(detail?.voiceGuardDisconnectCount || 0) || 0),
+    escalationCount: Math.max(0, Number(detail?.voiceGuardEscalationCount || 0) || 0),
+    lastAction: detail?.voiceGuardLastAction || null,
+    lastActionAt: Number(detail?.voiceGuardLastActionAt || 0) || 0,
+    lastActionReason: detail?.voiceGuardLastActionReason || null,
+    lastExpectedChannelId: detail?.voiceGuardLastExpectedChannelId || null,
+    lastActualChannelId: detail?.voiceGuardLastActualChannelId || null,
+    moveConfirmations: Math.max(1, Number(detail?.voiceGuardMoveConfirmations || defaultVoiceGuardConfig.defaults.moveConfirmations) || defaultVoiceGuardConfig.defaults.moveConfirmations),
+    returnCooldownMs: Math.max(0, Number(detail?.voiceGuardReturnCooldownMs || defaultVoiceGuardConfig.defaults.returnCooldownMs) || defaultVoiceGuardConfig.defaults.returnCooldownMs),
+    moveWindowMs: Math.max(0, Number(detail?.voiceGuardMoveWindowMs || defaultVoiceGuardConfig.defaults.moveWindowMs) || defaultVoiceGuardConfig.defaults.moveWindowMs),
+    maxMovesPerWindow: Math.max(0, Number(detail?.voiceGuardMaxMovesPerWindow || defaultVoiceGuardConfig.defaults.maxMovesPerWindow) || defaultVoiceGuardConfig.defaults.maxMovesPerWindow),
+    escalation: String(detail?.voiceGuardEscalation || defaultVoiceGuardConfig.defaults.escalation).trim().toLowerCase() === "cooldown"
+      ? "cooldown"
+      : "disconnect",
+    escalationCooldownMs: Math.max(0, Number(detail?.voiceGuardEscalationCooldownMs || defaultVoiceGuardConfig.defaults.escalationCooldownMs) || defaultVoiceGuardConfig.defaults.escalationCooldownMs),
   };
 }
 
@@ -273,7 +322,95 @@ class RemoteWorkerHandle {
       reconnectCircuitTripCount: Number(detail?.reconnectCircuitTripCount || 0) || 0,
       reconnectCircuitOpenUntil: Number(detail?.reconnectCircuitOpenUntil || 0) || 0,
       activeScheduledEventId: detail?.activeScheduledEventId || null,
+      voiceGuard: buildRemoteVoiceGuardSummary(detail),
     };
+  }
+
+  applyVoiceGuardSummary(guildId, summary = {}) {
+    const normalizedGuildId = String(guildId || "").trim();
+    if (!normalizedGuildId) return null;
+    const guildDetails = Array.isArray(this.latestStatus?.guildDetails) ? this.latestStatus.guildDetails : [];
+    const index = guildDetails.findIndex((entry) => String(entry?.guildId || "").trim() === normalizedGuildId);
+    if (index < 0) return null;
+    const nextDetail = {
+      ...guildDetails[index],
+      voiceGuardAvailable: summary?.available !== false,
+      voiceGuardPolicy: summary?.policy || "default",
+      voiceGuardEffectivePolicy: summary?.effectivePolicy || buildResolvedVoiceGuardConfig({}).effectivePolicy,
+      voiceGuardUnlockUntil: Number(summary?.unlockUntil || 0) || 0,
+      voiceGuardCooldownUntil: Number(summary?.cooldownUntil || 0) || 0,
+      voiceGuardWindowMoveCount: Number(summary?.moveWindowCount || 0) || 0,
+      voiceGuardMoveCount: Number(summary?.moveCount || 0) || 0,
+      voiceGuardReturnCount: Number(summary?.returnCount || 0) || 0,
+      voiceGuardDisconnectCount: Number(summary?.disconnectCount || 0) || 0,
+      voiceGuardEscalationCount: Number(summary?.escalationCount || 0) || 0,
+      voiceGuardLastAction: summary?.lastAction || null,
+      voiceGuardLastActionAt: Number(summary?.lastActionAt || 0) || 0,
+      voiceGuardLastActionReason: summary?.lastActionReason || null,
+      voiceGuardLastExpectedChannelId: summary?.lastExpectedChannelId || null,
+      voiceGuardLastActualChannelId: summary?.lastActualChannelId || null,
+      voiceGuardMoveConfirmations: Number(summary?.moveConfirmations || 0) || buildResolvedVoiceGuardConfig({}).defaults.moveConfirmations,
+      voiceGuardReturnCooldownMs: Number(summary?.returnCooldownMs || 0) || buildResolvedVoiceGuardConfig({}).defaults.returnCooldownMs,
+      voiceGuardMoveWindowMs: Number(summary?.moveWindowMs || 0) || buildResolvedVoiceGuardConfig({}).defaults.moveWindowMs,
+      voiceGuardMaxMovesPerWindow: Number(summary?.maxMovesPerWindow || 0) || buildResolvedVoiceGuardConfig({}).defaults.maxMovesPerWindow,
+      voiceGuardEscalation: summary?.escalation || buildResolvedVoiceGuardConfig({}).defaults.escalation,
+      voiceGuardEscalationCooldownMs: Number(summary?.escalationCooldownMs || 0) || buildResolvedVoiceGuardConfig({}).defaults.escalationCooldownMs,
+    };
+    guildDetails[index] = nextDetail;
+    this.latestStatus.guildDetails = guildDetails;
+    this.guildState.set(normalizedGuildId, buildRemoteGuildState(nextDetail));
+    return buildRemoteVoiceGuardSummary(nextDetail);
+  }
+
+  getVoiceGuardRuntimeSummary(guildId) {
+    const normalizedGuildId = String(guildId || "").trim();
+    if (!normalizedGuildId) return buildRemoteVoiceGuardSummary();
+    const detail = this.latestStatus.guildDetails.find((entry) => String(entry?.guildId || "").trim() === normalizedGuildId) || null;
+    return buildRemoteVoiceGuardSummary(detail || {});
+  }
+
+  async refreshVoiceGuardSettings(guildId, { force = false } = {}) {
+    const result = await this.sendCommand("voiceGuardRefresh", { guildId, force }, { timeoutMs: 15_000 });
+    if (!result?.ok) {
+      throw new Error(result?.error || "Voice guard refresh failed.");
+    }
+    return this.applyVoiceGuardSummary(guildId, result.summary || {}) || this.getVoiceGuardRuntimeSummary(guildId);
+  }
+
+  async refreshVoiceGuardSettingsForGuild(guildId, { force = false } = {}) {
+    return [await this.refreshVoiceGuardSettings(guildId, { force })];
+  }
+
+  async setVoiceGuardTemporaryUnlock(guildId, durationMs, reason = "manual-unlock") {
+    const result = await this.sendCommand("voiceGuardUnlock", { guildId, durationMs, reason }, { timeoutMs: 15_000 });
+    if (!result?.ok) {
+      throw new Error(result?.error || "Voice guard unlock failed.");
+    }
+    if (result.summary) {
+      this.applyVoiceGuardSummary(guildId, result.summary);
+    }
+    return {
+      unlockUntil: Number(result?.unlockUntil || 0) || 0,
+      durationMs: Number(result?.durationMs || 0) || 0,
+      label: String(result?.label || "").trim() || "0s",
+    };
+  }
+
+  async clearVoiceGuardTemporaryUnlock(guildId, reason = "manual-lock") {
+    const result = await this.sendCommand("voiceGuardLock", { guildId, reason }, { timeoutMs: 15_000 });
+    if (!result?.ok) {
+      throw new Error(result?.error || "Voice guard lock failed.");
+    }
+    if (result.summary) {
+      this.applyVoiceGuardSummary(guildId, result.summary);
+    }
+    return {
+      unlockUntil: Number(result?.unlockUntil || 0) || 0,
+    };
+  }
+
+  async clearVoiceGuardTemporaryUnlockForGuild(guildId, reason = "manual-lock") {
+    return [await this.clearVoiceGuardTemporaryUnlock(guildId, reason)];
   }
 
   getCurrentListenerCount(guildId, state = null) {

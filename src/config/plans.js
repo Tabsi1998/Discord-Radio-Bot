@@ -57,7 +57,7 @@ export const CAPABILITIES = {
   },
   voice_guard: {
     apiKey: "voiceGuard",
-    minPlan: "ultimate",
+    minPlan: "free",
     label: "Voice Guard",
   },
 };

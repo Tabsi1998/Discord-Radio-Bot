@@ -1382,6 +1382,173 @@ test("resolveStreamingRuntimeForInteraction honors explicit bot selection withou
   assert.equal(resolved.requestedWorkerSlot, 2);
 });
 
+test("resolveStreamingRuntimeForInteraction refreshes remote states before inspecting streaming workers", async () => {
+  const selectedRuntime = {
+    getState() {
+      return { currentStationKey: "station-b" };
+    },
+    getGuildInfo() {
+      return { channelId: "voice-1" };
+    },
+  };
+  let refreshed = 0;
+  const fakeRuntime = {
+    role: "commander",
+    workerManager: {
+      async refreshRemoteStates() {
+        refreshed += 1;
+      },
+      getStreamingWorkers() {
+        return [selectedRuntime];
+      },
+    },
+    client: {
+      guilds: {
+        cache: new Map([
+          ["guild-1", {
+            id: "guild-1",
+            members: {
+              async fetch() {
+                return { voice: { channelId: "voice-1" } };
+              },
+            },
+          }],
+        ]),
+        async fetch() {
+          return {
+            id: "guild-1",
+            members: {
+              async fetch() {
+                return { voice: { channelId: "voice-1" } };
+              },
+            },
+          };
+        },
+      },
+    },
+    getIntegerOptionFlexible: BotRuntime.prototype.getIntegerOptionFlexible,
+  };
+  const interaction = {
+    guildId: "guild-1",
+    guild: {
+      id: "guild-1",
+      members: {
+        async fetch() {
+          return { voice: { channelId: "voice-1" } };
+        },
+      },
+    },
+    user: { id: "user-1" },
+    options: {
+      getInteger() {
+        return null;
+      },
+      getString() {
+        return null;
+      },
+      get() {
+        return null;
+      },
+    },
+  };
+
+  const resolved = await BotRuntime.prototype.resolveStreamingRuntimeForInteraction.call(fakeRuntime, interaction);
+
+  assert.equal(refreshed, 1);
+  assert.equal(resolved.runtime, selectedRuntime);
+  assert.equal(resolved.reason, null);
+});
+
+test("remote worker handle forwards voice guard refresh and unlock commands", async () => {
+  const worker = new RemoteWorkerHandle({ id: "bot-remote-voiceguard", name: "OmniFM Remote" });
+  worker.latestStatus.guildDetails = [{
+    guildId: "guild-1",
+    guildName: "Guild One",
+    channelId: "voice-1",
+    channelName: "Radio",
+    stationKey: "station-a",
+    stationName: "Station A",
+    voiceConnected: true,
+    playing: true,
+  }];
+  worker.guildState.set("guild-1", worker.getState("guild-1"));
+
+  const sent = [];
+  worker.sendCommand = async (type, payload) => {
+    sent.push({ type, payload });
+    if (type === "voiceGuardRefresh") {
+      return {
+        ok: true,
+        summary: {
+          available: true,
+          policy: "default",
+          effectivePolicy: "return",
+          moveConfirmations: 2,
+          returnCooldownMs: 15000,
+          moveWindowMs: 120000,
+          maxMovesPerWindow: 4,
+          escalation: "disconnect",
+          escalationCooldownMs: 600000,
+        },
+      };
+    }
+    if (type === "voiceGuardUnlock") {
+      return {
+        ok: true,
+        unlockUntil: Date.now() + 600000,
+        durationMs: 600000,
+        label: "10m",
+        summary: {
+          available: true,
+          policy: "default",
+          effectivePolicy: "return",
+          unlockUntil: Date.now() + 600000,
+          lastAction: "manual-unlock",
+          lastActionReason: "slash-unlock",
+          moveConfirmations: 2,
+          returnCooldownMs: 15000,
+          moveWindowMs: 120000,
+          maxMovesPerWindow: 4,
+          escalation: "disconnect",
+          escalationCooldownMs: 600000,
+        },
+      };
+    }
+    if (type === "voiceGuardLock") {
+      return {
+        ok: true,
+        unlockUntil: 0,
+        summary: {
+          available: true,
+          policy: "default",
+          effectivePolicy: "return",
+          unlockUntil: 0,
+          lastAction: "manual-lock",
+          lastActionReason: "slash-lock",
+          moveConfirmations: 2,
+          returnCooldownMs: 15000,
+          moveWindowMs: 120000,
+          maxMovesPerWindow: 4,
+          escalation: "disconnect",
+          escalationCooldownMs: 600000,
+        },
+      };
+    }
+    return { ok: false, error: "unexpected" };
+  };
+
+  const refreshed = await worker.refreshVoiceGuardSettings("guild-1", { force: true });
+  const unlockResult = await worker.setVoiceGuardTemporaryUnlock("guild-1", 600000, "slash-unlock");
+  const lockResult = await worker.clearVoiceGuardTemporaryUnlock("guild-1", "slash-lock");
+  const summary = worker.getVoiceGuardRuntimeSummary("guild-1");
+
+  assert.equal(refreshed.effectivePolicy, "return");
+  assert.equal(unlockResult.label, "10m");
+  assert.equal(lockResult.unlockUntil, 0);
+  assert.equal(summary.lastAction, "manual-lock");
+  assert.deepEqual(sent.map((entry) => entry.type), ["voiceGuardRefresh", "voiceGuardUnlock", "voiceGuardLock"]);
+});
+
 test("armPlaybackRecovery keeps the worker connected and schedules a stream retry", () => {
   let scheduledRestart = null;
   let scheduledReconnect = 0;
