@@ -28,7 +28,7 @@ The commander is the control plane:
 - receives interactions
 - serves the website and API
 - resolves entitlements and worker routing
-- exposes `/invite` and `/workers`
+- exposes guided Discord command UX such as `/play`, `/stations`, `/invite`, and `/workers`
 
 Workers are the data plane:
 
@@ -40,10 +40,16 @@ Workers are the data plane:
 Typical flow:
 
 1. A user runs a slash command on the commander.
-2. The commander resolves guild access, plan, worker availability, and station access.
+2. The commander resolves guild access, plan, worker availability, station access, and optional `bot:<slot>` routing.
 3. A worker is selected or reused.
 4. The worker joins the voice target and starts playback.
 5. OmniFM updates runtime state, embeds, history, and stats.
+
+Discord UX notes:
+
+- `/play` can fall back to a guided quick-start panel when the user does not provide all parameters.
+- `/stations` and `/list` use a paged browser panel rather than plain-text dumps.
+- Multi-worker read and control commands can resolve a specific worker through `bot:<slot>` when more than one runtime is active.
 
 ## Storage Model
 
@@ -79,6 +85,11 @@ MongoDB usage:
 - Listening stats can migrate from JSON into MongoDB.
 - `guild_settings` in MongoDB is used for dashboard settings such as weekly digest, failover chain, incident alerts, and exports/webhooks.
 - If Mongo is unavailable, file-based stores stay active.
+
+Listening-stats semantics:
+
+- Stats track user-driven playback starts for analytics and digest summaries.
+- Automatic reconnects, restore resumes, guarded voice returns, failovers, and recovery restarts do not count as fresh manual starts.
 
 ## Stations And Entitlements
 

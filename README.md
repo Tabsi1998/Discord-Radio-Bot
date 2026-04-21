@@ -28,6 +28,7 @@ The canonical production runtime is Node.js:
 - Scheduled events, role-based command permissions, weekly digest, runtime health, and analytics
 - Ultimate-only custom station URLs, failover chain rules, exports/webhooks, and license workspace management
 - Now-playing embeds, song history, cover art lookup, and optional audio recognition with AcoustID + MusicBrainz
+- Guided Discord embeds, buttons, station browser panels, and worker-aware command selection
 - DiscordBotList, Top.gg, and discord.bots.gg sync/status/vote integrations
 - Public legal pages for imprint, privacy, and terms
 
@@ -127,6 +128,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-split.ps1 -Build
 3. Invite at least one worker with `/invite`.
 4. Join a voice or stage channel and run `/play`.
 
+If you run `/play` without all details, OmniFM opens a guided quick-start with station, voice-channel, and worker controls.
+
 If no worker is invited, the commander can answer commands but cannot start a radio stream.
 
 ## Plans And Capabilities
@@ -147,39 +150,32 @@ Notes:
 
 Available on all plans:
 
-- `/help`
-- `/setup`
-- `/play`
-- `/pause`
-- `/resume`
-- `/stop`
-- `/stations`
-- `/list`
-- `/setvolume`
-- `/status`
-- `/health`
-- `/diag`
-- `/premium`
-- `/license`
-- `/language`
-- `/stats`
-- `/invite`
-- `/workers`
+- `/help`, `/setup`, `/play`, `/stations`, `/list`
+- `/pause`, `/resume`, `/stop`, `/setvolume`
+- `/status`, `/health`, `/diag`, `/stats`
+- `/premium`, `/license`, `/language`
+- `/invite`, `/workers`
 
 Available from Pro:
 
-- `/now`
-- `/history`
+- `/now`, `/history`
 - `/event`
 - `/perm`
 
 Available only on Ultimate:
 
-- `/addstation`
-- `/removestation`
-- `/mystations`
+- `/addstation`, `/removestation`, `/mystations`
+- `/voiceguard`
 
 `/license activate` and `/license remove` require Discord `Manage Server`.
+
+Command notes:
+
+- `/play` opens a guided quick-start when station, voice channel, or worker selection is incomplete.
+- `/stations` and `/list` use a paged browser instead of plain text lists.
+- `/pause`, `/resume`, `/stop`, and `/setvolume` support `bot:<slot>` for targeted worker control.
+- `/now`, `/history`, `/status`, `/health`, and `/diag` support `bot:<slot>` when multiple workers are active.
+- `/stats` reflects intentional playback starts. Automatic reconnects, restores, failovers, and recovery restarts do not count as new manual starts.
 
 ## API Surfaces
 

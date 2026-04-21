@@ -130,6 +130,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-split.ps1 -Build
 
 Without an invited worker, the commander can answer commands, but playback cannot start.
 
+Useful current Discord behavior while testing locally:
+
+- `/play` opens a guided quick-start if station, worker, or voice-channel input is missing.
+- `/stations` and `/list` open the browser-style station picker instead of a text wall.
+- `/pause`, `/resume`, `/stop`, and `/setvolume` support `bot:<slot>` when you want to target a specific worker.
+- `/status`, `/health`, `/diag`, `/now`, and `/history` also support `bot:<slot>` if multiple workers are streaming at once.
+- `/stats` counts deliberate starts, not automatic reconnect, restore, or recovery restarts.
+
 ## What Works Without Extra Services
 
 - Website
