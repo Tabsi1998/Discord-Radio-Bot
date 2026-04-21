@@ -1049,13 +1049,6 @@ run_update_deploy_strategy() {
       info "Baue Runtime-Images fuer Rolling Update..."
       compose_build "${build_args[@]}" "${runtime_services[@]}" || return 1
 
-      info "Aktualisiere Commander zuerst..."
-      compose_up_no_deps omnifm || return 1
-      if ! wait_for_compose_service_running "omnifm" "$timeout_ms"; then
-        fail "Commander wurde nach dem Rolling Update nicht rechtzeitig aktiv."
-        return 1
-      fi
-
       for idx in "${!worker_services[@]}"; do
         service="${worker_services[$idx]}"
         info "Rolling Update fuer ${service}..."
@@ -1069,6 +1062,13 @@ run_update_deploy_strategy() {
           sleep "$sleep_seconds"
         fi
       done
+
+      info "Aktualisiere Commander zuletzt..."
+      compose_up_no_deps omnifm || return 1
+      if ! wait_for_compose_service_running "omnifm" "$timeout_ms"; then
+        fail "Commander wurde nach dem Rolling Update nicht rechtzeitig aktiv."
+        return 1
+      fi
 
       report_runtime_tools_status
       return 0
@@ -3649,7 +3649,7 @@ git fetch "$REMOTE" "$BRANCH" 2>&1 | tail -3
 
 case "$update_strategy" in
   commander|rolling)
-    stop_commander_container_for_update
+    info "Gezieltes Update: Laufende Runtime-Container bleiben bis zu ihrem eigenen Neustart aktiv."
     ;;
   *)
     stop_runtime_containers_for_update

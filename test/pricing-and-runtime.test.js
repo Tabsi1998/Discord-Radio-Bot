@@ -4683,6 +4683,80 @@ test("programmatic stop routes through resetVoiceSession so listening sessions a
   });
 });
 
+test("runtime stop preserves active restore targets during shutdown", async () => {
+  let persisted = 0;
+  let connectionDestroyed = 0;
+  let clientDestroyed = 0;
+  let playerStops = 0;
+  let removedIdleListeners = 0;
+  let removedErrorListeners = 0;
+
+  const fakeState = {
+    currentStationKey: "station-a",
+    currentStationName: "Station A",
+    lastChannelId: "voice-1",
+    shouldReconnect: true,
+    currentMeta: { title: "Track" },
+    nowPlayingSignature: "sig-1",
+    streamErrorCount: 2,
+    ignoreNextIdleEvent: false,
+    player: {
+      stop() {
+        playerStops += 1;
+      },
+      removeAllListeners(event) {
+        if (event === "idle") removedIdleListeners += 1;
+        if (event === "error") removedErrorListeners += 1;
+      },
+    },
+    connection: {
+      destroy() {
+        connectionDestroyed += 1;
+      },
+    },
+  };
+
+  const fakeRuntime = Object.create(BotRuntime.prototype);
+  fakeRuntime.config = { id: "bot-2", name: "Worker 2" };
+  fakeRuntime.guildState = new Map([["123456789012345678", fakeState]]);
+  fakeRuntime.client = {
+    destroy() {
+      clientDestroyed += 1;
+    },
+  };
+  fakeRuntime.invalidateVoiceStatus = () => {};
+  fakeRuntime.syncVoiceChannelStatus = () => Promise.resolve();
+  fakeRuntime.stopEventScheduler = () => {};
+  fakeRuntime.stopVoiceStateReconciler = () => {};
+  fakeRuntime.stopListenerStatsSampler = () => {};
+  fakeRuntime.clearReconnectTimer = () => {};
+  fakeRuntime.clearNowPlayingTimer = () => {};
+  fakeRuntime.clearCurrentProcess = () => {};
+  fakeRuntime.persistState = () => {
+    persisted += 1;
+  };
+  fakeRuntime.unsubscribeNetworkRecovery = () => {};
+  fakeRuntime.shuttingDown = false;
+
+  await BotRuntime.prototype.stop.call(fakeRuntime);
+
+  assert.equal(fakeRuntime.shuttingDown, true);
+  assert.equal(fakeState.shouldReconnect, true);
+  assert.equal(fakeState.currentStationKey, "station-a");
+  assert.equal(fakeState.currentStationName, "Station A");
+  assert.equal(fakeState.lastChannelId, "voice-1");
+  assert.deepEqual(fakeState.currentMeta, null);
+  assert.equal(fakeState.nowPlayingSignature, null);
+  assert.equal(fakeState.streamErrorCount, 0);
+  assert.equal(fakeState.ignoreNextIdleEvent, true);
+  assert.equal(playerStops, 1);
+  assert.equal(removedIdleListeners, 1);
+  assert.equal(removedErrorListeners, 1);
+  assert.equal(connectionDestroyed, 1);
+  assert.equal(clientDestroyed, 1);
+  assert.equal(persisted, 1);
+});
+
 test("repeated long idle endings progressively back off and change restart reason", () => {
   const originalNow = Date.now;
   let now = 1_700_000_000_000;

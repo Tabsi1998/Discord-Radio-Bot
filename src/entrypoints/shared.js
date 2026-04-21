@@ -142,6 +142,11 @@ function installProcessHandlers({
 
     for (const runtime of localRuntimes) {
       try {
+        runtime.beginShutdown?.();
+      } catch {
+        // ignore begin-shutdown errors during shutdown
+      }
+      try {
         runtime.persistState();
       } catch {
         // ignore persist errors during shutdown

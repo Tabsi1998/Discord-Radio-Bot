@@ -353,7 +353,9 @@ class BotRuntime {
     this.guildSettingsCache = new Map();
     this.scheduledEventInFlight = new Set();
     this.lastPersistLoggedActiveCount = null;
+    this.shuttingDown = false;
     this.unsubscribeNetworkRecovery = networkRecoveryCoordinator.onRecovered((event) => {
+      if (this.shuttingDown) return;
       this.handleNetworkRecovered(event);
     });
 
@@ -417,6 +419,7 @@ class BotRuntime {
     }
 
     this.client.on("voiceStateUpdate", (oldState, newState) => {
+      if (this.shuttingDown) return;
       this.handleBotVoiceStateUpdate(oldState, newState);
     });
 
@@ -535,6 +538,7 @@ class BotRuntime {
       };
 
       player.on(AudioPlayerStatus.Idle, () => {
+        if (this.shuttingDown) return;
         if (state.ignoreNextIdleEvent === true) {
           state.ignoreNextIdleEvent = false;
           return;
@@ -545,6 +549,7 @@ class BotRuntime {
       });
 
       player.on("error", (err) => {
+        if (this.shuttingDown) return;
         state.lastStreamErrorAt = new Date().toISOString();
         log("ERROR", `[${this.config.name}] AudioPlayer error: ${err?.message || err}`);
         this.handleStreamEnd(guildId, state, "error").catch((streamErr) => {
@@ -4330,7 +4335,12 @@ class BotRuntime {
     return restoreRuntimeState(this, stations);
   }
 
+  beginShutdown() {
+    this.shuttingDown = true;
+  }
+
   async stop() {
+    this.beginShutdown();
     if (typeof this.unsubscribeNetworkRecovery === "function") {
       this.unsubscribeNetworkRecovery();
       this.unsubscribeNetworkRecovery = null;
@@ -4341,23 +4351,30 @@ class BotRuntime {
     const sessionStopPromises = [];
 
     for (const [guildId, state] of this.guildState.entries()) {
+      const preservePlaybackTarget = Boolean(state.currentStationKey && state.lastChannelId);
       this.invalidateVoiceStatus(state, { clearText: true });
       this.syncVoiceChannelStatus(guildId, "").catch(() => null);
       // End all active listening sessions on shutdown
       if (state.currentStationKey) {
         sessionStopPromises.push(recordStationStop(guildId, { botId: this.config.id || "" }));
       }
-      state.shouldReconnect = false;
+      state.shouldReconnect = preservePlaybackTarget;
       this.clearReconnectTimer(state);
       this.clearNowPlayingTimer(state);
+      state.player?.removeAllListeners?.(AudioPlayerStatus.Idle);
+      state.player?.removeAllListeners?.("error");
+      state.ignoreNextIdleEvent = true;
       state.player.stop();
       this.clearCurrentProcess(state);
       if (state.connection) {
         try { state.connection.destroy(); } catch { /* ignore */ }
         state.connection = null;
       }
-      state.currentStationKey = null;
-      state.currentStationName = null;
+      if (!preservePlaybackTarget) {
+        state.currentStationKey = null;
+        state.currentStationName = null;
+        state.lastChannelId = null;
+      }
       state.currentMeta = null;
       state.nowPlayingSignature = null;
       state.streamErrorCount = 0;
@@ -4366,6 +4383,8 @@ class BotRuntime {
     if (sessionStopPromises.length) {
       await Promise.allSettled(sessionStopPromises);
     }
+
+    this.persistState({ forceLog: false });
 
     try {
       this.client.destroy();

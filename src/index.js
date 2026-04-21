@@ -649,6 +649,7 @@ async function shutdown(signal) {
 
   log("INFO", "Speichere Bot-State fuer Auto-Reconnect...");
   for (const runtime of runtimes) {
+    runtime.beginShutdown?.();
     runtime.persistState();
   }
   log("INFO", "Bot-State gespeichert.");
