@@ -1368,6 +1368,80 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
   assert.equal(settingsResponse.payload.voiceGuard.available, false);
   assert.equal(settingsResponse.payload.voiceGuard.effectivePolicy, "allow");
 
+  if (mongoAvailable && getDb()) {
+    await getDb().collection("guild_settings").updateOne(
+      { guildId: GUILD_ID },
+      {
+        $set: {
+          guildId: GUILD_ID,
+          weeklyDigest: {
+            enabled: true,
+            channelId: ` ${TEXT_CHANNEL_ID} `,
+            dayOfWeek: "9",
+            hour: "-3",
+            language: "fr",
+          },
+          weeklyDigestLastSent: "not-a-date",
+          failoverChain: ["Rock", "rock", "Jazz"],
+          fallbackStation: "Pop",
+          incidentAlerts: {
+            enabled: true,
+            channelId: "invalid",
+            events: ["stream_recovered", "stream_failover_exhausted"],
+          },
+          exportsWebhook: {
+            enabled: true,
+            url: " https://example.com/hook ",
+            secret: "x".repeat(200),
+            events: ["stats_exported", "stream_recovered", "stream_failover_activated"],
+          },
+          voiceGuard: {
+            policy: "invalid",
+          },
+        },
+      },
+      { upsert: true }
+    );
+
+    const normalizedSettingsResponse = await requestJson(
+      baseUrl,
+      `/api/dashboard/settings?serverId=${GUILD_ID}`,
+      { headers: { ...authHeaders, "X-OmniFM-Language": "de" } }
+    );
+    assert.equal(normalizedSettingsResponse.status, 200);
+    assert.deepEqual(normalizedSettingsResponse.payload.weeklyDigest, {
+      enabled: true,
+      channelId: TEXT_CHANNEL_ID,
+      dayOfWeek: 6,
+      hour: 0,
+      language: "de",
+    });
+    assert.equal(normalizedSettingsResponse.payload.weeklyDigestMeta.ready, true);
+    assert.equal(normalizedSettingsResponse.payload.weeklyDigestMeta.lastSentAt, null);
+    assert.deepEqual(normalizedSettingsResponse.payload.failoverChain, ["rock", "jazz"]);
+    assert.equal(normalizedSettingsResponse.payload.fallbackStation, "rock");
+    assert.deepEqual(normalizedSettingsResponse.payload.incidentAlerts, {
+      enabled: true,
+      channelId: "",
+      events: ["stream_failover_exhausted"],
+    });
+    assert.equal(normalizedSettingsResponse.payload.exportsWebhook.url, "https://example.com/hook");
+    assert.deepEqual(normalizedSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "stream_failover_activated"]);
+    assert.equal(normalizedSettingsResponse.payload.voiceGuard.policy, "default");
+    assert.equal(normalizedSettingsResponse.payload.voiceGuard.effectivePolicy, "allow");
+
+    const repairedSettings = await getDb().collection("guild_settings").findOne(
+      { guildId: GUILD_ID },
+      { projection: { _id: 0 } }
+    );
+    assert.deepEqual(repairedSettings.failoverChain, ["rock", "jazz"]);
+    assert.equal(repairedSettings.fallbackStation, "rock");
+    assert.equal(repairedSettings.weeklyDigest.dayOfWeek, 6);
+    assert.equal(repairedSettings.weeklyDigest.hour, 0);
+    assert.equal(repairedSettings.exportsWebhook.secret.length, 120);
+    assert.equal(Object.prototype.hasOwnProperty.call(repairedSettings, "weeklyDigestLastSent"), false);
+  }
+
   const settingsAcceptLanguageResponse = await requestJson(
     baseUrl,
     `/api/dashboard/settings?serverId=${GUILD_ID}`,

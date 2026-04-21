@@ -41,6 +41,7 @@ import {
   restartRuntimeCurrentStation,
   scheduleRuntimeStreamRestart,
 } from "../src/bot/runtime-streams.js";
+import { executeScheduledEventStop } from "../src/bot/runtime-events.js";
 import { NowPlayingQueue } from "../src/lib/now-playing-queue.js";
 import { buildEventDateTimeFromParts } from "../src/lib/event-time.js";
 import {
@@ -71,6 +72,7 @@ const botStatePath = path.join(repoRoot, "bot-state.json");
 const botStateBackupPath = `${botStatePath}.bak`;
 const runtimeIncidentsPath = path.join(repoRoot, "runtime-incidents.json");
 const runtimeIncidentsBackupPath = `${runtimeIncidentsPath}.bak`;
+const scheduledEventsPath = path.join(repoRoot, "scheduled-events.json");
 
 function snapshotOptionalTextFile(filePath) {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : null;
@@ -365,6 +367,106 @@ test("reconnect scheduler can replace a pending timer when a materially earlier 
     global.setTimeout = originalSetTimeout;
     global.clearTimeout = originalClearTimeout;
   }
+});
+
+test("reconnect scheduler keeps the original attempt count when a later retry is deduped", () => {
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+
+  global.setTimeout = ((handler, delay, ...args) => ({ handler, delay, args }));
+  global.clearTimeout = (() => {});
+
+  try {
+    const runtime = {
+      config: { name: "OmniFM Test", id: "bot-1" },
+      getState() {
+        return state;
+      },
+      isScheduledEventStopDue() {
+        return false;
+      },
+      getNetworkRecoveryDelayMs() {
+        return 0;
+      },
+      persistState() {},
+      tryReconnect() {
+        return Promise.resolve({ attempted: false, retryRecommended: false });
+      },
+    };
+    const state = {
+      shouldReconnect: true,
+      lastChannelId: "123",
+      reconnectAttempts: 0,
+      reconnectCircuitTripCount: 0,
+      reconnectCircuitOpenUntil: 0,
+      reconnectTimer: null,
+      reconnectScheduledAt: 0,
+      reconnectScheduledReason: null,
+      reconnectScheduledDelayMs: 0,
+      reconnectInFlight: false,
+      voiceConnectInFlight: false,
+    };
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "first", minDelayMs: 1000, jitterFactor: 0 });
+    const firstTimer = state.reconnectTimer;
+    assert.equal(state.reconnectAttempts, 1);
+
+    scheduleRuntimeReconnect(runtime, "guild-1", { reason: "later", minDelayMs: 5000, jitterFactor: 0 });
+
+    assert.equal(state.reconnectTimer, firstTimer);
+    assert.equal(state.reconnectAttempts, 1);
+    assert.equal(state.reconnectScheduledReason, "first");
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+  }
+});
+
+test("scheduled event stop awaits the local async stop before skipping worker fallback", async (t) => {
+  const scheduledEventsSnapshot = snapshotOptionalTextFile(scheduledEventsPath);
+  t.after(() => {
+    restoreOptionalTextFile(scheduledEventsPath, scheduledEventsSnapshot);
+  });
+
+  const order = [];
+  const runtime = {
+    config: { name: "OmniFM Test", id: "bot-1" },
+    guildState: new Map([["guild-1", { activeScheduledEventId: "event-1" }]]),
+    async stopInGuild() {
+      order.push("local-stop:start");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      order.push("local-stop:end");
+      return { ok: true };
+    },
+    workerManager: {
+      async refreshRemoteStates() {
+        order.push("refresh");
+      },
+      findWorkerByScheduledEvent() {
+        order.push("worker-lookup");
+        return {
+          config: { name: "Worker A" },
+          async stopInGuild() {
+            order.push("worker-stop");
+            return { ok: true };
+          },
+        };
+      },
+    },
+  };
+
+  await executeScheduledEventStop(runtime, {
+    id: "event-1",
+    guildId: "guild-1",
+    activeUntilMs: Date.now() + 60_000,
+    deleteAfterStop: false,
+  });
+
+  assert.deepEqual(order, [
+    "refresh",
+    "local-stop:start",
+    "local-stop:end",
+  ]);
 });
 
 test("logging prefixes every line of a multiline error in error.log", async () => {
