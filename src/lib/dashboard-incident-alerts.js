@@ -1,4 +1,5 @@
 const DASHBOARD_INCIDENT_ALERT_EVENT_KEYS = Object.freeze([
+  "stream_healthcheck_stalled",
   "stream_failover_activated",
   "stream_failover_exhausted",
 ]);

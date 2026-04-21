@@ -20,12 +20,12 @@ test("dashboard webhook helpers normalize config and gate delivery", () => {
     enabled: true,
     url: "https://example.com/hook",
     secret: "demo",
-    events: ["stats_exported", "stream_failover_exhausted", "custom_stations_exported"],
+    events: ["stats_exported", "stream_failover_exhausted", "stream_recovered", "custom_stations_exported"],
   });
   assert.equal(shouldDeliverDashboardWebhook(config, "stats_exported"), true);
   assert.equal(shouldDeliverDashboardWebhook(config, "stream_failover_exhausted"), true);
   assert.equal(shouldDeliverDashboardWebhook(config, "stream_healthcheck_stalled"), false);
-  assert.equal(shouldDeliverDashboardWebhook(config, "stream_recovered"), false);
+  assert.equal(shouldDeliverDashboardWebhook(config, "stream_recovered"), true);
   assert.equal(shouldDeliverDashboardWebhook(config, "missing"), false);
 });
 

@@ -8,6 +8,7 @@ import { log } from "./logging.js";
 import { serverHasCapability } from "../core/entitlements.js";
 
 const CUSTOMER_VISIBLE_RUNTIME_INCIDENT_EVENT_KEYS = new Set([
+  "stream_healthcheck_stalled",
   "stream_failover_activated",
   "stream_failover_exhausted",
 ]);
@@ -98,6 +99,15 @@ function buildRuntimeIncidentAlertCopy(eventKey, payload, t) {
         description: t(
           `OmniFM ist von ${previousStation} auf ${failoverStation} gewechselt.`,
           `OmniFM switched from ${previousStation} to ${failoverStation}.`
+        ),
+      };
+    case "stream_healthcheck_stalled":
+      return {
+        title: t("Stream stockt", "Stream stalled"),
+        color: 0xF59E0B,
+        description: t(
+          `OmniFM erkennt gerade keine stabile Wiedergabe mehr bei ${previousStation}.`,
+          `OmniFM is no longer seeing stable playback on ${previousStation}.`
         ),
       };
     case "stream_failover_exhausted":
@@ -194,15 +204,15 @@ export async function dispatchRuntimeIncidentAlert(input, deps = {}) {
   if (!guildId || !eventKey) {
     return { attempted: false, delivered: false, skipped: "invalid" };
   }
-  if (!CUSTOMER_VISIBLE_RUNTIME_INCIDENT_EVENT_KEYS.has(eventKey)) {
-    return { attempted: false, delivered: false, skipped: "event-policy" };
-  }
 
   const hasCapability = typeof deps.hasCapability === "function"
     ? deps.hasCapability
     : (targetGuildId) => serverHasCapability(targetGuildId, "exports_webhooks");
   if (!hasCapability(guildId)) {
     return { attempted: false, delivered: false, skipped: "capability" };
+  }
+  if (!CUSTOMER_VISIBLE_RUNTIME_INCIDENT_EVENT_KEYS.has(eventKey)) {
+    return { attempted: false, delivered: false, skipped: "event-policy" };
   }
 
   const resolvedConfig = input?.alertConfig && typeof input.alertConfig === "object"

@@ -1426,7 +1426,7 @@ test("dashboard capability, permissions, and health routes work end-to-end", asy
       events: ["stream_failover_exhausted"],
     });
     assert.equal(normalizedSettingsResponse.payload.exportsWebhook.url, "https://example.com/hook");
-    assert.deepEqual(normalizedSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "stream_failover_activated"]);
+    assert.deepEqual(normalizedSettingsResponse.payload.exportsWebhook.events, ["stats_exported", "stream_recovered", "stream_failover_activated"]);
     assert.equal(normalizedSettingsResponse.payload.voiceGuard.policy, "default");
     assert.equal(normalizedSettingsResponse.payload.voiceGuard.effectivePolicy, "allow");
 

@@ -21,6 +21,7 @@ function normalizeWeeklyDigestConfig(input = {}, fallbackLanguage = "de") {
 }
 
 function toValidDate(value, fallback = null) {
+  if (value === null || value === undefined || value === "") return fallback;
   if (value instanceof Date && Number.isFinite(value.getTime())) return new Date(value.getTime());
   const parsed = new Date(value);
   if (!Number.isFinite(parsed.getTime())) return fallback;

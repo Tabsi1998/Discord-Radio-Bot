@@ -20,6 +20,13 @@ function sanitizeSnowflake(value) {
   return /^\d{17,22}$/.test(text) ? text : "";
 }
 
+function sanitizeStateIdentifier(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^\d{17,22}$/.test(text)) return text;
+  return /^(?=.*(?:\d|[-_:]))[a-z0-9._:-]{2,120}$/i.test(text) ? text : "";
+}
+
 function sanitizeText(value, maxLen = 200) {
   const text = String(value || "").trim();
   return text ? text.slice(0, maxLen) : "";
@@ -126,7 +133,7 @@ function normalizeStoredBotStateEntry(rawEntry = {}) {
   const input = rawEntry && typeof rawEntry === "object" ? rawEntry : {};
   const volume = normalizeStoredVolume(input.volume);
   const volumePreference = input.volumePreference === true;
-  const channelId = sanitizeSnowflake(input.channelId);
+  const channelId = sanitizeStateIdentifier(input.channelId);
   const stationKey = sanitizeText(input.stationKey, 120);
   const stationName = sanitizeText(input.stationName, 200) || null;
   const scheduledEventId = sanitizeSnowflake(input.scheduledEventId) || null;
@@ -174,7 +181,7 @@ function normalizeStoredBotStateMap(rawBotState = {}) {
   const normalized = {};
 
   for (const [rawGuildId, rawEntry] of Object.entries(source)) {
-    const guildId = sanitizeSnowflake(rawGuildId);
+    const guildId = sanitizeStateIdentifier(rawGuildId);
     if (!guildId) continue;
     const entry = normalizeStoredBotStateEntry(rawEntry);
     if (!entry) continue;

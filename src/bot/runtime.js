@@ -3770,7 +3770,7 @@ class BotRuntime {
    * Returns { ok, error? }
    */
   async playInGuild(guildId, channelId, stationKey, stationsData, volume = undefined, options = {}) {
-    return this.runSerializedGuildOperation(guildId, "play", async () => {
+    return BotRuntime.prototype.runSerializedGuildOperation.call(this, guildId, "play", async () => {
       const state = this.getState(guildId);
       try {
         const guild = this.client.guilds.cache.get(guildId);
@@ -3860,7 +3860,7 @@ class BotRuntime {
    * Programmatic stop - used by Commander to stop a Worker in a guild.
    */
   async stopInGuild(guildId) {
-    return this.runSerializedGuildOperation(guildId, "stop", async () => {
+    return BotRuntime.prototype.runSerializedGuildOperation.call(this, guildId, "stop", async () => {
       const state = this.guildState.get(guildId);
       if (!state) return { ok: false, error: "Kein State für diesen Server." };
 
@@ -3876,7 +3876,7 @@ class BotRuntime {
    * Programmatic pause.
    */
   async pauseInGuild(guildId) {
-    return this.runSerializedGuildOperation(guildId, "pause", async () => {
+    return BotRuntime.prototype.runSerializedGuildOperation.call(this, guildId, "pause", async () => {
       const state = this.guildState.get(guildId);
       if (!state?.currentStationKey) return { ok: false, error: "Es laeuft nichts." };
       state.player.pause(true);
@@ -3888,7 +3888,7 @@ class BotRuntime {
    * Programmatic resume.
    */
   async resumeInGuild(guildId) {
-    return this.runSerializedGuildOperation(guildId, "resume", async () => {
+    return BotRuntime.prototype.runSerializedGuildOperation.call(this, guildId, "resume", async () => {
       const state = this.guildState.get(guildId);
       if (!state?.currentStationKey) return { ok: false, error: "Es laeuft nichts." };
       state.player.unpause();
@@ -3900,7 +3900,7 @@ class BotRuntime {
    * Programmatic volume set.
    */
   async setVolumeInGuild(guildId, value) {
-    return this.runSerializedGuildOperation(guildId, "set-volume", async () => {
+    return BotRuntime.prototype.runSerializedGuildOperation.call(this, guildId, "set-volume", async () => {
       const parsedValue = Number.parseInt(String(value ?? ""), 10);
       if (!Number.isFinite(parsedValue)) {
         return { ok: false, error: "Ungueltige Lautstaerke." };

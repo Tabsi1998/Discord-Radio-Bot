@@ -65,9 +65,15 @@ export async function loadGuildSettings(guildId) {
     });
 
     if (hasStoredSettings && JSON.stringify(settings || {}) !== JSON.stringify(normalized)) {
+      const removedKeys = Object.keys(settings).filter((key) => !Object.prototype.hasOwnProperty.call(normalized, key));
       void getDb().collection("guild_settings").updateOne(
         { guildId: normalizedGuildId },
-        { $set: normalized },
+        {
+          $set: normalized,
+          ...(removedKeys.length > 0
+            ? { $unset: Object.fromEntries(removedKeys.map((key) => [key, ""])) }
+            : {}),
+        },
         { upsert: true }
       ).catch(() => null);
     }
