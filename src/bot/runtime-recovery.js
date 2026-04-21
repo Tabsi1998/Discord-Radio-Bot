@@ -1788,7 +1788,10 @@ export async function restoreRuntimeGuildEntry(runtime, guildId, data, stations,
   }
 
   clearRestoreBlockState(state);
-  await runtime.playStation(state, restoredStation.stations, restoredStation.key, guildId);
+  await runtime.playStation(state, restoredStation.stations, restoredStation.key, guildId, {
+    countAsStart: false,
+    resumeSession: true,
+  });
   clearRuntimeRestoreRetry(runtime, guildId);
   log("INFO", `[${runtime.config.name}] Wiederhergestellt: ${guild.name} -> ${restoredStation.station.name}`);
 

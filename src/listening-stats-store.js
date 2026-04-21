@@ -678,25 +678,50 @@ export function startListeningSession(guildId, {
   stationName = "",
   channelId = "",
   listenerCount = 0,
+  resume = false,
 } = {}) {
   const gid = normalizeGuildId(guildId);
   if (!gid) return null;
 
   const sessionKey = `${gid}:${botId || "default"}`;
   const now = Date.now();
+  const normalizedBotId = String(botId || "").trim();
+  const normalizedStationKey = normalizeText(stationKey, 120) || "unknown";
+  const normalizedStationName = normalizeText(stationName, 120) || normalizeText(stationKey, 120) || "unknown";
+  const normalizedChannelId = String(channelId || "").trim();
+  const normalizedListenerCount = normalizeCount(listenerCount);
+
+  if (resume) {
+    const existing = activeSessions.get(sessionKey);
+    if (existing) {
+      existing.stationKey = normalizedStationKey;
+      existing.stationName = normalizedStationName;
+      existing.channelId = normalizedChannelId;
+      existing.peakListeners = Math.max(normalizeCount(existing.peakListeners), normalizedListenerCount);
+
+      const lastSample = existing.listenerSamples?.[existing.listenerSamples.length - 1] || null;
+      if (!lastSample || lastSample.n !== normalizedListenerCount || (now - lastSample.t) >= SESSION_SAMPLE_MIN_INTERVAL_MS) {
+        existing.listenerSamples.push({ t: now, n: normalizedListenerCount });
+        if (existing.listenerSamples.length > MAX_SESSION_SAMPLES) {
+          existing.listenerSamples = existing.listenerSamples.slice(-MAX_SESSION_SAMPLES);
+        }
+      }
+      return existing;
+    }
+  }
 
   // End any existing session for this bot+guild
   endListeningSession(gid, { botId });
 
   const session = {
     guildId: gid,
-    botId: String(botId || "").trim(),
-    stationKey: normalizeText(stationKey, 120) || "unknown",
-    stationName: normalizeText(stationName, 120) || normalizeText(stationKey, 120) || "unknown",
-    channelId: String(channelId || "").trim(),
+    botId: normalizedBotId,
+    stationKey: normalizedStationKey,
+    stationName: normalizedStationName,
+    channelId: normalizedChannelId,
     startedAt: now,
-    peakListeners: normalizeCount(listenerCount),
-    listenerSamples: [{ t: now, n: normalizeCount(listenerCount) }],
+    peakListeners: normalizedListenerCount,
+    listenerSamples: [{ t: now, n: normalizedListenerCount }],
   };
 
   activeSessions.set(sessionKey, session);
@@ -897,6 +922,8 @@ export function recordStationStart(guildId, {
   listenerCount = 0,
   timestampMs = Date.now(),
   botId = "",
+  countAsStart = true,
+  resumeSession = false,
 } = {}) {
   const stats = ensureGuildStatsLocal(guildId);
   if (!stats) return { saved: false, reason: "invalid-guild" };
@@ -904,65 +931,78 @@ export function recordStationStart(guildId, {
   const atMs = Number(timestampMs) || Date.now();
   const gid = normalizeGuildId(guildId);
 
-  // Core counters
-  stats.totalStarts += 1;
-  stats.lastStartedAt = atMs;
-  if (!stats.firstSeenAt) stats.firstSeenAt = atMs;
-
-  // Station breakdown
   const stationBucketKey = buildStationBucketKey(stationKey, stationName);
-  incrementBucket(stats.stationStarts, stationBucketKey, 1, 120);
-  if (stationKey) {
-    const skText = normalizeText(stationKey, 120);
-    if (skText && stationName) {
-      stats.stationNames[skText] = normalizeText(stationName, 120) || skText;
+  if (countAsStart) {
+    // Core counters
+    stats.totalStarts += 1;
+    stats.lastStartedAt = atMs;
+    if (!stats.firstSeenAt) stats.firstSeenAt = atMs;
+
+    // Station breakdown
+    incrementBucket(stats.stationStarts, stationBucketKey, 1, 120);
+    if (stationKey) {
+      const skText = normalizeText(stationKey, 120);
+      if (skText && stationName) {
+        stats.stationNames[skText] = normalizeText(stationName, 120) || skText;
+      }
     }
+
+    // Channel tracking
+    incrementBucket(stats.voiceChannels, channelId, 1, 40);
+
+    // Time distribution
+    const hourBucket = String(resolveHourBucket(atMs));
+    stats.hours[hourBucket] = normalizeCount(stats.hours[hourBucket]) + 1;
+    const dayBucket = String(resolveDayOfWeekBucket(atMs));
+    stats.daysOfWeek[dayBucket] = normalizeCount(stats.daysOfWeek[dayBucket]) + 1;
+
+    // Peak listeners
+    stats.peakListeners = Math.max(stats.peakListeners, normalizeCount(listenerCount));
+    upsertFallbackDailyStat(gid, todayDateString(atMs), {
+      totalStarts: 1,
+      peakListeners: normalizeCount(listenerCount),
+    });
+
+    saveStateToFile();
   }
 
-  // Channel tracking
-  incrementBucket(stats.voiceChannels, channelId, 1, 40);
-
-  // Time distribution
-  const hourBucket = String(resolveHourBucket(atMs));
-  stats.hours[hourBucket] = normalizeCount(stats.hours[hourBucket]) + 1;
-  const dayBucket = String(resolveDayOfWeekBucket(atMs));
-  stats.daysOfWeek[dayBucket] = normalizeCount(stats.daysOfWeek[dayBucket]) + 1;
-
-  // Peak listeners
-  stats.peakListeners = Math.max(stats.peakListeners, normalizeCount(listenerCount));
-  upsertFallbackDailyStat(gid, todayDateString(atMs), {
-    totalStarts: 1,
-    peakListeners: normalizeCount(listenerCount),
-  });
-
-  saveStateToFile();
-
   // Start a listening session
-  startListeningSession(guildId, { botId, stationKey, stationName, channelId, listenerCount });
-
-  // Async MongoDB write
-  mongoSafe(async (db) => {
-    const dateStr = todayDateString(atMs);
-    await db.collection("daily_stats").updateOne(
-      { guildId: gid, date: dateStr },
-      {
-        $inc: { totalStarts: 1 },
-        $max: { peakListeners: normalizeCount(listenerCount) },
-        $setOnInsert: { guildId: gid, date: dateStr, createdAt: new Date(), totalListeningMs: 0, totalSessions: 0 },
-      },
-      { upsert: true }
-    );
-    await db.collection("guild_stats").updateOne(
-      { guildId: gid },
-      {
-        $inc: { totalStarts: 1, [`stationStarts.${stationBucketKey}`]: 1, [`hours.${hourBucket}`]: 1, [`daysOfWeek.${dayBucket}`]: 1 },
-        $max: { peakListeners: normalizeCount(listenerCount) },
-        $set: { lastStartedAt: atMs },
-        $setOnInsert: { guildId: gid, createdAt: new Date(), firstSeenAt: atMs },
-      },
-      { upsert: true }
-    );
+  startListeningSession(guildId, {
+    botId,
+    stationKey,
+    stationName,
+    channelId,
+    listenerCount,
+    resume: resumeSession,
   });
+
+  if (countAsStart) {
+    // Async MongoDB write
+    mongoSafe(async (db) => {
+      const dateStr = todayDateString(atMs);
+      const hourBucket = String(resolveHourBucket(atMs));
+      const dayBucket = String(resolveDayOfWeekBucket(atMs));
+      await db.collection("daily_stats").updateOne(
+        { guildId: gid, date: dateStr },
+        {
+          $inc: { totalStarts: 1 },
+          $max: { peakListeners: normalizeCount(listenerCount) },
+          $setOnInsert: { guildId: gid, date: dateStr, createdAt: new Date(), totalListeningMs: 0, totalSessions: 0 },
+        },
+        { upsert: true }
+      );
+      await db.collection("guild_stats").updateOne(
+        { guildId: gid },
+        {
+          $inc: { totalStarts: 1, [`stationStarts.${stationBucketKey}`]: 1, [`hours.${hourBucket}`]: 1, [`daysOfWeek.${dayBucket}`]: 1 },
+          $max: { peakListeners: normalizeCount(listenerCount) },
+          $set: { lastStartedAt: atMs },
+          $setOnInsert: { guildId: gid, createdAt: new Date(), firstSeenAt: atMs },
+        },
+        { upsert: true }
+      );
+    });
+  }
 
   return { saved: true };
 }

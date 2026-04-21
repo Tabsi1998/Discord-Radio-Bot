@@ -815,7 +815,10 @@ export async function executeRuntimePlay(runtime, interaction, {
     runtime.clearScheduledEventPlayback(state);
 
     try {
-      await runtime.playStation(state, playable.playStations, playable.key, guildId);
+      await runtime.playStation(state, playable.playStations, playable.key, guildId, {
+        countAsStart: true,
+        resumeSession: false,
+      });
       const tierConfig = getTierConfig(guildId);
       const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
       await runtime.respondInteraction(interaction, {
@@ -848,7 +851,10 @@ export async function executeRuntimePlay(runtime, interaction, {
       const fallbackKey = getFallbackKey(playable.playStations, playable.key);
       if (fallbackKey && fallbackKey !== playable.key && playable.playStations.stations[fallbackKey]) {
         try {
-          await runtime.playStation(state, playable.playStations, fallbackKey, guildId);
+          await runtime.playStation(state, playable.playStations, fallbackKey, guildId, {
+            countAsStart: true,
+            resumeSession: false,
+          });
           await runtime.respondInteraction(interaction, {
             embeds: [
               buildOmniEmbed({

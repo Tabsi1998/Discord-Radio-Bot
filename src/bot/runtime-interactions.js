@@ -166,6 +166,77 @@ function buildSupportRow(language, {
   return new ActionRowBuilder().addComponents(...components.slice(0, 5));
 }
 
+function buildStreamingRuntimeSelectionPayload(runtime, interaction, playback, language) {
+  const { t } = runtime.createInteractionTranslator(interaction);
+  const guildId = String(interaction?.guildId || "").trim();
+  const reason = String(playback?.reason || "none").trim().toLowerCase();
+  const requestedWorkerIndex = Number(playback?.requestedWorkerIndex || 0) || null;
+  const workers = runtime.role === "commander" && runtime.workerManager
+    ? runtime.workerManager.getStreamingWorkers(guildId)
+    : [];
+
+  const workerLines = workers.slice(0, 8).map((worker) => {
+    const info = worker.getGuildInfo?.(guildId) || {};
+    const workerSlot = Number(runtime.workerManager?.getWorkerSlot?.(worker) || worker?.workerSlot || worker?.config?.index || 0) || null;
+    const channelId = String(info?.channelId || "").trim();
+    const channelLabel = /^\d{16,22}$/.test(channelId) ? `<#${channelId}>` : (channelId || t("unbekannt", "unknown"));
+    const stationLabel = clipText(info?.stationName || info?.stationKey || t("unbekannt", "unknown"), 80);
+    return `**Bot ${workerSlot || "?"}** - ${stationLabel} - ${channelLabel}\n\`bot:${workerSlot || "?"}\``;
+  });
+
+  let title = t("ℹ Kein aktiver Stream", "ℹ No active stream");
+  let description = runtime.getStreamingRuntimeSelectionMessage(reason, language);
+  let tone = "info";
+
+  if (reason === "multiple" || reason === "multiple_in_channel") {
+    title = t("🤖 Worker auswählen", "🤖 Choose a worker");
+    description = t(
+      "Mehrere Worker streamen aktuell. Du kannst den gewünschten Stream direkt über den optionalen `bot`-Parameter auswählen.",
+      "Multiple workers are currently streaming. You can select the desired stream directly with the optional `bot` parameter."
+    );
+  } else if (reason === "requested_missing") {
+    title = t("🔎 Gewählter Worker nicht aktiv", "🔎 Selected worker is not active");
+    description = requestedWorkerIndex
+      ? t(
+        `Für \`bot:${requestedWorkerIndex}\` läuft aktuell kein Stream auf diesem Server.`,
+        `There is currently no active stream on this server for \`bot:${requestedWorkerIndex}\`.`
+      )
+      : runtime.getStreamingRuntimeSelectionMessage(reason, language);
+    tone = "warning";
+  }
+
+  const fields = workerLines.length > 0
+    ? [
+      {
+        name: t("Aktive Worker", "Active workers"),
+        value: clipText(workerLines.join("\n\n"), 1024),
+        inline: false,
+      },
+      {
+        name: t("Beispiel", "Example"),
+        value: t("`/diag bot:2` oder `/status bot:1`", "`/diag bot:2` or `/status bot:1`"),
+        inline: false,
+      },
+    ]
+    : [];
+
+  return {
+    embeds: [
+      buildOmniEmbed({
+        tone,
+        title,
+        description,
+        fields,
+      }),
+    ],
+    components: [
+      buildQuickActionRow(t, { includePlay: true, includeStations: true, includeWorkers: runtime.role === "commander" && Boolean(runtime.workerManager) }),
+      buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true }),
+    ].filter(Boolean),
+    flags: MessageFlags.Ephemeral,
+  };
+}
+
 function getLicense(guildId) {
   return getServerLicense(guildId);
 }
@@ -607,10 +678,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
     const playback = await runtime.resolveStreamingRuntimeForInteraction(interaction);
     if (!playback.runtime || !playback.state) {
-      await interaction.reply({
-        content: runtime.getStreamingRuntimeSelectionMessage(playback.reason, language),
-        flags: MessageFlags.Ephemeral
-      });
+      await interaction.reply(buildStreamingRuntimeSelectionPayload(runtime, interaction, playback, language));
       return;
     }
 
@@ -1057,7 +1125,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   if (interaction.commandName === "health") {
     const playback = await runtime.resolveStreamingRuntimeForInteraction(interaction);
     if (!playback.runtime || !playback.state) {
-      await interaction.reply({ content: runtime.getStreamingRuntimeSelectionMessage(playback.reason, language), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildStreamingRuntimeSelectionPayload(runtime, interaction, playback, language));
       return;
     }
     const activeRuntime = playback.runtime;
@@ -1082,7 +1150,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   if (interaction.commandName === "diag") {
     const playback = await runtime.resolveStreamingRuntimeForInteraction(interaction);
     if (!playback.runtime || !playback.state) {
-      await interaction.reply({ content: runtime.getStreamingRuntimeSelectionMessage(playback.reason, language), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildStreamingRuntimeSelectionPayload(runtime, interaction, playback, language));
       return;
     }
     const activeRuntime = playback.runtime;
@@ -1142,7 +1210,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   if (interaction.commandName === "status") {
     const playback = await runtime.resolveStreamingRuntimeForInteraction(interaction);
     if (!playback.runtime || !playback.state) {
-      await interaction.reply({ content: runtime.getStreamingRuntimeSelectionMessage(playback.reason, language), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildStreamingRuntimeSelectionPayload(runtime, interaction, playback, language));
       return;
     }
     const activeRuntime = playback.runtime;

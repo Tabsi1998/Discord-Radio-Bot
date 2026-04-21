@@ -9,6 +9,7 @@ import {
   summarizeSessionListeners,
   buildDailyListeningBreakdown,
   startListeningSession,
+  recordStationStart,
   recordSessionListenerSample,
   endListeningSession,
   getGlobalStats,
@@ -198,6 +199,49 @@ test("sessions without listeners do not add synthetic station listening time", a
     assert.equal(stats.totalSessions, 1);
     assert.equal(stats.totalListeningMs, 0);
     assert.equal(stats.stationListeningMs.silentstation, undefined);
+  });
+});
+
+test("recovery restarts do not inflate starts or split an active listening session", async () => {
+  await withIsolatedStatsStore(async ({ setNow, advanceNow }) => {
+    const startedAtMs = Date.UTC(2026, 2, 4, 16, 0, 0);
+    setNow(startedAtMs);
+    recordStationStart(TEST_GUILD_ID, {
+      botId: "bot-recover",
+      stationKey: "hardstylearena",
+      stationName: "Hardstyle Arena",
+      channelId: "voice-4",
+      listenerCount: 0,
+      timestampMs: Date.now(),
+      countAsStart: true,
+    });
+
+    advanceNow(5 * 60 * 1000);
+    recordSessionListenerSample(TEST_GUILD_ID, { botId: "bot-recover", listenerCount: 3, timestampMs: Date.now() });
+
+    advanceNow(2 * 60 * 1000);
+    recordStationStart(TEST_GUILD_ID, {
+      botId: "bot-recover",
+      stationKey: "hardstylearena",
+      stationName: "Hardstyle Arena",
+      channelId: "voice-4",
+      listenerCount: 3,
+      timestampMs: Date.now(),
+      countAsStart: false,
+      resumeSession: true,
+    });
+
+    advanceNow(3 * 60 * 1000);
+    recordSessionListenerSample(TEST_GUILD_ID, { botId: "bot-recover", listenerCount: 0, timestampMs: Date.now() });
+    await endListeningSession(TEST_GUILD_ID, { botId: "bot-recover" });
+
+    const stats = getGuildListeningStats(TEST_GUILD_ID);
+    const history = await getGuildSessionHistory(TEST_GUILD_ID, 5);
+
+    assert.equal(stats.totalStarts, 1);
+    assert.equal(stats.totalSessions, 1);
+    assert.equal(stats.stationStarts["Hardstyle Arena"], 1);
+    assert.equal(history.length, 1);
   });
 });
 

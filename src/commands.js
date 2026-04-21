@@ -146,6 +146,7 @@ export function buildCommandBuilders() {
     "Show what is currently playing",
     "Zeigt, was gerade läuft"
   );
+  withIntegerOption(now, "bot", "Worker bot slot (optional)", "Worker-Bot-Slot (optional)");
 
   const stats = describe(
     new SlashCommandBuilder().setName("stats"),
@@ -159,6 +160,7 @@ export function buildCommandBuilders() {
     "Zeigt die zuletzt erkannten Songs"
   );
   withIntegerOption(history, "limit", "Number of entries (1-20)", "Anzahl Einträge (1-20)");
+  withIntegerOption(history, "bot", "Worker bot slot (optional)", "Worker-Bot-Slot (optional)");
 
   const setvolume = describe(
     new SlashCommandBuilder().setName("setvolume"),
@@ -173,6 +175,7 @@ export function buildCommandBuilders() {
     "Show bot status and uptime",
     "Bot-Status und Uptime anzeigen"
   );
+  withIntegerOption(status, "bot", "Worker bot slot (optional)", "Worker-Bot-Slot (optional)");
 
   const list = describe(
     new SlashCommandBuilder().setName("list"),
@@ -186,12 +189,14 @@ export function buildCommandBuilders() {
     "Show stream health and reconnect details",
     "Stream-Health und Reconnect-Info anzeigen"
   );
+  withIntegerOption(health, "bot", "Worker bot slot (optional)", "Worker-Bot-Slot (optional)");
 
   const diag = describe(
     new SlashCommandBuilder().setName("diag"),
     "Show diagnostics for audio, FFmpeg, and stream details",
     "Diagnose: Audio-, FFmpeg- und Stream-Details anzeigen"
   );
+  withIntegerOption(diag, "bot", "Worker bot slot (optional)", "Worker-Bot-Slot (optional)");
 
   const premium = describe(
     new SlashCommandBuilder().setName("premium"),

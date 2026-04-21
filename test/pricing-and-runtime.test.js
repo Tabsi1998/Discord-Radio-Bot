@@ -1339,6 +1339,48 @@ test("voiceStateUpdate keeps the locked voice target when the bot is moved unexp
   }
 });
 
+test("resolveStreamingRuntimeForInteraction honors explicit bot selection without requiring voice membership", async () => {
+  const selectedRuntime = {
+    getState(guildId) {
+      assert.equal(guildId, "guild-1");
+      return { currentStationKey: "station-b" };
+    },
+  };
+  const fakeRuntime = {
+    role: "commander",
+    workerManager: {
+      resolveWorker(index) {
+        if (index === 2) return { worker: selectedRuntime, workerSlot: 2, mode: "slot" };
+        return null;
+      },
+      getStreamingWorkers() {
+        return [selectedRuntime];
+      },
+    },
+    getIntegerOptionFlexible: BotRuntime.prototype.getIntegerOptionFlexible,
+  };
+  const interaction = {
+    guildId: "guild-1",
+    options: {
+      getInteger(name) {
+        return name === "bot" ? 2 : null;
+      },
+      getString() {
+        return null;
+      },
+      get() {
+        return null;
+      },
+    },
+  };
+
+  const resolved = await BotRuntime.prototype.resolveStreamingRuntimeForInteraction.call(fakeRuntime, interaction);
+
+  assert.equal(resolved.runtime, selectedRuntime);
+  assert.equal(resolved.reason, null);
+  assert.equal(resolved.requestedWorkerSlot, 2);
+});
+
 test("armPlaybackRecovery keeps the worker connected and schedules a stream retry", () => {
   let scheduledRestart = null;
   let scheduledReconnect = 0;

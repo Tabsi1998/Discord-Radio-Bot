@@ -655,7 +655,7 @@ export function armRuntimePlaybackRecovery(
   return { scheduled: false, delayMs: 0, message: errorMessage, stationName };
 }
 
-export async function playRuntimeStation(runtime, state, stations, key, guildId) {
+export async function playRuntimeStation(runtime, state, stations, key, guildId, options = {}) {
   const station = stations.stations[key];
   if (!station) throw new Error("Station nicht gefunden.");
 
@@ -705,6 +705,8 @@ export async function playRuntimeStation(runtime, state, stations, key, guildId)
     listenerCount: runtime.getCurrentListenerCount(guildId, state),
     timestampMs: state.lastStreamStartAt,
     botId: runtime.config.id || "",
+    countAsStart: options?.countAsStart !== false,
+    resumeSession: options?.resumeSession === true,
   });
 
   fetchStreamInfo(station.url)
@@ -788,7 +790,10 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
     log("INFO", `[${runtime.config.name}] Stream-Restart startet ${getRuntimeStreamSnapshot(runtime, guildId, state, {
       reason: previousRestartReason || "restart",
     })}`);
-    await runtime.playStation(state, resolvedStation.stations, resolvedStation.key, guildId);
+    await runtime.playStation(state, resolvedStation.stations, resolvedStation.key, guildId, {
+      countAsStart: false,
+      resumeSession: true,
+    });
     log("INFO", `[${runtime.config.name}] Stream restarted: ${resolvedStation.key}`);
     if (shouldEmitRecoveredAlert({
       errorCount: previousErrorCount,
@@ -846,7 +851,10 @@ export async function restartRuntimeCurrentStation(runtime, state, guildId) {
       }
 
       try {
-        await runtime.playStation(state, fallbackStation.stations, fallbackStation.key, guildId);
+        await runtime.playStation(state, fallbackStation.stations, fallbackStation.key, guildId, {
+          countAsStart: false,
+          resumeSession: false,
+        });
         log("INFO", `[${runtime.config.name}] Failover to ${fallbackStation.key} after restart failure`);
         void emitRuntimeReliabilityAlert(runtime, guildId, "stream_failover_activated", {
           previousStationKey: resolvedStation.key,

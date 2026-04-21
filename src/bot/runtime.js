@@ -1642,8 +1642,8 @@ class BotRuntime {
         {
           name: t("Server gesamt", "Server totals"),
           value: t(
-            `Starts: **${Number(stats?.totalStarts || 0)}**\nLetzter Start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`,
-            `Starts: **${Number(stats?.totalStarts || 0)}**\nLast start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`
+            `Starts ohne Recovery: **${Number(stats?.totalStarts || 0)}**\nLetzter Start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`,
+            `Starts without recovery: **${Number(stats?.totalStarts || 0)}**\nLast start: ${stats?.lastStartedAt ? this.formatDiscordTimestamp(stats.lastStartedAt, "R") : "-"}`
           ),
           inline: true,
         },
@@ -2400,8 +2400,8 @@ class BotRuntime {
     return handleRuntimeStreamEnd(this, guildId, state, reason);
   }
 
-  async playStation(state, stations, key, guildId) {
-    return playRuntimeStation(this, state, stations, key, guildId);
+  async playStation(state, stations, key, guildId, options = {}) {
+    return playRuntimeStation(this, state, stations, key, guildId, options);
   }
 
   async restartCurrentStation(state, guildId) {
@@ -2741,6 +2741,9 @@ class BotRuntime {
       multiple_in_channel: isDe
         ? "In deinem Voice-Channel sind mehrere Worker aktiv. Stoppe einen davon oder waehle einen eindeutigen Ziel-Channel."
         : "Multiple workers are active in your voice channel. Stop one of them or choose a unique target channel.",
+      requested_missing: isDe
+        ? "Der gewählte Worker streamt aktuell nicht auf diesem Server."
+        : "The selected worker is not currently streaming on this server.",
     };
     return messages[reason] || messages.none;
   }
@@ -2753,6 +2756,29 @@ class BotRuntime {
 
     if (this.role !== "commander" || !this.workerManager) {
       return { runtime: this, state: this.getState(guildId), reason: null };
+    }
+
+    const requestedWorkerIndex = this.getIntegerOptionFlexible(interaction, ["bot", "worker"]);
+    if (requestedWorkerIndex !== null) {
+      const resolvedWorker = this.workerManager.resolveWorker(requestedWorkerIndex);
+      const streamingWorkers = this.workerManager.getStreamingWorkers(guildId);
+      const isStreamingWorker = resolvedWorker?.worker && streamingWorkers.includes(resolvedWorker.worker);
+      if (!resolvedWorker?.worker || !isStreamingWorker) {
+        return {
+          runtime: null,
+          state: null,
+          reason: "requested_missing",
+          requestedWorkerIndex,
+          requestedWorkerSlot: Number(resolvedWorker?.workerSlot || 0) || null,
+        };
+      }
+      return {
+        runtime: resolvedWorker.worker,
+        state: resolvedWorker.worker.getState(guildId),
+        reason: null,
+        requestedWorkerIndex,
+        requestedWorkerSlot: Number(resolvedWorker.workerSlot || 0) || null,
+      };
     }
 
     const workers = this.workerManager.getStreamingWorkers(guildId);
@@ -3903,7 +3929,10 @@ class BotRuntime {
           });
         }
 
-        await this.playStation(state, stationsData, stationKey, guildId);
+        await this.playStation(state, stationsData, stationKey, guildId, {
+          countAsStart: true,
+          resumeSession: false,
+        });
         this.updatePresence();
 
         return { ok: true, workerName: this.config.name };
