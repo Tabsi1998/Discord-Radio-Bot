@@ -15,6 +15,16 @@ function hasStateEntries(value) {
   return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
 }
 
+function sanitizeSnowflake(value) {
+  const text = String(value || "").trim();
+  return /^\d{17,22}$/.test(text) ? text : "";
+}
+
+function sanitizeText(value, maxLen = 200) {
+  const text = String(value || "").trim();
+  return text ? text.slice(0, maxLen) : "";
+}
+
 function normalizeStoredVolume(rawValue) {
   const parsed = Number.parseInt(String(rawValue ?? ""), 10);
   if (!Number.isFinite(parsed)) return null;
@@ -110,6 +120,68 @@ function buildVolumeOnlyEntry(entry = {}) {
     volumePreference: true,
     savedAt: entry?.savedAt || new Date().toISOString(),
   };
+}
+
+function normalizeStoredBotStateEntry(rawEntry = {}) {
+  const input = rawEntry && typeof rawEntry === "object" ? rawEntry : {};
+  const volume = normalizeStoredVolume(input.volume);
+  const volumePreference = input.volumePreference === true;
+  const channelId = sanitizeSnowflake(input.channelId);
+  const stationKey = sanitizeText(input.stationKey, 120);
+  const stationName = sanitizeText(input.stationName, 200) || null;
+  const scheduledEventId = sanitizeSnowflake(input.scheduledEventId) || null;
+  const scheduledEventStopAtMs = normalizeStoredTimestampMs(input.scheduledEventStopAtMs);
+  const restoreBlockedUntil = normalizeStoredTimestampMs(input.restoreBlockedUntil);
+  const restoreBlockedAt = normalizeStoredTimestampMs(input.restoreBlockedAt);
+  const restoreBlockCount = Math.max(0, Number.parseInt(String(input.restoreBlockCount || 0), 10) || 0);
+  const restoreBlockReason = sanitizeText(input.restoreBlockReason, 200) || null;
+  const savedAt = (() => {
+    const normalized = normalizeStoredTimestampMs(input.savedAt);
+    return normalized > 0 ? new Date(normalized).toISOString() : new Date().toISOString();
+  })();
+
+  const hasPlaybackTarget = Boolean(channelId && stationKey);
+  const hasVolumePreference = volume !== null && (volumePreference || hasPlaybackTarget);
+  if (!hasPlaybackTarget && !hasVolumePreference) {
+    return null;
+  }
+
+  const normalized = { savedAt };
+  if (hasPlaybackTarget) {
+    normalized.channelId = channelId;
+    normalized.stationKey = stationKey;
+    normalized.stationName = stationName;
+    normalized.scheduledEventId = scheduledEventId;
+    normalized.scheduledEventStopAtMs = scheduledEventStopAtMs > 0 ? scheduledEventStopAtMs : 0;
+    if (restoreBlockedUntil > 0) normalized.restoreBlockedUntil = restoreBlockedUntil;
+    if (restoreBlockedAt > 0) normalized.restoreBlockedAt = restoreBlockedAt;
+    if (restoreBlockCount > 0) normalized.restoreBlockCount = restoreBlockCount;
+    if (restoreBlockReason) normalized.restoreBlockReason = restoreBlockReason;
+  }
+
+  if (hasVolumePreference) {
+    normalized.volume = volume;
+  }
+  if (volumePreference) {
+    normalized.volumePreference = true;
+  }
+
+  return normalized;
+}
+
+function normalizeStoredBotStateMap(rawBotState = {}) {
+  const source = rawBotState && typeof rawBotState === "object" ? rawBotState : {};
+  const normalized = {};
+
+  for (const [rawGuildId, rawEntry] of Object.entries(source)) {
+    const guildId = sanitizeSnowflake(rawGuildId);
+    if (!guildId) continue;
+    const entry = normalizeStoredBotStateEntry(rawEntry);
+    if (!entry) continue;
+    normalized[guildId] = entry;
+  }
+
+  return normalized;
 }
 
 function saveState(state) {
@@ -280,10 +352,25 @@ function saveBotState(botId, guildStates) {
 
 function getBotState(botId) {
   if (SPLIT_STATE_STORAGE_ENABLED) {
-    return loadSplitBotState(botId);
+    const loaded = loadSplitBotState(botId);
+    const normalized = normalizeStoredBotStateMap(loaded);
+    if (JSON.stringify(loaded || {}) !== JSON.stringify(normalized)) {
+      saveResolvedBotState(botId, normalized);
+    }
+    return normalized;
   }
   const allState = loadState();
-  return allState[botId] || {};
+  const loaded = allState[botId] || {};
+  const normalized = normalizeStoredBotStateMap(loaded);
+  if (JSON.stringify(loaded || {}) !== JSON.stringify(normalized)) {
+    if (hasStateEntries(normalized)) {
+      allState[botId] = normalized;
+    } else {
+      delete allState[botId];
+    }
+    saveState(allState);
+  }
+  return normalized;
 }
 
 function saveResolvedBotState(botId, state) {

@@ -3779,6 +3779,51 @@ test("saveBotState keeps reconnectable targets even without an active voice conn
   assert.match(String(saved["guild-1"]?.savedAt || ""), /^\d{4}-\d{2}-\d{2}T/);
 });
 
+test("getBotState normalizes malformed persisted guild state entries", async (t) => {
+  const botStateSnapshot = snapshotOptionalTextFile(botStatePath);
+  const botStateBackupSnapshot = snapshotOptionalTextFile(botStateBackupPath);
+  t.after(() => {
+    restoreOptionalTextFile(botStatePath, botStateSnapshot);
+    restoreOptionalTextFile(botStateBackupPath, botStateBackupSnapshot);
+  });
+
+  saveState({
+    "bot-normalize": {
+      invalid: {
+        volume: 50,
+        volumePreference: true,
+      },
+      "123456789012345678": {
+        savedAt: "invalid-date",
+        volume: "150",
+        stationKey: " station-a ",
+        stationName: " Station A ",
+        channelId: "223456789012345678",
+        scheduledEventId: "not-a-snowflake",
+        scheduledEventStopAtMs: "invalid",
+        restoreBlockedUntil: "invalid",
+        restoreBlockCount: "-5",
+        restoreBlockReason: "  worker-autoheal  ",
+      },
+      "323456789012345678": {
+        volume: "not-a-number",
+        volumePreference: true,
+      },
+    },
+  });
+
+  const normalized = getBotState("bot-normalize");
+  assert.deepEqual(Object.keys(normalized), ["123456789012345678"]);
+  assert.equal(normalized["123456789012345678"].volume, 100);
+  assert.equal(normalized["123456789012345678"].stationKey, "station-a");
+  assert.equal(normalized["123456789012345678"].stationName, "Station A");
+  assert.equal(normalized["123456789012345678"].channelId, "223456789012345678");
+  assert.equal(normalized["123456789012345678"].scheduledEventId, null);
+  assert.equal(normalized["123456789012345678"].scheduledEventStopAtMs, 0);
+  assert.equal(normalized["123456789012345678"].restoreBlockReason, "worker-autoheal");
+  assert.match(String(normalized["123456789012345678"].savedAt || ""), /^\d{4}-\d{2}-\d{2}T/);
+});
+
 test("public bot status omits guild details while dashboard status keeps them", () => {
   const fakeRuntime = {
     collectStats() {

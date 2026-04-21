@@ -1,8 +1,50 @@
 import { getDb, isConnected } from "./db.js";
+import { normalizeFailoverChain, getPrimaryFailoverStation } from "./failover-chain.js";
+import { normalizeWeeklyDigestConfig } from "./weekly-digest.js";
+import { normalizeDashboardIncidentAlertsConfig } from "./dashboard-incident-alerts.js";
+import { normalizeDashboardExportsWebhookConfig } from "./dashboard-webhooks.js";
+import { normalizeVoiceGuardSettings } from "./voice-guard.js";
 
 function sanitizeGuildId(value) {
   const text = String(value || "").trim();
   return /^\d{17,22}$/.test(text) ? text : "";
+}
+
+function normalizeIsoDateString(value) {
+  if (!value) return null;
+  const parsed = new Date(String(value));
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function normalizeGuildSettings(rawSettings = {}) {
+  const input = rawSettings && typeof rawSettings === "object" ? rawSettings : {};
+  const normalizedGuildId = sanitizeGuildId(input.guildId);
+  const normalizedFailoverChain = normalizeFailoverChain(input.failoverChain || input.fallbackStation || []);
+  const normalizedWeeklyDigestLastSent = normalizeIsoDateString(input.weeklyDigestLastSent);
+
+  const normalized = {
+    ...input,
+    weeklyDigest: normalizeWeeklyDigestConfig(input.weeklyDigest || {}, "de"),
+    failoverChain: normalizedFailoverChain,
+    fallbackStation: getPrimaryFailoverStation(normalizedFailoverChain, input.fallbackStation || ""),
+    incidentAlerts: normalizeDashboardIncidentAlertsConfig(input.incidentAlerts || {}),
+    exportsWebhook: normalizeDashboardExportsWebhookConfig(input.exportsWebhook || {}),
+    voiceGuard: normalizeVoiceGuardSettings(input.voiceGuard || {}),
+  };
+
+  if (normalizedGuildId) {
+    normalized.guildId = normalizedGuildId;
+  } else {
+    delete normalized.guildId;
+  }
+
+  if (normalizedWeeklyDigestLastSent) {
+    normalized.weeklyDigestLastSent = normalizedWeeklyDigestLastSent;
+  } else {
+    delete normalized.weeklyDigestLastSent;
+  }
+
+  return normalized;
 }
 
 export async function loadGuildSettings(guildId) {
@@ -12,10 +54,25 @@ export async function loadGuildSettings(guildId) {
   }
 
   try {
-    return await getDb().collection("guild_settings").findOne(
+    const settings = await getDb().collection("guild_settings").findOne(
       { guildId: normalizedGuildId },
       { projection: { _id: 0 } }
     ) || {};
+    const hasStoredSettings = Object.keys(settings).length > 0;
+    const normalized = normalizeGuildSettings({
+      ...settings,
+      guildId: normalizedGuildId,
+    });
+
+    if (hasStoredSettings && JSON.stringify(settings || {}) !== JSON.stringify(normalized)) {
+      void getDb().collection("guild_settings").updateOne(
+        { guildId: normalizedGuildId },
+        { $set: normalized },
+        { upsert: true }
+      ).catch(() => null);
+    }
+
+    return normalized;
   } catch {
     return {};
   }
@@ -49,3 +106,7 @@ export async function updateGuildSettings(guildId, updates, { unset = [] } = {})
     return { ok: false, error: "db_write_failed" };
   }
 }
+
+export {
+  normalizeGuildSettings,
+};
