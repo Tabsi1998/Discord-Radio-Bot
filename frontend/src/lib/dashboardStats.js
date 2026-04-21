@@ -306,6 +306,101 @@ function buildDashboardHealthBotDebug(source = {}, {
   };
 }
 
+function buildDashboardHealthBotSummary(source = {}, {
+  t = (de, en) => de,
+} = {}) {
+  const bot = normalizeDashboardHealthBot(source);
+  const playbackBits = [];
+  if (bot.stationName) playbackBits.push(bot.stationName);
+  if (bot.channelName) playbackBits.push(`#${bot.channelName}`);
+  if (bot.listeners > 0) {
+    playbackBits.push(t(`${bot.listeners} Zuhoerer`, `${bot.listeners} listeners`));
+  }
+
+  if (!bot.ready) {
+    return {
+      label: t("Voruebergehend nicht verfuegbar", "Temporarily unavailable"),
+      color: "#FCA5A5",
+      summary: t(
+        "Dieser Bot ist gerade nicht bereit. Bitte versuche es gleich erneut.",
+        "This bot is not ready right now. Please try again shortly."
+      ),
+      playback: playbackBits.join(" | ") || t("Keine aktive Wiedergabe", "No active playback"),
+      hint: t("Es ist gerade keine Aktion auf dem Server noetig.", "No action is needed on the server right now."),
+    };
+  }
+
+  if (bot.voiceGuardLastAction === "return") {
+    return {
+      label: t("Stellt Kanal wieder her", "Restoring channel"),
+      color: "#FCD34D",
+      summary: t(
+        "OmniFM kehrt gerade in den vorgesehenen Sprachkanal zurueck.",
+        "OmniFM is returning to the intended voice channel right now."
+      ),
+      playback: playbackBits.join(" | ") || t("Wiedergabe wird abgesichert", "Playback is being protected"),
+      hint: t("Kein Eingreifen noetig.", "No action is needed."),
+    };
+  }
+
+  if (
+    bot.voiceConnectInFlight
+    || bot.reconnectInFlight
+    || bot.reconnectPending
+    || bot.streamRestartPending
+    || (bot.shouldReconnect && !bot.playing)
+    || bot.recovering
+  ) {
+    return {
+      label: t("Verbindet", "Connecting"),
+      color: "#FCD34D",
+      summary: t(
+        "OmniFM stellt die Wiedergabe gerade automatisch wieder her.",
+        "OmniFM is automatically restoring playback right now."
+      ),
+      playback: playbackBits.join(" | ") || t("Wiedergabe wird vorbereitet", "Playback is being prepared"),
+      hint: t("Bitte kurz abwarten.", "Please wait a moment."),
+    };
+  }
+
+  if (bot.playing && (bot.reconnectAttempts > 0 || bot.streamErrorCount > 0)) {
+    return {
+      label: t("Stabilisiert sich", "Stabilizing"),
+      color: "#FCD34D",
+      summary: t(
+        "Die Wiedergabe laeuft, wird aber gerade noch stabilisiert.",
+        "Playback is running, but it is still being stabilized."
+      ),
+      playback: playbackBits.join(" | ") || t("Aktive Wiedergabe", "Active playback"),
+      hint: t("Normalerweise ist kein Eingreifen noetig.", "Normally no action is needed."),
+    };
+  }
+
+  if (bot.playing) {
+    return {
+      label: t("Live", "Live"),
+      color: "#6EE7B7",
+      summary: t(
+        "OmniFM spielt aktuell ohne bekannte Stoerung.",
+        "OmniFM is currently playing without a known issue."
+      ),
+      playback: playbackBits.join(" | ") || t("Aktive Wiedergabe", "Active playback"),
+      hint: t("Alles laeuft normal.", "Everything is running normally."),
+    };
+  }
+
+  return {
+    label: t("Bereit", "Ready"),
+    color: "#93C5FD",
+    summary: t(
+      "OmniFM ist bereit fuer den naechsten Start auf diesem Server.",
+      "OmniFM is ready for the next start on this server."
+    ),
+    playback: playbackBits.join(" | ") || t("Noch keine aktive Wiedergabe", "No active playback yet"),
+    hint: t("Nutze /play, um einen Stream zu starten.", "Use /play to start a stream."),
+  };
+}
+
 function normalizeDashboardHealthIncidentStatusFilter(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "open" || normalized === "acknowledged") return normalized;
@@ -398,25 +493,25 @@ function buildDashboardHealthStatus(source = {}, t = (de, en) => de) {
 
   if (health.managedBots <= 0) {
     return {
-      label: t("Bot fehlt", "Bot missing"),
+      label: t("Nicht bereit", "Not ready"),
       accent: "#EF4444",
-      sub: t("Kein OmniFM Bot ist aktuell in diesem Server verfuegbar.", "No OmniFM bot is currently available in this server."),
+      sub: t("Aktuell ist kein OmniFM Bot auf diesem Server verfuegbar.", "No OmniFM bot is currently available on this server."),
     };
   }
 
   if (health.status === "critical") {
     return {
-      label: t("Kritisch", "Critical"),
+      label: t("Voruebergehend gestoert", "Temporarily unavailable"),
       accent: "#EF4444",
-      sub: `${health.readyBots}/${health.managedBots} ${t("Bots bereit", "bots ready")}`,
+      sub: t("OmniFM kann im Moment nicht normal bereitgestellt werden.", "OmniFM cannot be provided normally right now."),
     };
   }
 
   if (health.status === "warning") {
     return {
-      label: t("Achtung", "Warning"),
+      label: t("Wird beobachtet", "Being monitored"),
       accent: "#F59E0B",
-      sub: `${health.recoveringStreams + health.degradedStreams} ${t("aktive Hinweise", "active issues")}`,
+      sub: t("Ein Teil der Wiedergabe wird gerade automatisch stabilisiert.", "Part of playback is currently being stabilized automatically."),
     };
   }
 
@@ -454,7 +549,7 @@ function buildDashboardHealthAlerts(source = {}, t = (de, en) => de) {
     alerts.push({
       severity: health.readyBots <= 0 ? "critical" : "warning",
       message: t(
-        `${unavailableBots} Bot(s) sind aktuell nicht bereit.`,
+        `${unavailableBots} Bot(s) sind gerade nicht bereit.`,
         `${unavailableBots} bot(s) are currently not ready.`
       ),
     });
@@ -464,8 +559,8 @@ function buildDashboardHealthAlerts(source = {}, t = (de, en) => de) {
     alerts.push({
       severity: "warning",
       message: t(
-        `${health.recoveringStreams} Stream(s) befinden sich im Reconnect.`,
-        `${health.recoveringStreams} stream(s) are currently reconnecting.`
+        `${health.recoveringStreams} Stream(s) werden gerade wiederhergestellt.`,
+        `${health.recoveringStreams} stream(s) are being restored right now.`
       ),
     });
   }
@@ -474,8 +569,8 @@ function buildDashboardHealthAlerts(source = {}, t = (de, en) => de) {
     alerts.push({
       severity: health.streamErrors >= 3 ? "critical" : "warning",
       message: t(
-        `${health.degradedStreams} Stream(s) zeigen Verbindungsprobleme.`,
-        `${health.degradedStreams} stream(s) show connection issues.`
+        `${health.degradedStreams} Stream(s) werden gerade stabilisiert.`,
+        `${health.degradedStreams} stream(s) are being stabilized right now.`
       ),
     });
   }
@@ -536,21 +631,21 @@ function buildDashboardHealthIncidentRows(source = {}, {
         })
         : "";
 
-    let title = t("Reliability-Ereignis", "Reliability event");
+    let title = t("Wiedergabe-Hinweis", "Playback update");
     let detail = runtimeName;
     if (incident.eventKey === "stream_healthcheck_stalled") {
-      title = t("Stream-Healthcheck ausgelöst", "Stream health check triggered");
+      title = t("Wiedergabe kurz unterbrochen", "Playback briefly interrupted");
       detail = `${previousStation} | ${runtimeName}`;
     } else if (incident.eventKey === "stream_recovered") {
-      title = t("Stream wiederhergestellt", "Stream recovered");
+      title = t("Wiedergabe wiederhergestellt", "Playback restored");
       detail = `${recoveredStation} | ${runtimeName}`;
     } else if (incident.eventKey === "stream_failover_activated") {
-      title = t("Failover aktiviert", "Failover activated");
+      title = t("Auf Ersatzstation gewechselt", "Switched to backup station");
       detail = `${previousStation} -> ${failoverStation}`;
     } else if (incident.eventKey === "stream_failover_exhausted") {
-      title = t("Failover ausgeschoepft", "Failover exhausted");
+      title = t("Automatische Wiederherstellung ohne Erfolg", "Automatic recovery did not succeed");
       detail = attemptedCount > 0
-        ? t(`${previousStation} | ${attemptedCount} Kandidaten ohne Erfolg`, `${previousStation} | ${attemptedCount} candidates failed`)
+        ? t(`${previousStation} | ${attemptedCount} Alternativen ohne Erfolg`, `${previousStation} | ${attemptedCount} alternatives did not work`)
         : previousStation;
     }
 
@@ -558,8 +653,6 @@ function buildDashboardHealthIncidentRows(source = {}, {
       runtimeName && runtimeName !== t("Runtime", "Runtime") ? runtimeName : "",
       runtimeRole,
       incident?.payload?.listenerCount > 0 ? t(`${incident.payload.listenerCount} Zuhoerer`, `${incident.payload.listenerCount} listeners`) : "",
-      incident?.payload?.reconnectAttempts > 0 ? t(`${incident.payload.reconnectAttempts} Reconnects`, `${incident.payload.reconnectAttempts} reconnects`) : "",
-      incident?.payload?.streamErrorCount > 0 ? t(`${incident.payload.streamErrorCount} Fehler`, `${incident.payload.streamErrorCount} errors`) : "",
     ].filter(Boolean).slice(0, 3);
 
     return {
@@ -581,7 +674,6 @@ function buildDashboardHealthIncidentRows(source = {}, {
           })
           : "",
       acknowledgedByLabel: incident?.acknowledgedBy?.username || incident?.acknowledgedBy?.id || "",
-      errorLabel: incident?.payload?.triggerError ? String(incident.payload.triggerError).slice(0, 160) : "",
       chips,
     };
   });
@@ -697,6 +789,7 @@ function buildSessionQualitySummary(sessionHistory = [], t = (de, en) => de) {
 
 export {
   buildDashboardAnalyticsUpgradeHint,
+  buildDashboardHealthBotSummary,
   buildDashboardHealthBotDebug,
   buildDashboardHealthAlerts,
   buildDashboardHealthIncidentCounts,

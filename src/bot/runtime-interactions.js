@@ -1,4 +1,3 @@
-import os from "node:os";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -59,6 +58,7 @@ import {
   getServerLicense,
 } from "../premium-store.js";
 import { PLANS, BRAND } from "../config/plans.js";
+import { buildUserFacingRuntimeStatus } from "../lib/user-facing-status.js";
 import {
   DASHBOARD_URL,
   WEBSITE_URL,
@@ -1092,47 +1092,52 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }
     const activeRuntime = playback.runtime;
     const activeState = playback.state;
-    const connected = activeState.connection ? t("ja", "yes") : t("nein", "no");
     const channelId = activeState.connection?.joinConfig?.channelId || activeState.lastChannelId || "-";
-    const runtimeMetrics = typeof activeRuntime.getRuntimeMetrics === "function"
-      ? activeRuntime.getRuntimeMetrics()
-      : {};
-    const uptimeSec = Number(runtimeMetrics?.uptimeSec || 0) || Math.floor((Date.now() - activeRuntime.startedAt) / 1000);
-    const load = Array.isArray(runtimeMetrics?.loadAvg) && runtimeMetrics.loadAvg.length
-      ? runtimeMetrics.loadAvg.map((value) => Number(value).toFixed(2)).join(", ")
-      : os.loadavg().map((value) => value.toFixed(2)).join(", ");
-    const mem = runtimeMetrics?.memoryRssMb
-      ? `${runtimeMetrics.memoryRssMb}MB`
-      : `${Math.round(process.memoryUsage().rss / (1024 * 1024))}MB`;
-    const station = activeState.currentStationKey || "-";
     const resolvedChannel = /^\d{16,22}$/.test(String(channelId))
       ? `<#${channelId}>`
       : String(channelId || "-");
+    const userStatus = buildUserFacingRuntimeStatus({
+      ready: activeRuntime.client?.isReady?.() === true,
+      connected: Boolean(activeState.connection),
+      playing: activeState.player?.state?.status === "playing" || activeState.connection?.state?.status === "ready",
+      shouldReconnect: activeState.shouldReconnect === true,
+      reconnectPending: Boolean(activeState.reconnectTimer),
+      reconnectInFlight: activeState.reconnectInFlight === true,
+      streamRestartPending: Boolean(activeState.streamRestartTimer),
+      voiceConnectInFlight: activeState.voiceConnectInFlight === true,
+      reconnectAttempts: activeState.reconnectAttempts || 0,
+      streamErrorCount: activeState.streamErrorCount || 0,
+      stationName: activeState.currentStationName || activeState.currentStationKey || "-",
+      channelLabel: resolvedChannel,
+      listeners: typeof activeRuntime.getCurrentListenerCount === "function"
+        ? Number(activeRuntime.getCurrentListenerCount(interaction.guildId, activeState) || 0) || 0
+        : 0,
+      voiceGuardLastAction: activeState.voiceGuardLastAction || null,
+    }, { t });
 
     const statusEmbed = new EmbedBuilder()
-      .setColor(connected === t("ja", "yes") ? BRAND.proColor : BRAND.color)
+      .setColor(userStatus.accent)
       .setTitle(t("Bot-Status", "Bot status"))
       .setDescription(`${activeRuntime.config.name} | ${interaction.guild?.name || interaction.guildId}`)
       .addFields(
         {
-          name: t("Runtime", "Runtime"),
-          value: [
-            `${t("Guilds (dieser Bot)", "Guilds (this bot)")}: ${activeRuntime.client.guilds.cache.size}`,
-            `Uptime: ${uptimeSec}s`,
-            `Load: ${load}`,
-            `RAM: ${mem}`,
-          ].join("\n"),
+          name: t("Status", "Status"),
+          value: userStatus.label,
+          inline: false,
+        },
+        {
+          name: t("Aktuell", "Currently"),
+          value: userStatus.summary,
           inline: false,
         },
         {
           name: t("Wiedergabe", "Playback"),
-          value: [
-            `${t("Verbunden", "Connected")}: ${connected}`,
-            `Channel: ${resolvedChannel}`,
-            `Station: ${station}`,
-            `${t("Reconnects", "Reconnects")}: ${activeState.reconnectCount || 0}`,
-            `${t("Fehler (Reihe)", "Errors (streak)")}: ${activeState.streamErrorCount || 0}`,
-          ].join("\n"),
+          value: userStatus.playback,
+          inline: false,
+        },
+        {
+          name: t("Hinweis", "Hint"),
+          value: userStatus.nextStep,
           inline: false,
         }
       );

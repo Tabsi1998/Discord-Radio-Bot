@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import {
   buildDashboardAnalyticsUpgradeHint,
   buildConnectionTimelineRows,
-  buildDashboardHealthBotDebug,
   buildDashboardHealthAlerts,
+  buildDashboardHealthBotSummary,
   buildDashboardHealthIncidentCounts,
   buildDashboardHealthIncidentRows,
   buildDashboardHealthStatus,
@@ -79,7 +79,7 @@ test("buildDashboardHealthStatus reports healthy and warning states clearly", ()
 
   assert.equal(healthy.label, "Stable");
   assert.equal(healthy.accent, "#10B981");
-  assert.equal(warning.label, "Warning");
+  assert.equal(warning.label, "Being monitored");
   assert.equal(warning.accent, "#F59E0B");
 });
 
@@ -96,7 +96,7 @@ test("buildDashboardHealthAlerts derives actionable alert rows from health count
   assert.equal(alerts.length, 3);
   assert.equal(alerts[0].severity, "warning");
   assert.match(alerts[0].message, /1 bot/);
-  assert.match(alerts[1].message, /reconnecting/i);
+  assert.match(alerts[1].message, /restored|being restored/i);
   assert.equal(alerts[2].severity, "critical");
 });
 
@@ -143,39 +143,32 @@ test("buildDashboardHealthIncidentRows formats recent runtime incidents for the 
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].severity, "warning");
-  assert.match(rows[0].title, /Failover activated/i);
+  assert.match(rows[0].title, /backup station/i);
   assert.match(rows[0].detail, /Nightwave FM/i);
   assert.match(rows[0].detail, /Rock FM/i);
   assert.equal(rows[0].timestampLabel, "2026-03-09T06:30");
   assert.ok(rows[0].chips.includes("OmniFM 1"));
   assert.ok(rows[0].chips.includes("4 listeners"));
+  assert.equal(Object.prototype.hasOwnProperty.call(rows[0], "errorLabel"), false);
 });
 
-test("buildDashboardHealthBotDebug exposes restore cooldowns and last exit details", () => {
+test("buildDashboardHealthBotSummary keeps bot cards user-facing and non-technical", () => {
   const t = (_de, en) => en;
-  const now = Date.now();
-  const debug = buildDashboardHealthBotDebug({
+  const summary = buildDashboardHealthBotSummary({
     ready: true,
     status: "recovering",
     recovering: true,
     shouldReconnect: true,
-    restoreCooldownMs: 25 * 60_000,
-    restoreBlockReason: "worker-autoheal",
-    restoreBlockCount: 2,
-    lastProcessExitDetail: "broken-pipe",
-    lastProcessExitCode: 1,
-    lastProcessExitAt: new Date(now - (5 * 60_000)).toISOString(),
+    stationName: "Nightwave FM",
+    channelName: "radio-live",
     reconnectPending: true,
-  }, {
-    t,
-    formatDate: (value) => String(value).slice(0, 16),
-  });
+  }, { t });
 
-  assert.match(debug.summary, /Restore cooldown active/i);
-  assert.equal(debug.flags.includes("Reconnect timer"), true);
-  assert.equal(debug.flags.includes("2 restore blocks"), true);
-  assert.equal(debug.detailLines.some((line) => /worker-autoheal/i.test(line)), true);
-  assert.equal(debug.detailLines.some((line) => /broken-pipe/i.test(line)), true);
+  assert.equal(summary.label, "Connecting");
+  assert.match(summary.summary, /restoring playback/i);
+  assert.match(summary.playback, /Nightwave FM/i);
+  assert.match(summary.playback, /radio-live/i);
+  assert.doesNotMatch(summary.summary, /worker|broken-pipe|cooldown/i);
 });
 
 test("dashboard health incident helpers keep open and acknowledged incidents filterable", () => {
