@@ -120,21 +120,22 @@ test("operator incident summaries aggregate recent incidents for owner-facing lo
 
   try {
     resetOperatorIncidentStateForTests();
+    const now = Date.now();
 
     await recordOperatorIncident({
-      timestamp: "2026-04-21T09:00:00.000Z",
+      timestamp: new Date(now - (3 * 60 * 60 * 1000)).toISOString(),
       level: "error",
       summary: "Mongo ping failed",
       source: "db",
     });
     await recordOperatorIncident({
-      timestamp: "2026-04-21T09:30:00.000Z",
+      timestamp: new Date(now - (2 * 60 * 60 * 1000)).toISOString(),
       level: "warn",
       summary: "Mongo ping failed",
       source: "db",
     });
     await recordOperatorIncident({
-      timestamp: "2026-04-21T10:00:00.000Z",
+      timestamp: new Date(now - (60 * 60 * 1000)).toISOString(),
       level: "critical",
       summary: "Worker queue stalled",
       source: "worker-manager",
@@ -146,11 +147,13 @@ test("operator incident summaries aggregate recent incidents for owner-facing lo
     });
 
     assert.equal(summary.total, 3);
-    assert.equal(summary.levels[0].key, "CRITICAL");
-    assert.equal(summary.sources[0].key, "db");
-    assert.equal(summary.sources[0].count, 2);
-    assert.equal(summary.summaries[0].key, "Mongo ping failed");
-    assert.equal(summary.summaries[0].count, 2);
+    assert.equal(summary.levels.find((entry) => entry.key === "CRITICAL")?.count, 1);
+    assert.equal(summary.levels.find((entry) => entry.key === "ERROR")?.count, 1);
+    assert.equal(summary.levels.find((entry) => entry.key === "WARN")?.count, 1);
+    assert.equal(summary.sources.find((entry) => entry.key === "db")?.count, 2);
+    assert.equal(summary.sources.find((entry) => entry.key === "worker-manager")?.count, 1);
+    assert.equal(summary.summaries.find((entry) => entry.key === "Mongo ping failed")?.count, 2);
+    assert.equal(summary.summaries.find((entry) => entry.key === "Worker queue stalled")?.count, 1);
 
     const lines = buildOperatorIncidentSummaryLines(summary, { label: "Owner summary" });
     assert.equal(lines.length >= 3, true);
