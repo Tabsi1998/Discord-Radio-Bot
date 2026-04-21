@@ -16,11 +16,14 @@ import {
   WEBSITE_URL,
   SUPPORT_URL,
   INVITE_COMPONENT_ID_OPEN,
+  PLAY_COMPONENT_ID_OPEN,
+  STATIONS_COMPONENT_ID_OPEN,
   WORKERS_COMPONENT_ID_OPEN,
   WORKERS_COMPONENT_ID_PAGE_PREFIX,
   WORKERS_COMPONENT_ID_REFRESH,
   withLanguageParam,
 } from "./runtime-links.js";
+import { buildOmniEmbed, buildLinkRow } from "./discord-ui.js";
 
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
@@ -64,15 +67,13 @@ export function buildRuntimeSetupMessagePayload(
     t: (de, en) => (isDe ? de : en),
   });
 
-  const embed = new EmbedBuilder()
-    .setColor(BRAND.color)
-    .setTitle(isDe ? `${BRAND.name}: Erste Schritte` : `${BRAND.name}: First steps`)
-    .setDescription(
-      isDe
-        ? `Danke für den Invite auf **${guildName || "deinen Server"}**.\n${setupSummary.nextTitle}: ${setupSummary.nextBody}`
-        : `Thanks for inviting me to **${guildName || "your server"}**.\n${setupSummary.nextTitle}: ${setupSummary.nextBody}`
-    )
-    .addFields(
+  const embed = buildOmniEmbed({
+    tone: "admin",
+    title: isDe ? `🚀 ${BRAND.name}: Erste Schritte` : `🚀 ${BRAND.name}: First steps`,
+    description: isDe
+      ? `Danke für den Invite auf **${guildName || "deinen Server"}**.\n${setupSummary.nextTitle}: ${setupSummary.nextBody}`
+      : `Thanks for inviting me to **${guildName || "your server"}**.\n${setupSummary.nextTitle}: ${setupSummary.nextBody}`,
+    fields: [
       {
         name: isDe ? "Aktueller Status" : "Current status",
         value: setupSummary.checklist.join("\n"),
@@ -92,12 +93,22 @@ export function buildRuntimeSetupMessagePayload(
       {
         name: isDe ? "Wichtige Commands" : "Important commands",
         value: isDe
-          ? "`/workers` zeigt Worker-Slots, `/invite` lädt Worker ein, `/play station:<sender> voice:<channel>` startet den ersten Stream."
-          : "`/workers` shows worker slots, `/invite` adds workers, `/play station:<station> voice:<channel>` starts the first stream.",
-      }
-    );
+          ? "`/play` öffnet jetzt einen geführten Schnellstart, `/stations` zeigt den Browser, `/workers` und `/invite` regeln deine Worker."
+          : "`/play` now opens a guided quick-start, `/stations` opens the browser, and `/workers` plus `/invite` handle your workers.",
+      },
+    ],
+    footer: isDe ? "Geführter Start, moderne Panels und schnelle Aktionen direkt in Discord." : "Guided setup, modern panels, and quick actions directly in Discord.",
+  });
 
   const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(PLAY_COMPONENT_ID_OPEN)
+      .setStyle(ButtonStyle.Primary)
+      .setLabel(isDe ? "Schnellstart" : "Quick start"),
+    new ButtonBuilder()
+      .setCustomId(STATIONS_COMPONENT_ID_OPEN)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel(isDe ? "Sender" : "Stations"),
     new ButtonBuilder()
       .setCustomId(WORKERS_COMPONENT_ID_OPEN)
       .setStyle(ButtonStyle.Secondary)
@@ -108,22 +119,13 @@ export function buildRuntimeSetupMessagePayload(
       .setLabel(isDe ? "Worker einladen" : "Invite worker")
   );
 
-  const linkRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
-      .setLabel("📊 Dashboard")
-      .setURL(dashboardUrl),
-    new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
-      .setLabel("🌐 Website")
-      .setURL(websiteUrl),
-    new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
-      .setLabel("🛟 Support")
-      .setURL(SUPPORT_URL)
-  );
+  const linkRow = buildLinkRow([
+    { label: "📊 Dashboard", url: dashboardUrl },
+    { label: "🌐 Website", url: websiteUrl },
+    { label: "🛟 Support", url: SUPPORT_URL },
+  ]);
 
-  return { embeds: [embed], components: [actionRow, linkRow] };
+  return { embeds: [embed], components: linkRow ? [actionRow, linkRow] : [actionRow] };
 }
 
 export function buildRuntimeHelpMessage(runtime, interaction) {
@@ -134,20 +136,18 @@ export function buildRuntimeHelpMessage(runtime, interaction) {
   const guildId = interaction?.guildId;
   const tierConfig = guildId ? getTierConfig(guildId) : PLANS.free;
 
-  const headerEmbed = new EmbedBuilder()
-    .setColor(BRAND.color)
-    .setTitle(isDe ? `🧭 ${BRAND.name} Hilfe` : `🧭 ${BRAND.name} Help`)
-    .setDescription(
-      isDe
-        ? `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker-Slots: **${tierConfig.maxBots}**`
-        : `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker slots: **${tierConfig.maxBots}**`
-    )
-    .addFields(
+  const headerEmbed = buildOmniEmbed({
+    tone: "info",
+    title: isDe ? `🧭 ${BRAND.name} Hilfe` : `🧭 ${BRAND.name} Help`,
+    description: isDe
+      ? `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker-Slots: **${tierConfig.maxBots}**`
+      : `Server: **${interaction.guild?.name || guildId || "-"}**\nPlan: **${tierConfig.name}** | Audio: **${tierConfig.bitrate}** | Worker slots: **${tierConfig.maxBots}**`,
+    fields: [
       {
         name: isDe ? "Schnellstart" : "Quick start",
         value: isDe
-          ? "1. `/setup` zeigt den geführten Start für diesen Server.\n2. Mit `/workers` prüfen, welche Worker verfügbar oder bereits eingeladen sind.\n3. Mit `/invite` mindestens einen Worker einladen.\n4. `/play station:<sender> voice:<kanal>` startet den Stream."
-          : "1. `/setup` shows the guided start for this server.\n2. Use `/workers` to check which workers are available or already invited.\n3. Use `/invite` to add at least one worker.\n4. `/play station:<station> voice:<channel>` starts the stream.",
+          ? "1. `/play` öffnet den geführten Schnellstart.\n2. `/stations` zeigt einen Browser mit Auswahl.\n3. `/workers` und `/invite` regeln deine Worker.\n4. `/setup` erklärt den Server-Start Schritt für Schritt."
+          : "1. `/play` opens the guided quick start.\n2. `/stations` opens a browser with selection controls.\n3. `/workers` and `/invite` manage your workers.\n4. `/setup` explains the server start step by step.",
         inline: false,
       },
       {
@@ -163,25 +163,26 @@ export function buildRuntimeHelpMessage(runtime, interaction) {
           ? "Web-Dashboard mit SSO: Statistiken, Events, Abo und Server-Einstellungen."
           : "Web dashboard with SSO: stats, events, subscription, and server settings.",
         inline: false,
-      }
-    );
+      },
+    ],
+  });
 
-  const playbackEmbed = new EmbedBuilder()
-    .setColor(BRAND.color)
-    .setTitle(isDe ? "🎧 Wiedergabe & Live" : "🎧 Playback & Live")
-    .addFields(
+  const playbackEmbed = buildOmniEmbed({
+    tone: "live",
+    title: isDe ? "🎧 Wiedergabe & Live" : "🎧 Playback & Live",
+    fields: [
       {
         name: "/play /pause /resume /stop",
         value: isDe
-          ? "Startet, pausiert oder beendet Streams im Voice- oder Stage-Channel."
-          : "Start, pause, or stop streams in voice or stage channels.",
+          ? "Startet, pausiert oder beendet Streams im Voice- oder Stage-Channel. `/play` führt jetzt per Buttons und Menüs."
+          : "Start, pause, or stop streams in voice or stage channels. `/play` now guides you with buttons and menus.",
         inline: false,
       },
       {
         name: "/stations /list /now /history /stats",
         value: isDe
-          ? "Zeigt verfügbare Sender, aktuelle Songs, History und Server-Statistiken."
-          : "Shows available stations, current songs, history, and server statistics.",
+          ? "Zeigt verfügbare Sender, aktuelle Songs, History und Server-Statistiken. `/stations` ist jetzt ein Browser statt Textwand."
+          : "Shows available stations, current songs, history, and server statistics. `/stations` is now a browser instead of a text wall.",
         inline: false,
       },
       {
@@ -190,13 +191,14 @@ export function buildRuntimeHelpMessage(runtime, interaction) {
           ? "Audio, Worker-Zustand und technische Checks für Admins."
           : "Audio, worker status, and technical checks for admins.",
         inline: false,
-      }
-    );
+      },
+    ],
+  });
 
-  const automationEmbed = new EmbedBuilder()
-    .setColor(BRAND.color)
-    .setTitle(isDe ? "🗓 Events & Automationen" : "🗓 Events & Automation")
-    .addFields(
+  const automationEmbed = buildOmniEmbed({
+    tone: "info",
+    title: isDe ? "🗓 Events & Automationen" : "🗓 Events & Automation",
+    fields: [
       {
         name: "/event create|edit|list|delete",
         value: isDe
@@ -217,13 +219,14 @@ export function buildRuntimeHelpMessage(runtime, interaction) {
           ? "Ohne `serverevent` darf ein Event sofort starten. Mit `serverevent` muss der Start mindestens 60 Sekunden in der Zukunft liegen."
           : "Without `serverevent`, an event may start immediately. With `serverevent`, start time must be at least 60 seconds in the future.",
         inline: false,
-      }
-    );
+      },
+    ],
+  });
 
-  const adminEmbed = new EmbedBuilder()
-    .setColor(tierConfig.tier === "ultimate" ? BRAND.ultimateColor : BRAND.proColor)
-    .setTitle("🛠 Admin & Premium")
-    .addFields(
+  const adminEmbed = buildOmniEmbed({
+    tone: tierConfig.tier === "ultimate" ? "admin" : "info",
+    title: "🛠 Admin & Premium",
+    fields: [
       {
         name: "/setup /invite /workers /perm",
         value: isDe
@@ -244,36 +247,38 @@ export function buildRuntimeHelpMessage(runtime, interaction) {
           ? "Ultimate-only für eigene Sender und private Streams."
           : "Ultimate-only for custom stations and private streams.",
         inline: false,
-      }
-    )
-    .setFooter({
-      text: isDe
-        ? "Commander nimmt Befehle entgegen, Worker halten die Voice-/Stage-Streams."
-        : "The commander handles commands, workers keep the voice/stage streams running.",
-    });
+      },
+    ],
+    footer: isDe
+      ? "Commander nimmt Befehle entgegen, Worker halten die Voice-/Stage-Streams."
+      : "The commander handles commands, workers keep the voice/stage streams running.",
+  });
 
-  const linkRow = new ActionRowBuilder().addComponents(
+  const actionRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
-      .setLabel("📊 Dashboard")
-      .setURL(dashboardUrl),
+      .setCustomId(PLAY_COMPONENT_ID_OPEN)
+      .setStyle(ButtonStyle.Primary)
+      .setLabel(isDe ? "Schnellstart" : "Quick start"),
     new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
-      .setLabel("🌐 Website")
-      .setURL(websiteUrl),
+      .setCustomId(STATIONS_COMPONENT_ID_OPEN)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel(isDe ? "Sender" : "Stations"),
     new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
-      .setLabel("🛟 Support")
-      .setURL(SUPPORT_URL),
-    new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
-      .setLabel("💎 Premium")
-      .setURL(BRAND.upgradeUrl || WEBSITE_URL)
+      .setCustomId(WORKERS_COMPONENT_ID_OPEN)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel(isDe ? "Worker" : "Workers")
   );
+
+  const linkRow = buildLinkRow([
+    { label: "📊 Dashboard", url: dashboardUrl },
+    { label: "🌐 Website", url: websiteUrl },
+    { label: "🛟 Support", url: SUPPORT_URL },
+    { label: "💎 Premium", url: BRAND.upgradeUrl || WEBSITE_URL },
+  ]);
 
   return {
     embeds: [headerEmbed, playbackEmbed, automationEmbed, adminEmbed],
-    components: [linkRow],
+    components: linkRow ? [actionRow, linkRow] : [actionRow],
   };
 }
 

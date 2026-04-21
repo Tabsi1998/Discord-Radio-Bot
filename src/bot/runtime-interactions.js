@@ -65,8 +65,15 @@ import {
   WEBSITE_URL,
   SUPPORT_URL,
   INVITE_COMPONENT_ID_OPEN,
+  PLAY_COMPONENT_ID_OPEN,
+  STATIONS_COMPONENT_ID_OPEN,
   withLanguageParam,
 } from "./runtime-links.js";
+import {
+  executeRuntimePlay,
+  openRuntimeStationsBrowser,
+} from "./runtime-panels.js";
+import { buildOmniEmbed } from "./discord-ui.js";
 
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
@@ -487,50 +494,15 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   const state = runtime.getState(interaction.guildId);
 
   if (interaction.commandName === "stations") {
-    const guildTier = getTier(interaction.guildId);
-    const available = filterStationsByTier(stations.stations, guildTier);
-    const tierLabel = guildTier !== "free" ? ` [${guildTier.toUpperCase()}]` : "";
-    const list = Object.entries(available).map(([k, v]) => {
-      const badge = v.tier && v.tier !== "free" ? ` [${v.tier.toUpperCase()}]` : "";
-      return `\`${k}\` - ${v.name}${badge}`;
-    }).join("\n");
-    const custom = guildTier === "ultimate" ? getGuildStations(interaction.guildId) : {};
-    const customList = Object.entries(custom).map(([k, v]) => `\`${k}\` - ${v.name} [CUSTOM]`).join("\n");
-    let content = `**${t("VerfÃ¼gbare Stationen", "Available stations")}${tierLabel} (${Object.keys(available).length}):**\n${list}`;
-    if (customList) content += `\n\n**${t("Custom Stationen", "Custom stations")} (${Object.keys(custom).length}):**\n${customList}`;
-    await runtime.respondLongInteraction(interaction, content, { flags: MessageFlags.Ephemeral });
+    const payload = await openRuntimeStationsBrowser(runtime, interaction);
+    await runtime.respondInteraction(interaction, payload);
     return;
   }
 
   if (interaction.commandName === "list") {
-    const guildTier = getTier(interaction.guildId);
-    const available = filterStationsByTier(stations.stations, guildTier);
-    const keys = Object.keys(available);
-    const page = Math.max(1, interaction.options.getInteger("page") || 1);
-    const perPage = 10;
-    const start = (page - 1) * perPage;
-    const end = start + perPage;
-    const pageKeys = keys.slice(start, end);
-    const totalPages = Math.ceil(keys.length / perPage);
-    if (pageKeys.length === 0) {
-      await interaction.reply({
-        content: t(
-          `Seite ${page} hat keine Eintraege (${totalPages} Seiten).`,
-          `Page ${page} has no entries (${totalPages} pages).`
-        ),
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-    const list = pageKeys.map(k => {
-      const badge = available[k].tier !== "free" ? ` [${available[k].tier.toUpperCase()}]` : "";
-      return `\`${k}\` - ${available[k].name}${badge}`;
-    }).join("\n");
-    await runtime.respondLongInteraction(
-      interaction,
-      `**${t("Stationen", "Stations")} (${t("Seite", "Page")} ${page}/${totalPages}):**\n${list}`,
-      { flags: MessageFlags.Ephemeral }
-    );
+    const page = Math.max(0, (interaction.options.getInteger("page") || 1) - 1);
+    const payload = await openRuntimeStationsBrowser(runtime, interaction, { page });
+    await runtime.respondInteraction(interaction, payload);
     return;
   }
 
@@ -1142,7 +1114,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         }
       );
 
-    await interaction.reply({ embeds: [statusEmbed], flags: MessageFlags.Ephemeral });
+    const actionRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(PLAY_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Primary)
+        .setLabel(t("🎛 Schnellstart", "🎛 Quick start")),
+      new ButtonBuilder()
+        .setCustomId(STATIONS_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("📻 Sender", "📻 Stations"))
+    );
+    await interaction.reply({ embeds: [statusEmbed], components: [actionRow], flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -1162,10 +1144,40 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     } else {
       const count = countGuildStations(guildId);
       await interaction.reply({
-        content: t(
-          `Custom Station hinzugefÃ¼gt: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} Slots belegt.`,
-          `Custom station added: **${result.station.name}** (Key: \`${result.key}\`)\n${count}/${MAX_STATIONS_PER_GUILD} slots used.`
-        ),
+        embeds: [
+          buildOmniEmbed({
+            tone: "success",
+            title: t("✅ Custom-Station gespeichert", "✅ Custom station saved"),
+            description: t(
+              `**${result.station.name}** ist jetzt als \`${result.key}\` verfügbar.`,
+              `**${result.station.name}** is now available as \`${result.key}\`.`
+            ),
+            fields: [
+              {
+                name: t("Nutzung", "Usage"),
+                value: t(`${count}/${MAX_STATIONS_PER_GUILD} Slots belegt`, `${count}/${MAX_STATIONS_PER_GUILD} slots used`),
+                inline: true,
+              },
+              {
+                name: t("Nächster Schritt", "Next step"),
+                value: t("Öffne `/play` oder `/stations`, um den Sender direkt zu starten.", "Open `/play` or `/stations` to start the station right away."),
+                inline: true,
+              },
+            ],
+          }),
+        ],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(PLAY_COMPONENT_ID_OPEN)
+              .setStyle(ButtonStyle.Primary)
+              .setLabel(t("🎛 Schnellstart", "🎛 Quick start")),
+            new ButtonBuilder()
+              .setCustomId(STATIONS_COMPONENT_ID_OPEN)
+              .setStyle(ButtonStyle.Secondary)
+              .setLabel(t("📻 Sender", "📻 Stations"))
+          ),
+        ],
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -1542,292 +1554,12 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   }
 
   if (interaction.commandName === "play") {
-    const requested = interaction.options.getString("station");
-    const requestedVoiceChannel = interaction.options.getChannel("voice");
-    const requestedBotIndex = interaction.options.getInteger("bot");
-    let requestedChannel = null;
-
-    if (requestedVoiceChannel) {
-      if (requestedVoiceChannel.guildId !== interaction.guildId) {
-        await interaction.reply({
-          content: t("Der gewaehlte Voice/Stage-Channel ist nicht in diesem Server.", "The selected voice/stage channel is not in this server."),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      if (
-        !requestedVoiceChannel.isVoiceBased()
-        || (requestedVoiceChannel.type !== ChannelType.GuildVoice && requestedVoiceChannel.type !== ChannelType.GuildStageVoice)
-      ) {
-        await interaction.reply({
-          content: t("Bitte waehle einen Voice- oder Stage-Channel.", "Please choose a voice or stage channel."),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      requestedChannel = requestedVoiceChannel;
-    }
-
-    const guildId = interaction.guildId;
-    const guildTier = getTier(guildId);
-    const availableStations = buildScopedStationsData(stations, filterStationsByTier(stations.stations, guildTier));
-    const requestedOfficialKey = resolveStation(stations, requested);
-
-    // Check standard stations first, then custom stations (Ultimate only)
-    let playStations = availableStations;
-    let key = resolveStation(availableStations, requested);
-    let isCustom = false;
-    let customUrl = null;
-
-    if (key) {
-      // Check tier access
-      const stationTier = playStations.stations[key]?.tier || "free";
-      const tierRank = { free: 0, pro: 1, ultimate: 2 };
-      if ((tierRank[stationTier] || 0) > (tierRank[guildTier] || 0)) {
-        await interaction.reply(premiumStationEmbed(playStations.stations[key].name, stationTier, language));
-        return;
-      }
-    } else {
-      if (requestedOfficialKey && !String(requestedOfficialKey).startsWith("custom:")) {
-        const stationTier = stations.stations[requestedOfficialKey]?.tier || "free";
-        const tierRank = { free: 0, pro: 1, ultimate: 2 };
-        if ((tierRank[stationTier] || 0) > (tierRank[guildTier] || 0)) {
-          await interaction.reply(premiumStationEmbed(stations.stations[requestedOfficialKey].name, stationTier, language));
-          return;
-        }
-      }
-
-      // Check custom stations (Ultimate feature)
-      const customStations = getGuildStations(guildId);
-      const customKey = Object.keys(customStations).find(k => k === requested || customStations[k].name.toLowerCase() === (requested || "").toLowerCase());
-      if (customKey && guildTier === "ultimate") {
-        key = buildCustomStationReference(customKey);
-        isCustom = true;
-        customUrl = customStations[customKey].url;
-        const customUrlValidation = validateCustomStationUrl(customUrl);
-        if (!customUrlValidation.ok) {
-          const translated = translateCustomStationErrorMessage(customUrlValidation.error, language);
-          await interaction.reply({
-            content: t(
-              `Custom-Station kann nicht genutzt werden: ${translated}`,
-              `Custom station cannot be used: ${translated}`
-            ),
-            flags: MessageFlags.Ephemeral
-          });
-          return;
-        }
-        playStations = buildScopedStationsData(stations, {
-          ...availableStations.stations,
-          [key]: { name: customStations[customKey].name, url: customUrlValidation.url, tier: "ultimate" },
-        });
-      } else if (customKey) {
-        await interaction.reply(customStationEmbed(language));
-        return;
-      } else {
-        await interaction.reply({ content: t("Unbekannte Station.", "Unknown station."), flags: MessageFlags.Ephemeral });
-        return;
-      }
-    }
-
-    const guild = interaction.guild;
-    if (!guild) {
-      await interaction.reply({ content: t("Guild konnte nicht ermittelt werden.", "Could not resolve guild."), flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    // ---- Commander Mode: Delegate to Worker ----
-    if (runtime.role === "commander" && runtime.workerManager) {
-      // Resolve voice channel ID
-      let channelId = requestedChannel?.id;
-      if (!channelId) {
-        const member = await guild.members.fetch(interaction.user.id).catch(() => null);
-        channelId = member?.voice?.channelId;
-      }
-      if (!channelId) {
-        await interaction.reply({
-          content: buildVoiceChannelAccessMessage({ issue: "select_channel", t }),
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-      let worker;
-      let reusingExistingWorker = false;
-      if (requestedBotIndex) {
-        const check = runtime.workerManager.canUseWorker(requestedBotIndex, guildId, guildTier);
-        if (!check.ok) {
-          const reasons = {
-            tier: t(`Worker ${requestedBotIndex} erfordert ein hoeheres Abo (max: ${check.maxIndex}).`, `Worker ${requestedBotIndex} requires a higher plan (max: ${check.maxIndex}).`),
-            not_configured: t(`Worker ${requestedBotIndex} ist nicht konfiguriert.`, `Worker ${requestedBotIndex} is not configured.`),
-            offline: t(`Worker ${requestedBotIndex} ist offline.`, `Worker ${requestedBotIndex} is offline.`),
-            not_invited: t(`Worker ${requestedBotIndex} ist nicht auf diesem Server. Nutze \`/invite worker:${requestedBotIndex}\` zum Einladen.`, `Worker ${requestedBotIndex} is not on this server. Use \`/invite worker:${requestedBotIndex}\` to invite.`),
-          };
-          await interaction.editReply(reasons[check.reason] || t("Worker nicht verfÃ¼gbar.", "Worker not available."));
-          return;
-        }
-        worker = check.worker;
-      } else {
-        const activeWorkerInChannel = runtime.workerManager.findStreamingWorkerByChannel(guildId, channelId);
-        if (activeWorkerInChannel) {
-          worker = activeWorkerInChannel;
-          reusingExistingWorker = true;
-        } else {
-          const connectedWorkerInChannel = await runtime.workerManager.findConnectedWorkerByChannel(guildId, channelId, guildTier);
-          if (connectedWorkerInChannel) {
-            worker = connectedWorkerInChannel;
-            reusingExistingWorker = true;
-          }
-        }
-
-        if (!worker) {
-          worker = runtime.workerManager.findFreeWorker(guildId, guildTier);
-        }
-      }
-
-      if (!worker) {
-        const invited = runtime.workerManager.getInvitedWorkers(guildId, guildTier);
-        if (invited.length === 0) {
-          await interaction.editReply(t(
-            "Kein Worker-Bot ist auf diesem Server. Nutze `/invite worker:1` zum Einladen.",
-            "No worker bot is on this server. Use `/invite worker:1` to invite one."
-          ));
-        } else {
-          await interaction.editReply(t(
-            "Alle Worker-Bots auf diesem Server sind belegt. Lade mehr Worker ein oder stoppe einen laufenden Stream.",
-            "All worker bots on this server are busy. Invite more workers or stop a running stream."
-          ));
-        }
-        return;
-      }
-
-      const selectedStation = playStations.stations[key];
-      const workerGuildFetch = typeof worker.client?.guilds?.fetch === "function"
-        ? worker.client.guilds.fetch(guildId).catch(() => null)
-        : Promise.resolve(null);
-      const workerGuild = worker.client?.guilds?.cache?.get?.(guildId)
-        || await workerGuildFetch;
-      const workerChannelFetch = workerGuild && typeof workerGuild.channels?.fetch === "function"
-        ? workerGuild.channels.fetch(channelId).catch(() => null)
-        : Promise.resolve(null);
-      const workerChannel = workerGuild?.channels?.cache?.get?.(channelId)
-        || await workerChannelFetch;
-      const workerAccess = workerGuild && workerChannel
-        ? await worker.validateVoiceChannelAccess(workerGuild, workerChannel, {
-          language,
-          workerName: worker.config?.name || "Worker",
-        })
-        : {
-          ok: false,
-          message: t(
-            "Der Ziel-Channel konnte für den ausgewählten Worker gerade nicht geladen werden. Bitte versuche es erneut oder wähle den Channel direkt im Command.",
-            "The target channel could not be loaded for the selected worker right now. Please try again or choose the channel directly in the command."
-          ),
-        };
-      if (!workerAccess.ok) {
-        await interaction.editReply(workerAccess.message);
-        return;
-      }
-
-      log("INFO", `[${runtime.config.name}] /play guild=${guildId} station=${key} -> delegating to ${worker.config.name}`);
-      worker.clearScheduledEventPlaybackInGuild(guildId);
-      const result = await worker.playInGuild(guildId, channelId, key, playStations, undefined);
-      if (!result.ok) {
-        await interaction.editReply(t(`Fehler: ${result.error}`, `Error: ${result.error}`));
-        return;
-      }
-      const tierConfig = getTierConfig(guildId);
-      const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
-      await interaction.editReply(t(
-        result.recovering
-          ? `${result.workerName} bleibt verbunden. Quelle aktuell instabil, Retry aktiv: ${selectedStation?.name || key}${tierLabel}`
-          : reusingExistingWorker
-            ? `${result.workerName} wechselt auf: ${selectedStation?.name || key}${tierLabel}`
-            : `${result.workerName} startet: ${selectedStation?.name || key}${tierLabel}`,
-        result.recovering
-          ? `${result.workerName} stays connected. Source is unstable, retry active: ${selectedStation?.name || key}${tierLabel}`
-          : reusingExistingWorker
-            ? `${result.workerName} switching to: ${selectedStation?.name || key}${tierLabel}`
-            : `${result.workerName} starting: ${selectedStation?.name || key}${tierLabel}`
-      ));
-      return;
-    }
-
-    // ---- Worker/Legacy Mode: Play locally ----
-    log("INFO", `[${runtime.config.name}] /play guild=${guildId} station=${key} custom=${isCustom} tier=${guildTier}`);
-
-    const selectedStation = playStations.stations[key];
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await runtime.runSerializedGuildOperation(guildId, "slash-play", async () => {
-      runtime.clearRestoreRetry(guildId);
-      const { connection, error: connectError } = await runtime.connectToVoice(interaction, requestedChannel, { silent: true });
-      if (!connection) {
-        await interaction.editReply(connectError || t("Konnte keine Voice-Verbindung herstellen.", "Could not establish a voice connection."));
-        return;
-      }
-      state.shouldReconnect = true;
-      runtime.clearScheduledEventPlayback(state);
-
-      try {
-        await runtime.playStation(state, playStations, key, guildId);
-        const tierConfig = getTierConfig(guildId);
-        const tierLabel = tierConfig.tier !== "free" ? ` [${tierConfig.name} ${tierConfig.bitrate}]` : "";
-        await interaction.editReply(t(`Starte: ${selectedStation?.name || key}${tierLabel}`, `Starting: ${selectedStation?.name || key}${tierLabel}`));
-      } catch (err) {
-        log("ERROR", `[${runtime.config.name}] Play error: ${err.message}`);
-        state.lastStreamErrorAt = new Date().toISOString();
-
-        const fallbackKey = getFallbackKey(playStations, key);
-        if (fallbackKey && fallbackKey !== key && playStations.stations[fallbackKey]) {
-          try {
-            await runtime.playStation(state, playStations, fallbackKey, guildId);
-            await interaction.editReply(
-              t(
-                `Fehler bei ${selectedStation?.name || key}. Fallback: ${playStations.stations[fallbackKey].name}`,
-                `Error on ${selectedStation?.name || key}. Fallback: ${playStations.stations[fallbackKey].name}`
-              )
-            );
-            return;
-          } catch (fallbackErr) {
-            log("ERROR", `[${runtime.config.name}] Fallback error: ${fallbackErr.message}`);
-            state.lastStreamErrorAt = new Date().toISOString();
-          }
-        }
-
-        const recovery = runtime.armPlaybackRecovery(
-          guildId,
-          state,
-          playStations,
-          key,
-          err,
-          { reason: "local-play-start-failed" }
-        );
-        if (recovery.scheduled) {
-          await interaction.editReply(t(
-            `Verbunden. Quelle aktuell instabil, Retry aktiv: ${selectedStation?.name || key}`,
-            `Connected. Source is unstable, retry active: ${selectedStation?.name || key}`
-          ));
-          return;
-        }
-
-        state.shouldReconnect = false;
-        runtime.invalidateVoiceStatus?.(state, { clearText: true });
-        runtime.syncVoiceChannelStatus(guildId, "").catch(() => null);
-        runtime.clearNowPlayingTimer(state);
-        state.player.stop();
-        runtime.clearCurrentProcess(state);
-        if (state.connection) {
-          state.connection.destroy();
-          state.connection = null;
-        }
-        state.currentStationKey = null;
-        state.currentStationName = null;
-        state.currentMeta = null;
-        state.nowPlayingSignature = null;
-        runtime.updatePresence();
-        await interaction.editReply(t(`Fehler beim Starten: ${err.message}`, `Error while starting: ${err.message}`));
-      }
+    await executeRuntimePlay(runtime, interaction, {
+      station: interaction.options.getString("station"),
+      requestedVoiceChannel: interaction.options.getChannel("voice"),
+      requestedBotIndex: interaction.options.getInteger("bot"),
+      openWizardWhenIncomplete: true,
     });
+    return;
   }
 }

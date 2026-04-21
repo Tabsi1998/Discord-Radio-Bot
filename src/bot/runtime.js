@@ -207,6 +207,10 @@ import {
   WORKERS_COMPONENT_ID_OPEN,
   WORKERS_COMPONENT_ID_REFRESH,
   WORKERS_COMPONENT_ID_PAGE_PREFIX,
+  PLAY_COMPONENT_PREFIX,
+  PLAY_COMPONENT_ID_OPEN,
+  STATIONS_COMPONENT_PREFIX,
+  STATIONS_COMPONENT_ID_OPEN,
   withLanguageParam,
 } from "./runtime-links.js";
 import {
@@ -215,6 +219,9 @@ import {
   buildRuntimeWorkersStatusPayload,
 } from "./runtime-message-builders.js";
 import { buildRuntimePresenceActivity } from "./runtime-presence.js";
+import {
+  handleRuntimePanelInteraction,
+} from "./runtime-panels.js";
 import {
   getRuntimeConnectedChannelId,
   isRuntimePlaybackActive,
@@ -342,6 +349,7 @@ class BotRuntime {
     this.listenerStatsTimer = null;
     this.pendingVoiceReconcileTimers = new Map();
     this.guildOperationLocks = new Map();
+    this.interactiveUiSessions = new Map();
     this.guildSettingsCache = new Map();
     this.scheduledEventInFlight = new Set();
     this.lastPersistLoggedActiveCount = null;
@@ -579,6 +587,79 @@ class BotRuntime {
         // ignore
       }
     }
+  }
+
+  pruneInteractiveUiSessions(now = Date.now()) {
+    if (!(this.interactiveUiSessions instanceof Map)) {
+      this.interactiveUiSessions = new Map();
+      return;
+    }
+    for (const [sessionId, session] of this.interactiveUiSessions.entries()) {
+      if (!session || Number(session.expiresAt || 0) <= now) {
+        this.interactiveUiSessions.delete(sessionId);
+      }
+    }
+  }
+
+  createInteractiveUiSession(type, {
+    guildId = null,
+    userId = null,
+    ttlMs = 15 * 60_000,
+    data = {},
+  } = {}) {
+    this.pruneInteractiveUiSessions();
+    const createdAt = Date.now();
+    const id = `${createdAt.toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const session = {
+      id,
+      type: String(type || "").trim(),
+      guildId: String(guildId || "").trim() || null,
+      userId: String(userId || "").trim() || null,
+      data: data && typeof data === "object" ? { ...data } : {},
+      createdAt,
+      updatedAt: createdAt,
+      expiresAt: createdAt + Math.max(30_000, Number(ttlMs) || 0),
+    };
+    this.interactiveUiSessions.set(id, session);
+    return session;
+  }
+
+  getInteractiveUiSession(sessionId, {
+    type = null,
+    guildId = null,
+    userId = null,
+  } = {}) {
+    this.pruneInteractiveUiSessions();
+    const normalizedId = String(sessionId || "").trim();
+    if (!normalizedId) return null;
+    const session = this.interactiveUiSessions.get(normalizedId);
+    if (!session) return null;
+    if (type && session.type !== String(type)) return null;
+    if (guildId && session.guildId !== String(guildId)) return null;
+    if (userId && session.userId && session.userId !== String(userId)) return null;
+    return session;
+  }
+
+  updateInteractiveUiSession(sessionId, patch = {}) {
+    const session = this.getInteractiveUiSession(sessionId);
+    if (!session) return null;
+    const nextData = patch.data && typeof patch.data === "object"
+      ? { ...session.data, ...patch.data }
+      : session.data;
+    const updated = {
+      ...session,
+      ...patch,
+      data: nextData,
+      updatedAt: Date.now(),
+    };
+    this.interactiveUiSessions.set(session.id, updated);
+    return updated;
+  }
+
+  deleteInteractiveUiSession(sessionId) {
+    const normalizedId = String(sessionId || "").trim();
+    if (!normalizedId) return false;
+    return this.interactiveUiSessions.delete(normalizedId);
   }
 
   getNetworkRecoveryScope(guildId = null) {
@@ -3095,6 +3176,14 @@ class BotRuntime {
       }
       if (customId.startsWith(WORKERS_COMPONENT_PREFIX)) {
         return this.handleWorkersComponentInteraction(interaction);
+      }
+      if (
+        customId === PLAY_COMPONENT_ID_OPEN
+        || customId === STATIONS_COMPONENT_ID_OPEN
+        || customId.startsWith(PLAY_COMPONENT_PREFIX)
+        || customId.startsWith(STATIONS_COMPONENT_PREFIX)
+      ) {
+        return handleRuntimePanelInteraction(this, interaction);
       }
       return false;
     } catch (err) {

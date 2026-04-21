@@ -66,6 +66,10 @@ import {
 } from "../src/services/audio-recognition.js";
 import { getDefaultLanguage } from "../src/i18n.js";
 import { getBotState, saveBotState, saveState } from "../src/bot-state.js";
+import {
+  openRuntimePlayWizard,
+  openRuntimeStationsBrowser,
+} from "../src/bot/runtime-panels.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const botStatePath = path.join(repoRoot, "bot-state.json");
@@ -4101,7 +4105,13 @@ test("help payload exposes dashboard, website, support and premium links", () =>
     guild: { name: "Guild One" },
   });
 
-  const linkButtons = payload.components?.[0]?.components?.map((button) => button?.data || {}) || [];
+  const actionButtons = payload.components?.[0]?.components?.map((button) => button?.data || {}) || [];
+  assert.equal(actionButtons.length, 3);
+  assert.equal(actionButtons[0].label, "Quick start");
+  assert.equal(actionButtons[1].label, "Stations");
+  assert.equal(actionButtons[2].label, "Workers");
+
+  const linkButtons = payload.components?.[1]?.components?.map((button) => button?.data || {}) || [];
   assert.equal(linkButtons.length, 4);
   assert.equal(linkButtons[0].label, "📊 Dashboard");
   assert.match(String(linkButtons[0].url || ""), /\?page=dashboard&lang=en$/);
@@ -4150,11 +4160,15 @@ test("setup payload exposes worker actions and useful links", () => {
   assert.ok(fieldNames.includes("Before the first /play"));
 
   const actionButtons = payload.components?.[0]?.components?.map((button) => button?.data || {}) || [];
-  assert.equal(actionButtons.length, 2);
-  assert.equal(actionButtons[0].label, "Worker status");
-  assert.equal(actionButtons[0].custom_id, "omnifm:workers:open");
-  assert.equal(actionButtons[1].label, "Invite worker");
-  assert.equal(actionButtons[1].custom_id, "omnifm:invite:open");
+  assert.equal(actionButtons.length, 4);
+  assert.equal(actionButtons[0].label, "Quick start");
+  assert.equal(actionButtons[0].custom_id, "omnifm:play:open");
+  assert.equal(actionButtons[1].label, "Stations");
+  assert.equal(actionButtons[1].custom_id, "omnifm:stations:open");
+  assert.equal(actionButtons[2].label, "Worker status");
+  assert.equal(actionButtons[2].custom_id, "omnifm:workers:open");
+  assert.equal(actionButtons[3].label, "Invite worker");
+  assert.equal(actionButtons[3].custom_id, "omnifm:invite:open");
 
   const linkButtons = payload.components?.[1]?.components?.map((button) => button?.data || {}) || [];
   assert.equal(linkButtons.length, 3);
@@ -4163,6 +4177,100 @@ test("setup payload exposes worker actions and useful links", () => {
   assert.equal(linkButtons[1].label, "🌐 Website");
   assert.match(String(linkButtons[1].url || ""), /\?lang=en$/);
   assert.equal(linkButtons[2].label, "🛟 Support");
+});
+
+test("play wizard payload exposes modern quick-start controls", async () => {
+  const fakeRuntime = Object.create(BotRuntime.prototype);
+  fakeRuntime.interactiveUiSessions = new Map();
+  fakeRuntime.workerManager = {
+    getMaxWorkerIndex() {
+      return 4;
+    },
+    getWorkerByIndex(index) {
+      return { config: { name: `Worker ${index}` } };
+    },
+  };
+  fakeRuntime.role = "commander";
+  fakeRuntime.client = {
+    guilds: {
+      cache: new Map(),
+    },
+  };
+  fakeRuntime.createInteractionTranslator = () => ({
+    language: "en",
+    t: (_de, en) => en,
+  });
+  fakeRuntime.resolveInteractionLanguage = () => "en";
+
+  const guild = {
+    id: "guild-1",
+    name: "Guild One",
+    channels: {
+      cache: new Map([
+        ["voice-1", {
+          id: "voice-1",
+          guildId: "guild-1",
+          name: "Radio",
+          type: ChannelType.GuildVoice,
+          rawPosition: 1,
+          isVoiceBased() {
+            return true;
+          },
+        }],
+      ]),
+    },
+  };
+  fakeRuntime.client.guilds.cache.set("guild-1", guild);
+
+  const payload = await openRuntimePlayWizard(fakeRuntime, {
+    guildId: "guild-1",
+    guild,
+    user: { id: "user-1" },
+    member: { voice: { channelId: "voice-1" } },
+  });
+
+  assert.equal(payload.embeds?.[0]?.data?.title, "🎛 OmniFM Quick start");
+  assert.equal(payload.components?.length >= 4, true);
+  assert.equal(payload.components?.[0]?.components?.[0]?.data?.custom_id.startsWith("omnifm:play:station:"), true);
+  assert.equal(payload.components?.[1]?.components?.[0]?.data?.custom_id.startsWith("omnifm:play:channel:"), true);
+  const actionRow = payload.components?.find((row) => row?.components?.[0]?.data?.custom_id?.startsWith("omnifm:play:start:"));
+  assert.equal(Boolean(actionRow), true);
+});
+
+test("stations browser payload exposes paging and quick-start actions", async () => {
+  const fakeRuntime = Object.create(BotRuntime.prototype);
+  fakeRuntime.interactiveUiSessions = new Map();
+  fakeRuntime.client = {
+    guilds: {
+      cache: new Map(),
+    },
+  };
+  fakeRuntime.createInteractionTranslator = () => ({
+    language: "en",
+    t: (_de, en) => en,
+  });
+  fakeRuntime.resolveInteractionLanguage = () => "en";
+
+  const guild = {
+    id: "guild-1",
+    name: "Guild One",
+    channels: {
+      cache: new Map(),
+    },
+  };
+  fakeRuntime.client.guilds.cache.set("guild-1", guild);
+
+  const payload = await openRuntimeStationsBrowser(fakeRuntime, {
+    guildId: "guild-1",
+    guild,
+    user: { id: "user-1" },
+  });
+
+  assert.equal(payload.embeds?.[0]?.data?.title, "📻 Station browser");
+  assert.equal(payload.components?.[0]?.components?.[0]?.data?.custom_id.startsWith("omnifm:stations:station:"), true);
+  const actionLabels = payload.components?.[1]?.components?.map((component) => component?.data?.label) || [];
+  assert.ok(actionLabels.includes("🎛 Quick start"));
+  assert.ok(actionLabels.includes("🔄 Refresh"));
 });
 
 test("workers status payload paginates and exposes page controls", async () => {
