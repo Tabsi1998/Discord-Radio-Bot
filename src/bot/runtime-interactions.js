@@ -67,6 +67,7 @@ import {
   INVITE_COMPONENT_ID_OPEN,
   PLAY_COMPONENT_ID_OPEN,
   STATIONS_COMPONENT_ID_OPEN,
+  WORKERS_COMPONENT_ID_OPEN,
   withLanguageParam,
 } from "./runtime-links.js";
 import {
@@ -78,6 +79,91 @@ import { buildOmniEmbed } from "./discord-ui.js";
 function getTierConfig(guildId) {
   const config = getServerPlanConfig(guildId);
   return { ...config, tier: config.plan };
+}
+
+function buildQuickActionRow(t, {
+  includePlay = false,
+  includeStations = false,
+  includeWorkers = false,
+  includeInvite = false,
+} = {}) {
+  const row = new ActionRowBuilder();
+  if (includePlay) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(PLAY_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Primary)
+        .setLabel(t("🎛 Schnellstart", "🎛 Quick start"))
+    );
+  }
+  if (includeStations) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(STATIONS_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("📻 Sender", "📻 Stations"))
+    );
+  }
+  if (includeWorkers) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(WORKERS_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("🤖 Worker", "🤖 Workers"))
+    );
+  }
+  if (includeInvite) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(INVITE_COMPONENT_ID_OPEN)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(t("📨 Worker einladen", "📨 Invite worker"))
+    );
+  }
+  return row.components.length ? row : null;
+}
+
+function buildSupportRow(language, {
+  includeDashboard = true,
+  includePremium = false,
+  includeSupport = true,
+  includeWebsite = false,
+} = {}) {
+  const components = [];
+  if (includeDashboard) {
+    components.push(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("📊 Dashboard")
+        .setURL(withLanguageParam(DASHBOARD_URL, language))
+    );
+  }
+  if (includePremium) {
+    components.push(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("💎 Premium")
+        .setURL(withLanguageParam(BRAND.upgradeUrl || WEBSITE_URL, language))
+    );
+  }
+  if (includeSupport) {
+    components.push(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("🛟 Support")
+        .setURL(SUPPORT_URL)
+    );
+  }
+  if (includeWebsite) {
+    components.push(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("🌐 Website")
+        .setURL(withLanguageParam(WEBSITE_URL, language))
+    );
+  }
+  if (!components.length) return null;
+  return new ActionRowBuilder().addComponents(...components.slice(0, 5));
 }
 
 function getLicense(guildId) {
@@ -914,11 +1000,11 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       licenseSummary = t("Abgelaufen", "Expired");
     }
 
-    const premiumEmbed = new EmbedBuilder()
-      .setColor(tierColor)
-      .setTitle(t("Premium-Status", "Premium status"))
-      .setDescription(`${BRAND.name} | ${tierConfig.name}`)
-      .addFields(
+    const premiumEmbed = buildOmniEmbed({
+      tone: tierConfig.tier === "ultimate" ? "admin" : tierConfig.tier === "pro" ? "live" : "info",
+      title: t("💎 Premium-Status", "💎 Premium status"),
+      description: `${BRAND.name} | ${tierConfig.name}`,
+      fields: [
         {
           name: t("Server", "Server"),
           value: `${clipText(interaction.guild?.name || gid, 120)}\n\`${gid}\``,
@@ -938,8 +1024,10 @@ export async function handleRuntimeInteraction(runtime, interaction) {
           name: t("Lizenz", "License"),
           value: licenseSummary,
           inline: true,
-        }
-      );
+        },
+      ],
+      footer: t("Plan, Audio-Profil und Lizenzstatus für diesen Server.", "Plan, audio profile, and license status for this server."),
+    });
 
     if (tierConfig.tier === "free") {
       premiumEmbed.addFields({
@@ -952,22 +1040,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       });
     }
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(t("Dashboard", "Dashboard"))
-        .setURL(dashboardUrl),
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(t("Premium", "Premium"))
-        .setURL(premiumUrl),
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(t("Support", "Support"))
-        .setURL(SUPPORT_URL)
-    );
+    const rows = [];
+    const quickRow = buildQuickActionRow(t, {
+      includePlay: true,
+      includeStations: true,
+      includeWorkers: runtime.role === "commander" && Boolean(runtime.workerManager),
+      includeInvite: runtime.role === "commander" && Boolean(runtime.workerManager),
+    });
+    if (quickRow) rows.push(quickRow);
+    rows.push(buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true }));
 
-    await interaction.reply({ embeds: [premiumEmbed], components: [row], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [premiumEmbed], components: rows.filter(Boolean), flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -1140,7 +1223,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const url = interaction.options.getString("url");
     const result = await addGuildStation(guildId, key, name, url);
     if (result.error) {
-      await interaction.reply({ content: translateCustomStationErrorMessage(result.error, language), flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        embeds: [
+          buildOmniEmbed({
+            tone: "warning",
+            title: t("⚠ Custom-Station konnte nicht gespeichert werden", "⚠ Could not save custom station"),
+            description: translateCustomStationErrorMessage(result.error, language),
+          }),
+        ],
+        components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
+        flags: MessageFlags.Ephemeral,
+      });
     } else {
       const count = countGuildStations(guildId);
       await interaction.reply({
@@ -1193,9 +1286,32 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }
     const key = interaction.options.getString("key");
     if (removeGuildStation(guildId, key)) {
-      await interaction.reply({ content: t(`Station \`${key}\` entfernt.`, `Station \`${key}\` removed.`), flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        embeds: [
+          buildOmniEmbed({
+            tone: "warning",
+            title: t("🧹 Custom-Station entfernt", "🧹 Custom station removed"),
+            description: t(`Station \`${key}\` entfernt.`, `Station \`${key}\` removed.`),
+          }),
+        ],
+        components: [
+          buildQuickActionRow(t, { includePlay: true, includeStations: true }),
+          buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true }),
+        ].filter(Boolean),
+        flags: MessageFlags.Ephemeral,
+      });
     } else {
-      await interaction.reply({ content: t(`Station \`${key}\` nicht gefunden.`, `Station \`${key}\` was not found.`), flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        embeds: [
+          buildOmniEmbed({
+            tone: "warning",
+            title: t("🔎 Custom-Station nicht gefunden", "🔎 Custom station not found"),
+            description: t(`Station \`${key}\` nicht gefunden.`, `Station \`${key}\` was not found.`),
+          }),
+        ],
+        components: [buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true })].filter(Boolean),
+        flags: MessageFlags.Ephemeral,
+      });
     }
     return;
   }
@@ -1210,7 +1326,29 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const custom = getGuildStations(guildId);
     const keys = Object.keys(custom);
     if (keys.length === 0) {
-      await interaction.reply({ content: t("Keine Custom-Stationen. Nutze `/addstation`, um eine hinzuzufÃ¼gen.", "No custom stations. Use `/addstation` to add one."), flags: MessageFlags.Ephemeral });
+      const quickRow = buildQuickActionRow(t, { includePlay: true, includeStations: true });
+      const supportRow = buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true });
+      await interaction.reply({
+        embeds: [
+          buildOmniEmbed({
+            tone: "info",
+            title: t("📂 Eigene Sender", "📂 Custom stations"),
+            description: t(
+              "Du hast noch keine eigenen Sender gespeichert. Lege zuerst mit `/addstation` einen privaten Stream an.",
+              "You do not have any custom stations yet. Create a private stream first with `/addstation`."
+            ),
+            fields: [
+              {
+                name: t("Nächster Schritt", "Next step"),
+                value: t("Danach kannst du den Sender direkt über `/play` oder `/stations` starten.", "After that, you can start it directly via `/play` or `/stations`."),
+                inline: false,
+              },
+            ],
+          }),
+        ],
+        components: [quickRow, supportRow].filter(Boolean),
+        flags: MessageFlags.Ephemeral,
+      });
     } else {
       const list = keys.map((k) => {
         const station = custom[k] || {};
@@ -1220,13 +1358,31 @@ export async function handleRuntimeInteraction(runtime, interaction) {
           meta.push(station.tags.map((tag) => `#${tag}`).join(", "));
         }
         const suffix = meta.length > 0 ? ` - ${meta.join(" ")}` : "";
-        return `\`${k}\` - ${station.name}${suffix}`;
-      }).join("\n");
-      await runtime.respondLongInteraction(
-        interaction,
-        `**${t("Custom Stationen", "Custom stations")} (${keys.length}/${MAX_STATIONS_PER_GUILD}):**\n${list}`,
-        { flags: MessageFlags.Ephemeral }
-      );
+        return `• **${station.name}**\n\`${k}\`${suffix}`;
+      }).join("\n\n");
+      const quickRow = buildQuickActionRow(t, { includePlay: true, includeStations: true });
+      const supportRow = buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true });
+      await interaction.reply({
+        embeds: [
+          buildOmniEmbed({
+            tone: "admin",
+            title: t("📂 Eigene Sender", "📂 Custom stations"),
+            description: t(
+              `${keys.length}/${MAX_STATIONS_PER_GUILD} Slots belegt. Deine privaten Streams sind direkt in OmniFM verfügbar.`,
+              `${keys.length}/${MAX_STATIONS_PER_GUILD} slots used. Your private streams are directly available in OmniFM.`
+            ),
+            fields: [
+              {
+                name: t("Sender", "Stations"),
+                value: clipText(list, 3500),
+                inline: false,
+              },
+            ],
+          }),
+        ],
+        components: [quickRow, supportRow].filter(Boolean),
+        flags: MessageFlags.Ephemeral,
+      });
     }
     return;
   }
@@ -1238,10 +1394,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const requiresManagePermission = sub === "activate" || sub === "remove";
     if (requiresManagePermission && !runtime.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
-        content: t(
-          "Du brauchst die Berechtigung `Server verwalten`, um Lizenz-Aktionen auszufÃ¼hren.",
-          "You need the `Manage Server` permission to execute license actions."
-        ),
+        embeds: [
+          buildOmniEmbed({
+            tone: "warning",
+            title: t("🛠 Lizenz-Rechte fehlen", "🛠 License permission missing"),
+            description: t(
+              "Du brauchst die Berechtigung `Server verwalten`, um Lizenz-Aktionen auszufuehren.",
+              "You need the `Manage Server` permission to execute license actions."
+            ),
+          }),
+        ],
+        components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -1261,11 +1424,34 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       }
 
       if (!lic) {
-        await interaction.reply({ content: t("Lizenz-Key nicht gefunden. Bitte pruefe den Key und versuche es erneut.", "License key not found. Please verify it and try again."), flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          embeds: [
+            buildOmniEmbed({
+              tone: "danger",
+              title: t("✖ Lizenz-Key nicht gefunden", "✖ License key not found"),
+              description: t(
+                "Bitte prüfe den Key und versuche es erneut oder verwalte die Lizenz direkt im Dashboard.",
+                "Please verify the key and try again, or manage the license directly in the dashboard."
+              ),
+            }),
+          ],
+          components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
+          flags: MessageFlags.Ephemeral,
+        });
         return;
       }
       if (lic.expired) {
-        await interaction.reply({ content: t("Diese Lizenz ist abgelaufen. Bitte erneuere dein Abo.", "This license has expired. Please renew your subscription."), flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          embeds: [
+            buildOmniEmbed({
+              tone: "warning",
+              title: t("⚠ Lizenz abgelaufen", "⚠ License expired"),
+              description: t("Diese Lizenz ist abgelaufen. Bitte erneuere dein Abo.", "This license has expired. Please renew your subscription."),
+            }),
+          ],
+          components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
+          flags: MessageFlags.Ephemeral,
+        });
         return;
       }
 
@@ -1279,7 +1465,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
               `All ${lic.seats} server seats are used. Remove a server with \`/license remove\` or upgrade to more seats first.`
             )
             : result.message;
-        await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          embeds: [
+            buildOmniEmbed({
+              tone: "warning",
+              title: t("⚠ Lizenz konnte nicht aktiviert werden", "⚠ License could not be activated"),
+              description: msg,
+            }),
+          ],
+          components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
+          flags: MessageFlags.Ephemeral,
+        });
         return;
       }
 
@@ -1289,22 +1485,26 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         ? new Date(refreshedLicense.expiresAt).toLocaleDateString(t("de-DE", "en-US"))
         : t("Unbegrenzt", "Unlimited");
       const usedSeats = refreshedLicense.linkedServerIds?.length || 0;
+      const quickRow = buildQuickActionRow(t, { includePlay: true, includeStations: true, includeWorkers: true, includeInvite: true });
+      const supportRow = buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true });
       await interaction.reply({
-        embeds: [{
-          color: refreshedLicense.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
-          title: t("Lizenz aktiviert!", "License activated!"),
-          description: t(
-            `Dieser Server wurde erfolgreich mit deiner **${planName}**-Lizenz verknuepft.`,
-            `This server was linked successfully with your **${planName}** license.`
-          ),
-          fields: [
-            { name: t("Lizenz-Key", "License key"), value: `\`${resolvedKey}\``, inline: true },
-            { name: t("Plan", "Plan"), value: planName, inline: true },
-            { name: t("Server-Slots", "Server seats"), value: `${usedSeats}/${refreshedLicense.seats}`, inline: true },
-            { name: t("Gueltig bis", "Valid until"), value: expDate, inline: true },
-          ],
-          footer: { text: t("OmniFM Premium", "OmniFM Premium") },
-        }],
+        embeds: [
+          buildOmniEmbed({
+            tone: refreshedLicense.plan === "ultimate" ? "admin" : "live",
+            title: t("✅ Lizenz aktiviert", "✅ License activated"),
+            description: t(
+              `Dieser Server wurde erfolgreich mit deiner **${planName}**-Lizenz verknüpft.`,
+              `This server was linked successfully with your **${planName}** license.`
+            ),
+            fields: [
+              { name: t("Lizenz-Key", "License key"), value: `\`${resolvedKey}\``, inline: true },
+              { name: t("Plan", "Plan"), value: planName, inline: true },
+              { name: t("Server-Slots", "Server seats"), value: `${usedSeats}/${refreshedLicense.seats}`, inline: true },
+              { name: t("Gültig bis", "Valid until"), value: expDate, inline: true },
+            ],
+          }),
+        ],
+        components: [quickRow, supportRow].filter(Boolean),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1314,10 +1514,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const lic = getServerLicense(guildId);
       if (!lic) {
         await interaction.reply({
-          content: t(
-            "Dieser Server hat keine aktive Lizenz.\nNutze `/license activate <key>` um einen Lizenz-Key zu aktivieren.",
-            "This server has no active license.\nUse `/license activate <key>` to activate one."
-          ),
+          embeds: [
+            buildOmniEmbed({
+              tone: "info",
+              title: t("🔓 Keine aktive Lizenz", "🔓 No active license"),
+              description: t(
+                "Dieser Server hat aktuell keine aktive Lizenz. Du kannst einen Key aktivieren oder direkt upgraden.",
+                "This server currently has no active license. You can activate a key or upgrade directly."
+              ),
+            }),
+          ],
+          components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -1328,21 +1535,25 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const linked = lic.linkedServerIds || [];
       const tierConfig = PLANS[lic.plan] || PLANS.free;
       await interaction.reply({
-        embeds: [{
-          color: lic.plan === "ultimate" ? 0xBD00FF : 0xFFB800,
-          title: `OmniFM ${planName}`,
-          fields: [
-            { name: t("Lizenz-Key", "License key"), value: `\`${lic.id || "-"}\``, inline: true },
-            { name: t("Plan", "Plan"), value: planName, inline: true },
-            { name: t("Server-Slots", "Server seats"), value: `${linked.length}/${lic.seats}`, inline: true },
-            { name: t("Gueltig bis", "Valid until"), value: expDate, inline: true },
-            { name: t("Verbleibend", "Remaining"), value: t(`${lic.remainingDays} Tage`, `${lic.remainingDays} days`), inline: true },
-            { name: t("Audio", "Audio"), value: tierConfig.bitrate, inline: true },
-            { name: t("Max Bots", "Max bots"), value: `${tierConfig.maxBots}`, inline: true },
-            { name: t("Reconnect", "Reconnect"), value: `${tierConfig.reconnectMs}ms`, inline: true },
-          ],
-          footer: { text: lic.expired ? t("ABGELAUFEN", "EXPIRED") : "OmniFM Premium" },
-        }],
+        embeds: [
+          buildOmniEmbed({
+            tone: lic.plan === "ultimate" ? "admin" : "live",
+            title: `💎 OmniFM ${planName}`,
+            description: t("Lizenz- und Planübersicht für diesen Server.", "License and plan overview for this server."),
+            fields: [
+              { name: t("Lizenz-Key", "License key"), value: `\`${lic.id || "-"}\``, inline: true },
+              { name: t("Plan", "Plan"), value: planName, inline: true },
+              { name: t("Server-Slots", "Server seats"), value: `${linked.length}/${lic.seats}`, inline: true },
+              { name: t("Gültig bis", "Valid until"), value: expDate, inline: true },
+              { name: t("Verbleibend", "Remaining"), value: t(`${lic.remainingDays} Tage`, `${lic.remainingDays} days`), inline: true },
+              { name: t("Audio", "Audio"), value: tierConfig.bitrate, inline: true },
+              { name: t("Max Bots", "Max bots"), value: `${tierConfig.maxBots}`, inline: true },
+              { name: t("Reconnect", "Reconnect"), value: `${tierConfig.reconnectMs}ms`, inline: true },
+            ],
+            footer: lic.expired ? t("ABGELAUFEN", "EXPIRED") : "OmniFM Premium",
+          }),
+        ],
+        components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1351,21 +1562,54 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     if (sub === "remove") {
       const lic = getServerLicense(guildId);
       if (!lic || !lic.id) {
-        await interaction.reply({ content: t("Dieser Server hat keine aktive Lizenz.", "This server has no active license."), flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          embeds: [
+            buildOmniEmbed({
+              tone: "info",
+              title: t("🔓 Keine aktive Lizenz", "🔓 No active license"),
+              description: t("Dieser Server hat keine aktive Lizenz.", "This server has no active license."),
+            }),
+          ],
+          components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
+          flags: MessageFlags.Ephemeral,
+        });
         return;
       }
 
       const result = unlinkServerFromLicense(guildId, lic.id);
       if (!result.ok) {
-        await interaction.reply({ content: t("Fehler beim Entfernen: ", "Error while removing: ") + result.message, flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          embeds: [
+            buildOmniEmbed({
+              tone: "danger",
+              title: t("✖ Lizenz konnte nicht entfernt werden", "✖ License could not be removed"),
+              description: t("Fehler beim Entfernen: ", "Error while removing: ") + result.message,
+            }),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
         return;
       }
 
       await interaction.reply({
-        content: t(
-          "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann fÃ¼r einen anderen Server genutzt werden.\nNutze `/license activate <key>`, um eine neue Lizenz zu aktivieren.",
-          "Server was unlinked from the license. The seat is now free and can be used for another server.\nUse `/license activate <key>` to activate a new license."
-        ),
+        embeds: [
+          buildOmniEmbed({
+            tone: "warning",
+            title: t("🧹 Lizenz entfernt", "🧹 License removed"),
+            description: t(
+              "Server wurde von der Lizenz entfernt. Der Server-Slot ist jetzt frei und kann für einen anderen Server genutzt werden.",
+              "The server was unlinked from the license. The seat is now free and can be used for another server."
+            ),
+            fields: [
+              {
+                name: t("Nächster Schritt", "Next step"),
+                value: t("Nutze `/license activate`, um einen neuen Key zu verbinden, oder upgrade direkt über das Dashboard.", "Use `/license activate` to link a new key, or upgrade directly in the dashboard."),
+                inline: false,
+              },
+            ],
+          }),
+        ],
+        components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1377,20 +1621,34 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const guildId = interaction.guildId;
     if (!serverHasCapability(guildId, "voice_guard")) {
       await interaction.reply({
-        content: t(
-          "Voice Guard ist nur fuer Ultimate verfuegbar.",
-          "Voice guard is only available on Ultimate."
-        ),
+        embeds: [
+          buildOmniEmbed({
+            tone: "info",
+            title: t("🛡 Voice Guard gesperrt", "🛡 Voice guard locked"),
+            description: t(
+              "Voice Guard ist nur fuer Ultimate verfuegbar.",
+              "Voice guard is only available on Ultimate."
+            ),
+          }),
+        ],
+        components: [buildSupportRow(language, { includeDashboard: true, includePremium: true, includeSupport: true })].filter(Boolean),
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
     if (!runtime.hasGuildManagePermissions(interaction)) {
       await interaction.reply({
-        content: t(
-          "Du brauchst die Berechtigung `Server verwalten`, um den Voice-Guard zu aendern.",
-          "You need the `Manage Server` permission to manage the voice guard."
-        ),
+        embeds: [
+          buildOmniEmbed({
+            tone: "warning",
+            title: t("🛠 Voice-Guard-Rechte fehlen", "🛠 Voice guard permission missing"),
+            description: t(
+              "Du brauchst die Berechtigung `Server verwalten`, um den Voice-Guard zu aendern.",
+              "You need the `Manage Server` permission to manage the voice guard."
+            ),
+          }),
+        ],
+        components: [buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true })].filter(Boolean),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1400,16 +1658,33 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const rawValue = interaction.options.getString("value", true);
       const validated = validateVoiceGuardSettings({ policy: rawValue });
       if (!validated.ok) {
-        await interaction.reply({ content: t(validated.error, validated.error), flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          embeds: [
+            buildOmniEmbed({
+              tone: "warning",
+              title: t("⚠ Voice-Guard-Policy ungültig", "⚠ Invalid voice guard policy"),
+              description: t(validated.error, validated.error),
+            }),
+          ],
+          components: [buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true })].filter(Boolean),
+          flags: MessageFlags.Ephemeral,
+        });
         return;
       }
       const persisted = await updateGuildSettings(guildId, { voiceGuard: validated.config });
       if (!persisted.ok) {
         await interaction.reply({
-          content: t(
-            "Voice-Guard-Policy konnte nicht gespeichert werden. MongoDB ist vermutlich nicht verfuegbar.",
-            "The voice guard policy could not be saved. MongoDB is likely unavailable."
-          ),
+          embeds: [
+            buildOmniEmbed({
+              tone: "danger",
+              title: t("✖ Voice Guard konnte nicht gespeichert werden", "✖ Could not save voice guard"),
+              description: t(
+                "Voice-Guard-Policy konnte nicht gespeichert werden. Bitte versuche es spaeter erneut oder nutze das Dashboard.",
+                "The voice guard policy could not be saved. Please try again later or use the dashboard."
+              ),
+            }),
+          ],
+          components: [buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true })].filter(Boolean),
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -1418,10 +1693,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       await runtime.refreshVoiceGuardSettingsForGuild(guildId, { force: true }).catch(() => null);
       const resolved = buildResolvedVoiceGuardConfig(validated.config);
       await interaction.reply({
-        content: t(
-          `Voice-Guard-Policy gespeichert: **${formatVoiceGuardPolicyLabel(resolved.policy, t)}** | Aktiv: **${formatVoiceGuardPolicyLabel(resolved.effectivePolicy, t)}**`,
-          `Voice guard policy saved: **${formatVoiceGuardPolicyLabel(resolved.policy, t)}** | Active: **${formatVoiceGuardPolicyLabel(resolved.effectivePolicy, t)}**`
-        ),
+        embeds: [
+          buildOmniEmbed({
+            tone: resolved.effectivePolicy === "disconnect" ? "warning" : "success",
+            title: t("🛡 Voice Guard aktualisiert", "🛡 Voice guard updated"),
+            description: t(
+              `Gespeichert: **${formatVoiceGuardPolicyLabel(resolved.policy, t)}** | Aktiv: **${formatVoiceGuardPolicyLabel(resolved.effectivePolicy, t)}**`,
+              `Saved: **${formatVoiceGuardPolicyLabel(resolved.policy, t)}** | Active: **${formatVoiceGuardPolicyLabel(resolved.effectivePolicy, t)}**`
+            ),
+          }),
+        ],
+        components: [buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true })].filter(Boolean),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1440,68 +1722,69 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const cooldownLabel = liveSummary.cooldownUntil
         ? new Date(Number(liveSummary.cooldownUntil)).toLocaleString(language === "de" ? "de-DE" : "en-US")
         : "-";
+      const quickRow = buildQuickActionRow(t, { includePlay: true, includeStations: true });
+      const supportRow = buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true });
       await interaction.reply({
-        embeds: [{
-          color: liveSummary.unlocked ? 0xF59E0B : liveSummary.effectivePolicy === "disconnect" ? 0xEF4444 : liveSummary.effectivePolicy === "return" ? 0x10B981 : 0x71717A,
-          title: t("Voice Guard", "Voice guard"),
-          fields: [
-            {
-              name: t("Policy", "Policy"),
-              value: `${formatVoiceGuardPolicyLabel(liveSummary.policy, t)} -> ${formatVoiceGuardPolicyLabel(liveSummary.effectivePolicy, t)}`,
-              inline: true,
-            },
-            {
-              name: t("Unlock", "Unlock"),
-              value: liveSummary.unlocked
-                ? t(`aktiv bis ${unlockLabel}`, `active until ${unlockLabel}`)
-                : t("nicht aktiv", "inactive"),
-              inline: true,
-            },
-            {
-              name: t("Cooldown", "Cooldown"),
-              value: liveSummary.cooldownUntil
-                ? cooldownLabel
-                : "-",
-              inline: true,
-            },
-            {
-              name: t("Bewegungen", "Moves"),
-              value: t(
-                `Gesamt: ${liveSummary.moveCount} | Fenster: ${liveSummary.moveWindowCount}/${liveSummary.maxMovesPerWindow}`,
-                `Total: ${liveSummary.moveCount} | Window: ${liveSummary.moveWindowCount}/${liveSummary.maxMovesPerWindow}`
-              ),
-              inline: false,
-            },
-            {
-              name: t("Aktionen", "Actions"),
-              value: t(
-                `Returns: ${liveSummary.returnCount} | Disconnects: ${liveSummary.disconnectCount} | Eskalationen: ${liveSummary.escalationCount}`,
-                `Returns: ${liveSummary.returnCount} | Disconnects: ${liveSummary.disconnectCount} | Escalations: ${liveSummary.escalationCount}`
-              ),
-              inline: false,
-            },
-            {
-              name: t("Letzte Aktion", "Last action"),
-              value: liveSummary.lastAction
-                ? `${liveSummary.lastAction}${liveSummary.lastActionReason ? ` | ${liveSummary.lastActionReason}` : ""}`
-                : "-",
-              inline: false,
-            },
-            {
-              name: t("Guard-Regeln", "Guard rules"),
-              value: t(
-                `Confirm: ${liveSummary.moveConfirmations} | Return-Cooldown: ${formatVoiceGuardDurationMs(liveSummary.returnCooldownMs)} | Fenster: ${formatVoiceGuardDurationMs(liveSummary.moveWindowMs)} | Eskalation: ${liveSummary.escalation}`,
-                `Confirm: ${liveSummary.moveConfirmations} | Return cooldown: ${formatVoiceGuardDurationMs(liveSummary.returnCooldownMs)} | Window: ${formatVoiceGuardDurationMs(liveSummary.moveWindowMs)} | Escalation: ${liveSummary.escalation}`
-              ),
-              inline: false,
-            },
-          ],
-          footer: {
-            text: activeRuntime
+        embeds: [
+          buildOmniEmbed({
+            tone: liveSummary.unlocked ? "warning" : liveSummary.effectivePolicy === "disconnect" ? "danger" : liveSummary.effectivePolicy === "return" ? "success" : "neutral",
+            title: t("🛡 Voice Guard", "🛡 Voice guard"),
+            fields: [
+              {
+                name: t("Policy", "Policy"),
+                value: `${formatVoiceGuardPolicyLabel(liveSummary.policy, t)} -> ${formatVoiceGuardPolicyLabel(liveSummary.effectivePolicy, t)}`,
+                inline: true,
+              },
+              {
+                name: t("Unlock", "Unlock"),
+                value: liveSummary.unlocked
+                  ? t(`aktiv bis ${unlockLabel}`, `active until ${unlockLabel}`)
+                  : t("nicht aktiv", "inactive"),
+                inline: true,
+              },
+              {
+                name: t("Cooldown", "Cooldown"),
+                value: liveSummary.cooldownUntil ? cooldownLabel : "-",
+                inline: true,
+              },
+              {
+                name: t("Bewegungen", "Moves"),
+                value: t(
+                  `Gesamt: ${liveSummary.moveCount} | Fenster: ${liveSummary.moveWindowCount}/${liveSummary.maxMovesPerWindow}`,
+                  `Total: ${liveSummary.moveCount} | Window: ${liveSummary.moveWindowCount}/${liveSummary.maxMovesPerWindow}`
+                ),
+                inline: false,
+              },
+              {
+                name: t("Aktionen", "Actions"),
+                value: t(
+                  `Returns: ${liveSummary.returnCount} | Disconnects: ${liveSummary.disconnectCount} | Eskalationen: ${liveSummary.escalationCount}`,
+                  `Returns: ${liveSummary.returnCount} | Disconnects: ${liveSummary.disconnectCount} | Escalations: ${liveSummary.escalationCount}`
+                ),
+                inline: false,
+              },
+              {
+                name: t("Letzte Aktion", "Last action"),
+                value: liveSummary.lastAction
+                  ? `${liveSummary.lastAction}${liveSummary.lastActionReason ? ` | ${liveSummary.lastActionReason}` : ""}`
+                  : "-",
+                inline: false,
+              },
+              {
+                name: t("Guard-Regeln", "Guard rules"),
+                value: t(
+                  `Confirm: ${liveSummary.moveConfirmations} | Return-Cooldown: ${formatVoiceGuardDurationMs(liveSummary.returnCooldownMs)} | Fenster: ${formatVoiceGuardDurationMs(liveSummary.moveWindowMs)} | Eskalation: ${liveSummary.escalation}`,
+                  `Confirm: ${liveSummary.moveConfirmations} | Return cooldown: ${formatVoiceGuardDurationMs(liveSummary.returnCooldownMs)} | Window: ${formatVoiceGuardDurationMs(liveSummary.moveWindowMs)} | Escalation: ${liveSummary.escalation}`
+                ),
+                inline: false,
+              },
+            ],
+            footer: activeRuntime
               ? t(`Live-Runtime: ${activeRuntime.config.name}`, `Live runtime: ${activeRuntime.config.name}`)
               : t("Keine aktive Stream-Runtime erkannt", "No active stream runtime detected"),
-          },
-        }],
+          }),
+        ],
+        components: [quickRow, supportRow].filter(Boolean),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1511,7 +1794,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const resolved = await runtime.resolveStreamingRuntimeForInteraction(interaction);
       if (!resolved.runtime || !resolved.state) {
         await interaction.reply({
-          content: runtime.buildRuntimeSelectionHint(resolved.reason, language),
+          embeds: [
+            buildOmniEmbed({
+              tone: "info",
+              title: t("ℹ Voice Guard wartet auf einen aktiven Stream", "ℹ Voice guard needs an active stream"),
+              description: runtime.buildRuntimeSelectionHint(resolved.reason, language),
+            }),
+          ],
+          components: [
+            buildQuickActionRow(t, { includePlay: true, includeStations: true }),
+            buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true }),
+          ].filter(Boolean),
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -1519,10 +1812,16 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const minutes = Math.max(1, Math.min(180, Number(interaction.options.getInteger("minutes") || 10) || 10));
       const result = resolved.runtime.setVoiceGuardTemporaryUnlock(guildId, minutes * 60_000, "slash-unlock");
       await interaction.reply({
-        content: t(
-          `Voice Guard ist jetzt fuer ${result.label} entsperrt. Du kannst den Bot in dieser Zeit bewusst verschieben.`,
-          `Voice guard is unlocked for ${result.label}. You can intentionally move the bot during that time.`
-        ),
+        embeds: [
+          buildOmniEmbed({
+            tone: "warning",
+            title: t("🔓 Voice Guard entsperrt", "🔓 Voice guard unlocked"),
+            description: t(
+              `Voice Guard ist jetzt für ${result.label} entsperrt. Du kannst den Bot in dieser Zeit bewusst verschieben.`,
+              `Voice guard is unlocked for ${result.label}. You can intentionally move the bot during that time.`
+            ),
+          }),
+        ],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1533,20 +1832,33 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       if (!resolved.runtime || !resolved.state) {
         runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
         await interaction.reply({
-          content: t(
-            "Keine aktive Stream-Runtime gefunden. Temporaere Unlocks wurden fuer diesen Server zurueckgesetzt, falls vorhanden.",
-            "No active stream runtime found. Temporary unlocks were reset for this server where present."
-          ),
+          embeds: [
+            buildOmniEmbed({
+              tone: "info",
+              title: t("🛡 Voice Guard zurückgesetzt", "🛡 Voice guard reset"),
+              description: t(
+                "Keine aktive Stream-Runtime gefunden. Temporaere Unlocks wurden fuer diesen Server zurueckgesetzt, falls vorhanden.",
+                "No active stream runtime found. Temporary unlocks were reset for this server where present."
+              ),
+            }),
+          ],
+          components: [buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true })].filter(Boolean),
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
       resolved.runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
       await interaction.reply({
-        content: t(
-          "Voice Guard ist wieder sofort aktiv.",
-          "Voice guard is active again immediately."
-        ),
+        embeds: [
+          buildOmniEmbed({
+            tone: "success",
+            title: t("🔒 Voice Guard aktiv", "🔒 Voice guard active"),
+            description: t(
+              "Voice Guard ist wieder sofort aktiv.",
+              "Voice guard is active again immediately."
+            ),
+          }),
+        ],
         flags: MessageFlags.Ephemeral,
       });
       return;

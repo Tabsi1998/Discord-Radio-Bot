@@ -1,4 +1,7 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
   EmbedBuilder,
   GuildScheduledEventEntityType,
@@ -55,10 +58,98 @@ import {
 } from "../scheduled-events-store.js";
 import { BRAND } from "../config/plans.js";
 import {
+  DASHBOARD_URL,
+  PLAY_COMPONENT_ID_OPEN,
+  STATIONS_COMPONENT_ID_OPEN,
+  SUPPORT_URL,
+  withLanguageParam,
+} from "./runtime-links.js";
+import { buildOmniEmbed } from "./discord-ui.js";
+import {
   resolveRuntimeGuildVoiceChannel,
   ensureRuntimeStageChannelReady,
   ensureRuntimeVoiceConnectionForChannel,
 } from "./runtime-voice.js";
+
+function buildEventActionRows(language = "de", {
+  includePlayback = true,
+  includeDashboard = true,
+  includePremium = false,
+  includeSupport = false,
+} = {}) {
+  const t = (de, en) => languagePick(language, de, en);
+  const rows = [];
+  if (includePlayback) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(PLAY_COMPONENT_ID_OPEN)
+          .setStyle(ButtonStyle.Primary)
+          .setLabel(t("🎛 Schnellstart", "🎛 Quick start")),
+        new ButtonBuilder()
+          .setCustomId(STATIONS_COMPONENT_ID_OPEN)
+          .setStyle(ButtonStyle.Secondary)
+          .setLabel(t("📻 Sender", "📻 Stations"))
+      )
+    );
+  }
+  const supportButtons = [];
+  if (includeDashboard) {
+    supportButtons.push(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("📊 Dashboard")
+        .setURL(withLanguageParam(DASHBOARD_URL, language))
+    );
+  }
+  if (includePremium) {
+    supportButtons.push(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("💎 Premium")
+        .setURL(withLanguageParam(BRAND.upgradeUrl || DASHBOARD_URL, language))
+    );
+  }
+  if (includeSupport) {
+    supportButtons.push(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("🛟 Support")
+        .setURL(SUPPORT_URL)
+    );
+  }
+  if (supportButtons.length) {
+    rows.push(new ActionRowBuilder().addComponents(...supportButtons.slice(0, 5)));
+  }
+  return rows;
+}
+
+function buildEventNoticePayload(language, {
+  tone = "info",
+  title,
+  description,
+  fields = [],
+  includePlayback = true,
+  includePremium = false,
+  includeSupport = false,
+} = {}) {
+  return {
+    embeds: [
+      buildOmniEmbed({
+        tone,
+        title,
+        description,
+        fields,
+      }),
+    ],
+    components: buildEventActionRows(language, {
+      includePlayback,
+      includePremium,
+      includeSupport,
+    }),
+    flags: MessageFlags.Ephemeral,
+  };
+}
 
 export function normalizeStationReference(runtime, rawStationKey) {
   const customRef = parseCustomStationReference(rawStationKey);
@@ -955,22 +1046,36 @@ export async function handleEventCommand(runtime, interaction) {
   const guildId = interaction.guildId;
   const { t, language } = runtime.createInteractionTranslator(interaction);
   if (!runtime.hasGuildManagePermissions(interaction)) {
-    await interaction.reply({
-      content: t(
+    await interaction.reply(buildEventNoticePayload(language, {
+      tone: "warning",
+      title: t("🛠 Event-Rechte fehlen", "🛠 Event permission missing"),
+      description: t(
         "Du brauchst die Berechtigung `Server verwalten` für `/event`.",
         "You need the `Manage Server` permission for `/event`."
       ),
-      flags: MessageFlags.Ephemeral,
-    });
+      includePlayback: false,
+      includeSupport: true,
+    }));
     return;
   }
 
   const feature = requireFeature(guildId, "scheduledEvents");
   if (!feature.ok) {
-    await interaction.reply({
-      content: `${getFeatureRequirementMessage(feature, language)}\nUpgrade: ${BRAND.upgradeUrl || "https://discord.gg/UeRkfGS43R"}`,
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.reply(buildEventNoticePayload(language, {
+      tone: "info",
+      title: t("📅 Events sind nicht freigeschaltet", "📅 Events are not unlocked"),
+      description: getFeatureRequirementMessage(feature, language),
+      fields: [
+        {
+          name: t("Upgrade", "Upgrade"),
+          value: withLanguageParam(BRAND.upgradeUrl || DASHBOARD_URL, language),
+          inline: false,
+        },
+      ],
+      includePlayback: false,
+      includePremium: true,
+      includeSupport: true,
+    }));
     return;
   }
 
@@ -979,10 +1084,13 @@ export async function handleEventCommand(runtime, interaction) {
   const me = guild ? await runtime.resolveBotMember(guild) : null;
 
   if (!guild || !me) {
-    await interaction.reply({
-      content: t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load the bot member in this server."),
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.reply(buildEventNoticePayload(language, {
+      tone: "danger",
+      title: t("✖ Server-Zugriff fehlgeschlagen", "✖ Server access failed"),
+      description: t("Bot-Mitglied im Server konnte nicht geladen werden.", "Could not load the bot member in this server."),
+      includePlayback: false,
+      includeSupport: true,
+    }));
     return;
   }
 
@@ -1045,7 +1153,11 @@ export async function handleEventCommand(runtime, interaction) {
     const description = runtime.normalizeClearableText(interaction.options.getString("description"), 800);
 
     if (!name) {
-      await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("✍ Eventname fehlt", "✍ Event name missing"),
+        description: t("Eventname darf nicht leer sein.", "Event name cannot be empty."),
+      }));
       return;
     }
 
@@ -1054,24 +1166,33 @@ export async function handleEventCommand(runtime, interaction) {
       createDiscordEvent,
     });
     if (voiceError) {
-      await interaction.reply({ content: voiceError, flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("🎙 Voice-Channel prüfen", "🎙 Check voice channel"),
+        description: voiceError,
+      }));
       return;
     }
 
     const textError = validateTextChannel(textChannel);
     if (textError) {
-      await interaction.reply({ content: textError, flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("💬 Text-Channel prüfen", "💬 Check text channel"),
+        description: textError,
+      }));
       return;
     }
 
     if (![startRaw, startDateRaw, startTimeRaw].some((value) => String(value || "").trim())) {
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("🕒 Startzeit fehlt", "🕒 Start time missing"),
+        description: t(
           "Bitte gib eine Startzeit an. Nutze entweder `start` oder die Kombination aus `startdate` + `starttime`.",
           "Please provide a start time. Use either `start` or the `startdate` + `starttime` combination."
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+      }));
       return;
     }
 
@@ -1086,33 +1207,43 @@ export async function handleEventCommand(runtime, interaction) {
       allowImmediate: !createDiscordEvent,
     });
     if (!parsedWindow.ok) {
-      await interaction.reply({ content: parsedWindow.message, flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("🗓 Zeitfenster ungültig", "🗓 Invalid event window"),
+        description: parsedWindow.message,
+      }));
       return;
     }
     if (createDiscordEvent && parsedWindow.runAtMs < Date.now() + 60_000) {
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("📣 Server-Event zu früh", "📣 Server event too soon"),
+        description: t(
           "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
           "With `serverevent`, start time must be at least 60 seconds in the future."
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+      }));
       return;
     }
     if (repeat === "weekdays" && !isWorkdayInTimeZone(parsedWindow.runAtMs, parsedWindow.timeZone)) {
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("📆 Wiederholung passt nicht", "📆 Repeat rule does not match"),
+        description: t(
           "Für `weekdays` muss die Startzeit auf Montag bis Freitag liegen.",
           "For `weekdays`, the start time must fall on Monday to Friday."
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+      }));
       return;
     }
 
     const station = runtime.resolveStationForGuild(guildId, stationRaw, language);
     if (!station.ok) {
-      await interaction.reply({ content: station.message, flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("📻 Sender prüfen", "📻 Check station"),
+        description: station.message,
+      }));
       return;
     }
 
@@ -1120,13 +1251,14 @@ export async function handleEventCommand(runtime, interaction) {
       const guildTier = getTier(guildId);
       const invitedWorkers = runtime.workerManager.getInvitedWorkers(guildId, guildTier);
       if (invitedWorkers.length === 0) {
-        await interaction.reply({
-          content: t(
+        await interaction.reply(buildEventNoticePayload(language, {
+          tone: "warning",
+          title: t("🤖 Kein Worker verfügbar", "🤖 No worker available"),
+          description: t(
             "Kein geeigneter Worker-Bot ist auf diesem Server eingeladen. Bitte zuerst einen Worker mit `/invite worker:1` einladen.",
             "No eligible worker bot is invited on this server. Please invite one first with `/invite worker:1`."
           ),
-          flags: MessageFlags.Ephemeral,
-        });
+        }));
         return;
       }
     }
@@ -1154,7 +1286,12 @@ export async function handleEventCommand(runtime, interaction) {
 
     if (!created.ok) {
       const storeMessage = translateScheduledEventStoreMessage(created.message, language);
-      await interaction.reply({ content: t(`Event konnte nicht gespeichert werden: ${storeMessage}`, `Could not save event: ${storeMessage}`), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "danger",
+        title: t("✖ Event konnte nicht gespeichert werden", "✖ Could not save event"),
+        description: storeMessage,
+        includeSupport: true,
+      }));
       return;
     }
 
@@ -1185,7 +1322,7 @@ export async function handleEventCommand(runtime, interaction) {
         inline: false,
       });
     }
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], components: buildEventActionRows(language), flags: MessageFlags.Ephemeral });
     if (replyEvent.runAtMs <= Date.now() + 5_000) {
       runtime.queueImmediateScheduledEventTick(250);
     }
@@ -1196,7 +1333,11 @@ export async function handleEventCommand(runtime, interaction) {
     const id = interaction.options.getString("id", true);
     const existing = getScheduledEvent(id);
     if (!existing || existing.guildId !== guildId || existing.botId !== runtime.config.id) {
-      await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("🔎 Event nicht gefunden", "🔎 Event not found"),
+        description: t("Event nicht gefunden.", "Event not found."),
+      }));
       return;
     }
 
@@ -1239,7 +1380,11 @@ export async function handleEventCommand(runtime, interaction) {
       : existing.description;
 
     if (!nextName) {
-      await interaction.reply({ content: t("Eventname darf nicht leer sein.", "Event name cannot be empty."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("✍ Eventname fehlt", "✍ Event name missing"),
+        description: t("Eventname darf nicht leer sein.", "Event name cannot be empty."),
+      }));
       return;
     }
 
@@ -1248,13 +1393,21 @@ export async function handleEventCommand(runtime, interaction) {
       createDiscordEvent: nextCreateDiscordEvent,
     });
     if (voiceError) {
-      await interaction.reply({ content: voiceError, flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("🎙 Voice-Channel prüfen", "🎙 Check voice channel"),
+        description: voiceError,
+      }));
       return;
     }
 
     const textError = validateTextChannel(nextTextChannel);
     if (textError) {
-      await interaction.reply({ content: textError, flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("💬 Text-Channel prüfen", "💬 Check text channel"),
+        description: textError,
+      }));
       return;
     }
 
@@ -1273,28 +1426,34 @@ export async function handleEventCommand(runtime, interaction) {
       allowImmediate: !nextCreateDiscordEvent,
     });
     if (!parsedWindow.ok) {
-      await interaction.reply({ content: parsedWindow.message, flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("🗓 Zeitfenster ungültig", "🗓 Invalid event window"),
+        description: parsedWindow.message,
+      }));
       return;
     }
     if (nextCreateDiscordEvent && (hasStartChange || serverEventRaw === true) && parsedWindow.runAtMs < Date.now() + 60_000) {
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("📣 Server-Event zu früh", "📣 Server event too soon"),
+        description: t(
           "Mit `serverevent` muss die Startzeit mindestens 60 Sekunden in der Zukunft liegen.",
           "With `serverevent`, start time must be at least 60 seconds in the future."
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+      }));
       return;
     }
     const nextRepeat = repeatRaw ? normalizeRepeatMode(repeatRaw) : existing.repeat;
     if (nextRepeat === "weekdays" && !isWorkdayInTimeZone(parsedWindow.runAtMs, parsedWindow.timeZone)) {
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("📆 Wiederholung passt nicht", "📆 Repeat rule does not match"),
+        description: t(
           "Für `weekdays` muss die Startzeit auf Montag bis Freitag liegen.",
           "For `weekdays`, the start time must fall on Monday to Friday."
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+      }));
       return;
     }
 
@@ -1302,7 +1461,11 @@ export async function handleEventCommand(runtime, interaction) {
     if (stationRaw) {
       resolvedStation = runtime.resolveStationForGuild(guildId, stationRaw, language);
       if (!resolvedStation.ok) {
-        await interaction.reply({ content: resolvedStation.message, flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildEventNoticePayload(language, {
+          tone: "warning",
+          title: t("📻 Sender prüfen", "📻 Check station"),
+          description: resolvedStation.message,
+        }));
         return;
       }
     } else if (!resolvedStation.ok) {
@@ -1331,10 +1494,12 @@ export async function handleEventCommand(runtime, interaction) {
 
     const updated = patchScheduledEvent(existing.id, patchPayload);
     if (!updated.ok) {
-      await interaction.reply({
-        content: translateScheduledEventStoreMessage(updated.message, language),
-        flags: MessageFlags.Ephemeral,
-      });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "danger",
+        title: t("✖ Event konnte nicht aktualisiert werden", "✖ Could not update event"),
+        description: translateScheduledEventStoreMessage(updated.message, language),
+        includeSupport: true,
+      }));
       return;
     }
 
@@ -1369,7 +1534,7 @@ export async function handleEventCommand(runtime, interaction) {
         inline: false,
       });
     }
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], components: buildEventActionRows(language), flags: MessageFlags.Ephemeral });
     if (replyEvent.enabled && replyEvent.runAtMs <= Date.now() + 5_000) {
       runtime.queueImmediateScheduledEventTick(250);
     }
@@ -1384,12 +1549,33 @@ export async function handleEventCommand(runtime, interaction) {
     });
 
     if (!events.length) {
-      await interaction.reply({ content: t("Keine geplanten Events.", "No scheduled events."), flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        embeds: [
+          buildOmniEmbed({
+            tone: "info",
+            title: t("🗓 Keine Events geplant", "🗓 No events scheduled"),
+            description: t(
+              "Für diesen Server sind aktuell keine OmniFM-Events gespeichert.",
+              "There are currently no OmniFM events stored for this server."
+            ),
+            fields: [
+              {
+                name: t("Nächster Schritt", "Next step"),
+                value: t("Lege mit `/event create` den ersten automatischen Start an.", "Create the first automated start with `/event create`."),
+                inline: false,
+              },
+            ],
+          }),
+        ],
+        components: buildEventActionRows(language),
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
 
     await interaction.reply({
       embeds: [runtime.buildScheduledEventsListEmbed(events, guildId, language)],
+      components: buildEventActionRows(language),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -1399,7 +1585,12 @@ export async function handleEventCommand(runtime, interaction) {
     const id = interaction.options.getString("id", true);
     const existing = getScheduledEvent(id);
     if (!existing || existing.guildId !== guildId || existing.botId !== runtime.config.id) {
-      await interaction.reply({ content: t("Event nicht gefunden.", "Event not found."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "warning",
+        title: t("🔎 Event nicht gefunden", "🔎 Event not found"),
+        description: t("Event nicht gefunden.", "Event not found."),
+        includePlayback: false,
+      }));
       return;
     }
 
@@ -1415,15 +1606,33 @@ export async function handleEventCommand(runtime, interaction) {
     }
     const removed = deleteScheduledEvent(id, { guildId, botId: runtime.config.id });
     if (!removed.ok) {
-      await interaction.reply({ content: translateScheduledEventStoreMessage(removed.message, language), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildEventNoticePayload(language, {
+        tone: "danger",
+        title: t("✖ Event konnte nicht entfernt werden", "✖ Could not remove event"),
+        description: translateScheduledEventStoreMessage(removed.message, language),
+        includePlayback: false,
+        includeSupport: true,
+      }));
       return;
     }
     await interaction.reply({
-      content: `${t("Event", "Event")} \`${id}\` ${t("entfernt", "removed")}.${removedDiscordEvent ? ` ${t("Discord-Server-Event ebenfalls entfernt.", "Discord server event was removed too.")}` : ""}`,
+      embeds: [
+        buildOmniEmbed({
+          tone: "warning",
+          title: t("🧹 Event entfernt", "🧹 Event removed"),
+          description: `${t("Event", "Event")} \`${id}\` ${t("entfernt", "removed")}.${removedDiscordEvent ? ` ${t("Discord-Server-Event ebenfalls entfernt.", "Discord server event was removed too.")}` : ""}`,
+        }),
+      ],
+      components: buildEventActionRows(language, { includePlayback: false }),
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  await interaction.reply({ content: t("Unbekannte /event Aktion.", "Unknown /event action."), flags: MessageFlags.Ephemeral });
+  await interaction.reply(buildEventNoticePayload(language, {
+    tone: "warning",
+    title: t("❓ Unbekannte Event-Aktion", "❓ Unknown event action"),
+    description: t("Unbekannte /event Aktion.", "Unknown /event action."),
+    includePlayback: false,
+  }));
 }
