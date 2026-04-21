@@ -459,6 +459,11 @@ function normalizeDashboardHealthIncident(source = {}) {
   };
 }
 
+function isCustomerVisibleDashboardHealthIncidentEvent(eventKey) {
+  const normalizedEventKey = String(eventKey || "").trim().toLowerCase();
+  return normalizedEventKey === "stream_failover_activated" || normalizedEventKey === "stream_failover_exhausted";
+}
+
 function normalizeDashboardHealth(source = {}) {
   const input = source && typeof source === "object" ? source : {};
   const managedBots = Math.max(0, Number(input.managedBots || 0) || 0);
@@ -483,7 +488,11 @@ function normalizeDashboardHealth(source = {}) {
     nextEventAt: input.nextEventAt || null,
     nextEventTitle: String(input.nextEventTitle || "").trim() || null,
     alerts: Array.isArray(input.alerts) ? input.alerts : [],
-    incidents: Array.isArray(input.incidents) ? input.incidents.map((incident) => normalizeDashboardHealthIncident(incident)).filter(Boolean) : [],
+    incidents: Array.isArray(input.incidents)
+      ? input.incidents
+        .map((incident) => normalizeDashboardHealthIncident(incident))
+        .filter((incident) => incident && isCustomerVisibleDashboardHealthIncidentEvent(incident.eventKey))
+      : [],
     bots: Array.isArray(input.bots) ? input.bots.map((bot) => normalizeDashboardHealthBot(bot)).filter(Boolean) : [],
   };
 }

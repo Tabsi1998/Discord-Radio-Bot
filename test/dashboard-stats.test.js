@@ -176,21 +176,30 @@ test("dashboard health incident helpers keep open and acknowledged incidents fil
   const source = {
     incidents: [{
       id: "incident-open",
-      eventKey: "stream_healthcheck_stalled",
+      eventKey: "stream_failover_exhausted",
       severity: "warning",
       timestamp: "2026-03-09T06:30:00.000Z",
       runtime: { id: "bot-1", name: "OmniFM 1", role: "worker" },
       payload: {
         previousStationName: "Nightwave FM",
-        triggerError: "timeout",
       },
     }, {
       id: "incident-ack",
-      eventKey: "stream_recovered",
+      eventKey: "stream_failover_activated",
       severity: "success",
       timestamp: "2026-03-09T07:00:00.000Z",
       acknowledgedAt: "2026-03-09T07:05:00.000Z",
       acknowledgedBy: { id: "1", username: "Tester" },
+      runtime: { id: "bot-1", name: "OmniFM 1", role: "worker" },
+      payload: {
+        previousStationName: "Nightwave FM",
+        failoverStationName: "Rock FM",
+      },
+    }, {
+      id: "incident-hidden",
+      eventKey: "stream_recovered",
+      severity: "success",
+      timestamp: "2026-03-09T07:10:00.000Z",
       runtime: { id: "bot-1", name: "OmniFM 1", role: "worker" },
       payload: {
         recoveredStationName: "Nightwave FM",

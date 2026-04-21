@@ -53,6 +53,10 @@ test("runtime discord incident alerts deliver selected events to the configured 
   assert.equal(sendCalls, 1);
   assert.match(String(sentPayload?.embeds?.[0]?.data?.title || ""), /Failover exhausted/i);
   assert.match(String(sentPayload?.embeds?.[0]?.data?.description || ""), /Nightwave FM/i);
+  assert.equal(
+    sentPayload?.embeds?.[0]?.data?.fields?.some((field) => /error|reconnect|failover chain/i.test(String(field?.name || ""))) || false,
+    false
+  );
 });
 
 test("runtime discord incident alerts skip unselected events without sending", async () => {
@@ -77,7 +81,7 @@ test("runtime discord incident alerts skip unselected events without sending", a
     },
   });
 
-  assert.equal(result.skipped, "disabled");
+  assert.equal(result.skipped, "event-policy");
   assert.equal(sendCalls, 0);
 });
 

@@ -3,8 +3,6 @@ import { validateCustomStationUrlWithDns } from "../custom-stations.js";
 const DASHBOARD_EXPORT_WEBHOOK_EVENT_KEYS = Object.freeze([
   "stats_exported",
   "custom_stations_exported",
-  "stream_healthcheck_stalled",
-  "stream_recovered",
   "stream_failover_activated",
   "stream_failover_exhausted",
 ]);
@@ -97,6 +95,35 @@ function shouldDeliverDashboardWebhook(config, eventKey) {
   );
 }
 
+function sanitizeDashboardWebhookPayload(eventKey, payload) {
+  const normalizedEventKey = String(eventKey || "").trim().toLowerCase();
+  const input = payload && typeof payload === "object" ? payload : {};
+
+  if (!["stream_failover_activated", "stream_failover_exhausted"].includes(normalizedEventKey)) {
+    return input;
+  }
+
+  const sanitized = {
+    previousStationKey: String(input.previousStationKey || "").trim(),
+    previousStationName: String(input.previousStationName || "").trim(),
+    recoveredStationKey: String(input.recoveredStationKey || "").trim(),
+    recoveredStationName: String(input.recoveredStationName || "").trim(),
+    failoverStationKey: String(input.failoverStationKey || "").trim(),
+    failoverStationName: String(input.failoverStationName || "").trim(),
+    listenerCount: Math.max(0, Number(input.listenerCount || 0) || 0),
+  };
+
+  if (input.runtime && typeof input.runtime === "object") {
+    sanitized.runtime = {
+      id: String(input.runtime.id || "").trim(),
+      name: String(input.runtime.name || "").trim(),
+      role: String(input.runtime.role || "").trim(),
+    };
+  }
+
+  return sanitized;
+}
+
 function buildDashboardWebhookPayload(eventKey, meta = {}) {
   return {
     event: String(eventKey || "").trim().toLowerCase(),
@@ -111,7 +138,7 @@ function buildDashboardWebhookPayload(eventKey, meta = {}) {
       id: String(meta.actor.id || "").trim(),
       username: String(meta.actor.username || meta.actor.globalName || "").trim(),
     } : null,
-    payload: meta.payload && typeof meta.payload === "object" ? meta.payload : {},
+    payload: sanitizeDashboardWebhookPayload(eventKey, meta.payload),
   };
 }
 

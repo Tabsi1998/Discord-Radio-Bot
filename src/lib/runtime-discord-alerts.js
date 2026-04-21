@@ -7,6 +7,11 @@ import {
 import { log } from "./logging.js";
 import { serverHasCapability } from "../core/entitlements.js";
 
+const CUSTOMER_VISIBLE_RUNTIME_INCIDENT_EVENT_KEYS = new Set([
+  "stream_failover_activated",
+  "stream_failover_exhausted",
+]);
+
 function clipText(value, maxLen = 240) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -84,35 +89,8 @@ function canSendRuntimeIncidentAlert(channel, me) {
 
 function buildRuntimeIncidentAlertCopy(eventKey, payload, t) {
   const previousStation = payload?.previousStationName || payload?.previousStationKey || t("dem letzten Stream", "the previous stream");
-  const recoveredStation = payload?.recoveredStationName || payload?.recoveredStationKey || previousStation;
   const failoverStation = payload?.failoverStationName || payload?.failoverStationKey || t("der Failover-Station", "the failover station");
-  const silenceMs = Math.max(0, Number(payload?.silenceMs || 0) || 0);
-  const silenceSeconds = silenceMs > 0 ? Math.max(1, Math.round(silenceMs / 1000)) : 0;
-
   switch (String(eventKey || "").trim().toLowerCase()) {
-    case "stream_healthcheck_stalled":
-      return {
-        title: t("Stream-Healthcheck ausgeloest", "Stream health check triggered"),
-        color: 0xF59E0B,
-        description: silenceSeconds > 0
-          ? t(
-            `Auf ${previousStation} kamen seit rund ${silenceSeconds}s keine Audiodaten mehr an. OmniFM startet den Stream neu.`,
-            `No audio data arrived for ${previousStation} for about ${silenceSeconds}s. OmniFM is restarting the stream.`
-          )
-          : t(
-            `Auf ${previousStation} kamen keine Audiodaten mehr an. OmniFM startet den Stream neu.`,
-            `No audio data arrived for ${previousStation}. OmniFM is restarting the stream.`
-          ),
-      };
-    case "stream_recovered":
-      return {
-        title: t("Stream wiederhergestellt", "Stream recovered"),
-        color: 0x10B981,
-        description: t(
-          `OmniFM hat ${recoveredStation} nach einem Vorfall erfolgreich wiederhergestellt.`,
-          `OmniFM recovered ${recoveredStation} successfully after an incident.`
-        ),
-      };
     case "stream_failover_activated":
       return {
         title: t("Failover aktiviert", "Failover activated"),
@@ -150,10 +128,6 @@ function buildRuntimeIncidentAlertMessage(input) {
   const copy = buildRuntimeIncidentAlertCopy(input?.eventKey, payload, t);
   const runtimeMeta = payload?.runtime && typeof payload.runtime === "object" ? payload.runtime : {};
   const runtimeLabel = clipText(runtimeMeta.name || input?.runtimeName || "", 120);
-  const triggerError = clipText(payload.triggerError || "", 240);
-  const attemptedCandidates = Array.isArray(payload.attemptedCandidates)
-    ? payload.attemptedCandidates.map((entry) => clipText(entry, 80)).filter(Boolean).slice(0, 6)
-    : [];
 
   const fields = [];
   if (runtimeLabel) {
@@ -191,34 +165,6 @@ function buildRuntimeIncidentAlertMessage(input) {
       inline: true,
     });
   }
-  if (Number.isFinite(Number(payload.streamErrorCount)) && Number(payload.streamErrorCount) > 0) {
-    fields.push({
-      name: t("Stream-Fehler", "Stream errors"),
-      value: String(Number(payload.streamErrorCount) || 0),
-      inline: true,
-    });
-  }
-  if (Number.isFinite(Number(payload.reconnectAttempts)) && Number(payload.reconnectAttempts) > 0) {
-    fields.push({
-      name: t("Reconnects", "Reconnects"),
-      value: String(Number(payload.reconnectAttempts) || 0),
-      inline: true,
-    });
-  }
-  if (attemptedCandidates.length > 0) {
-    fields.push({
-      name: t("Failover-Kette", "Failover chain"),
-      value: attemptedCandidates.join(", "),
-      inline: false,
-    });
-  }
-  if (triggerError) {
-    fields.push({
-      name: t("Fehler", "Error"),
-      value: triggerError,
-      inline: false,
-    });
-  }
 
   const embed = new EmbedBuilder()
     .setColor(copy.color)
@@ -247,6 +193,9 @@ export async function dispatchRuntimeIncidentAlert(input, deps = {}) {
   const eventKey = String(input?.eventKey || "").trim().toLowerCase();
   if (!guildId || !eventKey) {
     return { attempted: false, delivered: false, skipped: "invalid" };
+  }
+  if (!CUSTOMER_VISIBLE_RUNTIME_INCIDENT_EVENT_KEYS.has(eventKey)) {
+    return { attempted: false, delivered: false, skipped: "event-policy" };
   }
 
   const hasCapability = typeof deps.hasCapability === "function"
