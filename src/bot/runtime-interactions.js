@@ -166,6 +166,50 @@ function buildSupportRow(language, {
   return new ActionRowBuilder().addComponents(...components.slice(0, 5));
 }
 
+function buildNoticePayload({
+  t,
+  language,
+  tone = "info",
+  title,
+  description,
+  fields = [],
+  quickActions = null,
+  supportActions = null,
+  extraComponents = [],
+} = {}) {
+  const rows = [];
+  if (quickActions) {
+    const quickRow = buildQuickActionRow(t, quickActions);
+    if (quickRow) rows.push(quickRow);
+  }
+  if (supportActions) {
+    const supportRow = buildSupportRow(language, supportActions);
+    if (supportRow) rows.push(supportRow);
+  }
+  for (const row of Array.isArray(extraComponents) ? extraComponents : []) {
+    if (row) rows.push(row);
+  }
+  return {
+    embeds: [
+      buildOmniEmbed({
+        tone,
+        title,
+        description,
+        fields,
+      }),
+    ],
+    components: rows,
+    flags: MessageFlags.Ephemeral,
+  };
+}
+
+function formatWorkerList(workers = []) {
+  return workers
+    .map((worker) => clipText(worker?.config?.name || "Worker", 80))
+    .filter(Boolean)
+    .join(", ");
+}
+
 function buildStreamingRuntimeSelectionPayload(runtime, interaction, playback, language) {
   const { t } = runtime.createInteractionTranslator(interaction);
   const guildId = String(interaction?.guildId || "").trim();
@@ -401,10 +445,14 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
   if (!interaction.guildId) {
     const isDe = resolveLanguageFromDiscordLocale(interaction?.locale, getDefaultLanguage()) === "de";
-    await interaction.reply({
-      content: isDe ? "Dieser Bot funktioniert nur auf Servern." : "This bot only works in servers.",
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.reply(buildNoticePayload({
+      t: (de, en) => (isDe ? de : en),
+      language: isDe ? "de" : "en",
+      tone: "warning",
+      title: isDe ? "🏠 Nur auf Servern verfügbar" : "🏠 Available in servers only",
+      description: isDe ? "Dieser Bot funktioniert nur auf Servern." : "This bot only works in servers.",
+      supportActions: { includeDashboard: false, includePremium: false, includeSupport: true },
+    }));
     return;
   }
 
@@ -450,7 +498,14 @@ export async function handleRuntimeInteraction(runtime, interaction) {
 
   const commandPermission = runtime.checkCommandRolePermission(interaction, interaction.commandName);
   if (!commandPermission.ok) {
-    await interaction.reply({ content: commandPermission.message, flags: MessageFlags.Ephemeral });
+    await interaction.reply(buildNoticePayload({
+      t,
+      language,
+      tone: "warning",
+      title: t("🔒 Befehl nicht erlaubt", "🔒 Command not allowed"),
+      description: commandPermission.message,
+      supportActions: { includeDashboard: true, includePremium: false, includeSupport: true },
+    }));
     return;
   }
 
@@ -464,6 +519,10 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   if (interaction.commandName === "stats") {
     await interaction.reply({
       embeds: [runtime.buildListeningStatsEmbed(interaction.guildId, language)],
+      components: [
+        buildQuickActionRow(t, { includePlay: true, includeStations: true, includeWorkers: runtime.role === "commander" && Boolean(runtime.workerManager) }),
+        buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true }),
+      ].filter(Boolean),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -472,19 +531,28 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   // ---- Commander-only commands ----
   if (interaction.commandName === "invite") {
     if (runtime.role !== "commander" || !runtime.workerManager) {
-      await interaction.reply({ content: t("Dieser Befehl ist nur fÃ¼r den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("🤖 Nur im Commander verfügbar", "🤖 Commander only"),
+        description: t("Dieser Befehl ist nur für den Commander-Bot.", "This command is only for the commander bot."),
+      }));
       return;
     }
 
     const guildId = String(interaction.guildId || "").trim();
     if (!guildId) {
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("🏠 Nur auf Servern verfügbar", "🏠 Available in servers only"),
+        description: t(
           "Dieser Befehl funktioniert nur auf einem Discord-Server (nicht in DMs).",
           "This command only works inside a Discord server (not in DMs)."
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+      }));
       return;
     }
 
@@ -501,25 +569,41 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const maxIndex = runtime.workerManager.getMaxWorkerIndex(guildTier);
 
     if (workerIndex < 1 || workerIndex > 16) {
-      await interaction.reply({ content: t("Worker-Nummer muss zwischen 1 und 16 sein.", "Worker number must be between 1 and 16."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("🔢 Worker-Nummer ungültig", "🔢 Invalid worker number"),
+        description: t("Worker-Nummer muss zwischen 1 und 16 sein.", "Worker number must be between 1 and 16."),
+      }));
       return;
     }
 
     const resolvedWorker = runtime.workerManager.resolveWorker(workerIndex);
     if (!resolvedWorker?.worker) {
-      await interaction.reply({ content: t(`Worker ${workerIndex} ist nicht konfiguriert.`, `Worker ${workerIndex} is not configured.`), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("🔎 Worker nicht gefunden", "🔎 Worker not found"),
+        description: t(`Worker ${workerIndex} ist nicht konfiguriert.`, `Worker ${workerIndex} is not configured.`),
+      }));
       return;
     }
     const workerSlot = Number(resolvedWorker.workerSlot || 0);
     if (!workerSlot || workerSlot > maxIndex) {
       const requiredTier = runtime.formatTierLabel(runtime.getWorkerRequiredTierBySlot(workerSlot || workerIndex), language);
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "info",
+        title: t("💎 Höherer Plan nötig", "💎 Higher plan required"),
+        description: t(
           `Worker ${workerIndex} erfordert mindestens **${requiredTier}**. Dein Plan erlaubt Worker 1-${maxIndex}.`,
           `Worker ${workerIndex} requires at least **${requiredTier}**. Your plan allows workers 1-${maxIndex}.`
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+        supportActions: { includeDashboard: true, includePremium: true, includeSupport: true },
+      }));
       return;
     }
 
@@ -540,14 +624,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
           .setStyle(ButtonStyle.Secondary)
           .setLabel(t("Anderen Worker waehlen", "Select another worker"))
       );
-      await interaction.reply({
-        content: t(
-          `**${worker.config.name}** ist bereits auf diesem Server!`,
-          `**${worker.config.name}** is already on this server!`
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "info",
+        title: t("✅ Worker bereits eingeladen", "✅ Worker already invited"),
+        description: t(
+          `**${worker.config.name}** ist bereits auf diesem Server.`,
+          `**${worker.config.name}** is already on this server.`
         ),
-        components: [row],
-        flags: MessageFlags.Ephemeral,
-      });
+        extraComponents: [row],
+      }));
     } else {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -559,57 +646,82 @@ export async function handleRuntimeInteraction(runtime, interaction) {
           .setStyle(ButtonStyle.Secondary)
           .setLabel(t("Menue", "Menu"))
       );
-      await interaction.reply({
-        content: t(
-          `Worker **${worker.config.name}** bereit zum Einladen.`,
-          `Worker **${worker.config.name}** ready to invite.`
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "success",
+        title: t("📨 Worker bereit", "📨 Worker ready"),
+        description: t(
+          `Worker **${worker.config.name}** ist bereit zum Einladen.`,
+          `Worker **${worker.config.name}** is ready to invite.`
         ),
-        components: [row],
-        flags: MessageFlags.Ephemeral,
-      });
+        fields: [
+          {
+            name: t("Nächster Schritt", "Next step"),
+            value: t("Öffne den Invite-Link und lade den Worker auf diesen Server ein.", "Open the invite link and add the worker to this server."),
+            inline: false,
+          },
+        ],
+        extraComponents: [row],
+      }));
     }
     return;
   }
 
   if (interaction.commandName === "workers") {
     if (runtime.role !== "commander" || !runtime.workerManager) {
-      await interaction.reply({ content: t("Dieser Befehl ist nur fÃ¼r den Commander-Bot.", "This command is only for the commander bot."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("🤖 Nur im Commander verfügbar", "🤖 Commander only"),
+        description: t("Dieser Befehl ist nur für den Commander-Bot.", "This command is only for the commander bot."),
+      }));
       return;
     }
 
     const guildId = String(interaction.guildId || "").trim();
     if (!guildId) {
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("🏠 Nur auf Servern verfügbar", "🏠 Available in servers only"),
+        description: t(
           "Dieser Befehl funktioniert nur auf einem Discord-Server (nicht in DMs).",
           "This command only works inside a Discord server (not in DMs)."
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+      }));
       return;
     }
     const view = String(interaction.options?.getString?.("view") || "private").trim().toLowerCase();
     if (view === "panel") {
       if (!runtime.hasGuildManagePermissions(interaction)) {
-        await interaction.reply({
-          content: t(
-            "Du brauchst die Berechtigung `Server verwalten`, um ein Ã¶ffentliches Worker-Panel zu posten.",
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "warning",
+          title: t("🛠 Rechte fehlen", "🛠 Permission missing"),
+          description: t(
+            "Du brauchst die Berechtigung `Server verwalten`, um ein öffentliches Worker-Panel zu posten.",
             "You need the `Manage Server` permission to post a public worker panel."
           ),
-          flags: MessageFlags.Ephemeral,
-        });
+        }));
         return;
       }
 
       const channel = interaction.channel;
       if (!channel?.isTextBased?.()) {
-        await interaction.reply({
-          content: t(
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "warning",
+          title: t("💬 Text-Channel nötig", "💬 Text channel required"),
+          description: t(
             "In diesem Channel kann ich kein Panel posten. Nutze einen Text-Channel.",
             "I cannot post a panel in this channel. Use a text channel."
           ),
-          flags: MessageFlags.Ephemeral,
-        });
+        }));
         return;
       }
 
@@ -622,21 +734,27 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       try {
         const panelMessage = await channel.send(payload);
         const createdLabel = t("Nachricht erstellt.", "Message created.");
-        await interaction.reply({
-          content: t(
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "success",
+          title: t("📋 Worker-Panel gepostet", "📋 Worker panel posted"),
+          description: t(
             `Worker-Panel gepostet: ${panelMessage?.url || createdLabel}`,
             `Worker panel posted: ${panelMessage?.url || createdLabel}`
           ),
-          flags: MessageFlags.Ephemeral,
-        });
+        }));
       } catch (err) {
-        await interaction.reply({
-          content: t(
-            "Worker-Panel konnte nicht gepostet werden. PrÃ¼fe meine Schreibrechte in diesem Channel.",
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "danger",
+          title: t("✖ Worker-Panel fehlgeschlagen", "✖ Worker panel failed"),
+          description: t(
+            "Worker-Panel konnte nicht gepostet werden. Prüfe meine Schreibrechte in diesem Channel.",
             "Could not post the worker panel. Check my send-message permission in this channel."
           ),
-          flags: MessageFlags.Ephemeral,
-        });
+        }));
         log("WARN", `[${runtime.config.name}] Workers panel post failed guild=${guildId} channel=${channel?.id || "-"}: ${err?.message || err}`);
       }
       return;
@@ -666,13 +784,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   if (interaction.commandName === "now") {
     const guildTier = getTier(interaction.guildId);
     if ((TIER_RANK[guildTier] ?? 0) < (TIER_RANK.pro ?? 1)) {
-      await interaction.reply({
-        content: t(
-          "`/now` ist ab **Pro** verfÃ¼gbar. Upgrade: https://omnifm.xyz#premium",
-          "`/now` is available with **Pro** and above. Upgrade: https://omnifm.xyz#premium"
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "info",
+        title: t("💎 `/now` ist Pro", "💎 `/now` is Pro"),
+        description: t(
+          "`/now` ist ab **Pro** verfügbar.",
+          "`/now` is available with **Pro** and above."
         ),
-        flags: MessageFlags.Ephemeral,
-      });
+        supportActions: { includeDashboard: true, includePremium: true, includeSupport: true },
+      }));
       return;
     }
 
@@ -687,7 +809,14 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const playingGuilds = activeRuntime.getPlayingGuildCount();
     const current = runtime.getResolvedCurrentStation(interaction.guildId, activeState, language);
     if (!current?.station) {
-      await interaction.reply({ content: t("Aktuelle Station wurde entfernt.", "Current station was removed."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("📻 Station nicht mehr verfügbar", "📻 Station no longer available"),
+        description: t("Aktuelle Station wurde entfernt.", "Current station was removed."),
+        quickActions: { includePlay: true, includeStations: true },
+      }));
       return;
     }
 
@@ -721,24 +850,31 @@ export async function handleRuntimeInteraction(runtime, interaction) {
   if (interaction.commandName === "history") {
     const guildTier = getTier(interaction.guildId);
     if ((TIER_RANK[guildTier] ?? 0) < (TIER_RANK.pro ?? 1)) {
-      await interaction.reply({
-        content: t(
-          "Song-History ist ab **Pro** verf\u00FCgbar. Upgrade: https://omnifm.xyz#premium",
-          "Song history is available with **Pro** and above. Upgrade: https://omnifm.xyz#premium"
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "info",
+        title: t("💎 Song-History ist Pro", "💎 Song history is Pro"),
+        description: t(
+          "Song-History ist ab **Pro** verfügbar.",
+          "Song history is available with **Pro** and above."
         ),
-        flags: MessageFlags.Ephemeral
-      });
+        supportActions: { includeDashboard: true, includePremium: true, includeSupport: true },
+      }));
       return;
     }
 
     if (!SONG_HISTORY_ENABLED) {
-      await interaction.reply({
-        content: t(
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("🕘 Song-History deaktiviert", "🕘 Song history disabled"),
+        description: t(
           "Song-History ist aktuell deaktiviert (`SONG_HISTORY_ENABLED=0`).",
           "Song history is currently disabled (`SONG_HISTORY_ENABLED=0`)."
         ),
-        flags: MessageFlags.Ephemeral
-      });
+      }));
       return;
     }
 
@@ -748,13 +884,17 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const history = getSongHistory(interaction.guildId, { limit });
 
     if (!history.length) {
-      await interaction.reply({
-        content: t(
-          "Noch keine Song-History verfÃ¼gbar. Starte zuerst eine Station mit `/play`.",
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "info",
+        title: t("🕘 Noch keine Song-History", "🕘 No song history yet"),
+        description: t(
+          "Noch keine Song-History verfügbar. Starte zuerst eine Station mit `/play`.",
           "No song history yet. Start a station with `/play` first."
         ),
-        flags: MessageFlags.Ephemeral
-      });
+        quickActions: { includePlay: true, includeStations: true },
+      }));
       return;
     }
 
@@ -770,27 +910,67 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         ? [runtime.workerManager.getWorkerByIndex(requestedBot)].filter(Boolean)
         : runtime.workerManager.getStreamingWorkers(interaction.guildId);
       if (workers.length === 0) {
-        await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "info",
+          title: t("⏸ Nichts zu pausieren", "⏸ Nothing to pause"),
+          description: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."),
+          quickActions: { includePlay: true, includeStations: true },
+        }));
         return;
       }
       const failures = [];
+      const pausedWorkers = [];
       for (const w of workers) {
         const result = await w.pauseInGuild(interaction.guildId);
         if (!result?.ok) failures.push(`${w.config?.name || "Worker"}: ${result?.error || "pause_failed"}`);
+        else pausedWorkers.push(w);
       }
       if (failures.length === workers.length) {
-        await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "danger",
+          title: t("✖ Pause fehlgeschlagen", "✖ Pause failed"),
+          description: clipText(failures.join("\n"), 3500),
+        }));
         return;
       }
-      await interaction.reply({ content: t("Pausiert.", "Paused."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: failures.length > 0 ? "warning" : "success",
+        title: t("⏸ Wiedergabe pausiert", "⏸ Playback paused"),
+        description: t(
+          `Pausiert: ${formatWorkerList(pausedWorkers) || t("Worker", "worker")}`,
+          `Paused: ${formatWorkerList(pausedWorkers) || t("worker", "worker")}`
+        ),
+        fields: failures.length > 0 ? [{ name: t("Fehler", "Errors"), value: clipText(failures.join("\n"), 1024), inline: false }] : [],
+        quickActions: { includePlay: true, includeStations: true },
+      }));
       return;
     }
     if (!state.currentStationKey) {
-      await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "info",
+        title: t("⏸ Nichts zu pausieren", "⏸ Nothing to pause"),
+        description: t("Es läuft nichts.", "Nothing is playing."),
+        quickActions: { includePlay: true, includeStations: true },
+      }));
       return;
     }
     await runtime.pauseInGuild(interaction.guildId);
-    await interaction.reply({ content: t("Pausiert.", "Paused."), flags: MessageFlags.Ephemeral });
+    await interaction.reply(buildNoticePayload({
+      t,
+      language,
+      tone: "success",
+      title: t("⏸ Wiedergabe pausiert", "⏸ Playback paused"),
+      description: t("Der Stream wurde pausiert.", "The stream was paused."),
+      quickActions: { includePlay: true, includeStations: true },
+    }));
     return;
   }
 
@@ -801,27 +981,65 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         ? [runtime.workerManager.getWorkerByIndex(requestedBot)].filter(Boolean)
         : runtime.workerManager.getStreamingWorkers(interaction.guildId);
       if (workers.length === 0) {
-        await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "info",
+          title: t("▶ Nichts zum Fortsetzen", "▶ Nothing to resume"),
+          description: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."),
+          quickActions: { includePlay: true, includeStations: true },
+        }));
         return;
       }
       const failures = [];
+      const resumedWorkers = [];
       for (const w of workers) {
         const result = await w.resumeInGuild(interaction.guildId);
         if (!result?.ok) failures.push(`${w.config?.name || "Worker"}: ${result?.error || "resume_failed"}`);
+        else resumedWorkers.push(w);
       }
       if (failures.length === workers.length) {
-        await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "danger",
+          title: t("✖ Fortsetzen fehlgeschlagen", "✖ Resume failed"),
+          description: clipText(failures.join("\n"), 3500),
+        }));
         return;
       }
-      await interaction.reply({ content: t("Weiter gehts.", "Resumed."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: failures.length > 0 ? "warning" : "success",
+        title: t("▶ Wiedergabe fortgesetzt", "▶ Playback resumed"),
+        description: t(
+          `Fortgesetzt: ${formatWorkerList(resumedWorkers) || t("Worker", "worker")}`,
+          `Resumed: ${formatWorkerList(resumedWorkers) || t("worker", "worker")}`
+        ),
+        fields: failures.length > 0 ? [{ name: t("Fehler", "Errors"), value: clipText(failures.join("\n"), 1024), inline: false }] : [],
+      }));
       return;
     }
     if (!state.currentStationKey) {
-      await interaction.reply({ content: t("Es laeuft nichts.", "Nothing is playing."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "info",
+        title: t("▶ Nichts zum Fortsetzen", "▶ Nothing to resume"),
+        description: t("Es läuft nichts.", "Nothing is playing."),
+        quickActions: { includePlay: true, includeStations: true },
+      }));
       return;
     }
     await runtime.resumeInGuild(interaction.guildId);
-    await interaction.reply({ content: t("Weiter gehts.", "Resumed."), flags: MessageFlags.Ephemeral });
+    await interaction.reply(buildNoticePayload({
+      t,
+      language,
+      tone: "success",
+      title: t("▶ Wiedergabe fortgesetzt", "▶ Playback resumed"),
+      description: t("Der Stream läuft wieder.", "The stream is playing again."),
+    }));
     return;
   }
 
@@ -858,52 +1076,95 @@ export async function handleRuntimeInteraction(runtime, interaction) {
           workers = matchingWorkers.length > 0 ? matchingWorkers : allStreamingWorkers.slice(0, 1);
         } else {
           // User nicht im Channel â†’ Error
-          await interaction.reply({
-            content: t(
+          await interaction.reply(buildNoticePayload({
+            t,
+            language,
+            tone: "info",
+            title: t("🛑 Worker auswählen", "🛑 Choose a worker"),
+            description: t(
               "Du musst in einem Voice-Channel sein oder `/stop bot:<nummer>` / `/stop all:true` nutzen.",
               "You must be in a voice channel or use `/stop bot:<number>` / `/stop all:true`."
             ),
-            flags: MessageFlags.Ephemeral
-          });
+            extraComponents: [
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(WORKERS_COMPONENT_ID_OPEN)
+                  .setStyle(ButtonStyle.Secondary)
+                  .setLabel(t("🤖 Worker öffnen", "🤖 Open workers"))
+              ),
+            ],
+          }));
           return;
         }
       }
       
       if (workers.length === 0) {
-        await interaction.reply({ content: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."), flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "info",
+          title: t("🛑 Nichts zu stoppen", "🛑 Nothing to stop"),
+          description: t("Kein Worker streamt auf diesem Server.", "No worker is streaming on this server."),
+          quickActions: { includePlay: true, includeStations: true },
+        }));
         return;
       }
       const failures = [];
+      const stoppedWorkers = [];
       for (const w of workers) {
         const result = await w.stopInGuild(guildId);
         if (!result?.ok) failures.push(`${w.config?.name || "Worker"}: ${result?.error || "stop_failed"}`);
+        else stoppedWorkers.push(w);
       }
       if (failures.length === workers.length) {
-        await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "danger",
+          title: t("✖ Stop fehlgeschlagen", "✖ Stop failed"),
+          description: clipText(failures.join("\n"), 3500),
+        }));
         return;
       }
-      const workerNames = workers.map(w => w.config?.name || "Worker").join(", ");
-      await interaction.reply({
-        content: t(
-          `Gestoppt: ${workerNames}`,
-          `Stopped: ${workerNames}`
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: failures.length > 0 ? "warning" : "success",
+        title: t("🛑 Wiedergabe gestoppt", "🛑 Playback stopped"),
+        description: t(
+          `Gestoppt: ${formatWorkerList(stoppedWorkers) || t("Worker", "worker")}`,
+          `Stopped: ${formatWorkerList(stoppedWorkers) || t("worker", "worker")}`
         ),
-        flags: MessageFlags.Ephemeral
-      });
+        fields: failures.length > 0 ? [{ name: t("Fehler", "Errors"), value: clipText(failures.join("\n"), 1024), inline: false }] : [],
+        quickActions: { includePlay: true, includeStations: true },
+      }));
       return;
     }
     
     // Worker/Legacy Mode: lokaler Stop
     await runtime.stopInGuild(guildId);
 
-    await interaction.reply({ content: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."), flags: MessageFlags.Ephemeral });
+    await interaction.reply(buildNoticePayload({
+      t,
+      language,
+      tone: "success",
+      title: t("🛑 Wiedergabe gestoppt", "🛑 Playback stopped"),
+      description: t("Gestoppt und Channel verlassen.", "Stopped and left the channel."),
+      quickActions: { includePlay: true, includeStations: true },
+    }));
     return;
   }
 
   if (interaction.commandName === "setvolume") {
     const value = interaction.options.getInteger("value", true);
     if (value < 0 || value > 100) {
-      await interaction.reply({ content: t("Wert muss zwischen 0 und 100 liegen.", "Value must be between 0 and 100."), flags: MessageFlags.Ephemeral });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "warning",
+        title: t("🎚 Lautstärke ungültig", "🎚 Invalid volume"),
+        description: t("Wert muss zwischen 0 und 100 liegen.", "Value must be between 0 and 100."),
+      }));
       return;
     }
     if (runtime.role === "commander" && runtime.workerManager) {
@@ -920,7 +1181,13 @@ export async function handleRuntimeInteraction(runtime, interaction) {
             offline: t(`Worker ${requestedBot} ist offline.`, `Worker ${requestedBot} is offline.`),
             not_invited: t(`Worker ${requestedBot} ist nicht auf diesem Server eingeladen.`, `Worker ${requestedBot} is not invited on this server.`),
           };
-          await interaction.reply({ content: reasons[check.reason] || t("Worker nicht verfÃ¼gbar.", "Worker not available."), flags: MessageFlags.Ephemeral });
+          await interaction.reply(buildNoticePayload({
+            t,
+            language,
+            tone: "warning",
+            title: t("🤖 Worker nicht verfügbar", "🤖 Worker not available"),
+            description: reasons[check.reason] || t("Worker nicht verfügbar.", "Worker not available."),
+          }));
           return;
         }
         targetWorkers = [check.worker];
@@ -931,19 +1198,34 @@ export async function handleRuntimeInteraction(runtime, interaction) {
           if (invitedWorkers.length === 1) {
             targetWorkers = invitedWorkers;
           } else if (invitedWorkers.length === 0) {
-            await interaction.reply({
-              content: t("Kein Worker ist auf diesem Server eingeladen.", "No worker is invited on this server."),
-              flags: MessageFlags.Ephemeral,
-            });
+            await interaction.reply(buildNoticePayload({
+              t,
+              language,
+              tone: "warning",
+              title: t("🤖 Kein Worker eingeladen", "🤖 No worker invited"),
+              description: t("Kein Worker ist auf diesem Server eingeladen.", "No worker is invited on this server."),
+              quickActions: { includeInvite: true, includeWorkers: true },
+            }));
             return;
           } else {
-            await interaction.reply({
-              content: t(
-                "Aktuell streamt kein Worker. Nutze `/setvolume <value> bot:<nummer>`, um die Lautstaerke fuer einen bestimmten Worker zu speichern.",
+            await interaction.reply(buildNoticePayload({
+              t,
+              language,
+              tone: "info",
+              title: t("🎚 Worker auswählen", "🎚 Choose a worker"),
+              description: t(
+                "Aktuell streamt kein Worker. Nutze `/setvolume <value> bot:<nummer>`, um die Lautstärke für einen bestimmten Worker zu speichern.",
                 "No worker is currently streaming. Use `/setvolume <value> bot:<number>` to save the volume for a specific worker."
               ),
-              flags: MessageFlags.Ephemeral,
-            });
+              extraComponents: [
+                new ActionRowBuilder().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId(WORKERS_COMPONENT_ID_OPEN)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setLabel(t("🤖 Worker öffnen", "🤖 Open workers"))
+                ),
+              ],
+            }));
             return;
           }
         }
@@ -966,20 +1248,37 @@ export async function handleRuntimeInteraction(runtime, interaction) {
             targetWorkers = workers;
           }
           if (targetWorkers.length === 0 && workers.length > 1) {
-            await interaction.reply({
-              content: t(
+            await interaction.reply(buildNoticePayload({
+              t,
+              language,
+              tone: "info",
+              title: t("🎚 Worker auswählen", "🎚 Choose a worker"),
+              description: t(
                 "Mehrere Worker streamen aktuell. Nutze `/setvolume <value> bot:<nummer>` oder tritt dem Ziel-Voice-Channel bei.",
                 "Multiple workers are currently streaming. Use `/setvolume <value> bot:<number>` or join the target voice channel."
               ),
-              flags: MessageFlags.Ephemeral,
-            });
+              extraComponents: [
+                new ActionRowBuilder().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId(WORKERS_COMPONENT_ID_OPEN)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setLabel(t("🤖 Worker öffnen", "🤖 Open workers"))
+                ),
+              ],
+            }));
             return;
           }
         }
       }
 
       if (targetWorkers.length === 0) {
-        await interaction.reply({ content: t("Kein passender Worker gefunden.", "No matching worker found."), flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "warning",
+          title: t("🔎 Kein passender Worker", "🔎 No matching worker"),
+          description: t("Kein passender Worker gefunden.", "No matching worker found."),
+        }));
         return;
       }
       const failures = [];
@@ -998,52 +1297,64 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         }
       }
       if (failures.length === targetWorkers.length) {
-        await interaction.reply({ content: failures.join("\n"), flags: MessageFlags.Ephemeral });
+        await interaction.reply(buildNoticePayload({
+          t,
+          language,
+          tone: "danger",
+          title: t("✖ Lautstärke konnte nicht gesetzt werden", "✖ Could not change volume"),
+          description: clipText(failures.join("\n"), 3500),
+        }));
         return;
       }
-      const responseLines = [];
-      if (appliedWorkers.length > 0) {
-        responseLines.push(
-          t(
-            `Lautstaerke gesetzt: ${value} (${appliedWorkers.join(", ")})`,
-            `Volume set to: ${value} (${appliedWorkers.join(", ")})`
-          )
-        );
-      }
-      if (savedWorkers.length > 0) {
-        responseLines.push(
-          t(
-            `Lautstaerke gespeichert: ${value} (${savedWorkers.join(", ")}). Wird beim naechsten Start verwendet.`,
-            `Volume saved: ${value} (${savedWorkers.join(", ")}). It will be used for the next playback.`
-          )
-        );
-      }
-      if (failures.length > 0) {
-        responseLines.push(failures.join("\n"));
-      }
-      await interaction.reply({
-        content: responseLines.join("\n"),
-        flags: MessageFlags.Ephemeral
-      });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: failures.length > 0 ? "warning" : "success",
+        title: t("🎚 Lautstärke aktualisiert", "🎚 Volume updated"),
+        description: t(`Zielwert: **${value}**`, `Target value: **${value}**`),
+        fields: [
+          ...(appliedWorkers.length > 0 ? [{
+            name: t("Direkt angewendet", "Applied live"),
+            value: clipText(appliedWorkers.join(", "), 1024),
+            inline: false,
+          }] : []),
+          ...(savedWorkers.length > 0 ? [{
+            name: t("Gespeichert für später", "Saved for later"),
+            value: clipText(savedWorkers.join(", "), 1024),
+            inline: false,
+          }] : []),
+          ...(failures.length > 0 ? [{
+            name: t("Fehler", "Errors"),
+            value: clipText(failures.join("\n"), 1024),
+            inline: false,
+          }] : []),
+        ],
+      }));
       return;
     }
     const result = await runtime.setVolumeInGuild(interaction.guildId, value);
     if (!result?.ok) {
-      await interaction.reply({
-        content: t(`Fehler: ${result?.error || "setvolume_failed"}`, `Error: ${result?.error || "setvolume_failed"}`),
-        flags: MessageFlags.Ephemeral,
-      });
+      await interaction.reply(buildNoticePayload({
+        t,
+        language,
+        tone: "danger",
+        title: t("✖ Lautstärke konnte nicht gesetzt werden", "✖ Could not change volume"),
+        description: t(`Fehler: ${result?.error || "setvolume_failed"}`, `Error: ${result?.error || "setvolume_failed"}`),
+      }));
       return;
     }
-    await interaction.reply({
-      content: result.appliedLive
-        ? t(`LautstÃ¤rke gesetzt: ${value}`, `Volume set to: ${value}`)
+    await interaction.reply(buildNoticePayload({
+      t,
+      language,
+      tone: "success",
+      title: t("🎚 Lautstärke aktualisiert", "🎚 Volume updated"),
+      description: result.appliedLive
+        ? t(`Lautstärke gesetzt: **${value}**`, `Volume set to: **${value}**`)
         : t(
-            `Lautstaerke gespeichert: ${value}. Wird beim naechsten Start verwendet.`,
-            `Volume saved: ${value}. It will be used for the next playback.`
-          ),
-      flags: MessageFlags.Ephemeral,
-    });
+          `Lautstärke gespeichert: **${value}**. Wird beim nächsten Start verwendet.`,
+          `Volume saved: **${value}**. It will be used for the next playback.`
+        ),
+    }));
     return;
   }
 
@@ -1131,19 +1442,56 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     const activeRuntime = playback.runtime;
     const activeState = playback.state;
     const networkHoldMs = activeRuntime.getNetworkRecoveryDelayMs(interaction.guildId);
-    const content = [
-      `Bot: ${activeRuntime.config.name}`,
-      `Ready: ${activeRuntime.client.isReady() ? t("ja", "yes") : t("nein", "no")}`,
-      `${t("Letzter Stream-Fehler", "Last stream error")}: ${activeState.lastStreamErrorAt || "-"}`,
-      `${t("Stream-Fehler (Reihe)", "Stream errors (streak)")}: ${activeState.streamErrorCount || 0}`,
-      `${t("Letzter ffmpeg Exit-Code", "Last ffmpeg exit code")}: ${activeState.lastProcessExitCode ?? "-"}`,
-      `Reconnects: ${activeState.reconnectCount}`,
-      `${t("Letzter Reconnect", "Last reconnect")}: ${activeState.lastReconnectAt || "-"}`,
-      `${t("Auto-Reconnect aktiv", "Auto reconnect enabled")}: ${activeState.shouldReconnect ? t("ja", "yes") : t("nein", "no")}`,
-      `${t("Netz-Cooldown", "Network cooldown")}: ${networkHoldMs > 0 ? `${t("ja", "yes")} (${Math.round(networkHoldMs)}ms)` : t("nein", "no")}`
-    ].join("\n");
+    const quickRow = buildQuickActionRow(t, {
+      includePlay: true,
+      includeStations: true,
+      includeWorkers: runtime.role === "commander" && Boolean(runtime.workerManager),
+    });
+    const supportRow = buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true });
 
-    await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      embeds: [
+        buildOmniEmbed({
+          tone: activeState.streamErrorCount > 0 || networkHoldMs > 0 ? "warning" : "info",
+          title: t("🩺 Stream-Gesundheit", "🩺 Stream health"),
+          description: `${activeRuntime.config.name} | ${interaction.guild?.name || interaction.guildId}`,
+          fields: [
+            {
+              name: t("Verbindung", "Connection"),
+              value: [
+                `Bot: ${activeRuntime.config.name}`,
+                `Ready: ${activeRuntime.client.isReady() ? t("ja", "yes") : t("nein", "no")}`,
+                `${t("Auto-Reconnect", "Auto reconnect")}: ${activeState.shouldReconnect ? t("aktiv", "enabled") : t("aus", "off")}`,
+                `${t("Reconnects", "Reconnects")}: ${activeState.reconnectCount || 0}`,
+              ].join("\n"),
+              inline: false,
+            },
+            {
+              name: t("Fehler", "Errors"),
+              value: [
+                `${t("Letzter Stream-Fehler", "Last stream error")}: ${activeState.lastStreamErrorAt || "-"}`,
+                `${t("Fehler-Reihe", "Error streak")}: ${activeState.streamErrorCount || 0}`,
+                `${t("Letzter ffmpeg Exit-Code", "Last ffmpeg exit code")}: ${activeState.lastProcessExitCode ?? "-"}`,
+                `${t("Letzter Reconnect", "Last reconnect")}: ${activeState.lastReconnectAt || "-"}`,
+              ].join("\n"),
+              inline: false,
+            },
+            {
+              name: t("Recovery", "Recovery"),
+              value: networkHoldMs > 0
+                ? t(
+                  `Netz-Cooldown aktiv (${Math.round(networkHoldMs)}ms). Der Stream stabilisiert sich gerade erneut.`,
+                  `Network cooldown active (${Math.round(networkHoldMs)}ms). The stream is stabilizing again right now.`
+                )
+                : t("Kein zusätzlicher Netz-Cooldown aktiv.", "No extra network cooldown is active."),
+              inline: false,
+            },
+          ],
+        }),
+      ],
+      components: [quickRow, supportRow].filter(Boolean),
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
@@ -1203,7 +1551,18 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         }
       );
 
-    await interaction.reply({ embeds: [diagEmbed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      embeds: [diagEmbed],
+      components: [
+        buildQuickActionRow(t, {
+          includePlay: true,
+          includeStations: true,
+          includeWorkers: runtime.role === "commander" && Boolean(runtime.workerManager),
+        }),
+        buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true }),
+      ].filter(Boolean),
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
@@ -1265,17 +1624,18 @@ export async function handleRuntimeInteraction(runtime, interaction) {
         }
       );
 
-    const actionRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(PLAY_COMPONENT_ID_OPEN)
-        .setStyle(ButtonStyle.Primary)
-        .setLabel(t("🎛 Schnellstart", "🎛 Quick start")),
-      new ButtonBuilder()
-        .setCustomId(STATIONS_COMPONENT_ID_OPEN)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel(t("📻 Sender", "📻 Stations"))
-    );
-    await interaction.reply({ embeds: [statusEmbed], components: [actionRow], flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      embeds: [statusEmbed],
+      components: [
+        buildQuickActionRow(t, {
+          includePlay: true,
+          includeStations: true,
+          includeWorkers: runtime.role === "commander" && Boolean(runtime.workerManager),
+        }),
+        buildSupportRow(language, { includeDashboard: true, includePremium: false, includeSupport: true }),
+      ].filter(Boolean),
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
