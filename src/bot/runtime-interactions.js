@@ -2267,7 +2267,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     if (sub === "lock") {
       const resolved = await runtime.resolveStreamingRuntimeForInteraction(interaction);
       if (!resolved.runtime || !resolved.state) {
-        runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
+        await runtime.clearVoiceGuardTemporaryUnlockForGuild(guildId, "slash-lock");
         if (resolved.reason && resolved.reason !== "none") {
           await interaction.reply(buildStreamingRuntimeSelectionPayload(runtime, interaction, resolved, language));
           return;

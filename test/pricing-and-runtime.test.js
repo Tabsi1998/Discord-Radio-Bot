@@ -1549,6 +1549,33 @@ test("remote worker handle forwards voice guard refresh and unlock commands", as
   assert.deepEqual(sent.map((entry) => entry.type), ["voiceGuardRefresh", "voiceGuardUnlock", "voiceGuardLock"]);
 });
 
+test("clearVoiceGuardTemporaryUnlockForGuild skips workers without a voice guard lock helper", async () => {
+  const calls = [];
+  const fakeRuntime = {
+    workerManager: {
+      workers: [
+        {
+          async clearVoiceGuardTemporaryUnlock(guildId, reason) {
+            calls.push(`remote:${guildId}:${reason}`);
+            return { unlockUntil: 0 };
+          },
+        },
+        {},
+      ],
+    },
+    async clearVoiceGuardTemporaryUnlock(guildId, reason) {
+      calls.push(`local:${guildId}:${reason}`);
+      return { unlockUntil: 0 };
+    },
+  };
+
+  const result = await BotRuntime.prototype.clearVoiceGuardTemporaryUnlockForGuild.call(fakeRuntime, "guild-1", "slash-lock");
+
+  assert.deepEqual(calls, ["local:guild-1:slash-lock", "remote:guild-1:slash-lock"]);
+  assert.equal(result.length, 3);
+  assert.equal(result[2], null);
+});
+
 test("armPlaybackRecovery keeps the worker connected and schedules a stream retry", () => {
   let scheduledRestart = null;
   let scheduledReconnect = 0;

@@ -733,7 +733,13 @@ class BotRuntime {
     }
     const results = [];
     for (const runtime of runtimes) {
-      runtime.invalidateGuildSettingsCache(guildId);
+      if (typeof runtime?.invalidateGuildSettingsCache === "function") {
+        runtime.invalidateGuildSettingsCache(guildId);
+      }
+      if (typeof runtime?.refreshVoiceGuardSettings !== "function") {
+        results.push(null);
+        continue;
+      }
       // eslint-disable-next-line no-await-in-loop
       results.push(await runtime.refreshVoiceGuardSettings(guildId, { force }).catch(() => null));
     }
@@ -797,7 +803,7 @@ class BotRuntime {
     };
   }
 
-  clearVoiceGuardTemporaryUnlockForGuild(guildId, reason = "manual-lock") {
+  async clearVoiceGuardTemporaryUnlockForGuild(guildId, reason = "manual-lock") {
     const runtimes = new Set([this]);
     if (this.workerManager?.workers?.length) {
       for (const worker of this.workerManager.workers) {
@@ -806,7 +812,12 @@ class BotRuntime {
     }
     const results = [];
     for (const runtime of runtimes) {
-      results.push(runtime.clearVoiceGuardTemporaryUnlock(guildId, reason));
+      if (typeof runtime?.clearVoiceGuardTemporaryUnlock !== "function") {
+        results.push(null);
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      results.push(await runtime.clearVoiceGuardTemporaryUnlock(guildId, reason).catch(() => null));
     }
     return results;
   }
