@@ -555,6 +555,9 @@ class BotRuntime {
     if (!normalizedGuildId || typeof handler !== "function") {
       return typeof handler === "function" ? handler() : null;
     }
+    if (!(this.guildOperationLocks instanceof Map)) {
+      this.guildOperationLocks = new Map();
+    }
 
     const previous = this.guildOperationLocks.get(normalizedGuildId) || Promise.resolve();
     let releaseCurrent = null;
@@ -3776,7 +3779,9 @@ class BotRuntime {
         const guild = this.client.guilds.cache.get(guildId);
         if (!guild) return { ok: false, error: "Worker ist nicht auf diesem Server." };
 
-        await this.refreshVoiceGuardSettings(guildId).catch(() => null);
+        if (typeof this.refreshVoiceGuardSettings === "function") {
+          await this.refreshVoiceGuardSettings(guildId).catch(() => null);
+        }
         this.clearRestoreRetry(guildId);
         const parsedVolume = Number.parseInt(String(volume ?? ""), 10);
         const resolvedVolume = Number.isFinite(parsedVolume)
@@ -4062,9 +4067,6 @@ class BotRuntime {
         streamErrorCount: Number(state.streamErrorCount || 0) || 0,
         shouldReconnect: state.shouldReconnect === true,
         meta: state.currentMeta || null,
-        voiceGuardAvailable: state.voiceGuardAvailable === true,
-        voiceGuardPolicy: state.voiceGuardPolicy || "default",
-        voiceGuardEffectivePolicy: state.voiceGuardEffectivePolicy || defaultVoiceGuardConfig.effectivePolicy,
       };
 
       const reconnectCount = Number(state.reconnectCount || 0) || 0;
@@ -4127,20 +4129,37 @@ class BotRuntime {
           : null;
       const networkRecoveryDelayMs = getNetworkRecoveryDelayMs ? (Number(getNetworkRecoveryDelayMs(guildId)) || 0) : 0;
       if (networkRecoveryDelayMs > 0) detail.networkRecoveryDelayMs = networkRecoveryDelayMs;
-      detail.voiceGuardAvailable = state.voiceGuardAvailable === true;
-      if (state.voiceGuardUnlockUntil > 0) detail.voiceGuardUnlockUntil = state.voiceGuardUnlockUntil;
-      if (state.voiceGuardCooldownUntil > 0) detail.voiceGuardCooldownUntil = state.voiceGuardCooldownUntil;
-      if (state.voiceGuardWindowStartedAt > 0) detail.voiceGuardWindowStartedAt = state.voiceGuardWindowStartedAt;
-      if ((Number(state.voiceGuardWindowMoveCount || 0) || 0) > 0) detail.voiceGuardWindowMoveCount = Number(state.voiceGuardWindowMoveCount || 0) || 0;
-      if ((Number(state.voiceGuardMoveCount || 0) || 0) > 0) detail.voiceGuardMoveCount = Number(state.voiceGuardMoveCount || 0) || 0;
-      if ((Number(state.voiceGuardReturnCount || 0) || 0) > 0) detail.voiceGuardReturnCount = Number(state.voiceGuardReturnCount || 0) || 0;
-      if ((Number(state.voiceGuardDisconnectCount || 0) || 0) > 0) detail.voiceGuardDisconnectCount = Number(state.voiceGuardDisconnectCount || 0) || 0;
-      if ((Number(state.voiceGuardEscalationCount || 0) || 0) > 0) detail.voiceGuardEscalationCount = Number(state.voiceGuardEscalationCount || 0) || 0;
-      if (state.voiceGuardLastAction) detail.voiceGuardLastAction = state.voiceGuardLastAction;
-      if ((Number(state.voiceGuardLastActionAt || 0) || 0) > 0) detail.voiceGuardLastActionAt = Number(state.voiceGuardLastActionAt || 0) || 0;
-      if (state.voiceGuardLastActionReason) detail.voiceGuardLastActionReason = state.voiceGuardLastActionReason;
-      if (state.voiceGuardLastExpectedChannelId) detail.voiceGuardLastExpectedChannelId = state.voiceGuardLastExpectedChannelId;
-      if (state.voiceGuardLastActualChannelId) detail.voiceGuardLastActualChannelId = state.voiceGuardLastActualChannelId;
+      const hasVoiceGuardDetails = state.voiceGuardAvailable === true
+        || (Number(state.voiceGuardUnlockUntil || 0) || 0) > 0
+        || (Number(state.voiceGuardCooldownUntil || 0) || 0) > 0
+        || (Number(state.voiceGuardWindowStartedAt || 0) || 0) > 0
+        || (Number(state.voiceGuardWindowMoveCount || 0) || 0) > 0
+        || (Number(state.voiceGuardMoveCount || 0) || 0) > 0
+        || (Number(state.voiceGuardReturnCount || 0) || 0) > 0
+        || (Number(state.voiceGuardDisconnectCount || 0) || 0) > 0
+        || (Number(state.voiceGuardEscalationCount || 0) || 0) > 0
+        || Boolean(state.voiceGuardLastAction)
+        || Boolean(state.voiceGuardLastActionReason)
+        || Boolean(state.voiceGuardLastExpectedChannelId)
+        || Boolean(state.voiceGuardLastActualChannelId);
+      if (hasVoiceGuardDetails) {
+        detail.voiceGuardAvailable = state.voiceGuardAvailable === true;
+        detail.voiceGuardPolicy = state.voiceGuardPolicy || "default";
+        detail.voiceGuardEffectivePolicy = state.voiceGuardEffectivePolicy || defaultVoiceGuardConfig.effectivePolicy;
+        if (state.voiceGuardUnlockUntil > 0) detail.voiceGuardUnlockUntil = state.voiceGuardUnlockUntil;
+        if (state.voiceGuardCooldownUntil > 0) detail.voiceGuardCooldownUntil = state.voiceGuardCooldownUntil;
+        if (state.voiceGuardWindowStartedAt > 0) detail.voiceGuardWindowStartedAt = state.voiceGuardWindowStartedAt;
+        if ((Number(state.voiceGuardWindowMoveCount || 0) || 0) > 0) detail.voiceGuardWindowMoveCount = Number(state.voiceGuardWindowMoveCount || 0) || 0;
+        if ((Number(state.voiceGuardMoveCount || 0) || 0) > 0) detail.voiceGuardMoveCount = Number(state.voiceGuardMoveCount || 0) || 0;
+        if ((Number(state.voiceGuardReturnCount || 0) || 0) > 0) detail.voiceGuardReturnCount = Number(state.voiceGuardReturnCount || 0) || 0;
+        if ((Number(state.voiceGuardDisconnectCount || 0) || 0) > 0) detail.voiceGuardDisconnectCount = Number(state.voiceGuardDisconnectCount || 0) || 0;
+        if ((Number(state.voiceGuardEscalationCount || 0) || 0) > 0) detail.voiceGuardEscalationCount = Number(state.voiceGuardEscalationCount || 0) || 0;
+        if (state.voiceGuardLastAction) detail.voiceGuardLastAction = state.voiceGuardLastAction;
+        if ((Number(state.voiceGuardLastActionAt || 0) || 0) > 0) detail.voiceGuardLastActionAt = Number(state.voiceGuardLastActionAt || 0) || 0;
+        if (state.voiceGuardLastActionReason) detail.voiceGuardLastActionReason = state.voiceGuardLastActionReason;
+        if (state.voiceGuardLastExpectedChannelId) detail.voiceGuardLastExpectedChannelId = state.voiceGuardLastExpectedChannelId;
+        if (state.voiceGuardLastActualChannelId) detail.voiceGuardLastActualChannelId = state.voiceGuardLastActualChannelId;
+      }
 
       guildDetails.push(detail);
     }

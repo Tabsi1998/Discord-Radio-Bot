@@ -55,7 +55,10 @@ export function createDashboardSettingsRouteHandler(deps) {
 
     if (req.method === "GET") {
       const settings = await loadDashboardGuildSettings(guildInfo.id);
-      const weeklyDigest = normalizeWeeklyDigestConfig(settings.weeklyDigest || {}, language);
+      const weeklyDigest = {
+        ...normalizeWeeklyDigestConfig(settings.weeklyDigest || {}, language),
+        language,
+      };
       const failoverChain = resolveDashboardFailoverChain(settings);
       const fallbackStation = getPrimaryFailoverStation(failoverChain, settings.fallbackStation || "");
       const voiceGuard = buildResolvedVoiceGuardConfig(settings.voiceGuard || {}, {

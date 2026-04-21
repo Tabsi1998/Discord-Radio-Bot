@@ -49,7 +49,7 @@ test("normalizeGuildSettings repairs malformed nested guild settings", () => {
     events: ["stream_failover_exhausted"],
   });
   assert.equal(normalized.exportsWebhook.secret.length, 120);
-  assert.deepEqual(normalized.exportsWebhook.events, ["stats_exported", "stream_failover_activated"]);
+  assert.deepEqual(normalized.exportsWebhook.events, ["stats_exported", "stream_recovered", "stream_failover_activated"]);
   assert.deepEqual(normalized.voiceGuard, {
     policy: "default",
   });

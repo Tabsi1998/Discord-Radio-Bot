@@ -2814,7 +2814,7 @@ test("setVolumeInGuild persists a worker volume preference even without active p
     lastPersistLoggedActiveCount: null,
   };
 
-  const result = BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 37);
+  const result = await BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 37);
 
   assert.equal(result.ok, true);
   assert.equal(result.appliedLive, false);
@@ -2873,7 +2873,7 @@ test("setVolumeInGuild refreshes the now-playing embed and keeps zero volume int
     },
   };
 
-  const result = BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 0);
+  const result = await BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 0);
   await new Promise((resolve) => setTimeout(resolve, 5));
 
   assert.equal(result.ok, true);
@@ -2948,7 +2948,7 @@ test("setVolumeInGuild refreshes the now-playing embed when Discord still report
     },
   };
 
-  const result = BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 12);
+  const result = await BotRuntime.prototype.setVolumeInGuild.call(runtime, "guild-1", 12);
   await new Promise((resolve) => setTimeout(resolve, 5));
 
   assert.equal(result.ok, true);
@@ -4320,7 +4320,7 @@ test("presence keeps commander and worker idle copy clean with /play and website
   assert.match(String(workerPresence?.name || ""), /^OmniFM 3 ready \| \/play \| https:\/\/omnifm\.xyz$/);
 });
 
-test("programmatic stop routes through resetVoiceSession so listening sessions are finalized", () => {
+test("programmatic stop routes through resetVoiceSession so listening sessions are finalized", async () => {
   let resetArgs = null;
   const fakeState = { shouldReconnect: true };
   const fakeRuntime = {
@@ -4331,7 +4331,7 @@ test("programmatic stop routes through resetVoiceSession so listening sessions a
     },
   };
 
-  const result = BotRuntime.prototype.stopInGuild.call(fakeRuntime, "guild-1");
+  const result = await BotRuntime.prototype.stopInGuild.call(fakeRuntime, "guild-1");
 
   assert.deepEqual(result, { ok: true });
   assert.equal(fakeState.shouldReconnect, false);

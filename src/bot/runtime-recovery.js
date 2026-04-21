@@ -84,7 +84,12 @@ function getExpectedRuntimeChannelId(state) {
 }
 
 function getRuntimeVoiceGuardConfig(state) {
-  if (state?.voiceGuardAvailable !== true) {
+  const hasExplicitVoiceGuardState = Boolean(
+    state?.voiceGuardAvailable === true
+    || state?.voiceGuardPolicy
+    || state?.voiceGuardEffectivePolicy
+  );
+  if (!hasExplicitVoiceGuardState) {
     return {
       policy: "allow",
       configuredPolicy: "default",
@@ -635,7 +640,9 @@ export function handleRuntimeBotVoiceStateUpdate(runtime, oldState, newState) {
     }
     runtime.persistState();
     if (state.currentStationKey) {
-      runtime.syncVoiceChannelStatus(guildId, state.currentStationName || state.currentStationKey).catch(() => null);
+      if (typeof runtime.syncVoiceChannelStatus === "function") {
+        runtime.syncVoiceChannelStatus(guildId, state.currentStationName || state.currentStationKey).catch(() => null);
+      }
     }
     runtime.queueVoiceStateReconcile(guildId, "voice-state-update", 1500);
     return;
@@ -703,7 +710,9 @@ export function resetRuntimeVoiceSession(
   runtime.clearCurrentProcess(state);
   runtime.clearReconnectTimer(state);
   runtime.clearNowPlayingTimer(state);
-  runtime.syncVoiceChannelStatus(guildId, "").catch(() => null);
+  if (typeof runtime.syncVoiceChannelStatus === "function") {
+    runtime.syncVoiceChannelStatus(guildId, "").catch(() => null);
+  }
   state.voiceDisconnectObservedAt = 0;
 
   if (!preservePlaybackTarget) {
@@ -1526,11 +1535,15 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
     : `attempt=hold:${currentAttempts} reason=${String(options.reason || "auto")}`;
 
   const networkCooldownMs = getRuntimeRecoveryDelayMs(runtime, guildId);
-  if (networkCooldownMs > 0) {
-    delay = Math.max(delay, networkCooldownMs);
-  }
-  if (minDelayMs > 0) {
-    delay = Math.max(delay, minDelayMs);
+  if (!shouldCountAttempt && minDelayMs > 0) {
+    delay = Math.max(networkCooldownMs, minDelayMs);
+  } else {
+    if (networkCooldownMs > 0) {
+      delay = Math.max(delay, networkCooldownMs);
+    }
+    if (minDelayMs > 0) {
+      delay = Math.max(delay, minDelayMs);
+    }
   }
   const delayFloorMs = Math.max(networkCooldownMs, minDelayMs);
 
@@ -1564,7 +1577,9 @@ export function scheduleRuntimeReconnect(runtime, guildId, options = {}) {
     }
   } else {
     nextReconnectAttempts = shouldCountAttempt ? displayAttempt : nextReconnectAttempts;
-    delay = Math.max(delayFloorMs, applyJitter(delay, jitterFactor));
+    delay = !shouldCountAttempt && minDelayMs > 0
+      ? Math.max(delayFloorMs, minDelayMs)
+      : Math.max(delayFloorMs, applyJitter(delay, jitterFactor));
     logMessage = shouldCountAttempt
       ? `[${runtime.config.name}] Reconnecting guild=${guildId} in ${Math.round(delay)}ms ` +
         `(attempt ${displayAttempt}, plan=${tierConfig.tier}, reason=${reason})`
