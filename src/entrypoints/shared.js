@@ -12,10 +12,14 @@ import {
   initPremiumStore,
 } from "../premium-store.js";
 import { setLicenseProvider } from "../core/entitlements.js";
+import { installOperatorIncidentRecorder } from "../operator-incidents-store.js";
 
 const entryDir = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.resolve(entryDir, "..", "..", ".env");
 dotenv.config({ path: envPath });
+installOperatorIncidentRecorder({
+  entry: path.basename(process.argv[1] || "entrypoint.js"),
+});
 
 function getCommanderSelection(botConfigs = [], env = process.env) {
   const configuredCommander = Number.parseInt(String(env.COMMANDER_BOT_INDEX || "1"), 10);

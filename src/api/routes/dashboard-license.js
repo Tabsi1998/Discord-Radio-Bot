@@ -1,3 +1,4 @@
+import { logError } from "../../lib/logging.js";
 import { resolveUserFacingErrorMessage } from "../../lib/user-facing-errors.js";
 
 export function createDashboardLicenseRouteHandler(deps) {
@@ -14,7 +15,6 @@ export function createDashboardLicenseRouteHandler(deps) {
     isValidEmailAddress,
     languagePick,
     linkServerToLicense,
-    log,
     maskDashboardEmail,
     methodNotAllowed,
     normalizeDuration,
@@ -103,6 +103,14 @@ export function createDashboardLicenseRouteHandler(deps) {
             sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
             return true;
           }
+          logError("[DashboardLicense] Update failed", err, {
+            context: {
+              source: "dashboard-license",
+              route: "/api/dashboard/license",
+              guildId: guildInfo?.id || "",
+            },
+            includeStack: true,
+          });
           sendJson(res, 400, {
             error: resolveUserFacingErrorMessage(language, err, {
               fallbackDe: "Die Lizenzdaten konnten gerade nicht aktualisiert werden.",
@@ -303,7 +311,14 @@ export function createDashboardLicenseRouteHandler(deps) {
           sendJson(res, status, { error: getLocalizedJsonBodyError(language, status) });
           return true;
         }
-        log("ERROR", `Dashboard license workspace error: ${err?.message || err}`);
+        logError("[DashboardLicenseWorkspace] Update failed", err, {
+          context: {
+            source: "dashboard-license-workspace",
+            route: "/api/dashboard/license/workspace",
+            guildId: guildInfo?.id || "",
+          },
+          includeStack: true,
+        });
         sendLocalizedError(
           res,
           500,
@@ -470,7 +485,14 @@ export function createDashboardLicenseRouteHandler(deps) {
           });
           return true;
         }
-        log("ERROR", `Dashboard offer preview error: ${err.message}`);
+        logError("[DashboardLicense] Offer preview failed", err, {
+          context: {
+            source: "dashboard-license-offer-preview",
+            route: "/api/dashboard/license/offer-preview",
+            guildId: guildInfo?.id || "",
+          },
+          includeStack: true,
+        });
         sendLocalizedError(res, 500, requestLanguage, "Dashboard-Angebotsvorschau fehlgeschlagen.", "Dashboard offer preview failed.");
       }
       return true;
@@ -752,7 +774,14 @@ export function createDashboardLicenseRouteHandler(deps) {
           });
           return true;
         }
-        log("ERROR", `Dashboard checkout error: ${err.message}`);
+        logError("[DashboardLicense] Checkout failed", err, {
+          context: {
+            source: "dashboard-license-checkout",
+            route: "/api/dashboard/license/checkout",
+            guildId: guildInfo?.id || "",
+          },
+          includeStack: true,
+        });
         sendLocalizedError(res, 500, requestLanguage, "Dashboard-Checkout fehlgeschlagen.", "Dashboard checkout failed.");
       }
       return true;

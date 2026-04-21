@@ -1,4 +1,5 @@
 import { getDb, isConnected } from "../../lib/db.js";
+import { logError } from "../../lib/logging.js";
 import { loadDashboardGuildSettings } from "./dashboard-guild-settings.js";
 import { resolveUserFacingErrorMessage } from "../../lib/user-facing-errors.js";
 
@@ -189,7 +190,13 @@ export function createDashboardSettingsRouteHandler(deps) {
         }
 
         if (!isConnected() || !getDb()) {
-          sendLocalizedError(res, 503, language, "MongoDB nicht verbunden.", "MongoDB is not connected.");
+          sendLocalizedError(
+            res,
+            503,
+            language,
+            "Der Dienst ist gerade voruebergehend nicht verfuegbar.",
+            "The service is temporarily unavailable."
+          );
           return true;
         }
 
@@ -247,6 +254,14 @@ export function createDashboardSettingsRouteHandler(deps) {
           voiceGuard,
         });
       } catch (err) {
+        logError("[DashboardSettings] Save failed", err, {
+          context: {
+            source: "dashboard-settings",
+            route: "/api/dashboard/settings",
+            guildId: guildInfo?.id || "",
+          },
+          includeStack: true,
+        });
         sendJson(res, 400, {
           error: resolveUserFacingErrorMessage(language, err, {
             fallbackDe: "Die Einstellungen konnten gerade nicht gespeichert werden.",

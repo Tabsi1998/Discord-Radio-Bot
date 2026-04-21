@@ -74,6 +74,7 @@ let logWriteQueue = Promise.resolve();
 const lastLogRotateCheckAt = new Map();
 const lastLogPruneCheckAt = new Map();
 const repeatedLogState = new Map();
+const errorObservers = new Set();
 const logTargets = [
   { filePath: logFile, rotatedPrefix: "bot" },
   { filePath: errorLogFile, rotatedPrefix: "error" },
@@ -378,6 +379,22 @@ function log(level, message) {
 function logError(summary, err, { context = null, level = "ERROR", includeStack = true } = {}) {
   const message = buildErrorLogMessage(summary, err, { context, includeStack });
   log(level, message);
+  const event = {
+    timestamp: new Date().toISOString(),
+    summary: String(summary || "").trim() || "Error",
+    err,
+    context: context && typeof context === "object" ? { ...context } : null,
+    level: String(level || "ERROR").trim().toUpperCase() || "ERROR",
+    includeStack: includeStack !== false,
+    message,
+  };
+  for (const observer of errorObservers) {
+    try {
+      Promise.resolve(observer(event)).catch(() => null);
+    } catch {
+      // ignore observer failures
+    }
+  }
   return message;
 }
 
@@ -453,11 +470,22 @@ function resetLogCooldownStateForTests() {
   repeatedLogState.clear();
 }
 
+function onLoggedError(observer) {
+  if (typeof observer !== "function") {
+    return () => {};
+  }
+  errorObservers.add(observer);
+  return () => {
+    errorObservers.delete(observer);
+  };
+}
+
 export {
   buildErrorLogMessage,
   formatLogContext,
   log,
   logError,
+  onLoggedError,
   logWithCooldown,
   logStoreLoadError,
   shouldLogFfmpegStderrLine,

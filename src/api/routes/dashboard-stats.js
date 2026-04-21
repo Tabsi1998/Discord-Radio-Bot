@@ -1,3 +1,5 @@
+import { logError } from "../../lib/logging.js";
+
 function normalizeIncidentStatusFilter(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "open" || normalized === "acknowledged") return normalized;
@@ -21,7 +23,6 @@ export function createDashboardStatsRouteHandler(deps) {
     getLocalizedJsonBodyError,
     getRecentRuntimeIncidents,
     languagePick,
-    log,
     methodNotAllowed,
     resetGuildStats,
     resolveDashboardGuildForSession,
@@ -196,12 +197,19 @@ export function createDashboardStatsRouteHandler(deps) {
           resetGuildStats(guildId);
         }
       } catch (err) {
-        log("ERROR", `[stats-reset] Error for guild ${guildId}: ${err?.message || err}`);
+        logError("[DashboardStats] Reset failed", err, {
+          context: {
+            source: "dashboard-stats-reset",
+            route: "/api/dashboard/stats/reset",
+            guildId,
+          },
+          includeStack: true,
+        });
         sendJson(res, 500, {
           error: languagePick(
             language,
-            `Fehler beim Zuruecksetzen: ${err.message}`,
-            `Reset failed: ${err.message}`
+            "Statistiken konnten gerade nicht zurueckgesetzt werden.",
+            "Statistics could not be reset right now."
           ),
         });
         return true;
@@ -248,7 +256,14 @@ export function createDashboardStatsRouteHandler(deps) {
         );
         sendJson(res, 200, detailPayload);
       } catch (err) {
-        log("ERROR", `Dashboard detail stats error: ${err?.message || err}`);
+        logError("[DashboardStats] Detail load failed", err, {
+          context: {
+            source: "dashboard-stats-detail",
+            route: "/api/dashboard/stats/detail",
+            guildId: guild?.id || "",
+          },
+          includeStack: true,
+        });
         sendLocalizedError(
           res,
           500,

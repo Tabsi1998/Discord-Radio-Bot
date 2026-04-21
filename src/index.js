@@ -18,6 +18,7 @@ import { BotRuntime } from "./bot/runtime.js";
 import { WorkerManager } from "./bot/worker-manager.js";
 import { startWebServer } from "./api/server.js";
 import { loadStations, initStationsStore } from "./stations-store.js";
+import { installOperatorIncidentRecorder } from "./operator-incidents-store.js";
 import {
   listLicenses,
   patchLicenseById,
@@ -53,6 +54,9 @@ import {
 } from "./services/topgg.js";
 
 const EXPIRY_REMINDER_DAYS = parseExpiryReminderDays(process.env.EXPIRY_REMINDER_DAYS);
+installOperatorIncidentRecorder({
+  entry: path.basename(process.argv[1] || "index.js"),
+});
 
 // ---- Voice-Dependencies pruefen ----
 try {
