@@ -845,7 +845,12 @@ export async function reconcileRuntimeGuildVoiceState(runtime, guildId, { reason
     || state.reconnectInFlight
     || state.reconnectTimer
   );
-  if (voiceOperationInFlight && (!actualChannelId || (expectedChannelId && actualChannelId !== expectedChannelId))) {
+  const shouldDeferVoiceMismatch = Boolean(
+    state.voiceConnectInFlight
+    || state.reconnectInFlight
+    || (!actualChannelId && state.reconnectTimer)
+  );
+  if (shouldDeferVoiceMismatch && (!actualChannelId || (expectedChannelId && actualChannelId !== expectedChannelId))) {
     runtime.queueVoiceStateReconcile(guildId, `voice-op-inflight-${reason}`, 1500);
     return;
   }

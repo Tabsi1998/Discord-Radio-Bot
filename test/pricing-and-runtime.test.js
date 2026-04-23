@@ -2261,6 +2261,81 @@ test("voice reconcile schedules a return to the locked channel after a confirmed
   }
 });
 
+test("voice reconcile does not let a pending reconnect timer block a guarded return", async () => {
+  const restoreEnv = setEnv({ VOICE_MOVE_POLICY: "return" });
+  try {
+    let destroyed = 0;
+    let scheduledReconnect = null;
+    const state = {
+      connection: {
+        joinConfig: { channelId: "voice-1" },
+        destroy() {
+          destroyed += 1;
+        },
+      },
+      currentStationKey: "station-a",
+      currentProcess: { pid: 1 },
+      lastChannelId: "voice-1",
+      shouldReconnect: true,
+      player: { state: { status: "playing" } },
+      transientVoiceIssues: {
+        "voice-channel-mismatch": {
+          count: 1,
+          firstSeenAt: Date.now(),
+          lastSeenAt: Date.now(),
+          lastDetail: "voice-1:voice-2:test",
+        },
+      },
+      voiceConnectInFlight: false,
+      reconnectInFlight: false,
+      reconnectTimer: { pending: true },
+      voiceGuardEffectivePolicy: "return",
+      voiceGuardMoveConfirmations: 2,
+    };
+    const runtime = {
+      config: { name: "OmniFM Test" },
+      client: {
+        isReady: () => true,
+      },
+      guildState: new Map([["guild-1", state]]),
+      fetchBotVoiceState: async () => ({ guild: {}, voiceState: {}, channelId: "voice-2" }),
+      markNowPlayingTargetDirty() {
+        throw new Error("markNowPlayingTargetDirty should not run");
+      },
+      persistState() {},
+      queueVoiceStateReconcile() {
+        throw new Error("queueVoiceStateReconcile should not run");
+      },
+      resetVoiceSession() {
+        throw new Error("resetVoiceSession should not run");
+      },
+      scheduleReconnect(guildId, options) {
+        scheduledReconnect = { guildId, options };
+      },
+      scheduleStreamRestart() {
+        throw new Error("scheduleStreamRestart should not run");
+      },
+      syncVoiceChannelStatus() {
+        throw new Error("syncVoiceChannelStatus should not run");
+      },
+    };
+
+    await reconcileRuntimeGuildVoiceState(runtime, "guild-1", { reason: "timer" });
+
+    assert.equal(destroyed, 1);
+    assert.equal(state.transientVoiceIssues["voice-channel-mismatch"], undefined);
+    assert.deepEqual(scheduledReconnect, {
+      guildId: "guild-1",
+      options: {
+        resetAttempts: true,
+        reason: "voice-channel-mismatch-guard",
+      },
+    });
+  } finally {
+    restoreEnv();
+  }
+});
+
 test("voice reconcile still returns an active session when shouldReconnect is false", async () => {
   const restoreEnv = setEnv({ VOICE_MOVE_POLICY: "return" });
   try {
