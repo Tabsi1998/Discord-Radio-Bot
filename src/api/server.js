@@ -29,6 +29,7 @@ import { createPremiumBillingRoutesHandler } from "./routes/premium-billing-rout
 import { createPremiumOffersRoutesHandler } from "./routes/premium-offers-routes.js";
 import { createPremiumReadRoutesHandler } from "./routes/premium-read-routes.js";
 import { createPublicRoutesHandler } from "./routes/public-routes.js";
+import { createAdminRoutesHandler } from "./routes/admin-routes.js";
 import {
   isRuntimePlaybackActive,
   isRuntimeVoiceConnected,
@@ -227,6 +228,9 @@ import {
   syncTopGGVotes,
 } from "../services/topgg.js";
 import { getVoteEventsState } from "../vote-events-store.js";
+import { listLicenses, patchLicenseById } from "../premium-store.js";
+import { getStationHealthReport } from "../services/station-health.js";
+import { getRecentOperatorIncidents } from "../operator-incidents-store.js";
 
 const appStartTime = Date.now();
 const webhookEventsInFlight = new Set();
@@ -2986,7 +2990,25 @@ async function normalizeDashboardEventInput(body, {
   };
 }
 
+const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
+
+const handleAdminRoutes = createAdminRoutesHandler({
+  ADMIN_TOKEN,
+  getStationHealthReport,
+  listLicenses,
+  patchLicenseById,
+  loadStations,
+  log,
+  methodNotAllowed,
+  sendJson,
+  get runtimes() { return _runtimes; },
+  getRecentOperatorIncidents,
+});
+
+let _runtimes = [];
+
 function startWebServer(runtimes) {
+  _runtimes = runtimes;
   const webInternalPort = Number(process.env.WEB_INTERNAL_PORT || "8080");
   const webPort = Number(process.env.WEB_PORT || "8081");
   const webBind = process.env.WEB_BIND || "0.0.0.0";
@@ -3153,6 +3175,11 @@ function startWebServer(runtimes) {
     }
 
     if (await handlePremiumOffersRoutes({ req, res, requestUrl, readJsonBody })) {
+      return;
+    }
+
+    // --- Admin Panel (versteckt, Token-geschützt) ---
+    if (await handleAdminRoutes({ req, res, requestUrl })) {
       return;
     }
 

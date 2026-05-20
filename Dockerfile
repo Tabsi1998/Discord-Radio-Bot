@@ -1,7 +1,7 @@
 # escape=\
 
-# Keep the frontend builder aligned with the frontend CI/npm toolchain.
-FROM node:24-slim AS frontend-builder
+# Fix: Beide Stages nutzen dieselbe Node-LTS-Version (war: 24 vs 22)
+FROM node:22-slim AS frontend-builder
 
 WORKDIR /frontend
 
@@ -23,6 +23,7 @@ RUN set -eux; \
     ffmpeg \
     "${CHROMAPRINT_PKG}" \
     ca-certificates \
+    curl \
     libopus0 \
     libopus-dev \
     libsodium-dev \

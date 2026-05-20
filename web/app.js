@@ -1473,17 +1473,70 @@ function renderFooterStats(data) {
 }
 
 // --- Fetch & Refresh ---
-async function fetchJson(url) {
-  var res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(url + ' -> ' + res.status);
-  return res.json();
+var _apiErrorShown = false;
+var _lastRefreshOk = false;
+
+async function fetchJson(url, timeoutMs) {
+  var controller = new AbortController();
+  var tid = setTimeout(function() { controller.abort(); }, timeoutMs || 8000);
+  try {
+    var res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    clearTimeout(tid);
+    if (!res.ok) throw new Error(url + ' -> ' + res.status);
+    return res.json();
+  } catch (err) {
+    clearTimeout(tid);
+    throw err;
+  }
+}
+
+function showApiError() {
+  if (_apiErrorShown) return;
+  _apiErrorShown = true;
+
+  // Bot-Grid Fehler
+  var botGrid = document.getElementById('botGrid');
+  if (botGrid && botGrid.innerHTML.indexOf('Lade') !== -1) {
+    botGrid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:32px 16px">'
+      + '<p style="color:#FF2A2A;font-size:14px;margin-bottom:12px">'
+      + tr('⚠️ Bots konnten nicht geladen werden.', '⚠️ Could not load bots.')
+      + '</p>'
+      + '<button onclick="retryRefresh()" style="background:#00F0FF;color:#050505;border:none;border-radius:10px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer">'
+      + tr('Erneut versuchen', 'Try again')
+      + '</button></div>';
+  }
+
+  // Stationen Fehler
+  var stationList = document.getElementById('stationList');
+  if (stationList && stationList.innerHTML.indexOf('Lade') !== -1) {
+    stationList.innerHTML = '<div style="text-align:center;padding:32px 16px">'
+      + '<p style="color:#FF2A2A;font-size:14px;margin-bottom:12px">'
+      + tr('⚠️ Stationen konnten nicht geladen werden.', '⚠️ Could not load stations.')
+      + '</p>'
+      + '<button onclick="retryRefresh()" style="background:#00F0FF;color:#050505;border:none;border-radius:10px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer">'
+      + tr('Erneut versuchen', 'Try again')
+      + '</button></div>';
+  }
+
+  // Stationen-Count
+  var stationCount = document.getElementById('stationCount');
+  if (stationCount) stationCount.textContent = tr('Stationen konnten nicht geladen werden.', 'Stations could not be loaded.');
+}
+
+function retryRefresh() {
+  _apiErrorShown = false;
+  var botGrid = document.getElementById('botGrid');
+  if (botGrid) botGrid.innerHTML = '<p class="muted">' + tr('Lade Bots...', 'Loading bots...') + '</p>';
+  var stationList = document.getElementById('stationList');
+  if (stationList) stationList.innerHTML = '<p class="muted">' + tr('Lade Stationen...', 'Loading stations...') + '</p>';
+  refresh();
 }
 
 async function refresh() {
   try {
     var results = await Promise.all([
-      fetchJson('/api/bots'),
-      fetchJson('/api/stations'),
+      fetchJson('/api/bots', 8000),
+      fetchJson('/api/stations', 8000),
     ]);
 
     var botsRes = results[0];
@@ -1491,6 +1544,9 @@ async function refresh() {
     var bots = botsRes.bots || [];
     var totals = botsRes.totals || {};
     var stations = stationsRes.stations || [];
+
+    _lastRefreshOk = true;
+    _apiErrorShown = false;
 
     renderBots(bots);
     renderStations(stations);
@@ -1502,8 +1558,17 @@ async function refresh() {
     document.getElementById('statBots').textContent = fmtInt(bots.length);
   } catch (e) {
     console.error(tr('API Fehler:', 'API error:'), e);
+    if (!_lastRefreshOk) {
+      // Nur beim ersten Fehler (noch nie erfolgreich geladen) Fehlermeldung zeigen
+      showApiError();
+    }
   }
 }
 
-refresh();
+// Erster Ladeversuch mit Timeout-Fallback: nach 6s Fehlermeldung wenn noch nichts geladen
+var _initialLoadTimer = setTimeout(function() {
+  if (!_lastRefreshOk) showApiError();
+}, 6000);
+
+refresh().then(function() { clearTimeout(_initialLoadTimer); });
 setInterval(refresh, 15000);

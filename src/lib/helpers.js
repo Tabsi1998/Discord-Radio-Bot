@@ -19,12 +19,24 @@ const SEAT_PRICING_CENTS = {
   ultimate: { 1: 499, 2: 799, 3: 1099, 5: 1699 },
 };
 
-const TIERS = {
-  free: { name: "Free", rank: 0, maxBots: 2, bitrate: null, reconnectDelayMs: 5000 },
-  pro: { name: "Pro", rank: 1, maxBots: 8, bitrate: "128k", reconnectDelayMs: 1500 },
-  ultimate: { name: "Ultimate", rank: 2, maxBots: 16, bitrate: "320k", reconnectDelayMs: 400 },
-};
-const TIER_RANK = { free: 0, pro: 1, ultimate: 2 };
+// ---- Fix: TIERS wird aus PLANS abgeleitet statt doppelt definiert ----
+// PLANS in config/plans.js ist die Single Source of Truth.
+// TIERS bleibt als Alias fuer Backward-Compatibility erhalten.
+const TIERS = Object.fromEntries(
+  Object.entries(PLANS).map(([key, plan], index) => [
+    key,
+    {
+      name: plan.name,
+      rank: index,
+      maxBots: plan.limits?.maxBots ?? plan.maxBots ?? 0,
+      bitrate: plan.limits?.bitrate ?? plan.bitrate ?? null,
+      reconnectDelayMs: plan.limits?.reconnectMs ?? plan.reconnectMs ?? 5000,
+    },
+  ])
+);
+const TIER_RANK = Object.fromEntries(
+  Object.keys(PLANS).map((key, index) => [key, index])
+);
 const TRUST_PROXY_HEADERS = String(process.env.TRUST_PROXY_HEADERS || "0") === "1";
 
 const MIME_TYPES = {

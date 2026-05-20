@@ -888,6 +888,14 @@ class BotRuntime {
       }
       this.guildState.delete(guildId);
     }
+    // Fix: guildOperationLocks Memory Leak – beim Guild-Leave aufraumen
+    if (this.guildOperationLocks instanceof Map) {
+      this.guildOperationLocks.delete(guildId);
+    }
+    // Fix: guildSettingsCache beim Guild-Leave aufraumen
+    if (this.guildSettingsCache instanceof Map) {
+      this.guildSettingsCache.delete(guildId);
+    }
     deleteScheduledEventsByFilter({ guildId, botId: this.config.id });
     clearBotGuild(this.config.id, guildId);
   }

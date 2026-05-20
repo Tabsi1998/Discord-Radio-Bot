@@ -143,7 +143,20 @@ async function createResource(url, volume, qualityPreset, botName, bitrateOverri
 
   const stream = Readable.fromWeb(res.body);
   networkRecoveryCoordinator.noteSuccess(`${botName} fetch-stream`, recoveryOptions);
-  const probe = await demuxProbe(stream);
+
+  // ---- Fix: demuxProbe() kann bei kaputten Streams ewig haengen ----
+  // Promise.race() mit Timeout verhindert dass der Bot haengt.
+  const DEMUX_TIMEOUT_MS = 15_000;
+  const probe = await Promise.race([
+    demuxProbe(stream),
+    new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`demuxProbe Timeout nach ${DEMUX_TIMEOUT_MS}ms`)),
+        DEMUX_TIMEOUT_MS
+      )
+    ),
+  ]);
+
   const resource = createAudioResource(probe.stream, { inputType: probe.type, inlineVolume: true });
   applyVolumeTransformerLevel(resource.volume, volume);
 

@@ -9,6 +9,19 @@ let db = null;
 let connectPromise = null;
 let initialized = false;
 
+// ---- Fix: Echter Verbindungsstatus-Check ----
+// db !== null reicht nicht – der Client kann disconnected sein ohne dass db null wird.
+function isConnected() {
+  if (!client || !db) return false;
+  // MongoClient.topology ist die interne Verbindungsschicht.
+  // isConnected() auf der Topology gibt den echten Status zurück.
+  try {
+    return client.topology?.isConnected?.() === true;
+  } catch {
+    return false;
+  }
+}
+
 async function initCollections(database) {
   if (initialized) return;
   try {
@@ -85,15 +98,51 @@ async function initCollections(database) {
 }
 
 async function connect() {
-  if (db) return db;
+  // ---- Fix: Prüfe echten Verbindungsstatus, nicht nur db !== null ----
+  if (db && isConnected()) return db;
+
+  // Falls ein laufendes Connect-Promise existiert, darauf warten
   if (connectPromise) return connectPromise;
 
   connectPromise = (async () => {
     try {
+      // Alten Client aufräumen falls vorhanden aber disconnected
+      if (client) {
+        try { await client.close(); } catch { /* ignore */ }
+        client = null;
+        db = null;
+        initialized = false;
+      }
+
       client = new MongoClient(MONGO_URL, {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 5000,
+        // ---- Fix: MongoClient hat eingebautes Connection-Pooling + Auto-Reconnect ----
+        // maxPoolSize sorgt dafür dass bei kurzen Ausfällen Verbindungen wiederhergestellt werden
+        maxPoolSize: 10,
+        minPoolSize: 1,
+        socketTimeoutMS: 30000,
+        heartbeatFrequencyMS: 10000,
       });
+
+      // ---- Fix: Auf Verbindungsverlust reagieren ----
+      client.on("close", () => {
+        log("WARN", "[MongoDB] Verbindung getrennt (close event).");
+        // db und connectPromise zurücksetzen damit der nächste connect()-Aufruf
+        // eine neue Verbindung aufbaut
+        db = null;
+        connectPromise = null;
+        initialized = false;
+      });
+
+      client.on("error", (err) => {
+        log("WARN", `[MongoDB] Client-Fehler: ${err?.message || err}`);
+      });
+
+      client.on("reconnect", () => {
+        log("INFO", "[MongoDB] Verbindung wiederhergestellt.");
+      });
+
       await client.connect();
       db = client.db(DB_NAME);
       log("INFO", `MongoDB verbunden: ${DB_NAME}`);
@@ -101,6 +150,7 @@ async function connect() {
       return db;
     } catch (err) {
       connectPromise = null;
+      db = null;
       throw err;
     }
   })();
@@ -109,11 +159,9 @@ async function connect() {
 }
 
 function getDb() {
+  // ---- Fix: Gibt null zurück wenn nicht wirklich verbunden ----
+  if (!isConnected()) return null;
   return db;
-}
-
-function isConnected() {
-  return db !== null;
 }
 
 async function close() {

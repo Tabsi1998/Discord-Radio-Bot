@@ -71,6 +71,11 @@ init_json_file "/app/scheduled-events.json"
 init_json_file "/app/coupons.json"
 init_json_file "/app/premium.json"
 init_json_file "/app/stations.json"
+# Fix: Fehlende JSON-Dateien ergaenzt (wurden vorher nicht initialisiert)
+init_json_file "/app/discordbotlist.json"
+init_json_file "/app/botsgg.json"
+init_json_file "/app/topgg.json"
+init_json_file "/app/vote-events.json"
 
 if command -v ffmpeg >/dev/null 2>&1; then
   echo "[INFO] ffmpeg verfuegbar: $(ffmpeg -version | head -n 1)"

@@ -10,6 +10,13 @@ const envPath = path.resolve(entryDir, "..", ".env");
 dotenv.config({ path: envPath });
 
 import { log, logError, getLogWriteQueue } from "./lib/logging.js";
+import {
+  notifyBotLoginFailed,
+  notifyCrash,
+  notifyShutdown,
+  notifyStartup,
+  OPERATOR_WEBHOOK_ENABLED,
+} from "./services/operator-webhook.js";
 import { connect as connectDb } from "./lib/db.js";
 import { TIERS, parseExpiryReminderDays } from "./lib/helpers.js";
 import { normalizeLanguage, getDefaultLanguage } from "./i18n.js";
@@ -161,11 +168,21 @@ for (const failedRuntime of failedRuntimes) {
     "ERROR",
     `[${failedRuntime.config.name}] Start fehlgeschlagen. Dieser Bot liefert keine Slash-Commands, bis der Login/Token-Fehler behoben ist. Grund: ${errText}`
   );
+  // Operator-Webhook: Bot-Login fehlgeschlagen
+  notifyBotLoginFailed(failedRuntime.config.name, errText).catch(() => null);
 }
 
 if (!startResults.some(Boolean)) {
   log("ERROR", "Kein Bot konnte gestartet werden. Backend wird beendet.");
   process.exit(1);
+}
+
+// Operator-Webhook: Startup-Benachrichtigung
+if (OPERATOR_WEBHOOK_ENABLED) {
+  notifyStartup(
+    startedRuntimes.map((r) => r.config.name),
+    runtimes.length
+  ).catch(() => null);
 }
 
 // ---- Auto-Restore ----
@@ -274,7 +291,6 @@ const botsGGEnabled = isBotsGGEnabled(runtimes);
 if (botsGGEnabled) {
   const botsGGIntervals = getBotsGGIntervals();
   let botsGGStatsSyncRunning = false;
-
   const runBotsGGStatsSync = async (source = "periodic") => {
     if (botsGGStatsSyncRunning) return;
     botsGGStatsSyncRunning = true;
@@ -531,114 +547,9 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 // ---- Weekly Stats Digest ----
-import { getGuildListeningStats, getGlobalStats, getGuildDailyStats } from "./listening-stats-store.js";
-import { getDb, isConnected as isMongoConnected } from "./lib/db.js";
-import {
-  normalizeWeeklyDigestConfig,
-  shouldSendWeeklyDigest,
-} from "./lib/weekly-digest.js";
-
-const DIGEST_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
-
-async function getDigestSettings(guildId) {
-  if (!isMongoConnected() || !getDb()) return null;
-  try {
-    return await getDb().collection("guild_settings").findOne({ guildId }, { projection: { _id: 0 } });
-  } catch { return null; }
-}
-
-async function setDigestLastSent(guildId, timestamp) {
-  if (!isMongoConnected() || !getDb()) return;
-  try {
-    await getDb().collection("guild_settings").updateOne(
-      { guildId },
-      { $set: { weeklyDigestLastSent: timestamp } },
-      { upsert: true }
-    );
-  } catch {}
-}
-
-function formatMsDuration(ms) {
-  if (!ms || ms <= 0) return "0m";
-  const hours = Math.floor(ms / 3600000);
-  const minutes = Math.floor((ms % 3600000) / 60000);
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-}
-
-async function sendWeeklyDigest(runtime, guildId, channelId, language = "de") {
-  const t = (de, en) => (language === "de" ? de : en);
-  const guild = runtime.client.guilds.cache.get(guildId);
-  if (!guild) return;
-  const channel = guild.channels.cache.get(channelId);
-  if (!channel) return;
-
-  const stats = getGuildListeningStats(guildId);
-  const dailyStats = await getGuildDailyStats(guildId, 7);
-
-  const weekStarts = dailyStats.reduce((s, d) => s + (d.totalStarts || 0), 0);
-  const weekListeningMs = dailyStats.reduce((s, d) => s + (d.totalListeningMs || 0), 0);
-  const weekSessions = dailyStats.reduce((s, d) => s + (d.totalSessions || 0), 0);
-  const weekPeak = Math.max(0, ...dailyStats.map((d) => d.peakListeners || 0));
-
-  const topStations = Object.entries(stats?.stationStarts || {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([name, count], i) => `${i + 1}. **${name}** (${count}x)`)
-    .join("\n") || t("Keine Daten", "No data");
-
-  const { EmbedBuilder } = await import("discord.js");
-  const embed = new EmbedBuilder()
-    .setColor(0x5865F2)
-    .setTitle(t("Wöchentlicher Radio-Report", "Weekly radio report"))
-    .setDescription(t(
-      `Hier ist die Zusammenfassung der letzten 7 Tage für **${guild.name}**:`,
-      `Here is the summary for the last 7 days on **${guild.name}**:`
-    ))
-    .addFields(
-      { name: t("Hörzeit", "Listening time"), value: formatMsDuration(weekListeningMs), inline: true },
-      { name: t("Sessions", "Sessions"), value: String(weekSessions), inline: true },
-      { name: t("Starts", "Starts"), value: String(weekStarts), inline: true },
-      { name: t("Peak-Zuhörer", "Peak listeners"), value: String(weekPeak), inline: true },
-      { name: t("Gesamte Hörzeit", "Total listening"), value: formatMsDuration(stats?.totalListeningMs || 0), inline: true },
-      { name: t("Gesamt Sessions", "Total sessions"), value: String(stats?.totalSessions || 0), inline: true },
-      { name: t("Top 5 Stationen", "Top 5 stations"), value: topStations, inline: false },
-    )
-    .setFooter({ text: "OmniFM Weekly Digest" })
-    .setTimestamp(new Date());
-
-  try {
-    await channel.send({ embeds: [embed] });
-    log("INFO", `[WeeklyDigest] Gesendet an ${guild.name} #${channel.name}`);
-  } catch (err) {
-    log("WARN", `[WeeklyDigest] Fehler beim Senden: ${err?.message || err}`);
-  }
-}
-
-setInterval(async () => {
-  if (!isMongoConnected() || !getDb()) return;
-  const now = new Date();
-
-  // Only check on Monday at 9:00-10:00 (or whenever configured)
-  try {
-    const settings = await getDb().collection("guild_settings").find({ "weeklyDigest.enabled": true }).toArray();
-    for (const setting of settings) {
-      const config = normalizeWeeklyDigestConfig(setting.weeklyDigest || {});
-      const channelId = config.channelId;
-      if (!channelId || !setting.guildId) continue;
-      if (!shouldSendWeeklyDigest(config, { now, lastSentAt: setting.weeklyDigestLastSent || null })) continue;
-
-      for (const runtime of runtimes) {
-        if (runtime.client.guilds.cache.has(setting.guildId)) {
-          await sendWeeklyDigest(runtime, setting.guildId, channelId, config.language || "de");
-          await setDigestLastSent(setting.guildId, now.toISOString());
-          break;
-        }
-      }
-    }
-  } catch (err) {
-    log("WARN", `[WeeklyDigest] Check fehlgeschlagen: ${err?.message || err}`);
-  }
-}, DIGEST_CHECK_INTERVAL_MS);
+// Fix 6: Ausgelagert in src/services/weekly-digest-service.js
+import { startWeeklyDigestService } from "./services/weekly-digest-service.js";
+startWeeklyDigestService(runtimes);
 
 // ---- Shutdown ----
 let shuttingDown = false;
@@ -646,6 +557,11 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   log("INFO", `Shutdown via ${signal}...`);
+
+  // Operator-Webhook: Shutdown-Benachrichtigung (nur bei externem Signal, nicht bei uncaughtException)
+  if (signal === "SIGINT" || signal === "SIGTERM") {
+    await notifyShutdown(signal).catch(() => null);
+  }
 
   log("INFO", "Speichere Bot-State fuer Auto-Reconnect...");
   for (const runtime of runtimes) {
@@ -671,6 +587,8 @@ process.on("unhandledRejection", (reason) => {
       entry: path.basename(process.argv[1] || "index.js"),
     },
   });
+  // Operator-Webhook: Unhandled Rejection
+  notifyCrash("unhandledRejection", reason).catch(() => null);
 });
 
 process.on("uncaughtException", (err) => {
@@ -680,6 +598,8 @@ process.on("uncaughtException", (err) => {
       entry: path.basename(process.argv[1] || "index.js"),
     },
   });
+  // Operator-Webhook: Uncaught Exception
+  notifyCrash("uncaughtException", err).catch(() => null);
   shutdown("uncaughtException").catch(async () => {
     try {
       await getLogWriteQueue();
