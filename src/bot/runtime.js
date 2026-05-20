@@ -332,6 +332,7 @@ class BotRuntime {
   constructor(config, { role = "worker", workerManager = null } = {}) {
     this.config = config;
     this.role = role; // "commander" or "worker"
+    this.workerSlot = role === "worker" ? (Number(config?.index || 0) || null) : null;
     this.workerManager = workerManager;
     this.voiceGroup = `bot-${this.config.clientId}`;
     this.rest = new REST({ version: "10" }).setToken(this.config.token);
