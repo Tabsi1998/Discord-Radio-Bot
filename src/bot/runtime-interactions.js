@@ -1051,10 +1051,32 @@ export async function handleRuntimeInteraction(runtime, interaction) {
       const guildId = interaction.guildId;
       let workers = [];
       
-      // PrioritÃ¤t 1: Explizit bot: Parameter
+      // Priorität 1: Explizit bot: Parameter
       if (requestedBot) {
         const worker = runtime.workerManager.getWorkerByIndex(requestedBot);
-        if (worker) workers = [worker];
+        if (!worker) {
+          // Worker-Index nicht gefunden / nicht konfiguriert
+          await interaction.reply(buildNoticePayload({
+            t,
+            language,
+            tone: "warning",
+            title: t("🤖 Worker nicht gefunden", "🤖 Worker not found"),
+            description: t(
+              `Worker **${requestedBot}** ist nicht konfiguriert oder nicht verfügbar.`,
+              `Worker **${requestedBot}** is not configured or not available.`
+            ),
+            extraComponents: [
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(WORKERS_COMPONENT_ID_OPEN)
+                  .setStyle(ButtonStyle.Secondary)
+                  .setLabel(t("🤖 Worker anzeigen", "🤖 Show workers"))
+              ),
+            ],
+          }));
+          return;
+        }
+        workers = [worker];
       }
       // PrioritÃ¤t 2: all: true Parameter
       else if (stopAll) {
@@ -1142,7 +1164,7 @@ export async function handleRuntimeInteraction(runtime, interaction) {
     }
     
     // Worker/Legacy Mode: lokaler Stop
-    await runtime.stopInGuild(guildId);
+    await runtime.stopInGuild(interaction.guildId);
 
     await interaction.reply(buildNoticePayload({
       t,
