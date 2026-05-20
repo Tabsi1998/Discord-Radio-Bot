@@ -79,6 +79,7 @@ import {
   methodNotAllowed,
   sendStaticFile,
   applyCors,
+  getAdminApiToken,
   isAdminApiRequest,
   sanitizeLicenseForApi,
   API_COMMANDS,
@@ -2990,14 +2991,21 @@ async function normalizeDashboardEventInput(body, {
   };
 }
 
-const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
+function resolveAdminPanelToken() {
+  return String(
+    process.env.ADMIN_TOKEN
+    || getAdminApiToken()
+    || process.env.OMNIFM_ADMIN_TOKEN
+    || ""
+  ).trim();
+}
 
 // WICHTIG: _runtimes muss VOR createAdminRoutesHandler deklariert sein,
 // da der getter sonst in die TDZ (Temporal Dead Zone) läuft.
 let _runtimes = [];
 
 const handleAdminRoutes = createAdminRoutesHandler({
-  ADMIN_TOKEN,
+  resolveAdminToken: resolveAdminPanelToken,
   getStationHealthReport,
   listLicenses,
   patchLicenseById,
@@ -3200,7 +3208,10 @@ function startWebServer(runtimes) {
 
     // Dashboard SPA: /dashboard und /dashboard/* → dashboard.html
     if (normalizedPathname === "/dashboard" || normalizedPathname.startsWith("/dashboard/")) {
-      const dashboardFile = path.join(webDir, "dashboard.html");
+      const legacyDashboardFile = path.join(webDir, "dashboard.html");
+      const dashboardFile = fs.existsSync(legacyDashboardFile)
+        ? legacyDashboardFile
+        : path.join(webDir, "index.html");
       sendStaticFile(res, dashboardFile, { headOnly: req.method === "HEAD" });
       return;
     }
@@ -3212,9 +3223,12 @@ function startWebServer(runtimes) {
     const filePath = path.join(webDir, staticPath);
 
     // 404-Fallback: Wenn statische Datei nicht existiert → 404.html
+    const notFoundFile = fs.existsSync(path.join(webDir, "404.html"))
+      ? path.join(webDir, "404.html")
+      : path.join(rootDir, "web", "404.html");
     sendStaticFile(res, filePath, {
       headOnly: req.method === "HEAD",
-      notFoundPath: path.join(webDir, "404.html"),
+      notFoundPath: notFoundFile,
     });
   });
 

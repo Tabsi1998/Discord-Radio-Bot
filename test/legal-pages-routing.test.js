@@ -74,6 +74,7 @@ test("startWebServer serves SPA entry for clean legal paths and exposes terms pa
     CORS_ALLOWED_ORIGINS: "",
     CORS_ORIGINS: "",
     WEB_DOMAIN: "",
+    API_ADMIN_TOKEN: "admin-route-token",
     LEGAL_PROVIDER_NAME: "OmniFM Test Operator",
     LEGAL_STREET_ADDRESS: "Test Street 1",
     LEGAL_POSTAL_CODE: "1010",
@@ -103,6 +104,22 @@ test("startWebServer serves SPA entry for clean legal paths and exposes terms pa
     const termsPageResponse = await fetch(`http://127.0.0.1:${port}/nutzungsbedingungen?lang=de`);
     assert.equal(termsPageResponse.status, 200);
     assert.match(await termsPageResponse.text(), /legal-routing-marker/);
+
+    const dashboardPageResponse = await fetch(`http://127.0.0.1:${port}/dashboard`);
+    assert.equal(dashboardPageResponse.status, 200);
+    assert.match(await dashboardPageResponse.text(), /legal-routing-marker/);
+
+    const notFoundPageResponse = await fetch(`http://127.0.0.1:${port}/definitely-missing-page`);
+    assert.equal(notFoundPageResponse.status, 404);
+    assert.match(await notFoundPageResponse.text(), /404/);
+
+    const adminPanelResponse = await fetch(`http://127.0.0.1:${port}/admin?token=admin-route-token`);
+    assert.equal(adminPanelResponse.status, 200);
+    assert.match(await adminPanelResponse.text(), /OMNIFM ADMIN/);
+
+    const adminOverviewResponse = await fetch(`http://127.0.0.1:${port}/api/admin/overview?token=admin-route-token`);
+    assert.equal(adminOverviewResponse.status, 200);
+    assert.equal((await adminOverviewResponse.json()).bots.length, 0);
 
     const termsApiResponse = await fetch(`http://127.0.0.1:${port}/api/terms`);
     assert.equal(termsApiResponse.status, 200);

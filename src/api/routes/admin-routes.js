@@ -1,8 +1,8 @@
 // ============================================================
 // OmniFM: Admin-Panel API-Routen
-// Zugang: ADMIN_TOKEN in .env setzen
+// Zugang: ADMIN_TOKEN, API_ADMIN_TOKEN oder ADMIN_API_TOKEN in .env setzen
 // URL:    /admin  (nicht verlinkt, nur für Betreiber)
-// Auth:   ?token=xxx  ODER  Authorization: Bearer xxx
+// Auth:   ?token=xxx  ODER  Authorization: Bearer xxx ODER X-Admin-Token
 //
 // Endpunkte:
 //   GET  /admin                  → Admin-Panel HTML
@@ -27,19 +27,22 @@ export function createAdminRoutesHandler(deps) {
     sendJson,
     runtimes,
     getRecentOperatorIncidents,
+    resolveAdminToken,
   } = deps;
 
   /**
    * Prüft ob der Request einen gültigen Admin-Token hat.
    */
   function isAuthorized(req, requestUrl) {
-    if (!ADMIN_TOKEN) return false;
+    const adminToken = String(resolveAdminToken?.() || ADMIN_TOKEN || "").trim();
+    if (!adminToken) return false;
     const authHeader = String(req.headers?.authorization || "").trim();
     const bearerToken = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7).trim()
       : "";
+    const headerToken = String(req.headers?.["x-admin-token"] || "").trim();
     const queryToken = String(requestUrl?.searchParams?.get("token") || "").trim();
-    return bearerToken === ADMIN_TOKEN || queryToken === ADMIN_TOKEN;
+    return bearerToken === adminToken || headerToken === adminToken || queryToken === adminToken;
   }
 
   function unauthorized(res) {

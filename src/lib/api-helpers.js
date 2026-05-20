@@ -42,22 +42,7 @@ function methodNotAllowed(res, allowedMethods = ["GET"]) {
   sendJson(res, 405, { error: `Method not allowed. Use: ${methods.join(", ")}` });
 }
 
-function sendStaticFile(res, filePath, { headOnly = false } = {}) {
-  const resolved = path.resolve(filePath);
-  const resolvedWebDir = path.resolve(webDir);
-  const relativePath = path.relative(resolvedWebDir, resolved);
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    res.writeHead(403);
-    res.end("Forbidden");
-    return;
-  }
-
-  if (!fs.existsSync(resolved)) {
-    res.writeHead(404);
-    res.end("Not found");
-    return;
-  }
-
+function streamStaticFile(res, resolved, { headOnly = false, statusCode = 200 } = {}) {
   let stat;
   try {
     stat = fs.statSync(resolved);
@@ -76,7 +61,7 @@ function sendStaticFile(res, filePath, { headOnly = false } = {}) {
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
   const cacheControl = ext === ".html" ? "no-cache" : "public, max-age=86400";
 
-  res.writeHead(200, {
+  res.writeHead(statusCode, {
     ...getCommonSecurityHeaders(),
     "Content-Type": contentType,
     "Cache-Control": cacheControl
@@ -95,6 +80,30 @@ function sendStaticFile(res, filePath, { headOnly = false } = {}) {
     res.destroy();
   });
   stream.pipe(res);
+}
+
+function sendStaticFile(res, filePath, { headOnly = false, notFoundPath = "" } = {}) {
+  const resolved = path.resolve(filePath);
+  const resolvedWebDir = path.resolve(webDir);
+  const relativePath = path.relative(resolvedWebDir, resolved);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
+
+  if (!fs.existsSync(resolved)) {
+    const resolvedNotFound = notFoundPath ? path.resolve(notFoundPath) : "";
+    if (resolvedNotFound && fs.existsSync(resolvedNotFound)) {
+      streamStaticFile(res, resolvedNotFound, { headOnly, statusCode: 404 });
+      return;
+    }
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  streamStaticFile(res, resolved, { headOnly });
 }
 
 // ---- CORS ----
